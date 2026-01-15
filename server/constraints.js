@@ -1,1 +1,1 @@
-export const DB_NAME = "CAFM_CRM_DB";
+export const DB_NAME = "BH_CRM_DB";
