@@ -464,9 +464,76 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
 
 /* =========================
    SKELETONS (Premium)
+   ✅ Dashboard-like: top -> bottom
 ========================= */
 function SkeletonBar({ className = "" }) {
   return <div className={cn("animate-pulse rounded-xl bg-gray-200/80", className)} />
+}
+
+function HeaderSkeleton() {
+  return (
+    <div className={cn(card, "p-6")}>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+          <div className="flex items-center gap-4">
+            <SkeletonBar className="w-12 h-12 rounded-2xl" />
+            <div className="min-w-0">
+              <SkeletonBar className="h-6 w-56" />
+              <SkeletonBar className="h-4 w-72 mt-2" />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <SkeletonBar className="h-11 w-28 rounded-xl" />
+          </div>
+        </div>
+
+        {/* Search + Summary skeleton row */}
+        <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+          <div className="w-full lg:w-1/2">
+            <div className="w-full h-12 rounded-2xl border border-gray-200 bg-white px-3 flex items-center gap-2">
+              <SkeletonBar className="w-4 h-4 rounded-md" />
+              <SkeletonBar className="h-4 w-44" />
+              <div className="flex-1" />
+              <SkeletonBar className="h-9 w-9 rounded-xl" />
+              <SkeletonBar className="h-9 w-9 rounded-xl" />
+            </div>
+            <div className="mt-2">
+              <SkeletonBar className="h-3 w-56" />
+            </div>
+          </div>
+
+          <div className="w-full lg:w-auto">
+            <div className="rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
+              <div className="flex flex-wrap gap-2">
+                <SkeletonBar className="h-8 w-24 rounded-full" />
+                <SkeletonBar className="h-8 w-28 rounded-full" />
+                <SkeletonBar className="h-8 w-20 rounded-full" />
+                <SkeletonBar className="h-8 w-24 rounded-full" />
+                <SkeletonBar className="h-8 w-28 rounded-full" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* reserve space for error so layout doesn't jump */}
+        <div className="h-[56px]">
+          <div className="p-4 rounded-2xl bg-gray-50 border border-gray-100">
+            <SkeletonBar className="h-4 w-72" />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FooterSkeleton() {
+  return (
+    <div className="p-4 border-t border-gray-100 bg-white flex items-center justify-between">
+      <SkeletonBar className="h-4 w-40" />
+      <SkeletonBar className="h-10 w-28 rounded-xl" />
+    </div>
+  )
 }
 
 function EmployeeRowSkeleton() {
@@ -948,7 +1015,7 @@ export default function EmployeeWorkloadReportPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
 
-  // ✅ critical: track if first load finished (prevents "No employees" flash)
+  // ✅ prevents "No employees" flash
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
 
   const abortRef = useRef(null)
@@ -1148,7 +1215,9 @@ export default function EmployeeWorkloadReportPage() {
     selectedEmployeeIds,
   ])
 
-  // ✅ show skeleton while loading OR before first load finishes
+  // ✅ dashboard-like skeleton behavior:
+  // - first load: skeleton everywhere
+  // - whenever filters refresh: skeleton everywhere (top → bottom)
   const showSkeleton = isLoading || !hasLoadedOnce
 
   return (
@@ -1186,183 +1255,187 @@ export default function EmployeeWorkloadReportPage() {
         ) : null}
       </AnimatePresence>
 
-      {/* HEADER */}
+      {/* HEADER (✅ skeleton top-to-bottom like dashboard) */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
-        <div className={cn(card, "p-6")}>
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  <div className="absolute inset-0 bg-indigo-500/20 rounded-2xl blur-lg" />
-                  <div className="relative bg-indigo-600 w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-sm">
-                    <FiUsers className="w-6 h-6" />
+        {showSkeleton ? (
+          <HeaderSkeleton />
+        ) : (
+          <div className={cn(card, "p-6")}>
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-indigo-500/20 rounded-2xl blur-lg" />
+                    <div className="relative bg-indigo-600 w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-sm">
+                      <FiUsers className="w-6 h-6" />
+                    </div>
+                  </div>
+                  <div>
+                    <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
+                      Employee Workload
+                    </h1>
+                    <p className="text-sm text-gray-500 font-semibold">
+                      Customer-first view • clear filters • premium UI
+                    </p>
                   </div>
                 </div>
-                <div>
-                  <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
-                    Employee Workload
-                  </h1>
-                  <p className="text-sm text-gray-500 font-semibold">
-                    Customer-first view • clear filters • premium UI
-                  </p>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={refreshAll}
+                    className={cn(btn, btnGhost)}
+                    title="Refresh"
+                    disabled={isLoading}
+                  >
+                    <FiRefreshCcw className={cn("w-4 h-4", isLoading ? "animate-spin" : "")} />
+                    Refresh
+                  </button>
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={refreshAll}
-                  className={cn(btn, btnGhost)}
-                  title="Refresh"
-                  disabled={isLoading}
-                >
-                  <FiRefreshCcw className={cn("w-4 h-4", isLoading ? "animate-spin" : "")} />
-                  Refresh
-                </button>
-              </div>
-            </div>
-
-            {/* SEARCH + FILTER ICON INSIDE */}
-            <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-              <div className="w-full lg:w-1/2">
-                <div
-                  className={cn(
-                    "w-full h-12 rounded-2xl border border-gray-200 bg-white",
-                    "px-3 flex items-center gap-2",
-                    "focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent"
-                  )}
-                >
-                  <FiSearch className="w-4 h-4 text-gray-400 shrink-0" />
-
+              {/* SEARCH + FILTER ICON INSIDE */}
+              <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+                <div className="w-full lg:w-1/2">
                   <div
                     className={cn(
-                      "flex-1 min-w-0 flex items-center gap-2",
-                      "overflow-x-auto",
-                      "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                      "w-full h-12 rounded-2xl border border-gray-200 bg-white",
+                      "px-3 flex items-center gap-2",
+                      "focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent"
                     )}
-                    onClick={() => document.getElementById("employee-report-search")?.focus?.()}
                   >
-                    {appliedChips.map((c) => (
-                      <span
-                        key={c.key}
-                        className={cn(
-                          "shrink-0 inline-flex items-center gap-2",
-                          "px-2.5 py-1 rounded-full border",
-                          "bg-indigo-50 border-indigo-100 text-indigo-700",
-                          "text-xs font-extrabold"
-                        )}
-                      >
-                        <span className="truncate max-w-[220px]">{c.label}</span>
-                        <button
-                          type="button"
-                          className="p-0.5 rounded-full hover:bg-indigo-100/80 focus:outline-none"
-                          title="Remove"
-                          aria-label="Remove filter"
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            c.onRemove?.()
-                          }}
-                        >
-                          <FiX className="w-3.5 h-3.5" />
-                        </button>
-                      </span>
-                    ))}
+                    <FiSearch className="w-4 h-4 text-gray-400 shrink-0" />
 
-                    <input
-                      id="employee-report-search"
-                      type="search"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder={appliedChips.length ? "Search employee…" : "Search employee name, email…"}
+                    <div
                       className={cn(
-                        "flex-1 min-w-[10rem] bg-transparent",
-                        "text-sm text-gray-900 placeholder:text-gray-400",
-                        "border-0 outline-none ring-0 shadow-none",
-                        "focus:outline-none focus:ring-0 focus:shadow-none focus:border-0",
-                        "appearance-none"
+                        "flex-1 min-w-0 flex items-center gap-2",
+                        "overflow-x-auto",
+                        "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                       )}
-                    />
-                  </div>
+                      onClick={() => document.getElementById("employee-report-search")?.focus?.()}
+                    >
+                      {appliedChips.map((c) => (
+                        <span
+                          key={c.key}
+                          className={cn(
+                            "shrink-0 inline-flex items-center gap-2",
+                            "px-2.5 py-1 rounded-full border",
+                            "bg-indigo-50 border-indigo-100 text-indigo-700",
+                            "text-xs font-extrabold"
+                          )}
+                        >
+                          <span className="truncate max-w-[220px]">{c.label}</span>
+                          <button
+                            type="button"
+                            className="p-0.5 rounded-full hover:bg-indigo-100/80 focus:outline-none"
+                            title="Remove"
+                            aria-label="Remove filter"
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              c.onRemove?.()
+                            }}
+                          >
+                            <FiX className="w-3.5 h-3.5" />
+                          </button>
+                        </span>
+                      ))}
 
-                  <button
-                    type="button"
-                    onClick={openFilters}
-                    className={cn(
-                      "relative shrink-0",
-                      "h-9 w-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition",
-                      "flex items-center justify-center focus:outline-none"
-                    )}
-                    aria-label="Open filters"
-                    title="Filters"
-                  >
-                    <FiFilter className="w-4 h-4 text-gray-700" />
-                    {activeFilterCount ? (
-                      <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-indigo-600 text-white text-[10px] font-extrabold flex items-center justify-center">
-                        {activeFilterCount}
-                      </span>
-                    ) : null}
-                  </button>
+                      <input
+                        id="employee-report-search"
+                        type="search"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        placeholder={appliedChips.length ? "Search employee…" : "Search employee name, email…"}
+                        className={cn(
+                          "flex-1 min-w-[10rem] bg-transparent",
+                          "text-sm text-gray-900 placeholder:text-gray-400",
+                          "border-0 outline-none ring-0 shadow-none",
+                          "focus:outline-none focus:ring-0 focus:shadow-none focus:border-0",
+                          "appearance-none"
+                        )}
+                      />
+                    </div>
 
-                  {hasAppliedFilters ? (
                     <button
                       type="button"
-                      onClick={clearApplied}
+                      onClick={openFilters}
                       className={cn(
-                        "shrink-0 h-9 w-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition",
+                        "relative shrink-0",
+                        "h-9 w-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition",
                         "flex items-center justify-center focus:outline-none"
                       )}
-                      aria-label="Clear applied filters"
-                      title="Clear filters"
+                      aria-label="Open filters"
+                      title="Filters"
                     >
-                      <FiX className="w-4 h-4 text-gray-700" />
+                      <FiFilter className="w-4 h-4 text-gray-700" />
+                      {activeFilterCount ? (
+                        <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-indigo-600 text-white text-[10px] font-extrabold flex items-center justify-center">
+                          {activeFilterCount}
+                        </span>
+                      ) : null}
                     </button>
-                  ) : null}
+
+                    {hasAppliedFilters ? (
+                      <button
+                        type="button"
+                        onClick={clearApplied}
+                        className={cn(
+                          "shrink-0 h-9 w-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition",
+                          "flex items-center justify-center focus:outline-none"
+                        )}
+                        aria-label="Clear applied filters"
+                        title="Clear filters"
+                      >
+                        <FiX className="w-4 h-4 text-gray-700" />
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-2 flex items-center gap-2">
+                    {debounced ? (
+                      <p className="text-xs text-gray-500">
+                        Searching within loaded employees.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500">
+                        Tip: Click the filter icon to open the filtering panel.
+                      </p>
+                    )}
+                  </div>
                 </div>
 
-                <div className="mt-2 flex items-center gap-2">
-                  {debounced ? (
-                    <p className="text-xs text-gray-500">
-                      Searching within loaded employees.
-                    </p>
-                  ) : (
-                    <p className="text-xs text-gray-500">
-                      Tip: Click the filter icon to open the filtering panel.
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="w-full lg:w-auto">
-                <div className="rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
-                  <div className="flex flex-wrap gap-2">
-                    <span className={cn(chip, chipAmber)}>
-                      Pending <b>{computedSummary.pending}</b>
-                    </span>
-                    <span className={cn(chip, chipIndigo)}>
-                      In progress <b>{computedSummary.in_progress}</b>
-                    </span>
-                    <span className={cn(chip, chipEmerald)}>
-                      Done <b>{computedSummary.done}</b>
-                    </span>
-                    <span className={cn(chip, chipRose)}>
-                      Overdue <b>{computedSummary.overdue}</b>
-                    </span>
-                    <span className={cn(chip, chipGray)}>
-                      Employees <b>{computedSummary.employeesCount}</b>
-                    </span>
+                <div className="w-full lg:w-auto">
+                  <div className="rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
+                    <div className="flex flex-wrap gap-2">
+                      <span className={cn(chip, chipAmber)}>
+                        Pending <b>{computedSummary.pending}</b>
+                      </span>
+                      <span className={cn(chip, chipIndigo)}>
+                        In progress <b>{computedSummary.in_progress}</b>
+                      </span>
+                      <span className={cn(chip, chipEmerald)}>
+                        Done <b>{computedSummary.done}</b>
+                      </span>
+                      <span className={cn(chip, chipRose)}>
+                        Overdue <b>{computedSummary.overdue}</b>
+                      </span>
+                      <span className={cn(chip, chipGray)}>
+                        Employees <b>{computedSummary.employeesCount}</b>
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {error ? (
-              <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 flex items-start gap-2">
-                <FiAlertCircle className="w-5 h-5 mt-0.5" />
-                <span className="text-sm font-semibold">{error}</span>
-              </div>
-            ) : null}
+              {error ? (
+                <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 flex items-start gap-2">
+                  <FiAlertCircle className="w-5 h-5 mt-0.5" />
+                  <span className="text-sm font-semibold">{error}</span>
+                </div>
+              ) : null}
+            </div>
           </div>
-        </div>
+        )}
       </motion.div>
 
       {/* LIST */}
@@ -1666,19 +1739,23 @@ export default function EmployeeWorkloadReportPage() {
           )}
         </div>
 
-        <div className="p-4 border-t border-gray-100 bg-white flex items-center justify-between">
-          <span className="text-sm text-gray-600">
-            Showing <b className="text-gray-900">{filteredRows.length}</b>
-          </span>
-          <button
-            onClick={refreshAll}
-            className={cn(btn, btnPrimary, "px-4 py-2")}
-            disabled={isLoading}
-          >
-            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            Refresh
-          </button>
-        </div>
+        {showSkeleton ? (
+          <FooterSkeleton />
+        ) : (
+          <div className="p-4 border-t border-gray-100 bg-white flex items-center justify-between">
+            <span className="text-sm text-gray-600">
+              Showing <b className="text-gray-900">{filteredRows.length}</b>
+            </span>
+            <button
+              onClick={refreshAll}
+              className={cn(btn, btnPrimary, "px-4 py-2")}
+              disabled={isLoading}
+            >
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              Refresh
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
