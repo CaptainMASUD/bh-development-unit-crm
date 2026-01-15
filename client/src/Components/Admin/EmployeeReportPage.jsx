@@ -1,6 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, useLayoutEffect, useId, useCallback } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useLayoutEffect,
+  useId,
+  useCallback,
+} from "react"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "framer-motion"
 import {
@@ -14,28 +22,9 @@ import {
   FiCheck,
   FiClock,
   FiCalendar,
+  FiInfo,
 } from "react-icons/fi"
 import { Loader2 } from "lucide-react"
-
-/**
- * ✅ UPDATE (Customer header)
- * - Customer header badges now show SHORT FORM + number:
- *   P, IP, D, OD, T
- * - Each badge has a tooltip (title) so user understands:
- *   "Pending", "In Progress", "Done", "Overdue", "Total"
- * - Adds a tiny legend line under customer email (still clean) so user understands quickly.
- * - Keeps task row: dot + colored "Task" badge + title
- *
- * API:
- * GET /api/workload/employees
- * Query:
- * - employeeId (optional)
- * - taskStatus = all | pending | in_progress | done
- * - includeEmptyCustomers = true|false
- * - windowDays (optional)  -> empty => ALL
- * - completedFrom (optional ISO)
- * - completedTo (optional ISO)
- */
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -46,17 +35,28 @@ const ENDPOINTS = {
 /* =========================
    STYLES
 ========================= */
+const pageBg = "bg-gradient-to-b from-gray-50 via-gray-50 to-white"
 const card =
   "rounded-2xl border border-gray-100 bg-white shadow-[0_18px_55px_-40px_rgba(0,0,0,0.55)]"
-const subtleHover = "transition-colors hover:bg-gray-50/60"
+const subtleHover = "transition-colors hover:bg-gray-50/70"
+
 const btn =
-  "inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl active:scale-[0.99] transition focus:outline-none"
+  "inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl active:scale-[0.99] transition focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
 const btnPrimary =
   "bg-indigo-600 text-white hover:bg-indigo-700 shadow-[0_12px_30px_-18px_rgba(79,70,229,0.65)]"
 const btnGhost = "border border-gray-200 bg-white hover:bg-gray-50"
+
 const input =
   "w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-const chip = "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ring-1"
+
+const chip =
+  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-extrabold ring-1 select-none"
+const chipSoft = "bg-white/70 text-gray-800 ring-gray-200"
+const chipIndigo = "bg-indigo-50 text-indigo-700 ring-indigo-600/10"
+const chipAmber = "bg-amber-50 text-amber-800 ring-amber-600/10"
+const chipEmerald = "bg-emerald-50 text-emerald-700 ring-emerald-600/10"
+const chipRose = "bg-rose-50 text-rose-700 ring-rose-600/10"
+const chipGray = "bg-gray-50 text-gray-800 ring-gray-200"
 
 function cn(...classes) {
   return classes.filter(Boolean).join(" ")
@@ -108,7 +108,16 @@ function Toast({ open, type = "success", message, onClose }) {
 /* =========================
    MODAL SHELL
 ========================= */
-function ModalShell({ open, onClose, title, icon, children, footer, maxWidthClass = "max-w-3xl" }) {
+function ModalShell({
+  open,
+  onClose,
+  title,
+  subtitle,
+  icon,
+  children,
+  footer,
+  maxWidthClass = "max-w-3xl",
+}) {
   useEffect(() => {
     if (!open) return
     const prev = document.body.style.overflow
@@ -146,7 +155,18 @@ function ModalShell({ open, onClose, title, icon, children, footer, maxWidthClas
                 <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
                   {icon}
                 </div>
-                <h2 className="text-base font-extrabold text-gray-900">{title}</h2>
+                <div>
+                  <h2 className="text-base font-extrabold text-gray-900">{title}</h2>
+                  {subtitle ? (
+                    <p className="text-xs text-gray-500 font-semibold mt-0.5">
+                      {subtitle}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-500 font-semibold mt-0.5">
+                      Adjust what you want to see in the report
+                    </p>
+                  )}
+                </div>
               </div>
               <button
                 onClick={onClose}
@@ -157,9 +177,15 @@ function ModalShell({ open, onClose, title, icon, children, footer, maxWidthClas
               </button>
             </div>
 
-            <div className="p-5 bg-white max-h-[calc(100vh-14rem)] overflow-y-auto">{children}</div>
+            <div className="p-5 bg-white max-h-[calc(100vh-14rem)] overflow-y-auto">
+              {children}
+            </div>
 
-            {footer ? <div className="p-5 border-t border-gray-100 bg-white sticky bottom-0">{footer}</div> : null}
+            {footer ? (
+              <div className="p-5 border-t border-gray-100 bg-white sticky bottom-0">
+                {footer}
+              </div>
+            ) : null}
           </motion.div>
         </div>
       </div>
@@ -167,17 +193,64 @@ function ModalShell({ open, onClose, title, icon, children, footer, maxWidthClas
   )
 }
 
-function Field({ label, children }) {
+function Field({ label, hint, children }) {
   return (
     <div>
-      <label className="block text-sm font-semibold text-gray-800 mb-1.5">{label}</label>
+      <label className="block text-sm font-extrabold text-gray-900 mb-1.5">
+        {label}
+      </label>
+      {hint ? (
+        <div className="text-xs text-gray-500 font-semibold mb-2 flex items-start gap-2">
+          <FiInfo className="w-3.5 h-3.5 mt-0.5 text-gray-400" />
+          <span>{hint}</span>
+        </div>
+      ) : null}
       {children}
     </div>
   )
 }
 
 /* =========================
-   MULTISELECT
+   PREMIUM SWITCH (no true/false)
+========================= */
+function ToggleSwitch({ checked, onChange, labelOn = "Show", labelOff = "Hide" }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange?.(!checked)}
+      className={cn(
+        "inline-flex items-center justify-between gap-3",
+        "px-3 py-2 rounded-2xl border",
+        checked ? "border-indigo-200 bg-indigo-50" : "border-gray-200 bg-white hover:bg-gray-50",
+        "transition focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      )}
+      aria-pressed={checked}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            "relative inline-flex h-6 w-11 items-center rounded-full transition",
+            checked ? "bg-indigo-600" : "bg-gray-300"
+          )}
+          aria-hidden="true"
+        >
+          <span
+            className={cn(
+              "inline-block h-5 w-5 transform rounded-full bg-white transition",
+              checked ? "translate-x-5" : "translate-x-1"
+            )}
+          />
+        </span>
+        <span className="text-sm font-extrabold text-gray-900">
+          {checked ? labelOn : labelOff}
+        </span>
+      </div>
+    </button>
+  )
+}
+
+/* =========================
+   MULTISELECT (Portal + never offscreen)
 ========================= */
 function MultiSelectDropdown({ options = [], value = [], onChange, placeholder = "Select..." }) {
   const [open, setOpen] = useState(false)
@@ -218,15 +291,19 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
     const el = btnRef.current
     if (!el) return
     const r = el.getBoundingClientRect()
+
     const GAP = 8
     const MAX = 420
     const MIN = 180
+
     const spaceBelow = window.innerHeight - r.bottom - GAP
     const spaceAbove = r.top - GAP
     const openUp = spaceBelow < 260 && spaceAbove > spaceBelow
+
     const available = Math.max(0, openUp ? spaceAbove : spaceBelow)
     const capped = Math.min(MAX, available)
     const maxHeight = Math.max(MIN, capped)
+
     const left = Math.max(8, Math.min(r.left, window.innerWidth - 8 - r.width))
 
     setMenuPos({
@@ -314,14 +391,18 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
                         onClick={() => toggle(o.value)}
                         className={cn(
                           "w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl border transition text-left focus:outline-none",
-                          checked ? "bg-indigo-50 border-indigo-200" : "bg-white border-transparent hover:bg-gray-50"
+                          checked
+                            ? "bg-indigo-50 border-indigo-200"
+                            : "bg-white border-transparent hover:bg-gray-50"
                         )}
                       >
                         <span className="text-sm font-semibold text-gray-800">{o.label}</span>
                         <span
                           className={cn(
                             "w-6 h-6 rounded-lg border flex items-center justify-center",
-                            checked ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-gray-200 text-transparent"
+                            checked
+                              ? "bg-indigo-600 border-indigo-600 text-white"
+                              : "bg-white border-gray-200 text-transparent"
                           )}
                           aria-hidden="true"
                         >
@@ -344,7 +425,11 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
             >
               Clear
             </button>
-            <button type="button" className={cn(btn, btnPrimary, "px-3 py-2 text-sm")} onClick={() => setOpen(false)}>
+            <button
+              type="button"
+              className={cn(btn, btnPrimary, "px-3 py-2 text-sm")}
+              onClick={() => setOpen(false)}
+            >
               Done
             </button>
           </div>
@@ -367,13 +452,64 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
           {selectedCount ? selectedLabels : placeholder}
         </span>
         <span className="flex items-center gap-2 shrink-0">
-          {selectedCount ? (
-            <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>{selectedCount}</span>
-          ) : null}
+          {selectedCount ? <span className={cn(chip, chipIndigo)}>{selectedCount}</span> : null}
           <FiChevronDown className={cn("w-4 h-4 text-gray-500 transition", open ? "rotate-180" : "")} />
         </span>
       </button>
+
       {typeof document !== "undefined" ? createPortal(menu, document.body) : null}
+    </div>
+  )
+}
+
+/* =========================
+   SKELETONS (Premium)
+========================= */
+function SkeletonBar({ className = "" }) {
+  return <div className={cn("animate-pulse rounded-xl bg-gray-200/80", className)} />
+}
+
+function EmployeeRowSkeleton() {
+  return (
+    <div className="p-4 sm:p-5">
+      <div className="rounded-2xl border border-gray-100 bg-white px-4 py-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 w-full">
+            <div className="flex items-center gap-3">
+              <SkeletonBar className="w-11 h-11 rounded-2xl" />
+              <div className="min-w-0 flex-1">
+                <SkeletonBar className="h-4 w-48" />
+                <SkeletonBar className="h-3 w-64 mt-2" />
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <SkeletonBar className="h-7 w-20 rounded-full" />
+              <SkeletonBar className="h-7 w-28 rounded-full" />
+              <SkeletonBar className="h-7 w-24 rounded-full" />
+              <SkeletonBar className="h-7 w-32 rounded-full" />
+            </div>
+          </div>
+
+          <div className="shrink-0 flex items-center gap-2 flex-wrap justify-end">
+            <SkeletonBar className="h-8 w-14 rounded-full" />
+            <SkeletonBar className="h-8 w-16 rounded-full" />
+            <SkeletonBar className="h-8 w-12 rounded-full" />
+            <SkeletonBar className="h-8 w-14 rounded-full" />
+            <SkeletonBar className="h-8 w-12 rounded-full" />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EmployeeListSkeleton({ rows = 7 }) {
+  return (
+    <div className="divide-y divide-gray-100">
+      {[...Array(rows)].map((_, i) => (
+        <EmployeeRowSkeleton key={i} />
+      ))}
     </div>
   )
 }
@@ -390,14 +526,24 @@ function formatDateTime(value) {
 
 function statusPill(status) {
   const s = String(status || "pending")
-  if (s === "done") return "bg-emerald-50 text-emerald-700 ring-emerald-600/10"
-  if (s === "in_progress") return "bg-indigo-50 text-indigo-700 ring-indigo-600/10"
-  if (s === "pending") return "bg-amber-50 text-amber-800 ring-amber-600/10"
-  return "bg-gray-100 text-gray-700 ring-gray-600/10"
+  if (s === "done") return chipEmerald
+  if (s === "in_progress") return chipIndigo
+  if (s === "pending") return chipAmber
+  return chipGray
+}
+
+function statusLabel(status) {
+  const s = String(status || "pending")
+  if (s === "done") return "Done"
+  if (s === "in_progress") return "In progress"
+  if (s === "pending") return "Pending"
+  return "Unknown"
 }
 
 function maxIsoDate(...values) {
-  const ts = values.map((v) => (v ? new Date(v).getTime() : NaN)).filter((x) => Number.isFinite(x))
+  const ts = values
+    .map((v) => (v ? new Date(v).getTime() : NaN))
+    .filter((x) => Number.isFinite(x))
   if (!ts.length) return null
   return new Date(Math.max(...ts)).toISOString()
 }
@@ -410,7 +556,6 @@ function statusDot(status) {
   return "bg-gray-400"
 }
 
-// datetime-local => ISO
 function toISOFromDatetimeLocal(v) {
   if (!v) return ""
   const d = new Date(v)
@@ -418,15 +563,39 @@ function toISOFromDatetimeLocal(v) {
   return d.toISOString()
 }
 
-/* =========================
-   SHORT BADGE (Customer header)
-========================= */
+function isOverdueTask(task) {
+  if (!task?.dueAt) return false
+  if (String(task?.status) === "done") return false
+  const due = new Date(task.dueAt).getTime()
+  if (!Number.isFinite(due)) return false
+  return due < Date.now()
+}
+
+function isDueSoonTask(task, days = 3) {
+  if (!task?.dueAt) return false
+  if (String(task?.status) === "done") return false
+  const due = new Date(task.dueAt).getTime()
+  if (!Number.isFinite(due)) return false
+  const now = Date.now()
+  return due >= now && due <= now + days * 24 * 60 * 60 * 1000
+}
+
+function initials(nameOrEmail) {
+  const s = String(nameOrEmail || "").trim()
+  if (!s) return "?"
+  const parts = s.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
+  const one = parts[0]
+  if (one.includes("@")) return one.slice(0, 2).toUpperCase()
+  return one.slice(0, 2).toUpperCase()
+}
+
 function ShortCountBadge({ code, value, title, className }) {
   return (
     <span
       title={title}
       className={cn(
-        "inline-flex items-center justify-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-extrabold ring-1 select-none",
+        "inline-flex items-center justify-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-extrabold ring-1 select-none whitespace-nowrap",
         className
       )}
     >
@@ -476,6 +645,7 @@ function FiltersModal({
       open={open}
       onClose={onClose}
       title="Filters"
+      subtitle="Filters open here (search box stays the same height)"
       icon={<FiFilter className="w-5 h-5" />}
       maxWidthClass="max-w-4xl"
       footer={
@@ -486,109 +656,153 @@ function FiltersModal({
             disabled={!activeCount}
             className={cn(btn, btnGhost, "px-3 py-2 text-sm disabled:opacity-60")}
           >
-            Clear
+            Clear all
           </button>
           <div className="flex items-center gap-2">
             <button onClick={onClose} className={cn(btn, btnGhost)}>
               Cancel
             </button>
             <button onClick={onApply} className={cn(btn, btnPrimary)}>
-              Apply
+              Apply filters
             </button>
           </div>
         </div>
       }
     >
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div className="lg:col-span-6 space-y-4">
-          <Field label="Employees">
-            <MultiSelectDropdown
-              options={employeeOptions}
-              value={selectedEmployeeIds}
-              onChange={setSelectedEmployeeIds}
-              placeholder="All employees"
-            />
-          </Field>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        <div className="lg:col-span-7 space-y-5">
+          <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4">
+            <Field label="Employees" hint="Choose one or more employees. Leave empty to include everyone.">
+              <MultiSelectDropdown
+                options={employeeOptions}
+                value={selectedEmployeeIds}
+                onChange={setSelectedEmployeeIds}
+                placeholder="All employees"
+              />
+            </Field>
+          </div>
 
-          <Field label="Task status">
-            <select value={taskStatus} onChange={(e) => setTaskStatus(e.target.value)} className={input}>
-              <option value="all">all</option>
-              <option value="pending">pending</option>
-              <option value="in_progress">in_progress</option>
-              <option value="done">done</option>
-            </select>
-          </Field>
+          <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4">
+            <Field label="Task status" hint="Filter tasks by their current status.">
+              <select
+                value={taskStatus}
+                onChange={(e) => setTaskStatus(e.target.value)}
+                className={input}
+              >
+                <option value="all">All</option>
+                <option value="pending">Pending</option>
+                <option value="in_progress">In progress</option>
+                <option value="done">Done</option>
+              </select>
+            </Field>
+          </div>
 
-          <Field label="Window days (optional)">
-            <input
-              type="number"
-              min={1}
-              max={3650}
-              value={windowDays}
-              onChange={(e) => setWindowDays(e.target.value)}
-              className={input}
-              placeholder="Leave empty for ALL"
-            />
-          </Field>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Completed from">
-              <div className="relative">
-                <FiCalendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="datetime-local"
-                  value={completedFrom}
-                  onChange={(e) => setCompletedFrom(e.target.value)}
-                  className={cn(input, "pl-9")}
-                />
-              </div>
+          <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4 space-y-4">
+            <Field
+              label="Time window (optional)"
+              hint="Show tasks from the last X days. Leave blank to show all time."
+            >
+              <input
+                type="number"
+                min={1}
+                max={3650}
+                value={windowDays}
+                onChange={(e) => setWindowDays(e.target.value)}
+                className={input}
+                placeholder="e.g. 30"
+              />
             </Field>
 
-            <Field label="Completed to">
-              <div className="relative">
-                <FiCalendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="datetime-local"
-                  value={completedTo}
-                  onChange={(e) => setCompletedTo(e.target.value)}
-                  className={cn(input, "pl-9")}
-                />
-              </div>
-            </Field>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Field label="Completed from" hint="Optional start date/time for completed tasks.">
+                <div className="relative">
+                  <FiCalendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="datetime-local"
+                    value={completedFrom}
+                    onChange={(e) => setCompletedFrom(e.target.value)}
+                    className={cn(input, "pl-9")}
+                  />
+                </div>
+              </Field>
+
+              <Field label="Completed to" hint="Optional end date/time for completed tasks.">
+                <div className="relative">
+                  <FiCalendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="datetime-local"
+                    value={completedTo}
+                    onChange={(e) => setCompletedTo(e.target.value)}
+                    className={cn(input, "pl-9")}
+                  />
+                </div>
+              </Field>
+            </div>
           </div>
         </div>
 
-        <div className="lg:col-span-6">
-          <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-extrabold text-gray-900">Include empty customers</p>
-              <button
-                type="button"
-                onClick={() => setIncludeEmptyCustomers((v) => !v)}
-                className={cn(
-                  "h-10 px-4 rounded-xl border text-sm font-extrabold transition",
-                  includeEmptyCustomers
-                    ? "bg-white text-gray-800 border-gray-200 hover:bg-gray-50"
-                    : "bg-indigo-600 text-white border-indigo-600"
-                )}
-              >
-                {includeEmptyCustomers ? "true" : "false"}
-              </button>
+        <div className="lg:col-span-5 space-y-5">
+          <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-extrabold text-gray-900">
+                  Show customers with no tasks
+                </p>
+                <p className="text-xs text-gray-500 font-semibold mt-1">
+                  Turn this off if you only want customers that currently have tasks.
+                </p>
+              </div>
+              <ToggleSwitch
+                checked={includeEmptyCustomers}
+                onChange={(v) => setIncludeEmptyCustomers(!!v)}
+                labelOn="Show"
+                labelOff="Hide"
+              />
             </div>
+          </div>
 
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className={cn(chip, "bg-white text-gray-800 ring-gray-200")}>
-                Task status: <span className="font-extrabold">{taskStatus}</span>
+          <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4">
+            <p className="text-sm font-extrabold text-gray-900 mb-3">Preview</p>
+
+            <div className="flex flex-wrap gap-2">
+              <span className={cn(chip, chipSoft)}>
+                Status:{" "}
+                <b className="text-gray-900">
+                  {taskStatus === "all" ? "All" : statusLabel(taskStatus)}
+                </b>
               </span>
-              <span className={cn(chip, "bg-white text-gray-800 ring-gray-200")}>
-                Window days: <span className="font-extrabold">{String(windowDays || "ALL")}</span>
+
+              <span className={cn(chip, chipSoft)}>
+                Customers with no tasks:{" "}
+                <b className="text-gray-900">{includeEmptyCustomers ? "Shown" : "Hidden"}</b>
               </span>
-              <span className={cn(chip, "bg-white text-gray-800 ring-gray-200")}>
-                Include empty: <span className="font-extrabold">{String(includeEmptyCustomers)}</span>
+
+              <span className={cn(chip, chipSoft)}>
+                Time window:{" "}
+                <b className="text-gray-900">
+                  {String(windowDays || "").trim() ? `${windowDays} days` : "All time"}
+                </b>
               </span>
-              {(selectedEmployeeIds?.length || 0) ? (
-                <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>
-                  Employees selected: <span className="font-extrabold">{selectedEmployeeIds.length}</span>
+
+              {selectedEmployeeIds?.length ? (
+                <span className={cn(chip, chipIndigo)}>
+                  Employees selected:{" "}
+                  <b className="text-gray-900">{selectedEmployeeIds.length}</b>
+                </span>
+              ) : (
+                <span className={cn(chip, chipSoft)}>
+                  Employees: <b className="text-gray-900">All</b>
+                </span>
+              )}
+
+              {completedFrom ? (
+                <span className={cn(chip, chipSoft)}>
+                  Completed from: <b className="text-gray-900">Set</b>
+                </span>
+              ) : null}
+              {completedTo ? (
+                <span className={cn(chip, chipSoft)}>
+                  Completed to: <b className="text-gray-900">Set</b>
                 </span>
               ) : null}
             </div>
@@ -606,9 +820,9 @@ async function fetchEmployeeWorkload({
   employeeId,
   taskStatus = "all",
   includeEmptyCustomers = true,
-  windowDays, // optional
-  completedFrom, // datetime-local
-  completedTo, // datetime-local
+  windowDays,
+  completedFrom,
+  completedTo,
   signal,
 }) {
   const qs = new URLSearchParams()
@@ -617,7 +831,6 @@ async function fetchEmployeeWorkload({
 
   const wd = String(windowDays || "").trim()
   if (wd) qs.set("windowDays", wd)
-
   if (employeeId) qs.set("employeeId", String(employeeId))
 
   if (completedFrom) {
@@ -647,7 +860,10 @@ export default function EmployeeWorkloadReportPage() {
   const showToast = useCallback((type, message) => {
     setToast({ open: true, type, message })
     window.clearTimeout(showToast._t)
-    showToast._t = window.setTimeout(() => setToast({ open: false, type: "success", message: "" }), 2200)
+    showToast._t = window.setTimeout(
+      () => setToast({ open: false, type: "success", message: "" }),
+      2200
+    )
   }, [])
   const closeToast = () => setToast({ open: false, type: "success", message: "" })
 
@@ -659,10 +875,10 @@ export default function EmployeeWorkloadReportPage() {
     return () => clearTimeout(t)
   }, [searchTerm])
 
-  // applied filters (default ALL)
+  // applied filters
   const [taskStatus, setTaskStatus] = useState("all")
   const [includeEmptyCustomers, setIncludeEmptyCustomers] = useState(true)
-  const [windowDays, setWindowDays] = useState("") // empty => ALL
+  const [windowDays, setWindowDays] = useState("")
   const [completedFrom, setCompletedFrom] = useState("")
   const [completedTo, setCompletedTo] = useState("")
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([])
@@ -725,10 +941,16 @@ export default function EmployeeWorkloadReportPage() {
     return n
   }, [taskStatus, includeEmptyCustomers, windowDays, completedFrom, completedTo, selectedEmployeeIds])
 
+  const hasAppliedFilters = activeFilterCount > 0
+
   // data
   const [rows, setRows] = useState([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
+
+  // ✅ critical: track if first load finished (prevents "No employees" flash)
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
+
   const abortRef = useRef(null)
 
   // expand
@@ -763,7 +985,8 @@ export default function EmployeeWorkloadReportPage() {
     setIsLoading(true)
     setError("")
     try {
-      const backendEmployeeId = selectedEmployeeIds.length === 1 ? selectedEmployeeIds[0] : null
+      const backendEmployeeId =
+        selectedEmployeeIds.length === 1 ? selectedEmployeeIds[0] : null
 
       const result = await fetchEmployeeWorkload({
         employeeId: backendEmployeeId,
@@ -782,6 +1005,7 @@ export default function EmployeeWorkloadReportPage() {
       if (e?.name !== "AbortError") setError(e?.message || "Failed to load employee report.")
     } finally {
       setIsLoading(false)
+      setHasLoadedOnce(true)
     }
   }
 
@@ -794,7 +1018,14 @@ export default function EmployeeWorkloadReportPage() {
   useEffect(() => {
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskStatus, includeEmptyCustomers, windowDays, completedFrom, completedTo, JSON.stringify(selectedEmployeeIds)])
+  }, [
+    taskStatus,
+    includeEmptyCustomers,
+    windowDays,
+    completedFrom,
+    completedTo,
+    JSON.stringify(selectedEmployeeIds),
+  ])
 
   const refreshAll = async () => {
     await load()
@@ -858,26 +1089,77 @@ export default function EmployeeWorkloadReportPage() {
 
   const appliedChips = useMemo(() => {
     const chips = []
-    if (taskStatus !== "all") chips.push({ key: "status", label: taskStatus, onRemove: () => setTaskStatus("all") })
-    if (includeEmptyCustomers === false)
-      chips.push({ key: "empty", label: "empty=false", onRemove: () => setIncludeEmptyCustomers(true) })
-    if (String(windowDays || "").trim())
-      chips.push({ key: "window", label: `window=${windowDays}`, onRemove: () => setWindowDays("") })
-    if (completedFrom) chips.push({ key: "from", label: "completedFrom", onRemove: () => setCompletedFrom("") })
-    if (completedTo) chips.push({ key: "to", label: "completedTo", onRemove: () => setCompletedTo("") })
-    if ((selectedEmployeeIds?.length || 0) > 0)
+
+    if (taskStatus !== "all") {
+      chips.push({
+        key: "status",
+        label: `Status: ${statusLabel(taskStatus)}`,
+        onRemove: () => setTaskStatus("all"),
+      })
+    }
+
+    if (includeEmptyCustomers === false) {
+      chips.push({
+        key: "empty",
+        label: "Hide customers with no tasks",
+        onRemove: () => setIncludeEmptyCustomers(true),
+      })
+    }
+
+    if (String(windowDays || "").trim()) {
+      chips.push({
+        key: "window",
+        label: `Last ${windowDays} days`,
+        onRemove: () => setWindowDays(""),
+      })
+    }
+
+    if (completedFrom)
+      chips.push({
+        key: "from",
+        label: "Completed: from date set",
+        onRemove: () => setCompletedFrom(""),
+      })
+    if (completedTo)
+      chips.push({
+        key: "to",
+        label: "Completed: to date set",
+        onRemove: () => setCompletedTo(""),
+      })
+
+    if ((selectedEmployeeIds?.length || 0) > 0) {
       chips.push({
         key: "emp",
-        label: `employees=${selectedEmployeeIds.length}`,
+        label:
+          selectedEmployeeIds.length === 1
+            ? "1 employee selected"
+            : `${selectedEmployeeIds.length} employees selected`,
         onRemove: () => setSelectedEmployeeIds([]),
       })
+    }
+
     return chips
-  }, [taskStatus, includeEmptyCustomers, windowDays, completedFrom, completedTo, selectedEmployeeIds])
+  }, [
+    taskStatus,
+    includeEmptyCustomers,
+    windowDays,
+    completedFrom,
+    completedTo,
+    selectedEmployeeIds,
+  ])
+
+  // ✅ show skeleton while loading OR before first load finishes
+  const showSkeleton = isLoading || !hasLoadedOnce
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <div className={cn("min-h-screen p-4 sm:p-6 lg:p-8", pageBg)}>
       <AnimatePresence>
-        <Toast open={toast.open} type={toast.type} message={toast.message} onClose={closeToast} />
+        <Toast
+          open={toast.open}
+          type={toast.type}
+          message={toast.message}
+          onClose={closeToast}
+        />
       </AnimatePresence>
 
       <AnimatePresence>
@@ -917,29 +1199,29 @@ export default function EmployeeWorkloadReportPage() {
                   </div>
                 </div>
                 <div>
-                  <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Employee Workload</h1>
+                  <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
+                    Employee Workload
+                  </h1>
+                  <p className="text-sm text-gray-500 font-semibold">
+                    Customer-first view • clear filters • premium UI
+                  </p>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <button onClick={refreshAll} className={cn(btn, btnGhost)} title="Refresh" disabled={isLoading}>
+                <button
+                  onClick={refreshAll}
+                  className={cn(btn, btnGhost)}
+                  title="Refresh"
+                  disabled={isLoading}
+                >
                   <FiRefreshCcw className={cn("w-4 h-4", isLoading ? "animate-spin" : "")} />
                   Refresh
-                </button>
-
-                <button onClick={openFilters} className={cn(btn, btnPrimary)} title="Filters">
-                  <FiFilter className="w-4 h-4" />
-                  Filters
-                  {activeFilterCount ? (
-                    <span className="ml-1 inline-flex items-center justify-center min-w-6 h-6 px-2 rounded-full bg-white/15 text-white text-xs font-extrabold">
-                      {activeFilterCount}
-                    </span>
-                  ) : null}
                 </button>
               </div>
             </div>
 
-            {/* SEARCH + CHIPS */}
+            {/* SEARCH + FILTER ICON INSIDE */}
             <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
               <div className="w-full lg:w-1/2">
                 <div
@@ -969,10 +1251,11 @@ export default function EmployeeWorkloadReportPage() {
                           "text-xs font-extrabold"
                         )}
                       >
-                        <span className="truncate max-w-[140px]">{c.label}</span>
+                        <span className="truncate max-w-[220px]">{c.label}</span>
                         <button
                           type="button"
                           className="p-0.5 rounded-full hover:bg-indigo-100/80 focus:outline-none"
+                          title="Remove"
                           aria-label="Remove filter"
                           onClick={(e) => {
                             e.preventDefault()
@@ -990,7 +1273,7 @@ export default function EmployeeWorkloadReportPage() {
                       type="search"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder="Search employee…"
+                      placeholder={appliedChips.length ? "Search employee…" : "Search employee name, email…"}
                       className={cn(
                         "flex-1 min-w-[10rem] bg-transparent",
                         "text-sm text-gray-900 placeholder:text-gray-400",
@@ -1001,7 +1284,26 @@ export default function EmployeeWorkloadReportPage() {
                     />
                   </div>
 
-                  {activeFilterCount ? (
+                  <button
+                    type="button"
+                    onClick={openFilters}
+                    className={cn(
+                      "relative shrink-0",
+                      "h-9 w-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition",
+                      "flex items-center justify-center focus:outline-none"
+                    )}
+                    aria-label="Open filters"
+                    title="Filters"
+                  >
+                    <FiFilter className="w-4 h-4 text-gray-700" />
+                    {activeFilterCount ? (
+                      <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-indigo-600 text-white text-[10px] font-extrabold flex items-center justify-center">
+                        {activeFilterCount}
+                      </span>
+                    ) : null}
+                  </button>
+
+                  {hasAppliedFilters ? (
                     <button
                       type="button"
                       onClick={clearApplied}
@@ -1009,32 +1311,43 @@ export default function EmployeeWorkloadReportPage() {
                         "shrink-0 h-9 w-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition",
                         "flex items-center justify-center focus:outline-none"
                       )}
-                      aria-label="Clear filters"
+                      aria-label="Clear applied filters"
                       title="Clear filters"
                     >
                       <FiX className="w-4 h-4 text-gray-700" />
                     </button>
                   ) : null}
                 </div>
+
+                <div className="mt-2 flex items-center gap-2">
+                  {debounced ? (
+                    <p className="text-xs text-gray-500">
+                      Searching within loaded employees.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-500">
+                      Tip: Click the filter icon to open the filtering panel.
+                    </p>
+                  )}
+                </div>
               </div>
 
-              {/* HEADER SUMMARY: FULL FORM */}
               <div className="w-full lg:w-auto">
                 <div className="rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
                   <div className="flex flex-wrap gap-2">
-                    <span className={cn(chip, "bg-amber-50 text-amber-800 ring-amber-600/10")}>
+                    <span className={cn(chip, chipAmber)}>
                       Pending <b>{computedSummary.pending}</b>
                     </span>
-                    <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>
-                      In Progress <b>{computedSummary.in_progress}</b>
+                    <span className={cn(chip, chipIndigo)}>
+                      In progress <b>{computedSummary.in_progress}</b>
                     </span>
-                    <span className={cn(chip, "bg-emerald-50 text-emerald-700 ring-emerald-600/10")}>
+                    <span className={cn(chip, chipEmerald)}>
                       Done <b>{computedSummary.done}</b>
                     </span>
-                    <span className={cn(chip, "bg-rose-50 text-rose-700 ring-rose-600/10")}>
+                    <span className={cn(chip, chipRose)}>
                       Overdue <b>{computedSummary.overdue}</b>
                     </span>
-                    <span className={cn(chip, "bg-gray-50 text-gray-800 ring-gray-200")}>
+                    <span className={cn(chip, chipGray)}>
                       Employees <b>{computedSummary.employeesCount}</b>
                     </span>
                   </div>
@@ -1055,285 +1368,313 @@ export default function EmployeeWorkloadReportPage() {
       {/* LIST */}
       <div className={cn(card, "overflow-hidden")}>
         <div className="max-h-[72vh] overflow-y-auto">
-          <div className="divide-y divide-gray-100">
-            <AnimatePresence>
-              {isLoading && filteredRows.length === 0 ? (
-                <div className="p-6 space-y-3">
-                  {[...Array(8)].map((_, i) => (
-                    <div key={i} className="h-16 rounded-2xl bg-gray-100 animate-pulse" />
-                  ))}
-                </div>
-              ) : filteredRows.length ? (
-                filteredRows.map((row) => {
-                  const emp = row?.employee || {}
-                  const empId = String(emp?._id || "")
-                  const isOpen = openEmployeeIds.has(empId)
+          {showSkeleton ? (
+            <EmployeeListSkeleton rows={7} />
+          ) : (
+            <div className="divide-y divide-gray-100">
+              <AnimatePresence>
+                {filteredRows.length ? (
+                  filteredRows.map((row) => {
+                    const emp = row?.employee || {}
+                    const empId = String(emp?._id || "")
+                    const isOpen = openEmployeeIds.has(empId)
 
-                  const totals = row?.totals || {}
-                  const pending = Number(totals.pending ?? 0)
-                  const in_progress = Number(totals.in_progress ?? 0)
-                  const done = Number(totals.done ?? 0)
-                  const overdue = Number(totals.overdue ?? 0)
-                  const dueSoon = Number(totals.dueSoon ?? 0)
+                    const totals = row?.totals || {}
+                    const pending = Number(totals.pending ?? 0)
+                    const in_progress = Number(totals.in_progress ?? 0)
+                    const done = Number(totals.done ?? 0)
+                    const overdue = Number(totals.overdue ?? 0)
+                    const dueSoon = Number(totals.dueSoon ?? 0)
 
-                  const allTasks = (row?.customers || []).flatMap((c) => (c?.tasks || []).map((t) => ({ ...t })))
-                  const lastActivityAt = allTasks.reduce((acc, t) => {
-                    const d = maxIsoDate(acc, t?.completedAt, t?.createdAt, t?.dueAt)
-                    return d || acc
-                  }, null)
+                    const allTasks = (row?.customers || []).flatMap((c) =>
+                      (c?.tasks || []).map((t) => ({ ...t }))
+                    )
+                    const lastActivityAt = allTasks.reduce((acc, t) => {
+                      const d = maxIsoDate(acc, t?.completedAt, t?.createdAt, t?.dueAt)
+                      return d || acc
+                    }, null)
 
-                  return (
-                    <motion.div
-                      key={empId}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className={cn("p-4 sm:p-5", subtleHover)}
-                    >
-                      {/* EMPLOYEE ROW */}
-                      <button
-                        type="button"
-                        onClick={() => toggleEmployee(empId)}
-                        className={cn(
-                          "w-full text-left rounded-2xl border border-gray-100 bg-white",
-                          "px-4 py-4",
-                          "hover:bg-gray-50/60 transition",
-                          "focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                        )}
-                        aria-expanded={isOpen}
+                    const customersCount = Array.isArray(row?.customers) ? row.customers.length : 0
+                    const tasksCount = allTasks.length
+
+                    return (
+                      <motion.div
+                        key={empId}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className={cn("p-4 sm:p-5", subtleHover)}
                       >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <p className="text-base font-extrabold text-gray-900 truncate">{emp?.name || "—"}</p>
-                            <p className="text-xs text-gray-500 truncate">{emp?.email || "—"}</p>
+                        <button
+                          type="button"
+                          onClick={() => toggleEmployee(empId)}
+                          className={cn(
+                            "w-full text-left rounded-2xl border border-gray-100 bg-white",
+                            "px-4 py-4",
+                            "hover:bg-gray-50/70 transition",
+                            "focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          )}
+                          aria-expanded={isOpen}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-3">
+                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10 flex items-center justify-center font-extrabold">
+                                  {initials(emp?.name || emp?.email)}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-base font-extrabold text-gray-900 truncate">
+                                    {emp?.name || "—"}
+                                  </p>
+                                  <p className="text-xs text-gray-500 truncate">
+                                    {emp?.email || "—"}
+                                  </p>
+                                </div>
+                              </div>
 
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {emp?.role ? (
-                                <span className={cn(chip, "bg-gray-50 text-gray-800 ring-gray-200")}>
-                                  {String(emp.role).toUpperCase()}
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {emp?.role ? (
+                                  <span className={cn(chip, chipGray)}>
+                                    {String(emp.role).toUpperCase()}
+                                  </span>
+                                ) : null}
+                                {emp?.isActive === false ? (
+                                  <span className={cn(chip, chipRose)}>Inactive</span>
+                                ) : null}
+                                <span className={cn(chip, chipGray)}>
+                                  Customers <b>{customersCount}</b>
                                 </span>
-                              ) : null}
-                              {emp?.isActive === false ? (
-                                <span className={cn(chip, "bg-rose-50 text-rose-700 ring-rose-600/10")}>Inactive</span>
-                              ) : null}
-                              {lastActivityAt ? (
-                                <span className={cn(chip, "bg-gray-50 text-gray-800 ring-gray-200")}>
-                                  <FiClock className="w-3.5 h-3.5" />
-                                  {formatDateTime(lastActivityAt)}
+                                <span className={cn(chip, chipGray)}>
+                                  Tasks <b>{tasksCount}</b>
                                 </span>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          <div className="shrink-0 flex items-center gap-2">
-                            <span className={cn(chip, "bg-amber-50 text-amber-800 ring-amber-600/10")} title="Pending">
-                              P <b>{pending}</b>
-                            </span>
-                            <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")} title="In Progress">
-                              IP <b>{in_progress}</b>
-                            </span>
-                            <span className={cn(chip, "bg-emerald-50 text-emerald-700 ring-emerald-600/10")} title="Done">
-                              D <b>{done}</b>
-                            </span>
-                            <span className={cn(chip, "bg-rose-50 text-rose-700 ring-rose-600/10")} title="Overdue">
-                              OD <b>{overdue}</b>
-                            </span>
-                            <span className={cn(chip, "bg-gray-50 text-gray-800 ring-gray-200")} title="Due Soon">
-                              S <b>{dueSoon}</b>
-                            </span>
-
-                            <FiChevronDown className={cn("w-5 h-5 text-gray-500 transition", isOpen ? "rotate-180" : "")} />
-                          </div>
-                        </div>
-                      </button>
-
-                      {/* EMPLOYEE DROPDOWN */}
-                      <AnimatePresence>
-                        {isOpen ? (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: "auto", opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.22 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="mt-3 rounded-2xl border border-gray-100 bg-gray-50/60 p-3 sm:p-4">
-                              <div className="space-y-3">
-                                {(row?.customers || []).length ? (
-                                  (row.customers || []).map((c) => {
-                                    const customerId = String(c?.customerId || "")
-                                    const key = `${empId}:${customerId}`
-                                    const cOpen = openCustomerKeys.has(key)
-
-                                    const counts = c?.counts || {}
-                                    const p = Number(counts.pending || 0)
-                                    const ip = Number(counts.in_progress || 0)
-                                    const d = Number(counts.done || 0)
-                                    const od = Number(counts.overdue || 0)
-                                    const ctasks = Array.isArray(c?.tasks) ? c.tasks : []
-                                    const total = ctasks.length
-
-                                    return (
-                                      <div key={key} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
-                                        {/* CUSTOMER HEADER */}
-                                        <button
-                                          type="button"
-                                          onClick={() => toggleCustomer(empId, customerId)}
-                                          className={cn(
-                                            "w-full text-left px-4 py-3",
-                                            "flex items-start justify-between gap-3",
-                                            "hover:bg-gray-50/60 transition focus:outline-none"
-                                          )}
-                                          aria-expanded={cOpen}
-                                        >
-                                          <div className="min-w-0">
-                                            <p className="text-sm font-extrabold text-gray-900 truncate">
-                                              {c?.customerName || "Customer"}
-                                              {c?.companyName ? <span className="text-gray-500"> • {c.companyName}</span> : null}
-                                            </p>
-
-                                            <p className="text-xs text-gray-500 truncate">
-                                              {c?.customerEmail || "—"}
-                                              {c?.customerPhone ? ` • ${c.customerPhone}` : ""}
-                                            </p>
-
-                                            {/* ✅ tiny legend (small but helpful) */}
-                                            <p className="mt-1 text-[11px] text-gray-400 truncate">
-                                              P=Pending • IP=In Progress • D=Done • OD=Overdue • T=Total
-                                            </p>
-                                          </div>
-
-                                          {/* ✅ SHORT FORM badges like your screenshot */}
-                                          <div className="shrink-0 flex items-center gap-2">
-                                            <ShortCountBadge
-                                              code="P"
-                                              value={p}
-                                              title="Pending"
-                                              className="bg-amber-50 text-amber-800 ring-amber-600/10"
-                                            />
-                                            <ShortCountBadge
-                                              code="IP"
-                                              value={ip}
-                                              title="In Progress"
-                                              className="bg-indigo-50 text-indigo-700 ring-indigo-600/10"
-                                            />
-                                            <ShortCountBadge
-                                              code="D"
-                                              value={d}
-                                              title="Done"
-                                              className="bg-emerald-50 text-emerald-700 ring-emerald-600/10"
-                                            />
-                                            <ShortCountBadge
-                                              code="OD"
-                                              value={od}
-                                              title="Overdue"
-                                              className="bg-rose-50 text-rose-700 ring-rose-600/10"
-                                            />
-                                            <ShortCountBadge
-                                              code="T"
-                                              value={total}
-                                              title="Total tasks"
-                                              className="bg-gray-50 text-gray-800 ring-gray-200"
-                                            />
-
-                                            <FiChevronDown className={cn("w-4 h-4 text-gray-500 transition", cOpen ? "rotate-180" : "")} />
-                                          </div>
-                                        </button>
-
-                                        {/* TASKS */}
-                                        <AnimatePresence>
-                                          {cOpen ? (
-                                            <motion.div
-                                              initial={{ height: 0, opacity: 0 }}
-                                              animate={{ height: "auto", opacity: 1 }}
-                                              exit={{ height: 0, opacity: 0 }}
-                                              transition={{ duration: 0.2 }}
-                                              className="overflow-hidden"
-                                            >
-                                              <div className="px-4 pb-4">
-                                                {ctasks.length ? (
-                                                  <div className="mt-2 space-y-2">
-                                                    {ctasks.map((t) => (
-                                                      <div
-                                                        key={String(t?._id)}
-                                                        className={cn(
-                                                          "rounded-2xl border border-gray-100 bg-white p-3",
-                                                          "shadow-[0_10px_30px_-24px_rgba(0,0,0,0.5)]"
-                                                        )}
-                                                      >
-                                                        <div className="flex items-start justify-between gap-3">
-                                                          <div className="min-w-0">
-                                                            <div className="flex items-center gap-2">
-                                                              <span className={cn("w-2.5 h-2.5 rounded-full", statusDot(t?.status))} />
-                                                              <span className="inline-flex items-center rounded-full px-2 py-1 text-[11px] font-extrabold bg-indigo-600 text-white">
-                                                                Task
-                                                              </span>
-                                                              <p className="text-sm font-extrabold text-gray-900 truncate">
-                                                                {t?.title || "Task"}
-                                                              </p>
-                                                            </div>
-
-                                                            <div className="mt-2 flex flex-wrap gap-2">
-                                                              <span className={cn(chip, statusPill(t?.status))}>
-                                                                {String(t?.status || "pending")}
-                                                              </span>
-                                                              <span className={cn(chip, "bg-gray-50 text-gray-800 ring-gray-200")}>
-                                                                <FiCalendar className="w-3.5 h-3.5" />
-                                                                {formatDateTime(t?.dueAt)}
-                                                              </span>
-                                                              {t?.completedAt ? (
-                                                                <span
-                                                                  className={cn(
-                                                                    chip,
-                                                                    "bg-emerald-50 text-emerald-700 ring-emerald-600/10"
-                                                                  )}
-                                                                >
-                                                                  done {formatDateTime(t.completedAt)}
-                                                                </span>
-                                                              ) : null}
-                                                            </div>
-                                                          </div>
-                                                        </div>
-                                                      </div>
-                                                    ))}
-                                                  </div>
-                                                ) : (
-                                                  <div className="mt-2 rounded-2xl border border-gray-100 bg-gray-50 p-3 text-sm text-gray-500 text-center">
-                                                    No tasks
-                                                  </div>
-                                                )}
-                                              </div>
-                                            </motion.div>
-                                          ) : null}
-                                        </AnimatePresence>
-                                      </div>
-                                    )
-                                  })
-                                ) : (
-                                  <div className="rounded-2xl border border-gray-100 bg-white p-4 text-sm text-gray-500 text-center">
-                                    No customers
-                                  </div>
-                                )}
+                                {lastActivityAt ? (
+                                  <span className={cn(chip, chipGray)}>
+                                    <FiClock className="w-3.5 h-3.5" />
+                                    {formatDateTime(lastActivityAt)}
+                                  </span>
+                                ) : null}
                               </div>
                             </div>
-                          </motion.div>
-                        ) : null}
-                      </AnimatePresence>
-                    </motion.div>
-                  )
-                })
-              ) : (
-                <div className="p-10 text-center text-gray-500">No employees found.</div>
-              )}
-            </AnimatePresence>
-          </div>
+
+                            <div className="shrink-0 flex items-center gap-2 flex-wrap justify-end">
+                              <ShortCountBadge code="P" value={pending} title="Pending" className={cn(chipAmber)} />
+                              <ShortCountBadge code="IP" value={in_progress} title="In progress" className={cn(chipIndigo)} />
+                              <ShortCountBadge code="D" value={done} title="Done" className={cn(chipEmerald)} />
+                              <ShortCountBadge code="OD" value={overdue} title="Overdue" className={cn(chipRose)} />
+                              <ShortCountBadge code="S" value={dueSoon} title="Due soon" className={cn(chipGray)} />
+                              <FiChevronDown className={cn("w-5 h-5 text-gray-500 transition", isOpen ? "rotate-180" : "")} />
+                            </div>
+                          </div>
+                        </button>
+
+                        <AnimatePresence>
+                          {isOpen ? (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: "auto", opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.22 }}
+                              className="overflow-hidden"
+                            >
+                              <div className="mt-4 rounded-2xl border border-gray-100 bg-gray-50/60 p-3 sm:p-4">
+                                <div className="space-y-3">
+                                  {(row?.customers || []).length ? (
+                                    (row.customers || []).map((c) => {
+                                      const customerId = String(c?.customerId || "")
+                                      const key = `${empId}:${customerId}`
+                                      const cOpen = openCustomerKeys.has(key)
+
+                                      const counts = c?.counts || {}
+                                      const p = Number(counts.pending || 0)
+                                      const ip = Number(counts.in_progress || 0)
+                                      const d = Number(counts.done || 0)
+                                      const od = Number(counts.overdue || 0)
+
+                                      const ctasks = Array.isArray(c?.tasks) ? c.tasks : []
+                                      const total = ctasks.length
+
+                                      const customerLabel = c?.customerName || c?.companyName || "Customer"
+
+                                      return (
+                                        <div
+                                          key={key}
+                                          className="rounded-2xl overflow-hidden border border-gray-200 bg-white shadow-[0_16px_40px_-30px_rgba(0,0,0,0.55)]"
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={() => toggleCustomer(empId, customerId)}
+                                            className={cn(
+                                              "w-full text-left",
+                                              "px-4 py-4",
+                                              "flex items-start justify-between gap-3",
+                                              "hover:bg-gray-50/70 transition focus:outline-none"
+                                            )}
+                                            aria-expanded={cOpen}
+                                          >
+                                            <div className="flex items-start gap-3 min-w-0">
+                                              <div className="w-1.5 self-stretch rounded-full bg-indigo-600/80" aria-hidden="true" />
+                                              <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10 flex items-center justify-center font-extrabold shrink-0">
+                                                {initials(customerLabel)}
+                                              </div>
+
+                                              <div className="min-w-0">
+                                                <p className="text-sm sm:text-base font-extrabold text-gray-900 truncate">
+                                                  {c?.customerName || "Customer"}
+                                                  {c?.companyName ? <span className="text-gray-500"> • {c.companyName}</span> : null}
+                                                </p>
+
+                                                <p className="text-xs sm:text-sm text-gray-500 truncate mt-0.5">
+                                                  {c?.customerEmail || "—"}
+                                                  {c?.customerPhone ? ` • ${c.customerPhone}` : ""}
+                                                </p>
+
+                                                <p className="mt-1 text-[11px] text-gray-400 font-semibold truncate">
+                                                  P=Pending • IP=In progress • D=Done • OD=Overdue • T=Total
+                                                </p>
+                                              </div>
+                                            </div>
+
+                                            <div className="shrink-0 flex items-center gap-2 flex-wrap justify-end">
+                                              <ShortCountBadge code="P" value={p} title="Pending" className={cn(chipAmber)} />
+                                              <ShortCountBadge code="IP" value={ip} title="In progress" className={cn(chipIndigo)} />
+                                              <ShortCountBadge code="D" value={d} title="Done" className={cn(chipEmerald)} />
+                                              <ShortCountBadge code="OD" value={od} title="Overdue" className={cn(chipRose)} />
+                                              <ShortCountBadge code="T" value={total} title="Total tasks" className={cn(chipGray)} />
+                                              <FiChevronDown className={cn("w-4 h-4 text-gray-500 transition", cOpen ? "rotate-180" : "")} />
+                                            </div>
+                                          </button>
+
+                                          <AnimatePresence>
+                                            {cOpen ? (
+                                              <motion.div
+                                                initial={{ height: 0, opacity: 0 }}
+                                                animate={{ height: "auto", opacity: 1 }}
+                                                exit={{ height: 0, opacity: 0 }}
+                                                transition={{ duration: 0.2 }}
+                                                className="overflow-hidden"
+                                              >
+                                                <div className="px-4 pb-4">
+                                                  {ctasks.length ? (
+                                                    <div className="mt-2 space-y-2">
+                                                      {ctasks.map((t) => {
+                                                        const overdueNow = isOverdueTask(t)
+                                                        const dueSoonNow = isDueSoonTask(t, 3)
+                                                        const doneNow = String(t?.status) === "done"
+
+                                                        return (
+                                                          <div
+                                                            key={String(t?._id)}
+                                                            className={cn(
+                                                              "rounded-2xl border bg-white p-3 sm:p-4",
+                                                              overdueNow ? "border-rose-200 ring-1 ring-rose-600/10" : "border-gray-100",
+                                                              "shadow-[0_10px_30px_-24px_rgba(0,0,0,0.5)]"
+                                                            )}
+                                                          >
+                                                            <div className="flex items-start gap-3">
+                                                              <span className={cn("mt-1.5 w-2.5 h-2.5 rounded-full shrink-0", statusDot(t?.status))} />
+                                                              <div className="min-w-0 flex-1">
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                  <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-extrabold bg-indigo-600 text-white">
+                                                                    Task
+                                                                  </span>
+                                                                  <p className="text-sm sm:text-[15px] font-extrabold text-gray-900 truncate">
+                                                                    {t?.title || "Task"}
+                                                                  </p>
+                                                                </div>
+
+                                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                                  <span className={cn(chip, statusPill(t?.status))}>
+                                                                    {statusLabel(t?.status)}
+                                                                  </span>
+
+                                                                  {t?.dueAt ? (
+                                                                    <span className={cn(chip, chipGray)}>
+                                                                      <FiCalendar className="w-3.5 h-3.5" />
+                                                                      {formatDateTime(t?.dueAt)}
+                                                                    </span>
+                                                                  ) : (
+                                                                    <span className={cn(chip, chipGray)} title="No due date">
+                                                                      <FiCalendar className="w-3.5 h-3.5" />
+                                                                      No due date
+                                                                    </span>
+                                                                  )}
+
+                                                                  {!doneNow && overdueNow ? (
+                                                                    <span className={cn(chip, chipRose)} title="This task is overdue">
+                                                                      Overdue
+                                                                    </span>
+                                                                  ) : null}
+
+                                                                  {!doneNow && !overdueNow && dueSoonNow ? (
+                                                                    <span className={cn(chip, chipAmber)} title="Due soon (within 3 days)">
+                                                                      Due soon
+                                                                    </span>
+                                                                  ) : null}
+
+                                                                  {t?.completedAt ? (
+                                                                    <span className={cn(chip, chipEmerald)}>
+                                                                      Completed {formatDateTime(t.completedAt)}
+                                                                    </span>
+                                                                  ) : null}
+                                                                </div>
+                                                              </div>
+                                                            </div>
+                                                          </div>
+                                                        )
+                                                      })}
+                                                    </div>
+                                                  ) : (
+                                                    <div className="mt-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-500 text-center font-semibold">
+                                                      No tasks for this customer
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </motion.div>
+                                            ) : null}
+                                          </AnimatePresence>
+                                        </div>
+                                      )
+                                    })
+                                  ) : (
+                                    <div className="rounded-2xl border border-gray-100 bg-white p-4 text-sm text-gray-500 text-center font-semibold">
+                                      No customers
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </motion.div>
+                          ) : null}
+                        </AnimatePresence>
+                      </motion.div>
+                    )
+                  })
+                ) : (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-10 text-center">
+                    <p className="text-sm font-extrabold text-gray-900">No employees found</p>
+                    <p className="text-xs text-gray-500 font-semibold mt-1">
+                      Try clearing filters or changing search.
+                    </p>
+                    {hasAppliedFilters ? (
+                      <button onClick={clearApplied} className={cn(btn, btnGhost, "mt-4")}>
+                        Clear filters
+                      </button>
+                    ) : null}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
         </div>
 
         <div className="p-4 border-t border-gray-100 bg-white flex items-center justify-between">
           <span className="text-sm text-gray-600">
             Showing <b className="text-gray-900">{filteredRows.length}</b>
           </span>
-          <button onClick={refreshAll} className={cn(btn, btnPrimary, "px-4 py-2")} disabled={isLoading}>
+          <button
+            onClick={refreshAll}
+            className={cn(btn, btnPrimary, "px-4 py-2")}
+            disabled={isLoading}
+          >
             {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             Refresh
           </button>
