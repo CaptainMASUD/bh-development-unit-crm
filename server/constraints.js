@@ -1,0 +1,1 @@
+export const DB_NAME = "CAFM_CRM_DB";
