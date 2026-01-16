@@ -29,7 +29,7 @@ const normalizeCustomerType = (v) => {
   const s = String(v ?? "").trim().toLowerCase();
   if (!s) return "new";
   if (s === "new") return "new";
-  if (s === "returning" || s === "existing" || s === "repeat") return "returning";
+  if (s === "recurring" || s === "existing" || s === "repeat") return "recurring";
   return "new";
 };
 

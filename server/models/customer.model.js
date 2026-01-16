@@ -192,7 +192,7 @@ const customerSchema = new mongoose.Schema(
     // ✅ customer type
     customerType: {
       type: String,
-      enum: ["new", "returning"],
+      enum: ["new", "recurring"],
       default: "new",
       index: true,
     },

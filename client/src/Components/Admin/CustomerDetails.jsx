@@ -74,7 +74,7 @@ function statusTone(status) {
 
 function customerTypeTone(customerType) {
   const s = String(customerType || "").toLowerCase()
-  if (s === "returning") return "indigo"
+  if (s === "recurring") return "indigo"
   if (s === "new") return "emerald"
   return "gray"
 }

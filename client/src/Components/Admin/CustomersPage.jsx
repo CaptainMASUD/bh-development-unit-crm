@@ -970,7 +970,7 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
         <Field label="Customer Type">
           <select value={form.customerType} onChange={update("customerType")} className={input}>
             <option value="new">new</option>
-            <option value="returning">returning</option>
+            <option value="recurring">recurring</option>
           </select>
         </Field>
 
