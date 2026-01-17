@@ -1,25 +1,33 @@
+// ===============================
+// ✅ 4) controllers/user.controller.js  (FULL UPDATED)
+// (Your existing code + Avatar endpoints added)
+// ===============================
 import User from "../models/user.model.js";
+import { uploadCloudinary, deleteCloudinary } from "../utils/cloudinary.js";
 
 /* =========================
    ROLE HELPERS
 ========================= */
-
 const isSuperAdmin = (req) => req.user?.role === "superadmin";
-const isAdminOrSuperAdmin = (req) => ["admin", "superadmin"].includes(req.user?.role);
+const isAdminOrSuperAdmin = (req) =>
+  ["admin", "superadmin"].includes(req.user?.role);
 
 const denyIfTargetIsSuperAdmin = (targetUser, req, res) => {
   if (targetUser?.role === "superadmin" && !isSuperAdmin(req)) {
-    res.status(403).json({ message: "Only super admin can manage super admin accounts." });
+    res
+      .status(403)
+      .json({ message: "Only super admin can manage super admin accounts." });
     return true;
   }
   return false;
 };
 
 /* =========================
-   OPTIMIZATION HELPERS (added)
+   OPTIMIZATION HELPERS
 ========================= */
 
-const LIST_PROJECTION = "_id name email role isActive createdAt updatedAt";
+const LIST_PROJECTION =
+  "_id name email role isActive avatarUrl createdAt updatedAt";
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
@@ -115,7 +123,8 @@ const listUsersByRole = async (req, res, role, responseKey) => {
     const cursorFilter = buildCursorFilter({ cursorObj, sort });
     if (cursorFilter) Object.assign(filter, cursorFilter);
 
-    const sortSpec = sort === "newest" ? { createdAt: -1, _id: -1 } : { createdAt: 1, _id: 1 };
+    const sortSpec =
+      sort === "newest" ? { createdAt: -1, _id: -1 } : { createdAt: 1, _id: 1 };
 
     const rows = await User.find(filter)
       .select(LIST_PROJECTION)
@@ -143,13 +152,43 @@ const listUsersByRole = async (req, res, role, responseKey) => {
 };
 
 /* =========================
+   ✅ AVATAR HELPERS
+========================= */
+const requireImageFile = (req, res) => {
+  if (!req.file?.buffer) {
+    res.status(400).json({ message: "Avatar image file is required (field: avatar)." });
+    return false;
+  }
+  if (!req.file.mimetype?.startsWith("image/")) {
+    res.status(400).json({ message: "Only image files are allowed." });
+    return false;
+  }
+  return true;
+};
+
+const uploadAvatarAndReplace = async (userDoc, fileBuffer) => {
+  // Upload new first (safer). Then delete old.
+  const uploaded = await uploadCloudinary(fileBuffer);
+  if (!uploaded?.secure_url || !uploaded?.public_id) return null;
+
+  const oldPublicId = userDoc.avatarPublicId;
+
+  userDoc.avatarUrl = uploaded.secure_url;
+  userDoc.avatarPublicId = uploaded.public_id;
+
+  await userDoc.save();
+
+  if (oldPublicId && oldPublicId !== uploaded.public_id) {
+    await deleteCloudinary(oldPublicId);
+  }
+
+  return uploaded;
+};
+
+/* =========================
    ADMIN: EMPLOYEES
 ========================= */
 
-/**
- * ADMIN: Create Employee
- * POST /users/employees
- */
 export const createEmployee = async (req, res) => {
   try {
     const name = String(req.body.name ?? "").trim();
@@ -161,7 +200,6 @@ export const createEmployee = async (req, res) => {
       return res.status(400).json({ message: "Name, email, password are required." });
     }
 
-    // ✅ rely on unique index, catch 11000 (faster than exists+create)
     const employee = await User.create({
       name,
       email,
@@ -183,18 +221,10 @@ export const createEmployee = async (req, res) => {
   }
 };
 
-/**
- * ADMIN: Get All Employees (cursor pagination + search)
- * GET /users/employees?q=&active=&limit=&cursor=&sort=
- */
 export const getEmployees = async (req, res) => {
   return listUsersByRole(req, res, "employee", "employees");
 };
 
-/**
- * ADMIN: Get Single Employee
- * GET /users/employees/:id
- */
 export const getEmployeeById = async (req, res) => {
   try {
     const employee = await User.findOne({ _id: req.params.id, role: "employee" })
@@ -211,10 +241,6 @@ export const getEmployeeById = async (req, res) => {
   }
 };
 
-/**
- * ADMIN: Update Employee
- * PATCH /users/employees/:id
- */
 export const updateEmployee = async (req, res) => {
   try {
     const { name, email, password, isActive } = req.body;
@@ -230,7 +256,7 @@ export const updateEmployee = async (req, res) => {
     if (email !== undefined) {
       const e = String(email ?? "").trim().toLowerCase();
       if (!e) return res.status(400).json({ message: "Email cannot be empty." });
-      employee.email = e; // ✅ rely on unique index
+      employee.email = e;
     }
 
     if (name !== undefined) {
@@ -257,14 +283,15 @@ export const updateEmployee = async (req, res) => {
   }
 };
 
-/**
- * ADMIN: Delete Employee
- * DELETE /users/employees/:id
- */
 export const deleteEmployee = async (req, res) => {
   try {
-    const employee = await User.findOneAndDelete({ _id: req.params.id, role: "employee" }).lean();
+    const employee = await User.findOne({ _id: req.params.id, role: "employee" });
     if (!employee) return res.status(404).json({ message: "Employee not found." });
+
+    // ✅ delete avatar from Cloudinary too
+    if (employee.avatarPublicId) await deleteCloudinary(employee.avatarPublicId);
+
+    await employee.deleteOne();
 
     return res.status(200).json({ message: "Employee deleted." });
   } catch (err) {
@@ -277,13 +304,8 @@ export const deleteEmployee = async (req, res) => {
 
 /* =========================
    ADMIN: MARKETING TEAM
-   (same pattern as employees)
 ========================= */
 
-/**
- * ADMIN: Create Marketing Team User
- * POST /users/marketing-team
- */
 export const createMarketingTeam = async (req, res) => {
   try {
     const name = String(req.body.name ?? "").trim();
@@ -316,18 +338,10 @@ export const createMarketingTeam = async (req, res) => {
   }
 };
 
-/**
- * ADMIN: Get All Marketing Team Users (cursor pagination + search)
- * GET /users/marketing-team?q=&active=&limit=&cursor=&sort=
- */
 export const getMarketingTeam = async (req, res) => {
   return listUsersByRole(req, res, "marketing_team", "marketing");
 };
 
-/**
- * ADMIN: Get Single Marketing Team User
- * GET /users/marketing-team/:id
- */
 export const getMarketingTeamById = async (req, res) => {
   try {
     const marketing = await User.findOne({ _id: req.params.id, role: "marketing_team" })
@@ -347,10 +361,6 @@ export const getMarketingTeamById = async (req, res) => {
   }
 };
 
-/**
- * ADMIN: Update Marketing Team User
- * PATCH /users/marketing-team/:id
- */
 export const updateMarketingTeam = async (req, res) => {
   try {
     const { name, email, password, isActive } = req.body;
@@ -395,20 +405,17 @@ export const updateMarketingTeam = async (req, res) => {
   }
 };
 
-/**
- * ADMIN: Delete Marketing Team User
- * DELETE /users/marketing-team/:id
- */
 export const deleteMarketingTeam = async (req, res) => {
   try {
-    const marketing = await User.findOneAndDelete({
-      _id: req.params.id,
-      role: "marketing_team",
-    }).lean();
-
+    const marketing = await User.findOne({ _id: req.params.id, role: "marketing_team" });
     if (!marketing) {
       return res.status(404).json({ message: "Marketing team user not found." });
     }
+
+    // ✅ delete avatar
+    if (marketing.avatarPublicId) await deleteCloudinary(marketing.avatarPublicId);
+
+    await marketing.deleteOne();
 
     return res.status(200).json({ message: "Marketing team user deleted." });
   } catch (err) {
@@ -421,14 +428,8 @@ export const deleteMarketingTeam = async (req, res) => {
 
 /* =========================
    ADMIN: ADMINS
-   ✅ admin/superadmin can manage admins
-   ❌ admin cannot touch superadmins (guarded)
 ========================= */
 
-/**
- * ADMIN: Create Admin
- * POST /users/admins
- */
 export const createAdmin = async (req, res) => {
   try {
     const name = String(req.body.name ?? "").trim();
@@ -461,18 +462,10 @@ export const createAdmin = async (req, res) => {
   }
 };
 
-/**
- * ADMIN: Get All Admins (cursor pagination + search)
- * GET /users/admins?q=&active=&limit=&cursor=&sort=
- */
 export const getAdmins = async (req, res) => {
   return listUsersByRole(req, res, "admin", "admins");
 };
 
-/**
- * ADMIN: Get Single Admin
- * GET /users/admins/:id
- */
 export const getAdminById = async (req, res) => {
   try {
     const admin = await User.findOne({ _id: req.params.id, role: "admin" })
@@ -489,10 +482,6 @@ export const getAdminById = async (req, res) => {
   }
 };
 
-/**
- * ADMIN: Update Admin
- * PATCH /users/admins/:id
- */
 export const updateAdmin = async (req, res) => {
   try {
     if (!isAdminOrSuperAdmin(req)) {
@@ -508,7 +497,6 @@ export const updateAdmin = async (req, res) => {
 
     if (!target) return res.status(404).json({ message: "User not found." });
 
-    // ❌ admin cannot update superadmin
     if (denyIfTargetIsSuperAdmin(target, req, res)) return;
 
     if (target.role !== "admin") {
@@ -545,11 +533,6 @@ export const updateAdmin = async (req, res) => {
   }
 };
 
-/**
- * ADMIN: Delete Admin
- * DELETE /users/admins/:id
- * ✅ prevents deleting yourself
- */
 export const deleteAdmin = async (req, res) => {
   try {
     if (!isAdminOrSuperAdmin(req)) {
@@ -563,12 +546,13 @@ export const deleteAdmin = async (req, res) => {
     const target = await User.findById(req.params.id);
     if (!target) return res.status(404).json({ message: "User not found." });
 
-    // ❌ admin cannot delete superadmin
     if (denyIfTargetIsSuperAdmin(target, req, res)) return;
 
     if (target.role !== "admin") {
       return res.status(400).json({ message: "This endpoint can delete only admin accounts." });
     }
+
+    if (target.avatarPublicId) await deleteCloudinary(target.avatarPublicId);
 
     await target.deleteOne();
 
@@ -583,13 +567,8 @@ export const deleteAdmin = async (req, res) => {
 
 /* =========================
    SUPERADMIN: SUPERADMINS
-   ✅ only superadmin can manage superadmins
 ========================= */
 
-/**
- * SUPERADMIN: Create Super Admin
- * POST /users/superadmins
- */
 export const createSuperAdmin = async (req, res) => {
   try {
     if (!isSuperAdmin(req)) {
@@ -626,10 +605,6 @@ export const createSuperAdmin = async (req, res) => {
   }
 };
 
-/**
- * SUPERADMIN: Get All Super Admins (cursor pagination + search)
- * GET /users/superadmins?q=&active=&limit=&cursor=&sort=
- */
 export const getSuperAdmins = async (req, res) => {
   try {
     if (!isSuperAdmin(req)) {
@@ -644,10 +619,6 @@ export const getSuperAdmins = async (req, res) => {
   }
 };
 
-/**
- * SUPERADMIN: Get Single Super Admin
- * GET /users/superadmins/:id
- */
 export const getSuperAdminById = async (req, res) => {
   try {
     if (!isSuperAdmin(req)) {
@@ -669,10 +640,6 @@ export const getSuperAdminById = async (req, res) => {
   }
 };
 
-/**
- * SUPERADMIN: Update Super Admin
- * PATCH /users/superadmins/:id
- */
 export const updateSuperAdmin = async (req, res) => {
   try {
     if (!isSuperAdmin(req)) {
@@ -718,11 +685,6 @@ export const updateSuperAdmin = async (req, res) => {
   }
 };
 
-/**
- * SUPERADMIN: Delete Super Admin
- * DELETE /users/superadmins/:id
- * ✅ prevents deleting yourself
- */
 export const deleteSuperAdmin = async (req, res) => {
   try {
     if (!isSuperAdmin(req)) {
@@ -735,6 +697,8 @@ export const deleteSuperAdmin = async (req, res) => {
 
     const superadmin = await User.findOne({ _id: req.params.id, role: "superadmin" });
     if (!superadmin) return res.status(404).json({ message: "Super admin not found." });
+
+    if (superadmin.avatarPublicId) await deleteCloudinary(superadmin.avatarPublicId);
 
     await superadmin.deleteOne();
     return res.status(200).json({ message: "Super admin deleted." });
@@ -750,18 +714,10 @@ export const deleteSuperAdmin = async (req, res) => {
    GET ME / UPDATE ME
 ========================= */
 
-/**
- * GET ME
- * GET /api/users/me
- */
 export const getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id)
-      .select(LIST_PROJECTION)
-      .lean();
-
+    const user = await User.findById(req.user._id).select(LIST_PROJECTION).lean();
     if (!user) return res.status(404).json({ message: "User not found." });
-
     return res.status(200).json({ user });
   } catch (err) {
     return res.status(500).json({
@@ -771,11 +727,6 @@ export const getMe = async (req, res) => {
   }
 };
 
-/**
- * UPDATE ME
- * PATCH /api/users/me
- * body: { name?, email?, currentPassword?, newPassword? }
- */
 export const updateMe = async (req, res) => {
   try {
     const { name, email, currentPassword, newPassword } = req.body;
@@ -792,7 +743,7 @@ export const updateMe = async (req, res) => {
     if (email !== undefined) {
       const e = String(email).trim().toLowerCase();
       if (!e) return res.status(400).json({ message: "Email cannot be empty." });
-      user.email = e; // ✅ rely on unique index
+      user.email = e;
     }
 
     const wantsPasswordChange = newPassword !== undefined && String(newPassword).length > 0;
@@ -828,3 +779,105 @@ export const updateMe = async (req, res) => {
     });
   }
 };
+
+/* =========================
+   ✅ AVATAR ENDPOINTS
+========================= */
+
+// PATCH /api/users/me/avatar (form-data: avatar)
+export const updateMyAvatar = async (req, res) => {
+  try {
+    if (!requireImageFile(req, res)) return;
+
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: "User not found." });
+
+    const uploaded = await uploadAvatarAndReplace(user, req.file.buffer);
+    if (!uploaded) return res.status(500).json({ message: "Failed to upload avatar." });
+
+    const safe = await User.findById(user._id).select(LIST_PROJECTION).lean();
+    return res.status(200).json({ message: "Avatar updated.", user: safe });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Server error in updateMyAvatar.",
+      error: err.message,
+    });
+  }
+};
+
+// DELETE /api/users/me/avatar
+export const deleteMyAvatar = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: "User not found." });
+
+    if (user.avatarPublicId) await deleteCloudinary(user.avatarPublicId);
+
+    user.avatarUrl = "";
+    user.avatarPublicId = "";
+    await user.save();
+
+    const safe = await User.findById(user._id).select(LIST_PROJECTION).lean();
+    return res.status(200).json({ message: "Avatar removed.", user: safe });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Server error in deleteMyAvatar.",
+      error: err.message,
+    });
+  }
+};
+
+// PATCH /api/users/:id/avatar (admin/superadmin)
+export const adminUpdateUserAvatar = async (req, res) => {
+  try {
+    if (!isAdminOrSuperAdmin(req)) {
+      return res.status(403).json({ message: "Not authorized." });
+    }
+    if (!requireImageFile(req, res)) return;
+
+    const target = await User.findById(req.params.id);
+    if (!target) return res.status(404).json({ message: "User not found." });
+
+    if (denyIfTargetIsSuperAdmin(target, req, res)) return;
+
+    const uploaded = await uploadAvatarAndReplace(target, req.file.buffer);
+    if (!uploaded) return res.status(500).json({ message: "Failed to upload avatar." });
+
+    const safe = await User.findById(target._id).select(LIST_PROJECTION).lean();
+    return res.status(200).json({ message: "Avatar updated.", user: safe });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Server error in adminUpdateUserAvatar.",
+      error: err.message,
+    });
+  }
+};
+
+// DELETE /api/users/:id/avatar (admin/superadmin)
+export const adminDeleteUserAvatar = async (req, res) => {
+  try {
+    if (!isAdminOrSuperAdmin(req)) {
+      return res.status(403).json({ message: "Not authorized." });
+    }
+
+    const target = await User.findById(req.params.id);
+    if (!target) return res.status(404).json({ message: "User not found." });
+
+    if (denyIfTargetIsSuperAdmin(target, req, res)) return;
+
+    if (target.avatarPublicId) await deleteCloudinary(target.avatarPublicId);
+
+    target.avatarUrl = "";
+    target.avatarPublicId = "";
+    await target.save();
+
+    const safe = await User.findById(target._id).select(LIST_PROJECTION).lean();
+    return res.status(200).json({ message: "Avatar removed.", user: safe });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Server error in adminDeleteUserAvatar.",
+      error: err.message,
+    });
+  }
+};
+

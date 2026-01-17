@@ -20,19 +20,34 @@ import {
   FiShield,
   FiEye,
   FiEyeOff,
+  FiImage,
+  FiUploadCloud,
+  FiTrash,
 } from "react-icons/fi"
 
-const API_BASE = `${import.meta.env.VITE_API_URL}/api`;
+const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const PAGE_SIZE = 20
 
 /** Cleaner, calmer card */
 const card =
   "rounded-2xl border border-gray-100 bg-white shadow-[0_10px_28px_-16px_rgba(0,0,0,0.28)]"
 
-function getAuthHeaders() {
-  const token = localStorage.getItem("token")
+function getToken() {
+  return localStorage.getItem("token")
+}
+
+function getAuthHeadersJson() {
+  const token = getToken()
   return {
     "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }
+}
+
+// For FormData: DO NOT set Content-Type manually.
+function getAuthHeadersMultipart() {
+  const token = getToken()
+  return {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   }
 }
@@ -183,11 +198,53 @@ function canManageTarget(meRole, targetRole) {
   return true
 }
 
-function UserModal({ open, mode, role, initial, onClose, onSaved }) {
+function Avatar({ url, name }) {
+  const letter = String(name || "?").trim()?.[0]?.toUpperCase() || "?"
+  return (
+    <div className="w-11 h-11 rounded-2xl overflow-hidden ring-1 ring-gray-200 bg-gray-100 flex items-center justify-center shrink-0">
+      {url ? (
+        <img src={url} alt={name || "avatar"} className="w-full h-full object-cover" />
+      ) : (
+        <span className="text-sm font-extrabold text-gray-700">{letter}</span>
+      )}
+    </div>
+  )
+}
+
+async function uploadAvatarByAdmin(userId, file) {
+  const fd = new FormData()
+  fd.append("avatar", file)
+
+  const res = await fetch(`${API_BASE}/users/${userId}/avatar`, {
+    method: "PATCH",
+    headers: getAuthHeadersMultipart(),
+    credentials: "include",
+    body: fd,
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || "Avatar upload failed")
+  return data
+}
+
+async function deleteAvatarByAdmin(userId) {
+  const res = await fetch(`${API_BASE}/users/${userId}/avatar`, {
+    method: "DELETE",
+    headers: getAuthHeadersJson(),
+    credentials: "include",
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || "Avatar delete failed")
+  return data
+}
+
+function UserModal({ open, mode, role, initial, onClose, onSaved, showToast }) {
   const isEdit = mode === "edit"
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState("")
   const [showPass, setShowPass] = useState(false)
+
+  const [avatarFile, setAvatarFile] = useState(null)
+  const [avatarPreview, setAvatarPreview] = useState("")
 
   const [form, setForm] = useState({
     name: "",
@@ -207,23 +264,42 @@ function UserModal({ open, mode, role, initial, onClose, onSaved }) {
     if (!open) return
     setError("")
     setShowPass(false)
+
     setForm({
       name: initial?.name || "",
       email: initial?.email || "",
       password: "",
       isActive: typeof initial?.isActive === "boolean" ? initial.isActive : true,
     })
+
+    setAvatarFile(null)
+    setAvatarPreview("")
   }, [open, initial])
 
+  useEffect(() => {
+    if (!avatarFile) return
+    const url = URL.createObjectURL(avatarFile)
+    setAvatarPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [avatarFile])
+
   const update = (key) => (e) => setForm((p) => ({ ...p, [key]: e.target.value }))
+
+  const validatePasswordIfProvided = (pwd) => {
+    if (!pwd) return null
+    if (String(pwd).length < 6) return "Password must be at least 6 characters."
+    return null
+  }
 
   const submit = async () => {
     const name = form.name.trim()
     const email = form.email.trim()
+    const pwdErr = validatePasswordIfProvided(form.password)
 
     if (!name) return setError("Name is required.")
     if (!email) return setError("Email is required.")
     if (!isEdit && !form.password) return setError("Password is required.")
+    if (pwdErr) return setError(pwdErr)
 
     setIsSubmitting(true)
     setError("")
@@ -249,12 +325,25 @@ function UserModal({ open, mode, role, initial, onClose, onSaved }) {
 
       const res = await fetch(url, {
         method,
-        headers: getAuthHeaders(),
+        headers: getAuthHeadersJson(),
         credentials: "include",
         body: JSON.stringify(payload),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.message || "Save failed")
+
+      // ✅ If avatar selected, upload it after create/update succeeds
+      const targetId =
+        (isEdit && initial?._id) ||
+        data?.employee?._id ||
+        data?.marketing?._id ||
+        data?.admin?._id ||
+        data?.superadmin?._id ||
+        data?.user?._id
+
+      if (avatarFile && targetId) {
+        await uploadAvatarByAdmin(targetId, avatarFile)
+      }
 
       onSaved?.()
       onClose?.()
@@ -265,7 +354,25 @@ function UserModal({ open, mode, role, initial, onClose, onSaved }) {
     }
   }
 
+  const handleDeleteAvatar = async () => {
+    if (!initial?._id) return
+    setIsSubmitting(true)
+    setError("")
+    try {
+      await deleteAvatarByAdmin(initial._id)
+      showToast?.("success", "Profile picture removed.")
+      onSaved?.()
+      onClose?.()
+    } catch (e) {
+      setError(e?.message || "Failed to remove profile picture")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   if (!open) return null
+
+  const currentAvatarUrl = avatarPreview || initial?.avatarUrl || ""
 
   return (
     <div
@@ -299,7 +406,7 @@ function UserModal({ open, mode, role, initial, onClose, onSaved }) {
                     {isEdit ? "Edit" : "Create"} {roleTitle(role)}
                   </h2>
                   <p className="text-sm text-gray-600">
-                    Name, email, status{isEdit ? ", optional password" : ", password"}
+                    {isEdit ? "Update details and profile picture." : "Create account with details and profile picture."}
                   </p>
                 </div>
               </div>
@@ -318,6 +425,73 @@ function UserModal({ open, mode, role, initial, onClose, onSaved }) {
                   {error}
                 </div>
               )}
+
+              {/* ✅ PROFILE PICTURE (simple, user-friendly) */}
+              <div className="mb-5 rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-12 h-12 rounded-2xl overflow-hidden bg-white ring-1 ring-gray-200 shrink-0 flex items-center justify-center">
+                      {currentAvatarUrl ? (
+                        <img src={currentAvatarUrl} alt="Profile" className="w-full h-full object-cover" />
+                      ) : (
+                        <FiImage className="w-6 h-6 text-gray-400" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-extrabold text-gray-900">Profile picture</p>
+                      <p className="text-sm text-gray-500 truncate">
+                        {avatarFile ? avatarFile.name : initial?.avatarUrl ? "Current picture" : "No picture"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 justify-end">
+                    <label className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 active:scale-[0.99] transition cursor-pointer">
+                      <FiUploadCloud className="w-4 h-4" />
+                      Upload
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0]
+                          if (f) setAvatarFile(f)
+                        }}
+                      />
+                    </label>
+
+                    {avatarFile ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAvatarFile(null)
+                          setAvatarPreview("")
+                        }}
+                        className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 active:scale-[0.99] transition"
+                      >
+                        <FiX className="w-4 h-4" />
+                        Clear
+                      </button>
+                    ) : null}
+
+                    {isEdit && initial?.avatarUrl ? (
+                      <button
+                        type="button"
+                        onClick={handleDeleteAvatar}
+                        disabled={isSubmitting}
+                        className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-rose-600 text-white hover:bg-rose-700 active:scale-[0.99] transition disabled:opacity-60"
+                      >
+                        <FiTrash className="w-4 h-4" />
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+
+                <p className="mt-3 text-xs text-gray-500">
+                  Tip: Use a clear face photo for best results.
+                </p>
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Field label="Name" icon={<FiUser className="w-4 h-4" />}>
@@ -343,14 +517,14 @@ function UserModal({ open, mode, role, initial, onClose, onSaved }) {
                   <Field
                     label={isEdit ? "New Password (optional)" : "Password"}
                     icon={<FiLock className="w-4 h-4" />}
-                    hint={isEdit ? "leave empty to keep" : "required"}
+                    hint={isEdit ? "At least 6 characters (if changing)" : "At least 6 characters"}
                   >
                     <div className="relative">
                       <input
                         value={form.password}
                         onChange={update("password")}
                         className="w-full px-3 py-2.5 pr-11 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                        placeholder={isEdit ? "••••••••" : "Set a password"}
+                        placeholder={isEdit ? "Leave empty to keep current password" : "At least 6 characters"}
                         type={showPass ? "text" : "password"}
                       />
                       <button
@@ -389,11 +563,7 @@ function UserModal({ open, mode, role, initial, onClose, onSaved }) {
                         : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
                     }`}
                   >
-                    {form.isActive ? (
-                      <FiToggleRight className="w-5 h-5" />
-                    ) : (
-                      <FiToggleLeft className="w-5 h-5" />
-                    )}
+                    {form.isActive ? <FiToggleRight className="w-5 h-5" /> : <FiToggleLeft className="w-5 h-5" />}
                     {form.isActive ? "Active" : "Inactive"}
                   </button>
                 </div>
@@ -452,7 +622,7 @@ export default function UsersAdminPanel() {
   const [searchTerm, setSearchTerm] = useState("")
   const [debounced, setDebounced] = useState("")
   const [statusFilter, setStatusFilter] = useState("all") // all | active | inactive
-  const [sortMode, setSortMode] = useState("newest") // newest | name
+  const [sortMode, setSortMode] = useState("newest") // ✅ backend supports newest | oldest
 
   // pagination
   const [nextCursor, setNextCursor] = useState(null)
@@ -501,7 +671,7 @@ export default function UsersAdminPanel() {
       try {
         const res = await fetch(`${API_BASE}/users/me`, {
           method: "GET",
-          headers: getAuthHeaders(),
+          headers: getAuthHeadersJson(),
           credentials: "include",
         })
         const data = await res.json().catch(() => ({}))
@@ -525,8 +695,8 @@ export default function UsersAdminPanel() {
       qs.set("active", String(statusFilter === "active"))
     }
 
-    // expected by optimized backend
-    qs.set("sort", sortMode) // newest | name
+    // ✅ backend supports newest | oldest
+    qs.set("sort", sortMode)
 
     if (cursor) qs.set("cursor", String(cursor))
 
@@ -552,7 +722,7 @@ export default function UsersAdminPanel() {
       const url = buildListUrl({ cursor: reset ? null : nextCursor })
       const res = await fetch(url, {
         method: "GET",
-        headers: getAuthHeaders(),
+        headers: getAuthHeadersJson(),
         credentials: "include",
         signal: controller.signal,
       })
@@ -616,7 +786,7 @@ export default function UsersAdminPanel() {
     try {
       const res = await fetch(`${API_BASE}/users/${endpointBase}/${u._id}`, {
         method: "PATCH",
-        headers: getAuthHeaders(),
+        headers: getAuthHeadersJson(),
         credentials: "include",
         body: JSON.stringify({ isActive: !u.isActive }),
       })
@@ -633,7 +803,7 @@ export default function UsersAdminPanel() {
     try {
       const res = await fetch(`${API_BASE}/users/${endpointBase}/${u._id}`, {
         method: "DELETE",
-        headers: getAuthHeaders(),
+        headers: getAuthHeadersJson(),
         credentials: "include",
       })
       const data = await res.json().catch(() => ({}))
@@ -684,6 +854,7 @@ export default function UsersAdminPanel() {
             mode={modalMode}
             role={modalRole}
             initial={selected}
+            showToast={showToast}
             onClose={() => setModalOpen(false)}
             onSaved={() => {
               showToast("success", modalMode === "edit" ? "Saved." : "Created.")
@@ -805,16 +976,15 @@ export default function UsersAdminPanel() {
             className="h-9 w-full px-3 rounded-xl border border-gray-200 bg-white text-sm font-semibold focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
           >
             <option value="newest">Newest</option>
-            <option value="name">Name (A–Z)</option>
+            <option value="oldest">Oldest</option>
           </select>
         </div>
 
         <div className="lg:col-span-3 flex items-center justify-between">
           <div className="text-sm text-gray-500">
-            Loaded <span className="font-semibold text-gray-900">{loadedCount}</span>
+            Loaded <span className="font-semibold text-gray-900">{list.length}</span>{" "}
             {typeof count === "number" ? (
               <>
-                {" "}
                 of <span className="font-semibold text-gray-900">{count}</span>
               </>
             ) : null}
@@ -856,15 +1026,8 @@ export default function UsersAdminPanel() {
             list.map((u) => {
               const active = !!u?.isActive
               const isMe = String(u?._id) === String(me?._id)
-
-              const targetIsSuperAdmin = u?.role === "superadmin"
               const canManage = canManageTarget(me?.role, u?.role)
-              const lockedByRole = me?.role === "admin" && targetIsSuperAdmin
-
               const disableActions = !canManage
-              const disableReason = lockedByRole
-                ? "Admins cannot modify Super Admin accounts."
-                : "Not allowed."
 
               return (
                 <motion.div
@@ -875,74 +1038,89 @@ export default function UsersAdminPanel() {
                   className={`${card} p-5`}
                 >
                   <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="text-base font-extrabold text-gray-900 truncate">
-                          {u?.name || "—"}
-                        </p>
+                    <div className="min-w-0 flex items-center gap-3">
+                      <Avatar url={u?.avatarUrl} name={u?.name} />
 
-                        <span
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ring-1 ${
-                            active
-                              ? "bg-green-50 text-green-700 ring-green-600/10"
-                              : "bg-gray-100 text-gray-700 ring-gray-600/10"
-                          }`}
-                        >
-                          <span className="w-1.5 h-1.5 rounded-full bg-current opacity-40" />
-                          {active ? "active" : "inactive"}
-                        </span>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-base font-extrabold text-gray-900 truncate">
+                            {u?.name || "—"}
+                          </p>
 
-                        {u?.role ? (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ring-1 bg-indigo-50 text-indigo-700 ring-indigo-600/10">
-                            {u.role}
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ring-1 ${
+                              active
+                                ? "bg-green-50 text-green-700 ring-green-600/10"
+                                : "bg-gray-100 text-gray-700 ring-gray-600/10"
+                            }`}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-current opacity-40" />
+                            {active ? "active" : "inactive"}
                           </span>
-                        ) : null}
 
-                        {isMe ? (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ring-1 bg-gray-100 text-gray-700 ring-gray-600/10">
-                            you
-                          </span>
-                        ) : null}
-                      </div>
+                          {u?.role ? (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ring-1 bg-indigo-50 text-indigo-700 ring-indigo-600/10">
+                              {u.role}
+                            </span>
+                          ) : null}
 
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-600">
-                        <span className="inline-flex items-center gap-2">
-                          <FiMail className="w-4 h-4 text-indigo-600" />
-                          <span className="font-medium">{u?.email || "—"}</span>
-                        </span>
-                        <span className="text-gray-300">•</span>
-                        <span className="text-xs text-gray-500">
-                          Created{" "}
-                          <span className="font-semibold text-gray-700">
-                            {formatDate(u?.createdAt)}
+                          {isMe ? (
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ring-1 bg-gray-100 text-gray-700 ring-gray-600/10">
+                              you
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-600">
+                          <span className="inline-flex items-center gap-2">
+                            <FiMail className="w-4 h-4 text-indigo-600" />
+                            <span className="font-medium">{u?.email || "—"}</span>
                           </span>
-                        </span>
+                          <span className="text-gray-300">•</span>
+                          <span className="text-xs text-gray-500">
+                            Created{" "}
+                            <span className="font-semibold text-gray-700">
+                              {formatDate(u?.createdAt)}
+                            </span>
+                          </span>
+                        </div>
                       </div>
                     </div>
 
                     <div className="flex flex-wrap gap-2 justify-start lg:justify-end">
                       <button
-                        onClick={() => toggleActiveQuick(u)}
+                        onClick={async () => {
+                          try {
+                            const res = await fetch(`${API_BASE}/users/${tabConfig[tab].endpoint}/${u._id}`, {
+                              method: "PATCH",
+                              headers: getAuthHeadersJson(),
+                              credentials: "include",
+                              body: JSON.stringify({ isActive: !u.isActive }),
+                            })
+                            const data = await res.json().catch(() => ({}))
+                            if (!res.ok) throw new Error(data?.message || "Update failed")
+                            showToast("success", "Updated.")
+                            fetchUsers({ reset: true })
+                          } catch (e) {
+                            showToast("error", e?.message || "Update failed")
+                          }
+                        }}
                         disabled={disableActions}
-                        title={disableActions ? disableReason : "Toggle active"}
+                        title={disableActions ? "Not allowed." : "Toggle active"}
                         className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border active:scale-[0.99] transition disabled:opacity-60 disabled:cursor-not-allowed ${
                           active
                             ? "border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
                             : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
                         }`}
                       >
-                        {active ? (
-                          <FiToggleRight className="w-5 h-5" />
-                        ) : (
-                          <FiToggleLeft className="w-5 h-5" />
-                        )}
+                        {active ? <FiToggleRight className="w-5 h-5" /> : <FiToggleLeft className="w-5 h-5" />}
                         {active ? "Active" : "Inactive"}
                       </button>
 
                       <button
                         onClick={() => openEdit(u)}
                         disabled={disableActions}
-                        title={disableActions ? disableReason : "Edit"}
+                        title={disableActions ? "Not allowed." : "Edit"}
                         className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 active:scale-[0.99] transition disabled:opacity-60 disabled:cursor-not-allowed"
                       >
                         <FiEdit3 className="w-4 h-4" />
@@ -952,13 +1130,7 @@ export default function UsersAdminPanel() {
                       <button
                         onClick={() => setConfirm({ open: true, item: u })}
                         disabled={(tab === "superadmins" && isMe) || disableActions}
-                        title={
-                          tab === "superadmins" && isMe
-                            ? "You cannot delete yourself"
-                            : disableActions
-                            ? disableReason
-                            : "Delete"
-                        }
+                        title={tab === "superadmins" && isMe ? "You cannot delete yourself" : disableActions ? "Not allowed." : "Delete"}
                         className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-rose-600 text-white hover:bg-rose-700 active:scale-[0.99] transition disabled:opacity-60 disabled:cursor-not-allowed"
                       >
                         <FiTrash2 className="w-4 h-4" />
@@ -987,7 +1159,6 @@ export default function UsersAdminPanel() {
           )}
         </AnimatePresence>
 
-        {/* subtle skeleton while loading more */}
         {isLoadingMore ? (
           <>
             <RowSkeleton />

@@ -14,6 +14,9 @@ import {
   FiAlertCircle,
   FiCheckCircle,
   FiRefreshCcw,
+  FiUploadCloud,
+  FiTrash2,
+  FiImage,
 } from "react-icons/fi"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
@@ -24,6 +27,13 @@ function getAuthHeaders() {
   const token = localStorage.getItem("token")
   return {
     "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  }
+}
+
+function getAuthHeadersMultipart() {
+  const token = localStorage.getItem("token")
+  return {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   }
 }
@@ -142,6 +152,14 @@ function DividerLabel({ label }) {
   )
 }
 
+function getInitials(nameOrEmail) {
+  const s = String(nameOrEmail || "").trim()
+  if (!s) return "U"
+  const parts = s.split(" ").filter(Boolean)
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase()
+  return (parts[0].slice(0, 1) + parts[1].slice(0, 1)).toUpperCase()
+}
+
 export default function ProfileSettings() {
   const [user, setUser] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -160,6 +178,12 @@ export default function ProfileSettings() {
   const [showPwd, setShowPwd] = useState({ current: false, next: false, confirm: false })
   const [formError, setFormError] = useState("")
   const [loadError, setLoadError] = useState("")
+
+  // avatar
+  const fileInputRef = useRef(null)
+  const [avatarPreview, setAvatarPreview] = useState("") // local preview
+  const [isAvatarUploading, setIsAvatarUploading] = useState(false)
+  const [isAvatarRemoving, setIsAvatarRemoving] = useState(false)
 
   const abortRef = useRef(null)
 
@@ -218,6 +242,7 @@ export default function ProfileSettings() {
   }, [])
 
   const role = useMemo(() => user?.role || "—", [user])
+  const initials = useMemo(() => getInitials(user?.name || user?.email), [user])
 
   const hasPasswordChanges = useMemo(
     () => !!pwd.currentPassword || !!pwd.newPassword || !!pwd.confirmPassword,
@@ -320,6 +345,93 @@ export default function ProfileSettings() {
   const disableSave = isSaving || isLoading || (!hasProfileChanges && !hasPasswordChanges)
   const disableCancel = isSaving || isLoading || (!hasProfileChanges && !hasPasswordChanges)
 
+  const onPickAvatar = () => fileInputRef.current?.click?.()
+
+  const onFileChange = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    // reset input so selecting same file again works
+    e.target.value = ""
+
+    if (!file.type?.startsWith("image/")) {
+      showToastMsg("error", "Please select an image file.")
+      return
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      showToastMsg("error", "Max file size is 3MB.")
+      return
+    }
+
+    const localUrl = URL.createObjectURL(file)
+    setAvatarPreview(localUrl)
+
+    const fd = new FormData()
+    fd.append("avatar", file)
+
+    setIsAvatarUploading(true)
+    try {
+      const res = await fetch(`${API_BASE}/users/me/avatar`, {
+        method: "PATCH",
+        headers: getAuthHeadersMultipart(),
+        credentials: "include",
+        body: fd,
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.message || "Avatar upload failed")
+
+      // backend should return { user }
+      const updated = data?.user || data?.updatedUser || null
+      if (updated) {
+        setUser(updated)
+        localStorage.setItem("user", JSON.stringify(updated))
+      }
+
+      showToastMsg("success", "Profile photo updated.")
+      setAvatarPreview("")
+    } catch (err) {
+      showToastMsg("error", err?.message || "Avatar upload failed")
+      setAvatarPreview("")
+    } finally {
+      setIsAvatarUploading(false)
+    }
+  }
+
+  const removeAvatar = async () => {
+    if (!user?.avatarUrl) return
+
+    setIsAvatarRemoving(true)
+    try {
+      const res = await fetch(`${API_BASE}/users/me/avatar`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+        credentials: "include",
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.message || "Failed to remove photo")
+
+      const updated = data?.user || null
+      if (updated) {
+        setUser(updated)
+        localStorage.setItem("user", JSON.stringify(updated))
+      } else {
+        // fallback: clear local
+        const next = { ...(user || {}), avatarUrl: "", avatarPublicId: "" }
+        setUser(next)
+        localStorage.setItem("user", JSON.stringify(next))
+      }
+
+      showToastMsg("success", "Profile photo removed.")
+      setAvatarPreview("")
+    } catch (e) {
+      showToastMsg("error", e?.message || "Failed to remove photo")
+    } finally {
+      setIsAvatarRemoving(false)
+    }
+  }
+
+  const displayAvatar = avatarPreview || user?.avatarUrl || ""
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-gray-50 p-4 sm:p-6 lg:p-8">
       <AnimatePresence>
@@ -364,7 +476,7 @@ export default function ProfileSettings() {
 
                   <button
                     onClick={refresh}
-                    disabled={isLoading || isSaving || isRefreshing}
+                    disabled={isLoading || isSaving || isRefreshing || isAvatarUploading || isAvatarRemoving}
                     className="h-10 inline-flex items-center gap-2 px-3.5 rounded-2xl border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-60 active:scale-[0.99] transition"
                     title="Refresh"
                   >
@@ -384,9 +496,7 @@ export default function ProfileSettings() {
                       <SkeletonLine w="w-28" />
                     </div>
                   ) : (
-                    <p className="mt-1 text-sm font-extrabold text-gray-900 truncate">
-                      {user?.name || "—"}
-                    </p>
+                    <p className="mt-1 text-sm font-extrabold text-gray-900 truncate">{user?.name || "—"}</p>
                   )}
                 </div>
 
@@ -397,9 +507,7 @@ export default function ProfileSettings() {
                       <SkeletonLine w="w-44" />
                     </div>
                   ) : (
-                    <p className="mt-1 text-sm font-extrabold text-gray-900 truncate">
-                      {user?.email || "—"}
-                    </p>
+                    <p className="mt-1 text-sm font-extrabold text-gray-900 truncate">{user?.email || "—"}</p>
                   )}
                 </div>
 
@@ -424,7 +532,7 @@ export default function ProfileSettings() {
         {/* Content */}
         <Section
           title="Account"
-          subtitle="Name, email & password"
+          subtitle="Photo, name, email & password"
           icon={<FiLock className="w-5 h-5" />}
           right={
             <div className="flex items-center gap-2">
@@ -437,6 +545,81 @@ export default function ProfileSettings() {
               {formError}
             </div>
           )}
+
+          {/* ✅ Profile photo */}
+          <div className="mb-5 rounded-3xl border border-gray-100 bg-gray-50/60 p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  {/* indigo ring (no gradient / no pink) */}
+                  <div className="p-[2px] rounded-full bg-indigo-600 shadow-[0_12px_26px_-18px_rgba(79,70,229,0.9)]">
+                    <div className="p-[2px] rounded-full bg-white">
+                      <div className="relative w-[64px] h-[64px] rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
+                        {displayAvatar ? (
+                          <img
+                            src={displayAvatar}
+                            alt="Profile"
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.style.display = "none"
+                            }}
+                          />
+                        ) : (
+                          <span className="text-lg font-extrabold text-gray-800">{initials}</span>
+                        )}
+                        <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/10 to-black/10" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* active dot */}
+                  <span
+                    className="absolute bottom-0 right-0 translate-x-[2px] translate-y-[2px] w-4 h-4 rounded-full bg-emerald-500 ring-4 ring-white shadow-[0_8px_16px_-10px_rgba(16,185,129,0.95)]"
+                    title="Active"
+                    aria-label="Active"
+                  />
+                </div>
+
+                <div>
+                  <p className="text-sm font-extrabold text-gray-900">Profile photo</p>
+                  <p className="text-xs text-gray-600">
+                    Upload a square image (max 3MB). This will show across the app.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 sm:justify-end">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={onFileChange}
+                />
+
+                <button
+                  type="button"
+                  onClick={onPickAvatar}
+                  disabled={isLoading || isAvatarUploading || isAvatarRemoving}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60 active:scale-[0.99] transition font-semibold"
+                >
+                  <FiUploadCloud className="w-4 h-4" />
+                  {isAvatarUploading ? "Uploading..." : "Upload photo"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={removeAvatar}
+                  disabled={isLoading || isAvatarUploading || isAvatarRemoving || !user?.avatarUrl}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-60 active:scale-[0.99] transition font-semibold"
+                  title={!user?.avatarUrl ? "No photo to remove" : "Remove photo"}
+                >
+                  <FiTrash2 className="w-4 h-4 text-rose-600" />
+                  {isAvatarRemoving ? "Removing..." : "Remove"}
+                </button>
+              </div>
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Field label="Name" icon={<FiUser className="w-4 h-4" />}>
@@ -489,16 +672,12 @@ export default function ProfileSettings() {
                   aria-label={showPwd.current ? "Hide password" : "Show password"}
                   disabled={isLoading}
                 >
-                  {showPwd.current ? (
-                    <FiEyeOff className="w-4 h-4 text-gray-600" />
-                  ) : (
-                    <FiEye className="w-4 h-4 text-gray-600" />
-                  )}
+                  {showPwd.current ? <FiEyeOff className="w-4 h-4 text-gray-600" /> : <FiEye className="w-4 h-4 text-gray-600" />}
                 </button>
               </div>
             </Field>
 
-            <Field label="New password" icon={<FiLock className="w-4 h-4" />} hint="min 6 chars">
+            <Field label="New password" icon={<FiLock className="w-4 h-4" />} hint="Minimum 6 characters">
               <div className="relative">
                 <input
                   value={pwd.newPassword}
@@ -515,13 +694,14 @@ export default function ProfileSettings() {
                   aria-label={showPwd.next ? "Hide password" : "Show password"}
                   disabled={isLoading}
                 >
-                  {showPwd.next ? (
-                    <FiEyeOff className="w-4 h-4 text-gray-600" />
-                  ) : (
-                    <FiEye className="w-4 h-4 text-gray-600" />
-                  )}
+                  {showPwd.next ? <FiEyeOff className="w-4 h-4 text-gray-600" /> : <FiEye className="w-4 h-4 text-gray-600" />}
                 </button>
               </div>
+
+              {/* ✅ required by you: show min length below input */}
+              <p className="mt-1.5 text-xs font-semibold text-gray-500">
+                Must be at least <span className="text-gray-700 font-extrabold">6 characters</span>.
+              </p>
             </Field>
 
             <div className="md:col-span-2">
@@ -542,11 +722,7 @@ export default function ProfileSettings() {
                     aria-label={showPwd.confirm ? "Hide password" : "Show password"}
                     disabled={isLoading}
                   >
-                    {showPwd.confirm ? (
-                      <FiEyeOff className="w-4 h-4 text-gray-600" />
-                    ) : (
-                      <FiEye className="w-4 h-4 text-gray-600" />
-                    )}
+                    {showPwd.confirm ? <FiEyeOff className="w-4 h-4 text-gray-600" /> : <FiEye className="w-4 h-4 text-gray-600" />}
                   </button>
                 </div>
               </Field>
@@ -557,7 +733,7 @@ export default function ProfileSettings() {
           <div className="mt-6 rounded-2xl border border-gray-100 bg-gray-50/70 p-4 flex flex-col sm:flex-row gap-2 sm:justify-end">
             <button
               onClick={revertAll}
-              disabled={disableCancel}
+              disabled={disableCancel || isAvatarUploading || isAvatarRemoving}
               className="px-4 py-2.5 rounded-2xl border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-60 active:scale-[0.99] transition font-semibold"
             >
               Cancel
@@ -565,7 +741,7 @@ export default function ProfileSettings() {
 
             <button
               onClick={save}
-              disabled={disableSave}
+              disabled={disableSave || isAvatarUploading || isAvatarRemoving}
               className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60 active:scale-[0.99] transition font-semibold"
             >
               <FiSave className="w-4 h-4" />

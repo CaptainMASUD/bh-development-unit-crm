@@ -1,4 +1,6 @@
+// ===============================
 // models/user.model.js
+// ===============================
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 
@@ -31,6 +33,10 @@ const userSchema = new mongoose.Schema(
     },
 
     isActive: { type: Boolean, default: true, index: true },
+
+    // ✅ NEW: Profile picture
+    avatarUrl: { type: String, default: "" },
+    avatarPublicId: { type: String, default: "" },
   },
   { timestamps: true }
 );
@@ -73,3 +79,4 @@ userSchema.methods.isMarketing = function () {
 };
 
 export default mongoose.model("User", userSchema);
+

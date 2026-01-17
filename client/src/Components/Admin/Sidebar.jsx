@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, memo, useRef, useMemo, useId } from "react"
 import { useNavigate } from "react-router-dom"
-import { FaChevronDown, FaSignOutAlt, FaUserCircle, FaMoon, FaSun, FaSearch, FaTimes } from "react-icons/fa"
+import { FaChevronDown, FaSignOutAlt, FaMoon, FaSun, FaSearch, FaTimes } from "react-icons/fa"
 import { useDispatch } from "react-redux"
 import { signOut } from "../../Redux/UserSlice/UserSlice"
 
@@ -12,7 +12,7 @@ import JetskyModal from "./JetskyModal"
 import NotificationModal from "./NotificationModal"
 import { Bell } from "lucide-react"
 
-/** ✅ LOCAL API (admin panel) */
+/** ✅ LOCAL API */
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const NOTIF_BADGE_COLOR = "#5850EC"
 
@@ -238,6 +238,14 @@ const SubMenu = memo(function SubMenu({
   )
 })
 
+function getInitials(nameOrEmail) {
+  const s = String(nameOrEmail || "").trim()
+  if (!s) return "U"
+  const parts = s.split(" ").filter(Boolean)
+  if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase()
+  return (parts[0].slice(0, 1) + parts[1].slice(0, 1)).toUpperCase()
+}
+
 export default function Sidebar({
   setActiveSection,
   setActiveSubcategory,
@@ -251,7 +259,7 @@ export default function Sidebar({
   setIsDarkMode,
 }) {
   const [expandedSection, setExpandedSection] = useState(null)
-  const [user, setUser] = useState(null)
+  const [user, setUser] = useState(null) // { username, role, prettyRole, avatarUrl }
   const [searchTerm, setSearchTerm] = useState("")
   const [showJetsky, setShowJetsky] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
@@ -293,10 +301,8 @@ export default function Sidebar({
       const def = safeSections?.[section]
       if (!def) return
 
-      // ✅ if section has dropdown, open/close it
-      if (def.subcategories) {
-        toggleSection(section)
-      } else {
+      if (def.subcategories) toggleSection(section)
+      else {
         setActiveSection(section)
         setActiveSubcategory("")
         if (isMobile) toggleSidebar()
@@ -335,32 +341,95 @@ export default function Sidebar({
     navigate("/login")
   }, [dispatch, navigate])
 
+  // ✅ load user fast (localStorage) then sync /users/me for avatar
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem("user")
-      const loggedInUser = stored ? JSON.parse(stored) : null
+    let mounted = true
 
-      if (!loggedInUser) {
+    const setFromLocal = () => {
+      try {
+        const stored = localStorage.getItem("user")
+        const loggedInUser = stored ? JSON.parse(stored) : null
+
+        if (!loggedInUser) {
+          setUser(null)
+          navigate("/login")
+          return
+        }
+
+        const displayName = loggedInUser?.name || loggedInUser?.email || "User"
+        const roleRaw = loggedInUser?.role || "admin"
+        const prettyRole =
+          roleRaw === "superadmin"
+            ? "Super Admin"
+            : roleRaw === "admin"
+            ? "Admin"
+            : roleRaw === "employee"
+            ? "Employee"
+            : roleRaw === "marketing_team"
+            ? "Marketing Team"
+            : roleRaw
+
+        setUser({
+          username: displayName,
+          role: roleRaw,
+          prettyRole,
+          avatarUrl: loggedInUser?.avatarUrl || "",
+        })
+      } catch {
         setUser(null)
         navigate("/login")
-        return
       }
+    }
 
-      const displayName = loggedInUser?.name || loggedInUser?.email || "User"
-      const roleRaw = loggedInUser?.role || "admin"
-      const prettyRole =
-        roleRaw === "superadmin"
-          ? "Super Admin"
-          : roleRaw === "admin"
-          ? "Admin"
-          : roleRaw === "employee"
-          ? "Employee"
-          : roleRaw
+    const syncMe = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/users/me`, {
+          method: "GET",
+          headers: getAuthHeaders(),
+          credentials: "include",
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) return
 
-      setUser({ username: displayName, role: roleRaw, prettyRole })
-    } catch {
-      setUser(null)
-      navigate("/login")
+        const me = data?.user
+        if (!me) return
+
+        const displayName = me?.name || me?.email || "User"
+        const roleRaw = me?.role || "admin"
+        const prettyRole =
+          roleRaw === "superadmin"
+            ? "Super Admin"
+            : roleRaw === "admin"
+            ? "Admin"
+            : roleRaw === "employee"
+            ? "Employee"
+            : roleRaw === "marketing_team"
+            ? "Marketing Team"
+            : roleRaw
+
+        if (!mounted) return
+        setUser({
+          username: displayName,
+          role: roleRaw,
+          prettyRole,
+          avatarUrl: me?.avatarUrl || "",
+        })
+
+        try {
+          const stored = localStorage.getItem("user")
+          const prev = stored ? JSON.parse(stored) : {}
+          localStorage.setItem("user", JSON.stringify({ ...prev, ...me }))
+        } catch {}
+      } catch {
+        // ignore
+      }
+    }
+
+    setFromLocal()
+    syncMe()
+
+    return () => {
+      mounted = false
     }
   }, [navigate])
 
@@ -471,6 +540,8 @@ export default function Sidebar({
 
   const shouldRingBell = !reducedMotion && notifCount7d > 0 && showBellTip && !isMobileViewport
 
+  const initials = getInitials(user?.username)
+
   return (
     <>
       <style>{`
@@ -551,13 +622,48 @@ export default function Sidebar({
         {/* Header */}
         <div className={`relative p-6 border-b ${isDarkMode ? "border-white/10" : "border-gray-200"}`}>
           <div className="flex items-center gap-4">
-            <div className="relative group">
-              <div className="absolute inset-0 rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 animate-pulse blur-md opacity-75" />
-              <div
-                className={`relative p-1 rounded-full ${isDarkMode ? "bg-gray-800" : "bg-white"} ring-2 ring-purple-500/20`}
-              >
-                <FaUserCircle size={48} className={isDarkMode ? "text-white" : "text-gray-700"} />
+            {/* ✅ Updated profile picture design:
+                - smaller glow ring (not too big)
+                - uses a gradient "frame" with subtle shadow
+                - active dot (Messenger style) */}
+            <div className="relative">
+              {/* Gradient frame */}
+              <div className="p-[2px] rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 shadow-[0_10px_26px_-18px_rgba(99,102,241,0.85)]">
+                {/* Inner */}
+                <div className={`rounded-full p-[2px] ${isDarkMode ? "bg-gray-900" : "bg-white"}`}>
+                  <div className="relative w-[46px] h-[46px] rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
+                    {user?.avatarUrl ? (
+                      <img
+                        src={user.avatarUrl}
+                        alt="Profile"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          // If broken, hide img so initials show
+                          e.currentTarget.style.display = "none"
+                        }}
+                      />
+                    ) : null}
+
+                    {!user?.avatarUrl ? (
+                      <span className={`text-sm font-extrabold ${isDarkMode ? "text-gray-900" : "text-gray-800"}`}>
+                        {initials}
+                      </span>
+                    ) : null}
+
+                    {/* soft image-colored overlay feel (subtle) */}
+                    <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/10 to-black/10" />
+                  </div>
+                </div>
               </div>
+
+              {/* ✅ Active dot (Facebook/Messenger style) */}
+              <span
+                className={`absolute bottom-0 right-0 translate-x-[2px] translate-y-[2px] w-3.5 h-3.5 rounded-full bg-emerald-500 ring-4 ${
+                  isDarkMode ? "ring-gray-900" : "ring-white"
+                } shadow-[0_6px_14px_-8px_rgba(16,185,129,0.95)]`}
+                title="Active"
+                aria-label="Active"
+              />
             </div>
 
             <div className="flex-1 min-w-0">
@@ -570,7 +676,13 @@ export default function Sidebar({
 
           <div className="flex justify-between items-center mt-6">
             <button
-              onClick={toggleTheme}
+              onClick={() => {
+                setIsDarkMode((prev) => {
+                  const next = !prev
+                  localStorage.setItem("theme", next ? "dark" : "light")
+                  return next
+                })
+              }}
               className={`p-2 rounded-lg ${reducedMotion ? "" : "transition-all duration-200"} ${
                 isDarkMode
                   ? "hover:bg-white/10 text-gray-400 hover:text-white"
@@ -602,7 +714,10 @@ export default function Sidebar({
 
                 {notifCount7d > 0 ? (
                   <span className="absolute -top-1 -right-1">
-                    <span className="absolute inset-0 rounded-full blur-md opacity-90" style={{ backgroundColor: NOTIF_BADGE_COLOR }} />
+                    <span
+                      className="absolute inset-0 rounded-full blur-md opacity-90"
+                      style={{ backgroundColor: NOTIF_BADGE_COLOR }}
+                    />
                     <span
                       className="relative min-w-[20px] h-[20px] px-1.5 rounded-full text-[10px] font-bold flex items-center justify-center bg-white/10 backdrop-blur-md text-white border border-white/10"
                       style={{ boxShadow: `0 0 0 1px rgba(255,255,255,0.08) inset` }}
@@ -676,9 +791,13 @@ export default function Sidebar({
         <nav
           aria-label="Primary"
           className={`flex-1 overflow-y-auto p-4 space-y-2 scrollbar-thin ${
-            isDarkMode ? "scrollbar-thumb-purple-500 scrollbar-track-transparent" : "scrollbar-thumb-purple-400 scrollbar-track-gray-100"
+            isDarkMode
+              ? "scrollbar-thumb-purple-500 scrollbar-track-transparent"
+              : "scrollbar-thumb-purple-400 scrollbar-track-gray-100"
           }`}
         >
+          {Object.keys(sections || {}).length === 0 ? null : null}
+
           {filteredSectionKeys.map((section) => {
             const def = safeSections[section]
             if (!def) return null
@@ -752,12 +871,16 @@ export default function Sidebar({
         <button
           onClick={handleLogout}
           className={`group p-4 flex items-center justify-center gap-3 ${reducedMotion ? "" : "transition-all duration-200"} border-t relative overflow-hidden ${
-            isDarkMode ? "border-white/10 text-gray-400 hover:text-white hover:bg-white/5" : "border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+            isDarkMode
+              ? "border-white/10 text-gray-400 hover:text-white hover:bg-white/5"
+              : "border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-50"
           }`}
           aria-label="Logout"
           title="Logout"
         >
-          <FaSignOutAlt className={`text-lg ${reducedMotion ? "" : "transition-transform duration-200"} group-hover:-translate-x-1 relative z-10`} />
+          <FaSignOutAlt
+            className={`text-lg ${reducedMotion ? "" : "transition-transform duration-200"} group-hover:-translate-x-1 relative z-10`}
+          />
           <span className="font-medium relative z-10">Logout</span>
         </button>
       </aside>
