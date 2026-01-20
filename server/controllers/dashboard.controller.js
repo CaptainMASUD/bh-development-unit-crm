@@ -36,17 +36,21 @@ function buildTrend(days) {
 
 export const getDashboard = async (req, res, next) => {
   try {
-    const user = req.user; // from your protect middleware (mongoose doc)
+    const user = req.user; // from protect middleware
     const userId = String(user._id);
 
     // caps to avoid abuse + keep response small
     const days = Math.min(30, Math.max(1, toInt(req.query.days, 7)));
     const limit = Math.min(12, Math.max(1, toInt(req.query.limit, 6)));
 
+    // ✅ include visibility scope in cache key (important)
+    // If your accessMatch depends on more than role/userId (ex: assignedTo),
+    // this key is still safe because we invalidate cache on writes.
     const cacheKey = `dashboard:v1:${userId}:${user.role}:${days}:${limit}`;
     const cached = dashboardCache.get(cacheKey);
     if (cached) return res.json(cached);
 
+    // ✅ access filter for this user
     const match = customerAccessMatch(user);
 
     // Trend start date (last N days)
@@ -57,7 +61,6 @@ export const getDashboard = async (req, res, next) => {
     // ✅ ONE DB CALL: Aggregation with $facet
     const [agg] = await Customer.aggregate([
       { $match: match }, // ✅ EARLY MATCH (huge perf gain)
-
       {
         $facet: {
           customersTotal: [{ $count: "count" }],
@@ -67,7 +70,7 @@ export const getDashboard = async (req, res, next) => {
             { $project: { _id: 0, key: "$_id", value: 1 } },
           ],
 
-          // ✅ This is what your dashboard "Recent Customers" needs
+          // ✅ dashboard "Recent Customers"
           recentCustomers: [
             { $sort: { createdAt: -1, _id: -1 } },
             { $limit: limit },
@@ -78,7 +81,7 @@ export const getDashboard = async (req, res, next) => {
                 companyName: 1,
                 email: 1,
                 phone: 1,
-                status: 1,     // progress pill uses this
+                status: 1,
                 createdAt: 1,
               },
             },
@@ -90,7 +93,7 @@ export const getDashboard = async (req, res, next) => {
             { $project: { _id: 0, key: "$_id", value: 1 } },
           ],
 
-          // ✅ This is what your dashboard "Recent Tasks" needs
+          // ✅ dashboard "Recent Tasks"
           recentTasks: [
             { $unwind: { path: "$crmTasks", preserveNullAndEmptyArrays: false } },
             {
@@ -120,9 +123,7 @@ export const getDashboard = async (req, res, next) => {
             { $match: { createdAt: { $gte: start } } },
             {
               $group: {
-                _id: {
-                  $dateToString: { date: "$createdAt", format: "%Y-%m-%d" },
-                },
+                _id: { $dateToString: { date: "$createdAt", format: "%Y-%m-%d" } },
                 value: { $sum: 1 },
               },
             },
@@ -135,8 +136,8 @@ export const getDashboard = async (req, res, next) => {
 
     const customersCount = agg?.customersTotal?.[0]?.count ?? 0;
 
-    // Normalize customer stats (matches your frontend logic)
-    const cMap = new Map((agg.customerStatus || []).map((x) => [x.key, x.value]));
+    // Normalize customer stats (matches frontend)
+    const cMap = new Map((agg?.customerStatus || []).map((x) => [x.key, x.value]));
     const customerStats = {
       total: customersCount,
       pending: cMap.get("pending") || 0,
@@ -151,7 +152,7 @@ export const getDashboard = async (req, res, next) => {
       ),
     };
 
-    const tMap = new Map((agg.taskStatus || []).map((x) => [x.key, x.value]));
+    const tMap = new Map((agg?.taskStatus || []).map((x) => [x.key, x.value]));
     const taskStats = {
       pending: tMap.get("pending") || 0,
       inProgress: tMap.get("in_progress") || 0,
@@ -161,13 +162,13 @@ export const getDashboard = async (req, res, next) => {
 
     // Build stable trend array (fill missing days with 0)
     const baseTrend = buildTrend(days);
-    const trendMap = new Map((agg.trend || []).map((x) => [x.key, x.value]));
+    const trendMap = new Map((agg?.trend || []).map((x) => [x.key, x.value]));
     const newCustomersTrend = baseTrend.map((d) => ({
       name: d.label,
       value: trendMap.get(d.key) || 0,
     }));
 
-    // Role-gated user counts (extra DB ops, but only when allowed)
+    // Role-gated user counts (extra DB ops)
     let employeesCount = 0;
     let adminsCount = 0;
     let superAdminsCount = 0;
@@ -189,13 +190,11 @@ export const getDashboard = async (req, res, next) => {
     }
 
     const payload = {
-      // useful for frontend role checks
       me: { _id: userId, role: user.role, name: user.name, email: user.email },
 
       customersCount,
       customerStats,
 
-      // chart-ready (your dashboard uses these)
       customerStatusChart: [
         { name: "In Progress", value: customerStats.inProgress },
         { name: "Completed", value: customerStats.complete },
@@ -210,13 +209,11 @@ export const getDashboard = async (req, res, next) => {
         { name: "Done", value: taskStats.done },
       ],
 
-      // ✅ recent customers needs name + company + status/progress
-      recentCustomers: agg.recentCustomers || [],
-      recentTasks: agg.recentTasks || [],
+      recentCustomers: agg?.recentCustomers || [],
+      recentTasks: agg?.recentTasks || [],
 
       newCustomersTrend,
 
-      // role-gated (frontend can show/hide)
       employeesCount,
       adminsCount,
       superAdminsCount,

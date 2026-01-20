@@ -15,6 +15,18 @@ const contactPersonSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// ✅ NEW (optional): multiple extra contacts per customer (keeps your main contactPerson)
+const secondaryContactSchema = new mongoose.Schema(
+  {
+    name: { type: String, trim: true, default: "" },
+    email: { type: String, lowercase: true, trim: true, default: "" },
+    phone: { type: String, trim: true, default: "" },
+    designation: { type: String, trim: true, default: "" },
+    isPrimary: { type: Boolean, default: false }, // optional flag
+  },
+  { _id: true }
+);
+
 const reminderSchema = new mongoose.Schema(
   {
     remindAt: { type: Date, required: true },
@@ -131,9 +143,7 @@ const taskSchema = new mongoose.Schema(
       index: true,
     },
 
-    assignedTo: [
-      { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
-    ],
+    assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: "User", index: true }],
 
     reminders: { type: [reminderSchema], default: [] },
 
@@ -160,7 +170,7 @@ const customerEngagementSchema = new mongoose.Schema(
     subEngagementIds: {
       type: [mongoose.Schema.Types.ObjectId], // references EngagementTemplate.subEngagements._id
       default: [],
-      index: true, // ✅ NEW: helps filtering by sub engagements
+      index: true, // ✅ helps filtering by sub engagements
     },
 
     updatedAt: { type: Date, default: Date.now, index: true },
@@ -174,6 +184,19 @@ const customerEngagementSchema = new mongoose.Schema(
   { _id: true }
 );
 
+// ✅ NEW (optional): structured addresses for real CRM + orders
+const addressSchema = new mongoose.Schema(
+  {
+    line1: { type: String, trim: true, default: "" },
+    line2: { type: String, trim: true, default: "" },
+    city: { type: String, trim: true, default: "" },
+    state: { type: String, trim: true, default: "" },
+    postalCode: { type: String, trim: true, default: "" },
+    country: { type: String, trim: true, default: "" },
+  },
+  { _id: false }
+);
+
 /* =========================
    CUSTOMER SCHEMA
 ========================= */
@@ -185,11 +208,29 @@ const customerSchema = new mongoose.Schema(
 
     email: { type: String, lowercase: true, trim: true, index: true },
     phone: { type: String, trim: true, index: true },
+
+    // kept for backward compatibility
     address: { type: String, trim: true, default: "" },
 
     contactPerson: { type: contactPersonSchema, required: true },
 
-    // ✅ customer type
+    // ✅ NEW (optional): multiple contacts (does not remove current feature)
+    secondaryContacts: { type: [secondaryContactSchema], default: [] },
+
+    // ✅ NEW: tags + lifecycle stage (common CRM features)
+    tags: { type: [String], default: [], index: true }, // ex: ["vip","wholesale"]
+    lifecycleStage: {
+      type: String,
+      enum: ["prospect", "active", "dormant", "churned"],
+      default: "prospect",
+      index: true,
+    },
+
+    // ✅ NEW (optional): billing/shipping address
+    billingAddress: { type: addressSchema, default: () => ({}) },
+    shippingAddress: { type: addressSchema, default: () => ({}) },
+
+    // ✅ customer type (kept)
     customerType: {
       type: String,
       enum: ["new", "recurring"],
@@ -225,16 +266,15 @@ const customerSchema = new mongoose.Schema(
       index: true,
     },
 
-    assignedTo: [
-      { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
-    ],
+    assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: "User", index: true }],
 
-    // ✅ Customer-level files use separate schema
+    // ✅ Customer-level files (kept)
     customerFiles: { type: [customerFileSchema], default: [] },
 
-    // ✅ Engagement history per year
+    // ✅ Engagement history per year (kept)
     engagements: { type: [customerEngagementSchema], default: [] },
 
+    // ✅ tasks with subtitle files + notes (kept)
     crmTasks: { type: [taskSchema], default: [] },
   },
   {
@@ -262,31 +302,10 @@ customerSchema.index({ "crmTasks.templateId": 1 });
 customerSchema.index({ "crmTasks.subtitles._id": 1 });
 customerSchema.index({ "crmTasks.subtitles.notes.createdAt": 1 });
 
-/**
- * ✅ Engagement indexes (UPDATED for your new filter feature)
- *
- * Notes:
- * - For queries like: engagements.$elemMatch({ engagementTemplateId, year, subEngagementIds: {$in|$all} })
- * - Mongo can use:
- *   - the compound index on (engagementTemplateId + year) for year+type filtering
- *   - and/or index intersection with subEngagementIds
- * - We AVOID a compound index (engagementTemplateId + subEngagementIds) because subEngagementIds is an array
- *   and MongoDB has restrictions when multiple array paths are involved.
- */
-
-// ✅ best for template + year filters (and still helps template-only)
-customerSchema.index({
-  "engagements.engagementTemplateId": 1,
-  "engagements.year": 1,
-});
-
-// ✅ template-only filter helper (and index intersection)
+// ✅ Engagement indexes (kept)
+customerSchema.index({ "engagements.engagementTemplateId": 1, "engagements.year": 1 });
 customerSchema.index({ "engagements.engagementTemplateId": 1 });
-
-// ✅ NEW: sub-engagement filtering (very important)
 customerSchema.index({ "engagements.subEngagementIds": 1 });
-
-// ✅ optional: helpful when sorting/paginating with cursor while filtering
 customerSchema.index({ "engagements.engagementTemplateId": 1, _id: -1 });
 customerSchema.index({ "engagements.subEngagementIds": 1, _id: -1 });
 
@@ -295,7 +314,7 @@ customerSchema.index({ customerType: 1, _id: -1 });
 // newest-first listing
 customerSchema.index({ createdAt: -1 });
 
-// lead unique constraint
+// lead unique constraint (kept)
 customerSchema.index({ leadId: 1 }, { unique: true, sparse: true });
 
 // cursor pagination indexes (kept)
@@ -308,7 +327,11 @@ customerSchema.index({ assignedTo: 1, status: 1, _id: -1 });
 customerSchema.index({ createdBy: 1, status: 1, _id: -1 });
 customerSchema.index({ origin: 1, status: 1, _id: -1 });
 
-/* fast text search */
+// ✅ NEW: helpful indexes for CRM filters
+customerSchema.index({ lifecycleStage: 1, _id: -1 });
+customerSchema.index({ tags: 1, _id: -1 });
+
+/* fast text search (kept) */
 customerSchema.index(
   {
     name: "text",

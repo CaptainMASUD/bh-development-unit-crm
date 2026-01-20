@@ -1,45 +1,30 @@
 import mongoose from "mongoose";
 
-/* =========================
-   SUB SCHEMAS
-========================= */
-
 const leadContactSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    email: { type: String, lowercase: true, trim: true },
-    phone: { type: String, trim: true },
-    companyName: { type: String, trim: true },
+    email: { type: String, lowercase: true, trim: true, default: "" },
+    phone: { type: String, trim: true, default: "" },
+    companyName: { type: String, required: true, trim: true },
   },
   { _id: false }
 );
 
 const leadNoteSchema = new mongoose.Schema(
   {
-    note: { type: String, required: true },
-    createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
-    createdAt: { type: Date, default: Date.now },
+    note: { type: String, required: true, trim: true },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    createdAt: { type: Date, default: Date.now, index: true },
   },
   { _id: false }
 );
 
-/* =========================
-   LEAD SCHEMA
-========================= */
-
 const leadSchema = new mongoose.Schema(
   {
-    /* Basic lead info */
-    contact: {
-      type: leadContactSchema,
-      required: true,
-    },
+    leadNumber: { type: String, default: "", trim: true, index: true },
 
-    /* Lead status */
+    contact: { type: leadContactSchema, required: true },
+
     status: {
       type: String,
       enum: ["new", "contacted", "pending", "confirmed", "lost"],
@@ -47,62 +32,66 @@ const leadSchema = new mongoose.Schema(
       index: true,
     },
 
-    /* Lead source */
-    source: {
+    pipelineStage: {
       type: String,
-      trim: true,
+      enum: ["new", "qualified", "proposal", "negotiation", "won", "lost"],
+      default: "new",
       index: true,
     },
 
-    /* Marketing ownership */
-    createdBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true,
+    source: { type: String, trim: true, index: true },
+
+    company: {
+      website: { type: String, trim: true, default: "" },
+      industry: { type: String, trim: true, default: "" },
+      address: { type: String, trim: true, default: "" },
     },
 
-    /* Assigned marketing team member */
-    assignedTo: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true,
-    },
+    tags: { type: [String], default: [], index: true },
 
-    /* Notes */
-    notes: {
-      type: [leadNoteSchema],
-      default: [],
-    },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
 
-    /* ✅ NEW: customer created immediately when lead is created */
-    customerId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Customer",
-      default: null,
-      index: true,
-    },
+    notes: { type: [leadNoteSchema], default: [] },
 
-    /* (Optional) keep old conversion fields for backward compatibility */
-    convertedCustomer: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Customer",
-      default: null,
-    },
-    convertedAt: {
-      type: Date,
-      default: null,
-    },
+    lastContactedAt: { type: Date, default: null, index: true },
+    nextFollowUpAt: { type: Date, default: null, index: true },
+
+    customerId: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", default: null, index: true },
+
+    convertedCustomer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", default: null },
+
+    convertedAt: { type: Date, default: null, index: true },
   },
   { timestamps: true }
 );
 
-/* =========================
-   INDEX OPTIMIZATION
-========================= */
+leadSchema.index({ assignedTo: 1, _id: -1 });
+leadSchema.index({ assignedTo: 1, status: 1, _id: -1 });
+leadSchema.index({ assignedTo: 1, nextFollowUpAt: 1, _id: -1 });
 
-leadSchema.index({ assignedTo: 1, status: 1 });
 leadSchema.index({ createdBy: 1, status: 1 });
+leadSchema.index({ pipelineStage: 1, assignedTo: 1, _id: -1 });
+
+leadSchema.index(
+  {
+    "contact.name": "text",
+    "contact.email": "text",
+    "contact.phone": "text",
+    "contact.companyName": "text",
+    leadNumber: "text",
+    source: "text",
+  },
+  { name: "lead_text_search" }
+);
+
+leadSchema.pre("save", function (next) {
+  if (!this.leadNumber) {
+    const idSuffix = String(this._id).slice(-4).toUpperCase();
+    const y = new Date().getFullYear();
+    this.leadNumber = `LD-${y}-${Date.now()}-${idSuffix}`;
+  }
+  next();
+});
 
 export default mongoose.model("Lead", leadSchema);

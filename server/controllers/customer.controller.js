@@ -4,11 +4,46 @@ import Customer from "../models/customer.model.js";
 import User from "../models/user.model.js";
 import EngagementTemplate from "../models/engagementTemplate.model.js";
 
+// ✅ NEW CRM MODULES
+import Deal from "../models/deal.model.js";
+import Order from "../models/order.model.js";
+import Invoice from "../models/invoice.model.js";
+import Activity from "../models/activity.model.js";
+
+// ✅ Dashboard cache invalidation (fix counts after create/delete/update)
+import { dashboardCache } from "../utils/cache.js";
+
 /* ------------------ helpers ------------------ */
 
 const isAdminOrSuperAdmin = (userOrReq) => {
   const role = userOrReq?.user?.role ?? userOrReq?.role;
   return role === "admin" || role === "superadmin";
+};
+
+const invalidateDashboardCache = () => {
+  try {
+    const keys = dashboardCache.keys?.() || [];
+    for (const k of keys) {
+      if (String(k).startsWith("dashboard:v1:")) dashboardCache.del(k);
+    }
+  } catch {
+    // fallback
+    try {
+      dashboardCache.flushAll?.();
+    } catch {}
+  }
+};
+
+const canAccessCustomerDoc = (customerDoc, req) => {
+  if (!customerDoc) return false;
+  if (isAdminOrSuperAdmin(req)) return true;
+
+  const uid = String(req.user?._id || "");
+  const createdBy = String(customerDoc.createdBy?._id ?? customerDoc.createdBy ?? "");
+  const assigned = Array.isArray(customerDoc.assignedTo) ? customerDoc.assignedTo : [];
+  const assignedIds = assigned.map((x) => String(x?._id ?? x));
+
+  return createdBy === uid || assignedIds.includes(uid);
 };
 
 const normalizeContactPerson = (contactPerson) => {
@@ -19,10 +54,10 @@ const normalizeContactPerson = (contactPerson) => {
 };
 
 const normalizeStatus = (status) => {
-  if (!status) return "in_progress";
+  if (!status) return "pending";
   const s = String(status).toLowerCase();
   if (s === "pending" || s === "in_progress" || s === "complete") return s;
-  return "in_progress";
+  return "pending";
 };
 
 const normalizeCustomerType = (v) => {
@@ -33,12 +68,20 @@ const normalizeCustomerType = (v) => {
   return "new";
 };
 
+const normalizeLifecycleStage = (v) => {
+  if (!v) return null;
+  const s = String(v).trim().toLowerCase();
+  const allowed = new Set(["prospect", "active", "dormant", "churned"]);
+  return allowed.has(s) ? s : null;
+};
+
 const buildVisibilityMatch = (req) => {
   const includeLeadCustomers =
     String(req.query?.includeLeadCustomers || "").toLowerCase() === "true";
 
   // admin can see lead customers if requested
   if (includeLeadCustomers && isAdminOrSuperAdmin(req)) return {};
+
   // default only direct customers
   return { origin: "direct" };
 };
@@ -64,9 +107,10 @@ const clampYearOrNull = (v) => {
   return y;
 };
 
+const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 /**
- * ✅ Customer Files normalizer (customerFiles uses its OWN schema)
- * Expected: [{ key, url, originalName, displayName?, mimeType?, size? }]
+ * CustomerFiles normalizer
  */
 const normalizeCustomerFiles = (files, reqUserId) => {
   if (files === undefined) return { files: undefined };
@@ -104,7 +148,6 @@ const sanitizeSubEngagementIds = (arr) => {
   for (const v of arr) {
     if (mongoose.isValidObjectId(v)) out.push(new mongoose.Types.ObjectId(String(v)));
   }
-  // de-dupe
   const seen = new Set();
   const uniq = [];
   for (const id of out) {
@@ -116,10 +159,7 @@ const sanitizeSubEngagementIds = (arr) => {
   return uniq;
 };
 
-const validateEngagementSelection = async ({
-  engagementTemplateId,
-  subEngagementIds,
-}) => {
+const validateEngagementSelection = async ({ engagementTemplateId, subEngagementIds }) => {
   const tplId = toObjectIdOrNull(engagementTemplateId);
   if (!tplId) return { error: "Invalid engagementTemplateId." };
 
@@ -132,7 +172,6 @@ const validateEngagementSelection = async ({
 
   const selected = sanitizeSubEngagementIds(subEngagementIds);
 
-  // validate selected ids against template
   const allowedIds = new Set((tpl.subEngagements || []).map((s) => String(s._id)));
   for (const sid of selected) {
     if (!allowedIds.has(String(sid))) {
@@ -143,13 +182,8 @@ const validateEngagementSelection = async ({
   return { tplId, subIds: selected };
 };
 
-/* ------------------ NEW: list filter helpers ------------------ */
+/* ------------------ list filter helpers ------------------ */
 
-/**
- * Parse query subEngagementIds from:
- * - subEngagementIds=1,2,3
- * - OR repeated: subEngagementIds=1&subEngagementIds=2
- */
 const parseSubEngagementIdsQuery = (v) => {
   if (!v) return [];
   if (Array.isArray(v)) return sanitizeSubEngagementIds(v);
@@ -163,41 +197,141 @@ const normalizeSubMatch = (v) => {
   return s === "all" ? "all" : "any";
 };
 
-/**
- * Build Mongo filter for engagements:
- * - engagementTemplateId required to apply engagement filter
- * - optional engagementYear
- * - optional subEngagementIds + match mode (any/all)
- */
 const buildEngagementElemMatch = (req) => {
   const templateId = toObjectIdOrNull(req.query.engagementTemplateId);
   const year = clampYearOrNull(req.query.engagementYear);
   const subMatch = normalizeSubMatch(req.query.subMatch);
   const subIds = parseSubEngagementIdsQuery(req.query.subEngagementIds);
 
-  // if user didn't request engagement filtering, return null
   if (!req.query.engagementTemplateId && !req.query.engagementYear && !req.query.subEngagementIds) {
     return { elemMatch: null, error: null };
   }
 
-  // We require engagementTemplateId for stable filtering by "type"
   if (!templateId) {
-    return { elemMatch: null, error: "Valid engagementTemplateId is required for engagement filtering." };
+    return {
+      elemMatch: null,
+      error: "Valid engagementTemplateId is required for engagement filtering.",
+    };
   }
 
   const elem = { engagementTemplateId: templateId };
-
   if (year) elem.year = year;
 
   if (subIds.length) {
-    if (subMatch === "all") {
-      elem.subEngagementIds = { $all: subIds };
-    } else {
-      elem.subEngagementIds = { $in: subIds };
-    }
+    if (subMatch === "all") elem.subEngagementIds = { $all: subIds };
+    else elem.subEngagementIds = { $in: subIds };
   }
 
   return { elemMatch: elem, error: null };
+};
+
+const buildCustomerListMatch = (req) => {
+  const visibilityMatch = buildVisibilityMatch(req);
+
+  const match = isAdminOrSuperAdmin(req)
+    ? { ...visibilityMatch }
+    : {
+        ...visibilityMatch,
+        $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
+      };
+
+  if (req.query.status !== undefined) {
+    match.status = normalizeStatus(req.query.status);
+  }
+
+  if (req.query.customerType !== undefined) {
+    match.customerType = normalizeCustomerType(req.query.customerType);
+  }
+
+  if (req.query.lifecycleStage !== undefined) {
+    const ls = normalizeLifecycleStage(req.query.lifecycleStage);
+    if (ls) match.lifecycleStage = ls;
+    else return { match: null, error: "Invalid lifecycleStage." };
+  }
+
+  if (req.query.tags !== undefined) {
+    const tagsRaw = String(req.query.tags || "").trim();
+    const tags = tagsRaw
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .slice(0, 50);
+
+    const tagsMatch = String(req.query.tagsMatch || "any").toLowerCase() === "all" ? "all" : "any";
+
+    if (tags.length) {
+      match.tags = tagsMatch === "all" ? { $all: tags } : { $in: tags };
+    }
+  }
+
+  // text search if requested
+  if (req.query.q !== undefined) {
+    const q = String(req.query.q || "").trim();
+    if (q) match.$text = { $search: q };
+  }
+
+  return { match, error: null };
+};
+
+/* =========================================================
+   EMPLOYEE SEARCH FOR ASSIGN (optimized)
+   GET /customers/employees/search?q=&active=true|false|all&limit=&cursor=<userId>
+========================================================= */
+
+export const searchEmployeesForCustomerAssign = async (req, res) => {
+  try {
+    if (!isAdminOrSuperAdmin(req)) {
+      return res.status(403).json({ message: "Not authorized." });
+    }
+
+    const limit = clampLimit(req.query.limit, 1, 100, 20);
+    const cursorId = toObjectIdOrNull(req.query.cursor);
+
+    const qRaw = String(req.query.q ?? "").trim();
+    const q = qRaw.toLowerCase();
+    const active = String(req.query.active ?? "true").toLowerCase();
+
+    const filter = { role: "employee" };
+
+    if (active === "true") filter.isActive = true;
+    else if (active === "false") filter.isActive = false;
+
+    // ✅ Prefer indexed prefix search using nameLower
+    // - If q looks like email, do contains match on email (still indexed on email but regex won't use it fully)
+    // - Else do prefix match on nameLower (uses index: role+isActive+nameLower)
+    if (q) {
+      const safe = escapeRegex(q);
+      const isEmailish = q.includes("@");
+
+      if (isEmailish) {
+        filter.email = new RegExp(safe, "i");
+      } else {
+        filter.$or = [
+          { nameLower: new RegExp(`^${safe}`, "i") },
+          { email: new RegExp(`^${safe}`, "i") },
+        ];
+      }
+    }
+
+    if (cursorId) filter._id = { $lt: cursorId };
+
+    const rows = await User.find(filter)
+      .select("_id name email role isActive avatarUrl createdAt")
+      .sort({ _id: -1 })
+      .limit(limit + 1)
+      .lean();
+
+    const hasMore = rows.length > limit;
+    const employees = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = employees.length ? String(employees[employees.length - 1]._id) : null;
+
+    return res.status(200).json({ count: employees.length, employees, hasMore, nextCursor });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Server error in searchEmployeesForCustomerAssign.",
+      error: err.message,
+    });
+  }
 };
 
 /* ------------------ controllers ------------------ */
@@ -205,11 +339,6 @@ const buildEngagementElemMatch = (req) => {
 /**
  * CREATE CUSTOMER
  * POST /customers
- *
- * ✅ REQUIRED:
- * - engagementYear
- * - engagementTemplateId
- * - subEngagementIds? (optional)
  */
 export const createCustomer = async (req, res) => {
   try {
@@ -222,9 +351,7 @@ export const createCustomer = async (req, res) => {
       contactPerson,
       status,
       customerType,
-
       customerFiles,
-
       engagementYear,
       engagementTemplateId,
       subEngagementIds,
@@ -245,19 +372,13 @@ export const createCustomer = async (req, res) => {
     );
     if (filesErr) return res.status(400).json({ message: filesErr });
 
-    // ✅ engagement is REQUIRED
+    // engagement required
     const y = clampYearOrNull(engagementYear);
-    if (!y) {
-      return res.status(400).json({ message: "engagementYear is required." });
-    }
-    if (!engagementTemplateId) {
+    if (!y) return res.status(400).json({ message: "engagementYear is required." });
+    if (!engagementTemplateId)
       return res.status(400).json({ message: "engagementTemplateId is required." });
-    }
 
-    const val = await validateEngagementSelection({
-      engagementTemplateId,
-      subEngagementIds,
-    });
+    const val = await validateEngagementSelection({ engagementTemplateId, subEngagementIds });
     if (val.error) return res.status(400).json({ message: val.error });
 
     const engagements = [
@@ -301,6 +422,9 @@ export const createCustomer = async (req, res) => {
 
     const customer = await Customer.create(payload);
 
+    // ✅ FIX: invalidate dashboard cache so counts stay correct immediately
+    invalidateDashboardCache();
+
     return res.status(201).json({
       message: "Customer created.",
       customer: {
@@ -322,48 +446,26 @@ export const createCustomer = async (req, res) => {
 };
 
 /**
- * GET CUSTOMERS (FAST LIST + FILTER)
+ * GET CUSTOMERS
  * GET /customers
- *
- * Pagination:
- * - limit=20
- * - cursor=<lastId>
- *
- * Engagement filter:
- * - engagementTemplateId=<ObjectId>   (required if using engagement filter)
- * - subEngagementIds=<id1,id2>       (optional)
- * - subMatch=any|all                 (optional, default any)
- * - engagementYear=2025              (optional)
- *
- * Other:
- * - includeLeadCustomers=true (admin only)
  */
 export const getCustomers = async (req, res) => {
   try {
     const limit = clampLimit(req.query.limit, 1, 50, 20);
     const cursorId = toObjectIdOrNull(req.query.cursor);
 
-    const visibilityMatch = buildVisibilityMatch(req);
+    const { match, error: matchErr } = buildCustomerListMatch(req);
+    if (matchErr) return res.status(400).json({ message: matchErr });
+    if (!match) return res.status(400).json({ message: "Invalid filters." });
 
-    const match = isAdminOrSuperAdmin(req)
-      ? { ...visibilityMatch }
-      : {
-          ...visibilityMatch,
-          $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
-        };
-
-    // ✅ NEW: engagement filtering via $elemMatch
     const { elemMatch, error: engagementFilterErr } = buildEngagementElemMatch(req);
-    if (engagementFilterErr) {
-      return res.status(400).json({ message: engagementFilterErr });
-    }
+    if (engagementFilterErr) return res.status(400).json({ message: engagementFilterErr });
 
     const pipeline = [
       { $match: match },
-
       ...(elemMatch ? [{ $match: { engagements: { $elemMatch: elemMatch } } }] : []),
-
       ...(cursorId ? [{ $match: { _id: { $lt: cursorId } } }] : []),
+
       { $sort: { _id: -1 } },
       { $limit: limit + 1 },
 
@@ -377,19 +479,16 @@ export const getCustomers = async (req, res) => {
           contactPerson: 1,
           status: 1,
           customerType: 1,
+          lifecycleStage: 1,
+          tags: 1,
           origin: 1,
           leadId: 1,
           assignedTo: 1,
           createdBy: 1,
           createdAt: 1,
           updatedAt: 1,
-
-          // optional: if you want to show engagements summary in list
-          // engagements: 1,
         },
       },
-
-      { $unset: "crmTasks" },
 
       {
         $lookup: {
@@ -422,16 +521,9 @@ export const getCustomers = async (req, res) => {
 
     const hasMore = rows.length > limit;
     const customers = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = customers.length
-      ? String(customers[customers.length - 1]._id)
-      : null;
+    const nextCursor = customers.length ? String(customers[customers.length - 1]._id) : null;
 
-    return res.status(200).json({
-      count: customers.length,
-      hasMore,
-      nextCursor,
-      customers,
-    });
+    return res.status(200).json({ count: customers.length, hasMore, nextCursor, customers });
   } catch (err) {
     return res.status(500).json({
       message: "Server error in getCustomers.",
@@ -441,17 +533,13 @@ export const getCustomers = async (req, res) => {
 };
 
 /**
- * GET SINGLE CUSTOMER (DETAILS)
+ * GET SINGLE CUSTOMER
  * GET /customers/:id
- *
- * ✅ Returns customer details (excluding crmTasks)
- * ✅ Includes: customerFiles + engagements (with title + sub texts)
  */
 export const getCustomerById = async (req, res) => {
   try {
     const customerId = toObjectIdOrNull(req.params.id);
-    if (!customerId)
-      return res.status(400).json({ message: "Invalid customer id." });
+    if (!customerId) return res.status(400).json({ message: "Invalid customer id." });
 
     const visibilityMatch = buildVisibilityMatch(req);
 
@@ -465,7 +553,6 @@ export const getCustomerById = async (req, res) => {
 
     const pipeline = [
       { $match: baseMatch },
-
       {
         $project: {
           name: 1,
@@ -474,6 +561,11 @@ export const getCustomerById = async (req, res) => {
           phone: 1,
           address: 1,
           contactPerson: 1,
+          secondaryContacts: 1,
+          tags: 1,
+          lifecycleStage: 1,
+          billingAddress: 1,
+          shippingAddress: 1,
           status: 1,
           customerType: 1,
           origin: 1,
@@ -486,9 +578,6 @@ export const getCustomerById = async (req, res) => {
           updatedAt: 1,
         },
       },
-      { $unset: "crmTasks" },
-
-      // ✅ join engagement templates
       {
         $lookup: {
           from: "engagementtemplates",
@@ -497,8 +586,6 @@ export const getCustomerById = async (req, res) => {
           as: "engagementTemplateDocs",
         },
       },
-
-      // ✅ map engagements to include title + selected subEngagement texts
       {
         $addFields: {
           engagements: {
@@ -512,7 +599,6 @@ export const getCustomerById = async (req, res) => {
                 subEngagementIds: "$$e.subEngagementIds",
                 updatedAt: "$$e.updatedAt",
                 updatedBy: "$$e.updatedBy",
-
                 engagementTitle: {
                   $let: {
                     vars: {
@@ -532,7 +618,6 @@ export const getCustomerById = async (req, res) => {
                     in: "$$tpl.title",
                   },
                 },
-
                 subEngagements: {
                   $let: {
                     vars: {
@@ -570,7 +655,6 @@ export const getCustomerById = async (req, res) => {
         },
       },
       { $project: { engagementTemplateDocs: 0 } },
-
       {
         $lookup: {
           from: "users",
@@ -594,8 +678,7 @@ export const getCustomerById = async (req, res) => {
     ];
 
     const rows = await Customer.aggregate(pipeline);
-    if (!rows.length)
-      return res.status(404).json({ message: "Customer not found." });
+    if (!rows.length) return res.status(404).json({ message: "Customer not found." });
 
     return res.status(200).json({ customer: rows[0] });
   } catch (err) {
@@ -607,14 +690,13 @@ export const getCustomerById = async (req, res) => {
 };
 
 /**
- * GET CUSTOMER TASKS (PAGINATED + PRIVACY)
+ * GET CUSTOMER TASKS
  * GET /customers/:id/tasks?limit=20&cursor=<taskId>
  */
 export const getCustomerTasks = async (req, res) => {
   try {
     const customerId = toObjectIdOrNull(req.params.id);
-    if (!customerId)
-      return res.status(400).json({ message: "Invalid customer id." });
+    if (!customerId) return res.status(400).json({ message: "Invalid customer id." });
 
     const limit = clampLimit(req.query.limit, 1, 50, 20);
     const taskCursor = toObjectIdOrNull(req.query.cursor);
@@ -636,10 +718,7 @@ export const getCustomerTasks = async (req, res) => {
       { $project: { crmTasks: 1 } },
       { $unwind: "$crmTasks" },
 
-      ...(isAdminOrSuperAdmin(req)
-        ? []
-        : [{ $match: { "crmTasks.assignedTo": meId } }]),
-
+      ...(isAdminOrSuperAdmin(req) ? [] : [{ $match: { "crmTasks.assignedTo": meId } }]),
       ...(taskCursor ? [{ $match: { "crmTasks._id": { $lt: taskCursor } } }] : []),
 
       { $sort: { "crmTasks._id": -1 } },
@@ -670,12 +749,7 @@ export const getCustomerTasks = async (req, res) => {
     const tasks = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = tasks.length ? String(tasks[tasks.length - 1]._id) : null;
 
-    return res.status(200).json({
-      count: tasks.length,
-      hasMore,
-      nextCursor,
-      tasks,
-    });
+    return res.status(200).json({ count: tasks.length, hasMore, nextCursor, tasks });
   } catch (err) {
     return res.status(500).json({
       message: "Server error in getCustomerTasks.",
@@ -687,23 +761,16 @@ export const getCustomerTasks = async (req, res) => {
 /**
  * UPDATE CUSTOMER
  * PATCH /customers/:id
- *
- * Updatable fields:
- * - customerType
- * - customerFiles (replace full list) [optional]
  */
 export const updateCustomer = async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.id).select(
-      "name companyName email phone address contactPerson status createdBy origin leadId customerType customerFiles"
+      "name companyName email phone address contactPerson status createdBy origin leadId customerType customerFiles secondaryContacts tags lifecycleStage billingAddress shippingAddress"
     );
 
-    if (!customer)
-      return res.status(404).json({ message: "Customer not found." });
+    if (!customer) return res.status(404).json({ message: "Customer not found." });
 
-    const isOwner =
-      String(customer.createdBy?._id ?? customer.createdBy) ===
-      String(req.user._id);
+    const isOwner = String(customer.createdBy?._id ?? customer.createdBy) === String(req.user._id);
 
     if (!isAdminOrSuperAdmin(req) && !isOwner) {
       return res.status(403).json({ message: "You cannot update this customer." });
@@ -726,9 +793,7 @@ export const updateCustomer = async (req, res) => {
       customer.phone = v || undefined;
     }
 
-    if (req.body.address !== undefined) {
-      customer.address = String(req.body.address || "").trim();
-    }
+    if (req.body.address !== undefined) customer.address = String(req.body.address || "").trim();
 
     if (req.body.contactPerson !== undefined) {
       const cp = normalizeContactPerson(req.body.contactPerson);
@@ -744,11 +809,36 @@ export const updateCustomer = async (req, res) => {
       };
     }
 
-    if (req.body.status !== undefined)
-      customer.status = normalizeStatus(req.body.status);
+    if (req.body.status !== undefined) customer.status = normalizeStatus(req.body.status);
 
-    if (req.body.customerType !== undefined) {
+    if (req.body.customerType !== undefined)
       customer.customerType = normalizeCustomerType(req.body.customerType);
+
+    if (req.body.lifecycleStage !== undefined) {
+      const ls = normalizeLifecycleStage(req.body.lifecycleStage);
+      if (!ls) return res.status(400).json({ message: "Invalid lifecycleStage." });
+      customer.lifecycleStage = ls;
+    }
+
+    if (req.body.tags !== undefined) {
+      const tags = Array.isArray(req.body.tags)
+        ? req.body.tags.map((t) => String(t).trim()).filter(Boolean).slice(0, 50)
+        : [];
+      customer.tags = tags;
+    }
+
+    if (req.body.secondaryContacts !== undefined) {
+      customer.secondaryContacts = Array.isArray(req.body.secondaryContacts)
+        ? req.body.secondaryContacts
+        : [];
+    }
+
+    if (req.body.billingAddress !== undefined) {
+      customer.billingAddress = req.body.billingAddress || {};
+    }
+
+    if (req.body.shippingAddress !== undefined) {
+      customer.shippingAddress = req.body.shippingAddress || {};
     }
 
     if (req.body.customerFiles !== undefined) {
@@ -758,6 +848,9 @@ export const updateCustomer = async (req, res) => {
     }
 
     await customer.save();
+
+    // ✅ FIX: invalidate dashboard cache on updates too (counts + recent lists)
+    invalidateDashboardCache();
 
     return res.status(200).json({ message: "Customer updated.", customer });
   } catch (err) {
@@ -769,16 +862,14 @@ export const updateCustomer = async (req, res) => {
 };
 
 /**
- * UPSERT CUSTOMER ENGAGEMENT (by year)
+ * UPSERT CUSTOMER ENGAGEMENT
  * PATCH /customers/:id/engagements
- * body: { year, engagementTemplateId, subEngagementIds?: [] }
  */
 export const upsertCustomerEngagement = async (req, res) => {
   try {
     const customer = await Customer.findById(req.params.id).select(
       "_id createdBy assignedTo engagements origin"
     );
-
     if (!customer) return res.status(404).json({ message: "Customer not found." });
 
     const isOwner = String(customer.createdBy) === String(req.user._id);
@@ -791,9 +882,8 @@ export const upsertCustomerEngagement = async (req, res) => {
     if (!year) return res.status(400).json({ message: "Valid year is required." });
 
     const engagementTemplateId = req.body.engagementTemplateId;
-    if (!engagementTemplateId) {
+    if (!engagementTemplateId)
       return res.status(400).json({ message: "engagementTemplateId is required." });
-    }
 
     const val = await validateEngagementSelection({
       engagementTemplateId,
@@ -817,10 +907,10 @@ export const upsertCustomerEngagement = async (req, res) => {
       customer.engagements.push(next);
     }
 
-    // keep engagements sorted newest year first (optional)
     customer.engagements.sort((a, b) => Number(b.year) - Number(a.year));
-
     await customer.save();
+
+    invalidateDashboardCache();
 
     return res.status(200).json({
       message: "Customer engagement updated.",
@@ -840,13 +930,13 @@ export const upsertCustomerEngagement = async (req, res) => {
  */
 export const deleteCustomer = async (req, res) => {
   try {
-    if (!isAdminOrSuperAdmin(req)) {
-      return res.status(403).json({ message: "Not authorized." });
-    }
+    if (!isAdminOrSuperAdmin(req)) return res.status(403).json({ message: "Not authorized." });
 
     const customer = await Customer.findByIdAndDelete(req.params.id).select("_id");
-    if (!customer)
-      return res.status(404).json({ message: "Customer not found." });
+    if (!customer) return res.status(404).json({ message: "Customer not found." });
+
+    // ✅ FIX: clear dashboard cache so counts don't stay stale after delete
+    invalidateDashboardCache();
 
     return res.status(200).json({ message: "Customer deleted." });
   } catch (err) {
@@ -857,10 +947,16 @@ export const deleteCustomer = async (req, res) => {
   }
 };
 
+/* =========================================================
+   ASSIGNMENT
+========================================================= */
+
 /**
- * ASSIGN / REASSIGN CUSTOMER (admin/superadmin only)
  * PATCH /customers/:id/assign
- * body: { employeeId } OR { employeeIds: [] }
+ * body:
+ * - { employeeId: "..." }
+ * - { employeeIds: ["..",".."] }
+ * - { employeeIds: [] } ✅ clear
  */
 export const assignCustomer = async (req, res) => {
   try {
@@ -869,29 +965,47 @@ export const assignCustomer = async (req, res) => {
     }
 
     const { employeeId, employeeIds } = req.body;
-    let ids = [];
+
+    const normalizeIds = (arr) => {
+      const out = [];
+      const seen = new Set();
+      for (const v of arr) {
+        const s = String(v ?? "").trim();
+        if (!s) continue;
+        if (!mongoose.isValidObjectId(s)) continue;
+        if (seen.has(s)) continue;
+        seen.add(s);
+        out.push(s);
+      }
+      return out;
+    };
+
+    let ids = null;
 
     if (employeeIds !== undefined) {
       if (!Array.isArray(employeeIds)) {
         return res.status(400).json({ message: "employeeIds must be an array." });
       }
-      ids = employeeIds.filter(Boolean).map(String);
-    } else if (employeeId) {
-      ids = [String(employeeId)];
+      ids = normalizeIds(employeeIds); // can be []
+    } else if (employeeId !== undefined) {
+      const one = normalizeIds([employeeId]);
+      ids = one.length ? [one[0]] : [];
     } else {
       return res.status(400).json({
-        message: "Provide employeeId (single) or employeeIds (multiple).",
+        message:
+          "Provide employeeId (single) or employeeIds (multiple). To clear, send employeeIds: [].",
       });
     }
 
     if (ids.length > 0) {
-      const employees = await User.find({
+      const found = await User.countDocuments({
         _id: { $in: ids },
         role: "employee",
-      }).select("_id");
+        isActive: true,
+      });
 
-      if (employees.length !== ids.length) {
-        return res.status(404).json({ message: "One or more employees not found." });
+      if (found !== ids.length) {
+        return res.status(404).json({ message: "One or more employees not found or inactive." });
       }
     }
 
@@ -903,13 +1017,264 @@ export const assignCustomer = async (req, res) => {
 
     if (!updated) return res.status(404).json({ message: "Customer not found." });
 
+    invalidateDashboardCache();
+
     return res.status(200).json({
-      message: "Customer assigned successfully.",
+      message: ids.length === 0 ? "Customer assignments cleared." : "Customer assigned successfully.",
       customer: updated,
     });
   } catch (err) {
     return res.status(500).json({
       message: "Server error in assignCustomer.",
+      error: err.message,
+    });
+  }
+};
+
+/* =========================================================
+   CRM ENDPOINTS
+========================================================= */
+
+export const getCustomerSummary = async (req, res) => {
+  try {
+    const customerId = toObjectIdOrNull(req.params.id);
+    if (!customerId) return res.status(400).json({ message: "Invalid customer id." });
+
+    const visibilityMatch = buildVisibilityMatch(req);
+
+    const customer = await Customer.findOne(
+      isAdminOrSuperAdmin(req)
+        ? { _id: customerId, ...visibilityMatch }
+        : {
+            _id: customerId,
+            ...visibilityMatch,
+            $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
+          }
+    )
+      .select("_id name companyName createdBy assignedTo crmTasks")
+      .lean();
+
+    if (!customer) return res.status(404).json({ message: "Customer not found." });
+
+    const tasks = Array.isArray(customer.crmTasks) ? customer.crmTasks : [];
+    const taskCounts = {
+      pending: tasks.filter((t) => t.status === "pending").length,
+      in_progress: tasks.filter((t) => t.status === "in_progress").length,
+      done: tasks.filter((t) => t.status === "done").length,
+    };
+
+    const [dealOpen, dealWon, dealLost, ordersCount, invoicesCount, lastActivity] =
+      await Promise.all([
+        Deal.countDocuments({ customerId, stage: { $nin: ["won", "lost"] } }),
+        Deal.countDocuments({ customerId, stage: "won" }),
+        Deal.countDocuments({ customerId, stage: "lost" }),
+        Order.countDocuments({ customerId }),
+        Invoice.countDocuments({ customerId }),
+        Activity.findOne({ customerId })
+          .sort({ _id: -1 })
+          .select("type text createdAt scheduledAt isDone")
+          .lean(),
+      ]);
+
+    return res.status(200).json({
+      customerId: String(customerId),
+      customerName: customer.name,
+      companyName: customer.companyName,
+      deals: { open: dealOpen, won: dealWon, lost: dealLost },
+      orders: { count: ordersCount },
+      invoices: { count: invoicesCount },
+      tasks: taskCounts,
+      lastActivity: lastActivity || null,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Server error in getCustomerSummary.",
+      error: err.message,
+    });
+  }
+};
+
+export const getCustomerTimeline = async (req, res) => {
+  try {
+    const customerId = toObjectIdOrNull(req.params.id);
+    if (!customerId) return res.status(400).json({ message: "Invalid customer id." });
+
+    const visibilityMatch = buildVisibilityMatch(req);
+
+    const customer = await Customer.findOne(
+      isAdminOrSuperAdmin(req)
+        ? { _id: customerId, ...visibilityMatch }
+        : {
+            _id: customerId,
+            ...visibilityMatch,
+            $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
+          }
+    )
+      .select("_id createdBy assignedTo")
+      .lean();
+
+    if (!customer) return res.status(404).json({ message: "Customer not found." });
+    if (!canAccessCustomerDoc(customer, req)) return res.status(403).json({ message: "No access." });
+
+    const limit = clampLimit(req.query.limit, 1, 100, 20);
+    const cursor = toObjectIdOrNull(req.query.cursor);
+
+    const filter = { customerId };
+    if (cursor) filter._id = { $lt: cursor };
+
+    const rows = await Activity.find(filter)
+      .sort({ _id: -1 })
+      .limit(limit + 1)
+      .populate("createdBy", "name email role")
+      .lean();
+
+    const hasMore = rows.length > limit;
+    const activities = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = activities.length ? String(activities[activities.length - 1]._id) : null;
+
+    return res.status(200).json({ count: activities.length, hasMore, nextCursor, activities });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Server error in getCustomerTimeline.",
+      error: err.message,
+    });
+  }
+};
+
+export const getCustomerDeals = async (req, res) => {
+  try {
+    const customerId = toObjectIdOrNull(req.params.id);
+    if (!customerId) return res.status(400).json({ message: "Invalid customer id." });
+
+    const visibilityMatch = buildVisibilityMatch(req);
+
+    const customer = await Customer.findOne(
+      isAdminOrSuperAdmin(req)
+        ? { _id: customerId, ...visibilityMatch }
+        : {
+            _id: customerId,
+            ...visibilityMatch,
+            $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
+          }
+    )
+      .select("_id createdBy assignedTo")
+      .lean();
+
+    if (!customer) return res.status(404).json({ message: "Customer not found." });
+    if (!canAccessCustomerDoc(customer, req)) return res.status(403).json({ message: "No access." });
+
+    const limit = clampLimit(req.query.limit, 1, 100, 20);
+    const cursor = toObjectIdOrNull(req.query.cursor);
+    const stage = req.query.stage ? String(req.query.stage).toLowerCase() : null;
+
+    const filter = { customerId };
+    if (cursor) filter._id = { $lt: cursor };
+    if (stage) filter.stage = stage;
+
+    const rows = await Deal.find(filter)
+      .sort({ _id: -1 })
+      .limit(limit + 1)
+      .populate("ownerId", "name email role")
+      .lean();
+
+    const hasMore = rows.length > limit;
+    const deals = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = deals.length ? String(deals[deals.length - 1]._id) : null;
+
+    return res.status(200).json({ count: deals.length, hasMore, nextCursor, deals });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Server error in getCustomerDeals.",
+      error: err.message,
+    });
+  }
+};
+
+export const getCustomerOrders = async (req, res) => {
+  try {
+    const customerId = toObjectIdOrNull(req.params.id);
+    if (!customerId) return res.status(400).json({ message: "Invalid customer id." });
+
+    const visibilityMatch = buildVisibilityMatch(req);
+
+    const customer = await Customer.findOne(
+      isAdminOrSuperAdmin(req)
+        ? { _id: customerId, ...visibilityMatch }
+        : {
+            _id: customerId,
+            ...visibilityMatch,
+            $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
+          }
+    )
+      .select("_id createdBy assignedTo")
+      .lean();
+
+    if (!customer) return res.status(404).json({ message: "Customer not found." });
+    if (!canAccessCustomerDoc(customer, req)) return res.status(403).json({ message: "No access." });
+
+    const limit = clampLimit(req.query.limit, 1, 100, 20);
+    const cursor = toObjectIdOrNull(req.query.cursor);
+    const status = req.query.status ? String(req.query.status).toLowerCase() : null;
+
+    const filter = { customerId };
+    if (cursor) filter._id = { $lt: cursor };
+    if (status) filter.status = status;
+
+    const rows = await Order.find(filter).sort({ _id: -1 }).limit(limit + 1).lean();
+
+    const hasMore = rows.length > limit;
+    const orders = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = orders.length ? String(orders[orders.length - 1]._id) : null;
+
+    return res.status(200).json({ count: orders.length, hasMore, nextCursor, orders });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Server error in getCustomerOrders.",
+      error: err.message,
+    });
+  }
+};
+
+export const getCustomerInvoices = async (req, res) => {
+  try {
+    const customerId = toObjectIdOrNull(req.params.id);
+    if (!customerId) return res.status(400).json({ message: "Invalid customer id." });
+
+    const visibilityMatch = buildVisibilityMatch(req);
+
+    const customer = await Customer.findOne(
+      isAdminOrSuperAdmin(req)
+        ? { _id: customerId, ...visibilityMatch }
+        : {
+            _id: customerId,
+            ...visibilityMatch,
+            $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
+          }
+    )
+      .select("_id createdBy assignedTo")
+      .lean();
+
+    if (!customer) return res.status(404).json({ message: "Customer not found." });
+    if (!canAccessCustomerDoc(customer, req)) return res.status(403).json({ message: "No access." });
+
+    const limit = clampLimit(req.query.limit, 1, 100, 20);
+    const cursor = toObjectIdOrNull(req.query.cursor);
+    const status = req.query.status ? String(req.query.status).toLowerCase() : null;
+
+    const filter = { customerId };
+    if (cursor) filter._id = { $lt: cursor };
+    if (status) filter.status = status;
+
+    const rows = await Invoice.find(filter).sort({ _id: -1 }).limit(limit + 1).lean();
+
+    const hasMore = rows.length > limit;
+    const invoices = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = invoices.length ? String(invoices[invoices.length - 1]._id) : null;
+
+    return res.status(200).json({ count: invoices.length, hasMore, nextCursor, invoices });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Server error in getCustomerInvoices.",
       error: err.message,
     });
   }

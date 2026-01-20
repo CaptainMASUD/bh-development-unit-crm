@@ -1,31 +1,35 @@
-// routes/lead.routes.js
-import express from "express"
+import express from "express";
 import {
   createLead,
   getLeads,
   getLeadById,
   updateLead,
   addLeadNote,
-  convertLeadToCustomer,
   deleteLead,
-} from "../controllers/lead.controller.js"
+  convertLeadToCustomer,
+  updateLeadFollowup,
+  getLeadTimeline,
+  createDealFromLead,
+} from "../controllers/lead.controller.js";
 
-import { protect, isAdminOrSuperAdmin } from "../middleware/auth.middleware.js"
+import { protect, isAdminOrSuperAdmin } from "../middleware/auth.middleware.js";
 
-const router = express.Router()
+const router = express.Router();
+router.use(protect);
 
-router.use(protect)
+router.post("/", createLead);
+router.get("/", getLeads);
+router.get("/:id", getLeadById);
+router.patch("/:id", updateLead);
 
-router.post("/", createLead)
-router.get("/", getLeads)
-router.get("/:id", getLeadById)
-router.patch("/:id", updateLead)
-router.post("/:id/notes", addLeadNote)
+router.post("/:id/notes", addLeadNote);
+router.patch("/:id/followup", updateLeadFollowup);
 
-// ✅ only admin/superadmin
-router.post("/:id/convert", isAdminOrSuperAdmin, convertLeadToCustomer)
+router.get("/:id/timeline", getLeadTimeline);
 
-// ✅ delete lead (admin/superadmin)
-router.delete("/:id", isAdminOrSuperAdmin, deleteLead)
+router.post("/:id/deals", createDealFromLead);
 
-export default router
+router.post("/:id/convert", isAdminOrSuperAdmin, convertLeadToCustomer);
+router.delete("/:id", isAdminOrSuperAdmin, deleteLead);
+
+export default router;

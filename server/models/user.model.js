@@ -8,6 +8,9 @@ const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
 
+    // ✅ For optimized prefix search (autocomplete)
+    nameLower: { type: String, trim: true, default: "", index: true },
+
     email: {
       type: String,
       required: true,
@@ -34,16 +37,20 @@ const userSchema = new mongoose.Schema(
 
     isActive: { type: Boolean, default: true, index: true },
 
-    // ✅ NEW: Profile picture
     avatarUrl: { type: String, default: "" },
     avatarPublicId: { type: String, default: "" },
   },
   { timestamps: true }
 );
 
-/* ✅ Performance indexes for listing + cursor pagination */
+/* ✅ Performance indexes (kept) */
 userSchema.index({ role: 1, createdAt: -1, _id: -1 });
 userSchema.index({ role: 1, isActive: 1, createdAt: -1, _id: -1 });
+
+/* ✅ NEW: fast autocomplete index
+   Supports: role+isActive filtering + prefix match on nameLower + stable ordering
+*/
+userSchema.index({ role: 1, isActive: 1, nameLower: 1, _id: -1 });
 
 /* 🔐 Protect superadmin role */
 userSchema.post("init", function () {
@@ -54,6 +61,30 @@ userSchema.pre("save", function (next) {
   if (this.isModified("role") && this._originalRole === "superadmin") {
     return next(new Error("Super admin role cannot be changed"));
   }
+  next();
+});
+
+/* ✅ Normalize nameLower */
+userSchema.pre("save", function (next) {
+  if (this.isModified("name")) {
+    this.nameLower = String(this.name || "").trim().toLowerCase();
+  }
+  next();
+});
+
+/* ✅ Also normalize nameLower on findOneAndUpdate */
+userSchema.pre("findOneAndUpdate", function (next) {
+  const update = this.getUpdate() || {};
+  const $set = update.$set || {};
+
+  const nextName = $set.name ?? update.name;
+  if (nextName !== undefined) {
+    const nl = String(nextName || "").trim().toLowerCase();
+    update.$set = { ...(update.$set || {}), nameLower: nl };
+    delete update.name; // ensure consistency
+    this.setUpdate(update);
+  }
+
   next();
 });
 
@@ -79,4 +110,3 @@ userSchema.methods.isMarketing = function () {
 };
 
 export default mongoose.model("User", userSchema);
-
