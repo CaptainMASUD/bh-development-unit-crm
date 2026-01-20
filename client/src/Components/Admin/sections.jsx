@@ -3,9 +3,11 @@ import React from "react"
 import { FaUserFriends, FaUsers, FaCog, FaInfoCircle, FaChartBar } from "react-icons/fa"
 import { LuLayoutDashboard } from "react-icons/lu"
 import { FiLayers } from "react-icons/fi"
+import { FiTarget } from "react-icons/fi"
 
 import Dashboard from "./DashboardContent"
 import Customers from "./CustomersPage"
+import AdminLead from "./AdminLeadPage" 
 import Users from "./UserContent"
 import ProfileSettings from "./ProfileSettings"
 import About from "./About"
@@ -27,6 +29,12 @@ const sections = {
     component: <Customers />,
   },
 
+  // ✅ NEW: Leads (added right below Customers)
+  Leads: {
+    icon: <FiTarget className="w-5 h-5" />,
+    component: <AdminLead />,
+  },
+
   "Workflow Setup": {
     icon: <FiLayers className="w-5 h-5" />,
     subcategories: {
@@ -35,7 +43,6 @@ const sections = {
     },
   },
 
-  // ✅ NEW: Report dropdown (like Workflow Setup)
   Report: {
     icon: <FaChartBar className="w-5 h-5" />,
     subcategories: {

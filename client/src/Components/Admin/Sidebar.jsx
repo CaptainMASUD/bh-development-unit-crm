@@ -221,6 +221,7 @@ const SubMenu = memo(function SubMenu({
                   : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
               }`}
               aria-current={isActive ? "page" : undefined}
+              type="button"
             >
               <div className="relative flex items-center gap-2 w-full">
                 <span
@@ -341,7 +342,6 @@ export default function Sidebar({
     navigate("/login")
   }, [dispatch, navigate])
 
-  // ✅ load user fast (localStorage) then sync /users/me for avatar
   useEffect(() => {
     let mounted = true
 
@@ -509,7 +509,6 @@ export default function Sidebar({
     if (tipTimerRef.current) clearTimeout(tipTimerRef.current)
   }, [])
 
-  // ✅ Keep Profile Settings ABOVE About (always)
   const orderedSectionKeys = useMemo(() => {
     const keys = Object.keys(safeSections)
     const hasAbout = keys.includes("About")
@@ -524,7 +523,6 @@ export default function Sidebar({
     return [...before, "Profile Settings", "About", ...after]
   }, [safeSections])
 
-  // ✅ Filter by search (section + subcategories)
   const filteredSectionKeys = useMemo(() => {
     const q = searchTerm.trim().toLowerCase()
     if (!q) return orderedSectionKeys
@@ -564,7 +562,6 @@ export default function Sidebar({
         }
       `}</style>
 
-      {/* Tooltip */}
       {!isMobileViewport && showBellTip && notifCount7d > 0 ? (
         <div
           className="fixed z-[999999] pointer-events-auto"
@@ -595,7 +592,6 @@ export default function Sidebar({
         </div>
       ) : null}
 
-      {/* Mobile overlay */}
       {isMobile && isOpen && (
         <button
           type="button"
@@ -605,7 +601,6 @@ export default function Sidebar({
         />
       )}
 
-      {/* Notifications modal */}
       <NotificationModal open={showNotifications} onClose={() => setShowNotifications(false)} isDarkMode={isDarkMode} />
 
       <aside
@@ -622,14 +617,8 @@ export default function Sidebar({
         {/* Header */}
         <div className={`relative p-6 border-b ${isDarkMode ? "border-white/10" : "border-gray-200"}`}>
           <div className="flex items-center gap-4">
-            {/* ✅ Updated profile picture design:
-                - smaller glow ring (not too big)
-                - uses a gradient "frame" with subtle shadow
-                - active dot (Messenger style) */}
             <div className="relative">
-              {/* Gradient frame */}
               <div className="p-[2px] rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 shadow-[0_10px_26px_-18px_rgba(99,102,241,0.85)]">
-                {/* Inner */}
                 <div className={`rounded-full p-[2px] ${isDarkMode ? "bg-gray-900" : "bg-white"}`}>
                   <div className="relative w-[46px] h-[46px] rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
                     {user?.avatarUrl ? (
@@ -638,7 +627,6 @@ export default function Sidebar({
                         alt="Profile"
                         className="w-full h-full object-cover"
                         onError={(e) => {
-                          // If broken, hide img so initials show
                           e.currentTarget.style.display = "none"
                         }}
                       />
@@ -650,13 +638,11 @@ export default function Sidebar({
                       </span>
                     ) : null}
 
-                    {/* soft image-colored overlay feel (subtle) */}
                     <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/10 to-black/10" />
                   </div>
                 </div>
               </div>
 
-              {/* ✅ Active dot (Facebook/Messenger style) */}
               <span
                 className={`absolute bottom-0 right-0 translate-x-[2px] translate-y-[2px] w-3.5 h-3.5 rounded-full bg-emerald-500 ring-4 ${
                   isDarkMode ? "ring-gray-900" : "ring-white"
@@ -676,13 +662,7 @@ export default function Sidebar({
 
           <div className="flex justify-between items-center mt-6">
             <button
-              onClick={() => {
-                setIsDarkMode((prev) => {
-                  const next = !prev
-                  localStorage.setItem("theme", next ? "dark" : "light")
-                  return next
-                })
-              }}
+              onClick={toggleTheme}
               className={`p-2 rounded-lg ${reducedMotion ? "" : "transition-all duration-200"} ${
                 isDarkMode
                   ? "hover:bg-white/10 text-gray-400 hover:text-white"
@@ -690,12 +670,12 @@ export default function Sidebar({
               } hover:scale-110 transform`}
               aria-label="Toggle theme"
               title="Toggle theme"
+              type="button"
             >
               {isDarkMode ? <FaMoon size={20} /> : <FaSun size={20} />}
             </button>
 
             <div className="flex items-center gap-2">
-              {/* Bell */}
               <button
                 ref={bellBtnRef}
                 onClick={() => {
@@ -707,6 +687,7 @@ export default function Sidebar({
                 } ${reducedMotion ? "" : "hover:scale-110 transition-transform"}`}
                 aria-label="Open notifications"
                 title="Notifications"
+                type="button"
               >
                 <span className={shouldRingBell ? "bell-ring" : ""}>
                   <Bell className="w-4 h-4" />
@@ -730,7 +711,6 @@ export default function Sidebar({
                 {notifLoading ? <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-purple-400" /> : null}
               </button>
 
-              {/* Jetsky */}
               <button
                 onClick={() => setShowJetsky(true)}
                 className={`h-9 w-9 flex items-center justify-center rounded-full ${isDarkMode ? "bg-white" : ""} ${
@@ -738,6 +718,7 @@ export default function Sidebar({
                 }`}
                 aria-label="Open Jetsky modal"
                 title="Jetsky"
+                type="button"
               >
                 <img
                   src={(jetsky && (jetsky.src || jetsky)) || "/jetsky.svg"}
@@ -796,8 +777,6 @@ export default function Sidebar({
               : "scrollbar-thumb-purple-400 scrollbar-track-gray-100"
           }`}
         >
-          {Object.keys(sections || {}).length === 0 ? null : null}
-
           {filteredSectionKeys.map((section) => {
             const def = safeSections[section]
             if (!def) return null
@@ -826,6 +805,7 @@ export default function Sidebar({
                   aria-controls={controlsId}
                   aria-current={isActiveSection ? "page" : undefined}
                   title={section}
+                  type="button"
                 >
                   <div className="flex items-center gap-3 relative z-10">
                     <span
@@ -877,6 +857,7 @@ export default function Sidebar({
           }`}
           aria-label="Logout"
           title="Logout"
+          type="button"
         >
           <FaSignOutAlt
             className={`text-lg ${reducedMotion ? "" : "transition-transform duration-200"} group-hover:-translate-x-1 relative z-10`}

@@ -23,21 +23,21 @@ import CustomerDetails from "./CustomerDetails"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
-const card =
-  "rounded-2xl border border-gray-100 bg-white shadow-[0_18px_55px_-40px_rgba(0,0,0,0.55)]"
+/* =========================
+   UI TOKENS (slightly more “standard” + lighter)
+========================= */
+
+const card = "rounded-2xl border border-gray-100 bg-white shadow-sm"
 const subtleHover = "transition-colors hover:bg-gray-50/60"
 const btn =
   "inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl active:scale-[0.99] transition focus:outline-none"
-const btnPrimary =
-  "bg-indigo-600 text-white hover:bg-indigo-700 shadow-[0_12px_30px_-18px_rgba(79,70,229,0.65)]"
+const btnPrimary = "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
 const btnGhost = "border border-gray-200 bg-white hover:bg-gray-50"
 const btnDanger = "border border-rose-200 bg-white hover:bg-rose-50"
-const iconBtn =
-  "p-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition focus:outline-none"
+const iconBtn = "p-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition focus:outline-none"
 const input =
   "w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-const chip =
-  "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ring-1"
+const chip = "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ring-1"
 
 function cn(...classes) {
   return classes.filter(Boolean).join(" ")
@@ -151,14 +151,15 @@ function ModalShell({
               maxWidthClass
             )}
           >
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-10">
-              <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+            {/* Sticky header */}
+            <div className="p-4 sm:p-5 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-20">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm shrink-0">
                   {icon}
                 </div>
-                <div>
-                  <h2 className="text-lg font-extrabold text-gray-900">{title}</h2>
-                  {subtitle ? <p className="text-sm text-gray-600">{subtitle}</p> : null}
+                <div className="min-w-0">
+                  <h2 className="text-base sm:text-lg font-bold text-gray-900 truncate">{title}</h2>
+                  {subtitle ? <p className="text-sm text-gray-600 truncate">{subtitle}</p> : null}
                 </div>
               </div>
 
@@ -171,12 +172,14 @@ function ModalShell({
               </button>
             </div>
 
-            <div className="p-6 bg-white max-h-[calc(100vh-14rem)] overflow-y-auto">
+            {/* Content */}
+            <div className="p-4 sm:p-5 bg-white max-h-[calc(100vh-14rem)] overflow-y-auto">
               {children}
             </div>
 
+            {/* Sticky footer */}
             {footer ? (
-              <div className="p-6 border-t border-gray-100 bg-white sticky bottom-0">
+              <div className="p-4 sm:p-5 border-t border-gray-100 bg-white sticky bottom-0 z-20">
                 {footer}
               </div>
             ) : null}
@@ -199,10 +202,6 @@ function Field({ label, hint, children }) {
 
 /* =========================
    MULTI SELECT (PORTAL + HEIGHT FIX — NEVER OFFSCREEN)
-   - renders menu in document.body
-   - fixed positioning + high z-index
-   - flips upward if not enough space below
-   - dynamically caps list height to available viewport space
 ========================= */
 
 function MultiSelectDropdown({ options = [], value = [], onChange, placeholder = "Select..." }) {
@@ -252,14 +251,12 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
     const spaceBelow = window.innerHeight - r.bottom - GAP
     const spaceAbove = r.top - GAP
 
-    // open upward if below is tight AND above gives more space
     const openUp = spaceBelow < 260 && spaceAbove > spaceBelow
 
     const available = Math.max(0, openUp ? spaceAbove : spaceBelow)
     const capped = Math.min(MAX, available)
     const maxHeight = Math.max(MIN, capped)
 
-    // keep within viewport horizontally
     const left = Math.max(8, Math.min(r.left, window.innerWidth - 8 - r.width))
 
     setMenuPos({
@@ -285,7 +282,6 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
     const onScroll = () => recomputeMenuPos()
 
     window.addEventListener("resize", onResize)
-    // capture scroll from modal container too
     window.addEventListener("scroll", onScroll, true)
 
     return () => {
@@ -295,7 +291,6 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // close on outside click (works with portal)
   useEffect(() => {
     const onDoc = (e) => {
       if (!open) return
@@ -309,7 +304,6 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
     return () => document.removeEventListener("mousedown", onDoc)
   }, [open, menuId])
 
-  // close on escape
   useEffect(() => {
     if (!open) return
     const onKey = (e) => {
@@ -339,12 +333,7 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
           role="listbox"
           aria-multiselectable="true"
         >
-          <div
-            className="overflow-y-auto p-2"
-            style={{
-              maxHeight: menuPos.maxHeight,
-            }}
-          >
+          <div className="overflow-y-auto p-2" style={{ maxHeight: menuPos.maxHeight }}>
             {options.length === 0 ? (
               <div className="p-3 text-sm text-gray-600">No options.</div>
             ) : (
@@ -392,11 +381,7 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
             >
               Clear
             </button>
-            <button
-              type="button"
-              className={cn(btn, btnPrimary, "px-3 py-2 text-sm")}
-              onClick={() => setOpen(false)}
-            >
+            <button type="button" className={cn(btn, btnPrimary, "px-3 py-2 text-sm")} onClick={() => setOpen(false)}>
               Done
             </button>
           </div>
@@ -420,9 +405,7 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
         </span>
         <span className="flex items-center gap-2 shrink-0">
           {selectedCount ? (
-            <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>
-              {selectedCount}
-            </span>
+            <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>{selectedCount}</span>
           ) : null}
           <FiChevronDown className={cn("w-4 h-4 text-gray-500 transition", open ? "rotate-180" : "")} />
         </span>
@@ -432,6 +415,10 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
     </div>
   )
 }
+
+/* =========================
+   API
+========================= */
 
 async function fetchCustomerDetails(customerId, signal) {
   const res = await fetch(`${API_BASE}/customers/${customerId}`, {
@@ -444,8 +431,33 @@ async function fetchCustomerDetails(customerId, signal) {
   return data?.customer || null
 }
 
+// search employees for assignment
+async function searchEmployeesForAssign({ q = "", limit = 20, signal } = {}) {
+  const params = new URLSearchParams()
+  params.set("q", String(q || ""))
+  params.set("limit", String(limit))
+
+  const res = await fetch(`${API_BASE}/customers/employees/search?${params.toString()}`, {
+    headers: getAuthHeaders(),
+    credentials: "include",
+    signal,
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || "Failed to search employees")
+
+  const employees = Array.isArray(data?.employees)
+    ? data.employees
+    : Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data?.results)
+    ? data.results
+    : []
+
+  return employees
+}
+
 /* =========================
-   FILTER MODAL (RE-ORDERED)
+   FILTER MODAL (UPDATED — ✅ adds Customer Status)
 ========================= */
 
 function FilterChip({ children, onRemove }) {
@@ -486,6 +498,10 @@ function FiltersModal({
   draftSubMatch,
   setDraftSubMatch,
 
+  // ✅ NEW: status draft
+  draftStatus,
+  setDraftStatus,
+
   onApply,
   onClearDraft,
 
@@ -514,14 +530,15 @@ function FiltersModal({
   const hasAnyDraft =
     !!String(draftTemplateId || "").trim() ||
     !!String(draftYear || "").trim() ||
-    (draftSubIds?.length || 0) > 0
+    (draftSubIds?.length || 0) > 0 ||
+    !!String(draftStatus || "").trim()
 
   return (
     <ModalShell
       open={open}
       onClose={onClose}
       title="Filters"
-      subtitle="Keep the search height same — filters open here"
+      subtitle="Choose engagement + customer filters"
       icon={<FiFilter className="w-5 h-5" />}
       maxWidthClass="max-w-4xl"
       footer={
@@ -558,21 +575,33 @@ function FiltersModal({
                   <FiFilter className="w-4 h-4" />
                 </span>
                 <div>
-                  <p className="text-sm font-extrabold text-gray-900">Engagement filters</p>
-                  <p className="text-xs text-gray-500">Server-side filtering</p>
+                  <p className="text-sm font-bold text-gray-900">Filters</p>
+                  <p className="text-xs text-gray-500">Engagement + customer status</p>
                 </div>
               </div>
 
               {hasAnyDraft ? (
-                <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>
-                  Active in draft
-                </span>
+                <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>Draft active</span>
               ) : (
                 <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>None</span>
               )}
             </div>
 
             <div className="p-4 space-y-4">
+              {/* ✅ Customer status */}
+              <Field label="Customer Status">
+                <select
+                  value={String(draftStatus || "")}
+                  onChange={(e) => setDraftStatus(String(e.target.value || ""))}
+                  className={input}
+                >
+                  <option value="">All statuses</option>
+                  <option value="pending">pending</option>
+                  <option value="in_progress">in_progress</option>
+                  <option value="complete">complete</option>
+                </select>
+              </Field>
+
               <Field label="Engagement Type">
                 <select
                   value={draftTemplateId}
@@ -606,7 +635,7 @@ function FiltersModal({
                     ? "Select engagement type first"
                     : subOptions.length
                     ? "Pick one or more"
-                    : "This engagement type has no sub-engagements"
+                    : "This type has no sub-engagements"
                 }
               >
                 <MultiSelectDropdown
@@ -639,7 +668,7 @@ function FiltersModal({
 
                 <Field
                   label="Sub match"
-                  hint={!draftTemplateId || !draftSubIds.length ? "Select sub-engagements to enable" : ""}
+                  hint={!draftTemplateId || !draftSubIds.length ? "Select subs to enable" : ""}
                 >
                   <select
                     value={draftSubMatch}
@@ -653,11 +682,9 @@ function FiltersModal({
                 </Field>
               </div>
 
-              <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-3">
-                <p className="text-xs text-gray-600">
-                  Tip: Click the filter icon in the search bar to open this panel.
-                </p>
-              </div>
+              <p className="text-xs text-gray-500">
+                Tip: Engagement filters require an Engagement Type. Status filter works alone.
+              </p>
             </div>
           </div>
         </div>
@@ -670,7 +697,7 @@ function FiltersModal({
                   <FiCheck className="w-4 h-4" />
                 </span>
                 <div>
-                  <p className="text-sm font-extrabold text-gray-900">Preview</p>
+                  <p className="text-sm font-bold text-gray-900">Preview</p>
                   <p className="text-xs text-gray-500">What will be applied</p>
                 </div>
               </div>
@@ -685,7 +712,7 @@ function FiltersModal({
 }
 
 /* =========================
-   CUSTOMER UPSERT / ASSIGN / CONFIRM
+   CUSTOMER UPSERT MODAL (unchanged logic)
 ========================= */
 
 function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
@@ -765,9 +792,7 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
       customerType: c?.customerType || "new",
       engagementYear: String(latestEng?.year ?? currentYear),
       engagementTemplateId: String(latestEng?.engagementTemplateId ?? ""),
-      subEngagementIds: Array.isArray(latestEng?.subEngagementIds)
-        ? latestEng.subEngagementIds.map(String)
-        : [],
+      subEngagementIds: Array.isArray(latestEng?.subEngagementIds) ? latestEng.subEngagementIds.map(String) : [],
       cpName: c?.contactPerson?.name || "",
       cpPhone: c?.contactPerson?.phone || "",
       cpEmail: c?.contactPerson?.email || "",
@@ -828,8 +853,14 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
     const yearNum = Number(form.engagementYear)
     const hasYear = Number.isFinite(yearNum) && String(form.engagementYear || "").trim() !== ""
 
-    if (hasEngType && !hasYear) return setError("Engagement year is required when selecting an engagement type.")
-    if (hasYear && !hasEngType) return setError("Engagement type is required when selecting an engagement year.")
+    if (mode === "create") {
+      if (!hasYear) return setError("Engagement year is required.")
+      if (!hasEngType) return setError("Engagement type is required.")
+    } else {
+      if ((hasYear && !hasEngType) || (hasEngType && !hasYear)) {
+        return setError("To update engagement, select BOTH Engagement Year and Engagement Type.")
+      }
+    }
 
     setIsSubmitting(true)
     setError("")
@@ -851,13 +882,11 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
       }
 
       if (mode === "create") {
-        const payload = { ...basePayload }
-        if (hasYear && hasEngType) {
-          payload.engagementYear = yearNum
-          payload.engagementTemplateId = String(form.engagementTemplateId)
-          payload.subEngagementIds = Array.isArray(form.subEngagementIds)
-            ? form.subEngagementIds.map(String)
-            : []
+        const payload = {
+          ...basePayload,
+          engagementYear: yearNum,
+          engagementTemplateId: String(form.engagementTemplateId),
+          subEngagementIds: Array.isArray(form.subEngagementIds) ? form.subEngagementIds.map(String) : [],
         }
 
         const res = await fetch(`${API_BASE}/customers`, {
@@ -885,9 +914,7 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
             body: JSON.stringify({
               year: yearNum,
               engagementTemplateId: String(form.engagementTemplateId),
-              subEngagementIds: Array.isArray(form.subEngagementIds)
-                ? form.subEngagementIds.map(String)
-                : [],
+              subEngagementIds: Array.isArray(form.subEngagementIds) ? form.subEngagementIds.map(String) : [],
             }),
             credentials: "include",
           })
@@ -910,7 +937,7 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
       open={open}
       onClose={onClose}
       title={mode === "edit" ? "Edit Customer" : "Create Customer"}
-      subtitle="Customer + engagement + contact person"
+      subtitle="Customer details"
       icon={mode === "edit" ? <FiEdit2 className="w-5 h-5" /> : <FiPlus className="w-5 h-5" />}
       footer={
         <div className="flex flex-col sm:flex-row sm:justify-end gap-2">
@@ -924,9 +951,7 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
       }
     >
       {error && (
-        <div className="mb-5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">
-          {error}
-        </div>
+        <div className="mb-5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>
       )}
 
       {detailLoading ? (
@@ -974,7 +999,7 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
           </select>
         </Field>
 
-        <Field label="Engagement Year">
+        <Field label={mode === "create" ? "Engagement Year *" : "Engagement Year"}>
           <input
             type="number"
             min="1900"
@@ -986,7 +1011,7 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
           />
         </Field>
 
-        <Field label="Engagement Type">
+        <Field label={mode === "create" ? "Engagement Type *" : "Engagement Type"}>
           <select
             value={form.engagementTemplateId}
             onChange={(e) =>
@@ -999,25 +1024,13 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
             className={input}
             disabled={tplLoading}
           >
-            <option value="">{tplLoading ? "Loading..." : "Select engagement type (optional)"}</option>
+            <option value="">{tplLoading ? "Loading..." : "Select engagement type"}</option>
             {engagementTemplates.map((t) => (
               <option key={t._id} value={t._id}>
                 {t.title}
               </option>
             ))}
           </select>
-
-          {selectedTemplate ? (
-            <p className="mt-1 text-xs text-gray-500">
-              {Array.isArray(selectedTemplate.subEngagements) && selectedTemplate.subEngagements.length
-                ? "This type has sub-engagements."
-                : "This type has no sub-engagements."}
-            </p>
-          ) : (
-            <p className="mt-1 text-xs text-gray-500">
-              Choose a type (single title) or a type that contains sub-engagements.
-            </p>
-          )}
         </Field>
 
         {selectedTemplate?.subEngagements?.length ? (
@@ -1035,7 +1048,7 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
 
         <div className="md:col-span-2">
           <div className="mt-2 border-t border-gray-100 pt-4">
-            <p className="text-sm font-extrabold text-gray-900 mb-3">Contact Person</p>
+            <p className="text-sm font-bold text-gray-900 mb-3">Contact Person</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field label="Name *">
                 <input value={form.cpName} onChange={update("cpName")} className={input} placeholder="Contact person name" />
@@ -1050,12 +1063,7 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
               </Field>
 
               <Field label="Designation">
-                <input
-                  value={form.cpDesignation}
-                  onChange={update("cpDesignation")}
-                  className={input}
-                  placeholder="Manager / Owner"
-                />
+                <input value={form.cpDesignation} onChange={update("cpDesignation")} className={input} placeholder="Manager / Owner" />
               </Field>
             </div>
           </div>
@@ -1065,20 +1073,48 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
   )
 }
 
-function AssignModal({ open, onClose, customer, employees, onAssign }) {
+/* =========================
+   ASSIGN MODAL (unchanged)
+========================= */
+
+function AssignModal({ open, onClose, customer, onAssign }) {
   const [employeeIds, setEmployeeIds] = useState([])
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState("")
 
+  const [q, setQ] = useState("")
+  const [debouncedQ, setDebouncedQ] = useState("")
+  const [results, setResults] = useState([])
+  const [loading, setLoading] = useState(false)
+  const abortRef = useRef(null)
+
+  // local cache for showing selected labels even if not in current results
+  const cacheRef = useRef(new Map())
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(String(q || "").trim()), 250)
+    return () => clearTimeout(t)
+  }, [q])
+
   useEffect(() => {
     if (!open) return
     setError("")
+    setQ("")
+    setDebouncedQ("")
+    setResults([])
+
+    // seed selected from customer.assignedTo
     const arr = normalizeAssignedToArray(customer?.assignedTo)
     const ids = arr
       .map((x) => (typeof x === "object" ? x?._id : x))
       .filter(Boolean)
       .map(String)
     setEmployeeIds(ids)
+
+    // seed cache
+    for (const u of arr) {
+      if (u && typeof u === "object" && u._id) cacheRef.current.set(String(u._id), u)
+    }
   }, [open, customer])
 
   const toggle = (id) => {
@@ -1091,12 +1127,51 @@ function AssignModal({ open, onClose, customer, employees, onAssign }) {
     })
   }
 
+  // fetch results
+  useEffect(() => {
+    if (!open) return
+
+    if (abortRef.current) abortRef.current.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    setLoading(true)
+    setError("")
+    searchEmployeesForAssign({ q: debouncedQ, limit: 30, signal: controller.signal })
+      .then((rows) => {
+        const list = Array.isArray(rows) ? rows : []
+        setResults(list)
+
+        for (const u of list) {
+          if (u?._id) cacheRef.current.set(String(u._id), u)
+        }
+      })
+      .catch((e) => {
+        if (e?.name !== "AbortError") {
+          setResults([])
+          setError(e?.message || "Failed to load employees.")
+        }
+      })
+      .finally(() => setLoading(false))
+
+    return () => controller.abort()
+  }, [open, debouncedQ])
+
+  const selectedBadges = useMemo(() => {
+    const out = []
+    for (const id of employeeIds) {
+      const u = cacheRef.current.get(String(id))
+      if (u?.name) out.push({ id: String(id), label: `${u.name}${u.email ? ` • ${u.email}` : ""}` })
+      else out.push({ id: String(id), label: String(id) })
+    }
+    return out
+  }, [employeeIds])
+
   const submit = async () => {
-    if (!employeeIds.length) return setError("Please select at least one employee.")
     setIsSaving(true)
     setError("")
     try {
-      await onAssign?.(employeeIds)
+      await onAssign?.(employeeIds) // can be [] to clear
       onClose?.()
     } catch (e) {
       setError(e?.message || "Assign failed")
@@ -1105,6 +1180,16 @@ function AssignModal({ open, onClose, customer, employees, onAssign }) {
     }
   }
 
+  const listTitle = useMemo(() => {
+    if (!debouncedQ) return "Employees"
+    return "Search results"
+  }, [debouncedQ])
+
+  const resultsHint = useMemo(() => {
+    if (!debouncedQ) return "Showing recent employees"
+    return `Matches for “${debouncedQ}”`
+  }, [debouncedQ])
+
   return (
     <ModalShell
       open={open}
@@ -1112,50 +1197,147 @@ function AssignModal({ open, onClose, customer, employees, onAssign }) {
       title="Assign Customer"
       subtitle={customer?.name ? `Customer: ${customer.name}` : ""}
       icon={<FiUserCheck className="w-5 h-5" />}
+      maxWidthClass="max-w-2xl"
       footer={
-        <div className="flex flex-col sm:flex-row sm:justify-end gap-2">
-          <button onClick={onClose} className={cn(btn, btnGhost)}>
-            Cancel
+        <div className="flex flex-col sm:flex-row sm:justify-between gap-2">
+          <button
+            type="button"
+            className={cn(btn, btnGhost)}
+            onClick={() => setEmployeeIds([])}
+            disabled={isSaving || employeeIds.length === 0}
+            title="Clear assignment"
+          >
+            Clear
           </button>
-          <button onClick={submit} disabled={isSaving} className={cn(btn, btnPrimary, "disabled:opacity-60")}>
-            {isSaving ? "Assigning..." : "Assign"}
-          </button>
+
+          <div className="flex flex-col sm:flex-row sm:justify-end gap-2">
+            <button onClick={onClose} className={cn(btn, btnGhost)} disabled={isSaving}>
+              Cancel
+            </button>
+            <button onClick={submit} disabled={isSaving} className={cn(btn, btnPrimary, "disabled:opacity-60")}>
+              {isSaving ? "Saving..." : "Save"}
+            </button>
+          </div>
         </div>
       }
     >
-      {error && <div className="mb-5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>}
+      {error ? (
+        <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>
+      ) : null}
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold text-gray-800">Select employee(s)</p>
-          <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>Selected: {employeeIds.length}</span>
-        </div>
+      {/* Layout: sticky “search + selected” block, list scrolls below */}
+      <div className="rounded-2xl border border-gray-100 overflow-hidden">
+        {/* Sticky top block */}
+        <div className="sticky top-0 z-10 bg-white border-b border-gray-100">
+          <div className="p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-gray-900">Select employee(s)</p>
+                <p className="text-xs text-gray-500">Type a name or email to search</p>
+              </div>
+              <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>
+                Selected: {employeeIds.length}
+              </span>
+            </div>
 
-        <div className="rounded-2xl border border-gray-100 bg-gray-50/40 p-2 max-h-[360px] overflow-y-auto">
-          {employees.length === 0 ? (
-            <div className="p-3 text-sm text-gray-600">No employees found.</div>
-          ) : (
-            <ul className="space-y-2">
-              {employees.map((e) => {
-                const checked = employeeIds.includes(String(e._id))
-                return (
-                  <li key={e._id}>
+            <div className="mt-3">
+              <div
+                className={cn(
+                  "w-full h-11 rounded-xl border border-gray-200 bg-white px-3 flex items-center gap-2",
+                  "focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent"
+                )}
+              >
+                <FiSearch className="w-4 h-4 text-gray-400 shrink-0" />
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Search employees…"
+                  className={cn(
+                    "w-full bg-transparent text-sm text-gray-900 placeholder:text-gray-400 border-0 outline-none ring-0"
+                  )}
+                />
+                {loading ? <Loader2 className="w-4 h-4 animate-spin text-gray-500" /> : null}
+                {q ? (
+                  <button
+                    type="button"
+                    className="p-1 rounded-lg hover:bg-gray-100 focus:outline-none"
+                    onClick={() => setQ("")}
+                    aria-label="Clear search"
+                    title="Clear"
+                  >
+                    <FiX className="w-4 h-4 text-gray-600" />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Selected pills (compact) */}
+            {selectedBadges.length ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {selectedBadges.slice(0, 6).map((b) => (
+                  <span key={b.id} className={cn(chip, "bg-gray-50 text-gray-800 ring-gray-200")}>
+                    <span className="truncate max-w-[16rem]">{b.label}</span>
                     <button
                       type="button"
-                      onClick={() => toggle(e._id)}
+                      className="p-1 rounded-full hover:bg-black/5 focus:outline-none"
+                      aria-label="Remove"
+                      title="Remove"
+                      onClick={() => toggle(b.id)}
+                    >
+                      <FiX className="w-3.5 h-3.5" />
+                    </button>
+                  </span>
+                ))}
+                {selectedBadges.length > 6 ? (
+                  <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>
+                    +{selectedBadges.length - 6} more
+                  </span>
+                ) : null}
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-gray-500">No employees selected.</p>
+            )}
+          </div>
+
+          {/* List header */}
+          <div className="px-4 py-2.5 bg-gray-50/80 flex items-center justify-between">
+            <p className="text-sm font-bold text-gray-900">{listTitle}</p>
+            <p className="text-xs text-gray-500">{resultsHint}</p>
+          </div>
+        </div>
+
+        {/* Scrollable results */}
+        <div className="max-h-[50vh] overflow-y-auto p-2 bg-white">
+          {loading && results.length === 0 ? (
+            <div className="p-4 text-sm text-gray-600 flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading...
+            </div>
+          ) : results.length === 0 ? (
+            <div className="p-4 text-sm text-gray-600">No employees found.</div>
+          ) : (
+            <ul className="space-y-2">
+              {results.map((e) => {
+                const id = String(e?._id || "")
+                const checked = employeeIds.includes(id)
+                return (
+                  <li key={id || Math.random()}>
+                    <button
+                      type="button"
+                      onClick={() => toggle(e?._id)}
                       className={cn(
                         "w-full flex items-center justify-between gap-3 p-3 rounded-2xl border transition text-left focus:outline-none",
-                        checked ? "bg-white border-indigo-200" : "bg-white border-gray-100 hover:bg-gray-50"
+                        checked ? "bg-indigo-50 border-indigo-200" : "bg-white border-gray-100 hover:bg-gray-50"
                       )}
                     >
-                      <div>
-                        <p className="text-sm font-extrabold text-gray-900">{e.name}</p>
-                        <p className="text-xs text-gray-500">{e.email}</p>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-gray-900 truncate">{e?.name || "—"}</p>
+                        {e?.email ? <p className="text-xs text-gray-500 truncate">{e.email}</p> : null}
                       </div>
 
                       <div
                         className={cn(
-                          "w-6 h-6 rounded-lg border flex items-center justify-center",
+                          "w-6 h-6 rounded-lg border flex items-center justify-center shrink-0",
                           checked ? "bg-indigo-600 border-indigo-600 text-white" : "bg-white border-gray-200 text-transparent"
                         )}
                         aria-hidden="true"
@@ -1168,25 +1350,6 @@ function AssignModal({ open, onClose, customer, employees, onAssign }) {
               })}
             </ul>
           )}
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className={cn(btn, btnGhost, "px-3 py-2 text-sm")}
-            onClick={() => setEmployeeIds(employees.map((e) => String(e._id)))}
-            disabled={!employees.length}
-          >
-            Select all
-          </button>
-          <button
-            type="button"
-            className={cn(btn, btnGhost, "px-3 py-2 text-sm")}
-            onClick={() => setEmployeeIds([])}
-            disabled={!employeeIds.length}
-          >
-            Clear
-          </button>
         </div>
       </div>
     </ModalShell>
@@ -1284,14 +1447,13 @@ function ConfirmDeleteModal({ open, title, description, confirmText = "Delete", 
 }
 
 /* =========================
-   MAIN (UNCHANGED)
+   MAIN
 ========================= */
 
 export default function AdminCustomersPage({ openCustomerId, onCustomerOpened }) {
   const PAGE_SIZE = 25
 
   const [customers, setCustomers] = useState([])
-  const [employees, setEmployees] = useState([])
 
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
@@ -1323,14 +1485,17 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
   const [deleteModal, setDeleteModal] = useState({ open: false, customerId: "", customerName: "" })
   const [deleteLoading, setDeleteLoading] = useState(false)
 
-  // engagement filters (server-side) — ACTIVE (applied)
+  // engagement filters
   const [engagementTemplates, setEngagementTemplates] = useState([])
   const [tplLoading, setTplLoading] = useState(false)
 
   const [filterEngagementTemplateId, setFilterEngagementTemplateId] = useState("")
   const [filterYear, setFilterYear] = useState("")
   const [filterSubEngagementIds, setFilterSubEngagementIds] = useState([])
-  const [subMatch, setSubMatch] = useState("any") // any | all
+  const [subMatch, setSubMatch] = useState("any")
+
+  // ✅ NEW: customer status filter (server-side)
+  const [filterStatus, setFilterStatus] = useState("") // "" = all
 
   // Filter modal + DRAFT states
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -1338,6 +1503,9 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
   const [draftYear, setDraftYear] = useState("")
   const [draftSubIds, setDraftSubIds] = useState([])
   const [draftSubMatch, setDraftSubMatch] = useState("any")
+
+  // ✅ NEW: status draft
+  const [draftStatus, setDraftStatus] = useState("")
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(searchTerm.trim().toLowerCase()), 250)
@@ -1349,20 +1517,6 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     setSelectedCustomerId(openCustomerId)
     onCustomerOpened?.()
   }, [openCustomerId, onCustomerOpened])
-
-  const fetchEmployees = async () => {
-    try {
-      const res = await fetch(`${API_BASE}/users/employees`, {
-        headers: getAuthHeaders(),
-        credentials: "include",
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.message || "Failed to fetch employees")
-      setEmployees(Array.isArray(data?.employees) ? data.employees : [])
-    } catch {
-      setEmployees([])
-    }
-  }
 
   const fetchEngagementTemplates = async () => {
     setTplLoading(true)
@@ -1389,6 +1543,10 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
   const buildFilterParams = () => {
     const params = new URLSearchParams()
     params.set("limit", String(PAGE_SIZE))
+
+    // ✅ status filter can work alone
+    const status = String(filterStatus || "").trim().toLowerCase()
+    if (status) params.set("status", status)
 
     const tplId = String(filterEngagementTemplateId || "").trim()
     const year = String(filterYear || "").trim()
@@ -1452,16 +1610,16 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
 
   useEffect(() => {
     fetchCustomersPage({ reset: true })
-    fetchEmployees()
     fetchEngagementTemplates()
     return () => abortRef.current?.abort?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ✅ refetch when filters change (now includes status)
   useEffect(() => {
     fetchCustomersPage({ reset: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterEngagementTemplateId, filterYear, subMatch, JSON.stringify(filterSubEngagementIds)])
+  }, [filterEngagementTemplateId, filterYear, subMatch, filterStatus, JSON.stringify(filterSubEngagementIds)])
 
   const filtered = useMemo(() => {
     if (!debounced) return customers
@@ -1526,7 +1684,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(data?.message || "Assign failed")
-    showToast("success", "Assigned successfully.")
+    showToast("success", employeeIds.length ? "Assigned successfully." : "Assignment cleared.")
     await fetchCustomersPage({ reset: true })
   }
 
@@ -1556,21 +1714,24 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     setFilterYear("")
     setFilterSubEngagementIds([])
     setSubMatch("any")
+    setFilterStatus("") // ✅ NEW
   }
 
   const activeFilterCount = useMemo(() => {
     let n = 0
+    if (String(filterStatus || "").trim()) n += 1 // ✅ NEW
     if (String(filterEngagementTemplateId || "").trim()) n += 1
     if (String(filterYear || "").trim()) n += 1
     if ((filterSubEngagementIds?.length || 0) > 0) n += 1
     return n
-  }, [filterEngagementTemplateId, filterYear, filterSubEngagementIds])
+  }, [filterStatus, filterEngagementTemplateId, filterYear, filterSubEngagementIds])
 
   const openFilters = () => {
     setDraftTemplateId(String(filterEngagementTemplateId || ""))
     setDraftYear(String(filterYear || ""))
     setDraftSubIds(Array.isArray(filterSubEngagementIds) ? filterSubEngagementIds.map(String) : [])
     setDraftSubMatch(subMatch === "all" ? "all" : "any")
+    setDraftStatus(String(filterStatus || "")) // ✅ NEW
     setFiltersOpen(true)
   }
 
@@ -1579,6 +1740,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     setDraftYear("")
     setDraftSubIds([])
     setDraftSubMatch("any")
+    setDraftStatus("") // ✅ NEW
   }
 
   const applyDraft = () => {
@@ -1586,10 +1748,12 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     setFilterYear(String(draftYear || ""))
     setFilterSubEngagementIds(Array.isArray(draftSubIds) ? draftSubIds.map(String) : [])
     setSubMatch(draftSubMatch === "all" ? "all" : "any")
+    setFilterStatus(String(draftStatus || "")) // ✅ NEW
     setFiltersOpen(false)
   }
 
   const activeSummary = useMemo(() => {
+    const status = String(draftStatus || "").trim()
     const tplId = String(draftTemplateId || "").trim()
     const year = String(draftYear || "").trim()
     const subIds = Array.isArray(draftSubIds) ? draftSubIds : []
@@ -1607,47 +1771,63 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
       return subIds.map((id) => map.get(String(id)) || String(id)).filter(Boolean)
     })()
 
-    const hasAny = !!tplId || !!year || subIds.length > 0
+    const hasAny = !!status || !!tplId || !!year || subIds.length > 0
 
     return (
       <div>
-        <p className="text-sm font-extrabold text-gray-900">Draft selection</p>
-        <p className="text-xs text-gray-500 mt-1">These will be applied to the server request.</p>
+        <p className="text-sm font-bold text-gray-900">Draft selection</p>
+        <p className="text-xs text-gray-500 mt-1">These will be applied.</p>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          {!hasAny ? (
-            <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>No filters selected</span>
+          {!hasAny ? <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>No filters</span> : null}
+
+          {status ? (
+            <FilterChip onRemove={() => setDraftStatus("")}>
+              Status: <span className="font-bold">{status}</span>
+            </FilterChip>
           ) : null}
 
           {tplId ? (
             <FilterChip onRemove={() => setDraftTemplateId("")}>
-              Type: <span className="font-extrabold">{templateTitle}</span>
+              Type: <span className="font-bold">{templateTitle}</span>
             </FilterChip>
           ) : null}
 
           {year ? (
             <FilterChip onRemove={() => setDraftYear("")}>
-              Year: <span className="font-extrabold">{year}</span>
+              Year: <span className="font-bold">{year}</span>
             </FilterChip>
           ) : null}
 
           {subsLabels.length ? (
             <FilterChip onRemove={() => setDraftSubIds([])}>
-              Subs: <span className="font-extrabold">{subsLabels.length}</span>
+              Subs: <span className="font-bold">{subsLabels.length}</span>
             </FilterChip>
           ) : null}
 
           {tplId && subIds.length ? (
             <FilterChip onRemove={() => setDraftSubMatch("any")}>
-              Match: <span className="font-extrabold">{draftSubMatch}</span>
+              Match: <span className="font-bold">{draftSubMatch}</span>
             </FilterChip>
           ) : null}
         </div>
       </div>
     )
-  }, [draftTemplateId, draftYear, draftSubIds, draftSubMatch, engagementTemplates])
+  }, [draftStatus, draftTemplateId, draftYear, draftSubIds, draftSubMatch, engagementTemplates])
 
   const appliedFilterChips = useMemo(() => {
+    const chips = []
+
+    // ✅ status chip
+    const status = String(filterStatus || "").trim()
+    if (status) {
+      chips.push({
+        key: "status",
+        label: `Status: ${status}`,
+        onRemove: () => setFilterStatus(""),
+      })
+    }
+
     const tplId = String(filterEngagementTemplateId || "").trim()
     const year = String(filterYear || "").trim()
     const subIds = Array.isArray(filterSubEngagementIds) ? filterSubEngagementIds.map(String) : []
@@ -1664,8 +1844,6 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
       if (labels.length <= 2) return labels.join(", ")
       return `${labels[0]}, ${labels[1]} +${labels.length - 2}`
     })()
-
-    const chips = []
 
     if (tplId) {
       chips.push({
@@ -1708,9 +1886,10 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     }
 
     return chips
-  }, [filterEngagementTemplateId, filterYear, filterSubEngagementIds, subMatch, engagementTemplates])
+  }, [filterStatus, filterEngagementTemplateId, filterYear, filterSubEngagementIds, subMatch, engagementTemplates])
 
   const hasAppliedFilters =
+    !!String(filterStatus || "").trim() ||
     !!String(filterEngagementTemplateId || "").trim() ||
     !!String(filterYear || "").trim() ||
     (filterSubEngagementIds?.length || 0) > 0
@@ -1722,7 +1901,6 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
         onBack={() => {
           setSelectedCustomerId(null)
           fetchCustomersPage({ reset: true })
-          fetchEmployees()
         }}
       />
     )
@@ -1767,6 +1945,9 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
             setDraftSubIds={setDraftSubIds}
             draftSubMatch={draftSubMatch}
             setDraftSubMatch={setDraftSubMatch}
+            // ✅ NEW status props
+            draftStatus={draftStatus}
+            setDraftStatus={setDraftStatus}
             onApply={applyDraft}
             onClearDraft={clearDraft}
             activeSummary={activeSummary}
@@ -1780,14 +1961,13 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
               <div className="flex items-center gap-4">
                 <div className="relative">
-                  <div className="absolute inset-0 bg-indigo-500/20 rounded-2xl blur-lg" />
                   <div className="relative bg-indigo-600 w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-sm">
                     <FiUsers className="w-6 h-6" />
                   </div>
                 </div>
                 <div>
-                  <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Customers</h1>
-                  <p className="text-sm text-gray-500">Fast list • Cursor pagination • Minimal data</p>
+                  <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Customers</h1>
+                  <p className="text-sm text-gray-500">Cursor pagination • Fast list</p>
                 </div>
               </div>
 
@@ -1800,7 +1980,6 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
                 <button
                   onClick={() => {
                     fetchCustomersPage({ reset: true })
-                    fetchEmployees()
                   }}
                   className={cn(btn, btnGhost)}
                   title="Refresh"
@@ -1845,7 +2024,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
                           "shrink-0 inline-flex items-center gap-2",
                           "px-2.5 py-1 rounded-full border",
                           "bg-indigo-50 border-indigo-100 text-indigo-700",
-                          "text-xs font-extrabold"
+                          "text-xs font-bold"
                         )}
                       >
                         <span className="truncate max-w-[220px]">{c.label}</span>
@@ -1871,9 +2050,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       placeholder={
-                        appliedFilterChips.length
-                          ? "Search…"
-                          : "Search customer, company, phone, contact, assigned, status…"
+                        appliedFilterChips.length ? "Search…" : "Search customer, company, phone, contact, assigned, status…"
                       }
                       className={cn(
                         "flex-1 min-w-[10rem] bg-transparent",
@@ -1898,7 +2075,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
                   >
                     <FiFilter className="w-4 h-4 text-gray-700" />
                     {activeFilterCount ? (
-                      <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-indigo-600 text-white text-[10px] font-extrabold flex items-center justify-center">
+                      <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center">
                         {activeFilterCount}
                       </span>
                     ) : null}
@@ -1921,18 +2098,14 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
                 </div>
 
                 <div className="mt-2 flex items-center gap-2">
-                  {debounced ? (
-                    <p className="text-xs text-gray-500">
-                      Searching within loaded customers (for full DB search, add backend search later).
-                    </p>
-                  ) : (
-                    <p className="text-xs text-gray-500">Tip: Click the filter icon to open the filtering panel.</p>
-                  )}
+                  <p className="text-xs text-gray-500">
+                    {debounced ? "Searching within loaded customers." : "Tip: Use filters for server-side status + engagement search."}
+                  </p>
                 </div>
               </div>
 
               <div className="text-sm text-gray-600">
-                Showing <span className="font-extrabold text-gray-900">{showingCount}</span>{" "}
+                Showing <span className="font-bold text-gray-900">{showingCount}</span>{" "}
                 {debounced ? "result(s)" : "customer(s)"}
               </div>
             </div>
@@ -2008,11 +2181,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
 
                         <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-3">
-                            <StatusSelect
-                              value={c?.status}
-                              disabled={busy}
-                              onChange={(v) => doStatusUpdateInline(c._id, v)}
-                            />
+                            <StatusSelect value={c?.status} disabled={busy} onChange={(v) => doStatusUpdateInline(c._id, v)} />
                             <div className="hidden xl:block">
                               <StatusBadge status={c?.status} />
                             </div>
@@ -2023,10 +2192,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
 
                         <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => setSelectedCustomerId(c._id)}
-                              className={cn(btn, btnPrimary, "px-3.5 py-2")}
-                            >
+                            <button onClick={() => setSelectedCustomerId(c._id)} className={cn(btn, btnPrimary, "px-3.5 py-2")}>
                               <FiEye className="w-4 h-4" />
                               View
                             </button>
@@ -2038,9 +2204,8 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
                             <button
                               onClick={() => setAssignCustomer(c)}
                               className={iconBtn}
-                              title={employees.length ? "Assign" : "No employees loaded"}
+                              title="Assign"
                               aria-label="Assign"
-                              disabled={employees.length === 0}
                             >
                               <FiUserCheck className="w-4 h-4 text-gray-700" />
                             </button>
@@ -2127,7 +2292,6 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
           <AssignModal
             open={!!assignCustomer}
             customer={assignCustomer}
-            employees={employees}
             onClose={() => setAssignCustomer(null)}
             onAssign={(employeeIds) => doAssign(assignCustomer._id, employeeIds)}
           />

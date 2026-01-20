@@ -67,9 +67,7 @@ function Field({ label, icon, children, hint }) {
       </div>
       <div className="relative">
         {icon ? (
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-600">
-            {icon}
-          </span>
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-indigo-600">{icon}</span>
         ) : null}
         <div className={icon ? "pl-10" : ""}>{children}</div>
       </div>
@@ -421,12 +419,10 @@ function UserModal({ open, mode, role, initial, onClose, onSaved, showToast }) {
 
             <div className="p-6 bg-white">
               {error && (
-                <div className="mb-5 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
-                  {error}
-                </div>
+                <div className="mb-5 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">{error}</div>
               )}
 
-              {/* ✅ PROFILE PICTURE (simple, user-friendly) */}
+              {/* ✅ PROFILE PICTURE */}
               <div className="mb-5 rounded-2xl border border-gray-100 bg-gray-50 p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3 min-w-0">
@@ -488,9 +484,7 @@ function UserModal({ open, mode, role, initial, onClose, onSaved, showToast }) {
                   </div>
                 </div>
 
-                <p className="mt-3 text-xs text-gray-500">
-                  Tip: Use a clear face photo for best results.
-                </p>
+                <p className="mt-3 text-xs text-gray-500">Tip: Use a clear face photo for best results.</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -533,11 +527,7 @@ function UserModal({ open, mode, role, initial, onClose, onSaved, showToast }) {
                         className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg hover:bg-gray-100 active:scale-95 transition"
                         aria-label={showPass ? "Hide password" : "Show password"}
                       >
-                        {showPass ? (
-                          <FiEyeOff className="w-4 h-4 text-gray-600" />
-                        ) : (
-                          <FiEye className="w-4 h-4 text-gray-600" />
-                        )}
+                        {showPass ? <FiEyeOff className="w-4 h-4 text-gray-600" /> : <FiEye className="w-4 h-4 text-gray-600" />}
                       </button>
                     </div>
                   </Field>
@@ -622,7 +612,14 @@ export default function UsersAdminPanel() {
   const [searchTerm, setSearchTerm] = useState("")
   const [debounced, setDebounced] = useState("")
   const [statusFilter, setStatusFilter] = useState("all") // all | active | inactive
-  const [sortMode, setSortMode] = useState("newest") // ✅ backend supports newest | oldest
+
+  /**
+   * ✅ FIX: A–Z sorting was “not working” because only backend sort existed.
+   * We now support:
+   * - newest / oldest (server sort)
+   * - az / za (client sort for display)
+   */
+  const [sortMode, setSortMode] = useState("newest") // newest | oldest | az | za
 
   // pagination
   const [nextCursor, setNextCursor] = useState(null)
@@ -685,6 +682,11 @@ export default function UsersAdminPanel() {
     if (!isSuperAdmin && tab === "superadmins") setTab("employees")
   }, [isSuperAdmin, tab])
 
+  // ✅ Only these are sent to backend (so we never send unsupported "az/za")
+  const backendSort = useMemo(() => {
+    return sortMode === "oldest" ? "oldest" : "newest"
+  }, [sortMode])
+
   const buildListUrl = ({ cursor = null } = {}) => {
     const qs = new URLSearchParams()
     qs.set("limit", String(PAGE_SIZE))
@@ -696,7 +698,7 @@ export default function UsersAdminPanel() {
     }
 
     // ✅ backend supports newest | oldest
-    qs.set("sort", sortMode)
+    qs.set("sort", backendSort)
 
     if (cursor) qs.set("cursor", String(cursor))
 
@@ -758,11 +760,41 @@ export default function UsersAdminPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endpointBase, responseListKey])
 
-  // server-backed filters
+  // server-backed filters (note: backendSort, not sortMode)
   useEffect(() => {
     fetchUsers({ reset: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debounced, statusFilter, sortMode])
+  }, [debounced, statusFilter, backendSort])
+
+  // ✅ Client-side sorted view (fix for A–Z / Z–A)
+  const displayList = useMemo(() => {
+    if (!Array.isArray(list) || list.length === 0) return []
+
+    const arr = [...list]
+
+    const keyFor = (u) => {
+      const n = String(u?.name || "").trim()
+      const e = String(u?.email || "").trim()
+      return n || e || ""
+    }
+
+    if (sortMode === "az") {
+      arr.sort((a, b) =>
+        keyFor(a).localeCompare(keyFor(b), undefined, { sensitivity: "base", numeric: true })
+      )
+      return arr
+    }
+
+    if (sortMode === "za") {
+      arr.sort((a, b) =>
+        keyFor(b).localeCompare(keyFor(a), undefined, { sensitivity: "base", numeric: true })
+      )
+      return arr
+    }
+
+    // newest/oldest are already server-sorted
+    return arr
+  }, [list, sortMode])
 
   const stats = useMemo(() => {
     const active = list.filter((u) => !!u?.isActive).length
@@ -782,23 +814,6 @@ export default function UsersAdminPanel() {
     setModalOpen(true)
   }
 
-  const toggleActiveQuick = async (u) => {
-    try {
-      const res = await fetch(`${API_BASE}/users/${endpointBase}/${u._id}`, {
-        method: "PATCH",
-        headers: getAuthHeadersJson(),
-        credentials: "include",
-        body: JSON.stringify({ isActive: !u.isActive }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.message || "Update failed")
-      showToast("success", "Updated.")
-      fetchUsers({ reset: true })
-    } catch (e) {
-      showToast("error", e?.message || "Update failed")
-    }
-  }
-
   const deleteUser = async (u) => {
     try {
       const res = await fetch(`${API_BASE}/users/${endpointBase}/${u._id}`, {
@@ -815,17 +830,11 @@ export default function UsersAdminPanel() {
     }
   }
 
-  const loadedCount = list.length
-
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
       <AnimatePresence>
         {toast.message && (
-          <Toast
-            type={toast.type}
-            message={toast.message}
-            onClose={() => setToast({ type: "success", message: "" })}
-          />
+          <Toast type={toast.type} message={toast.message} onClose={() => setToast({ type: "success", message: "" })} />
         )}
       </AnimatePresence>
 
@@ -875,9 +884,7 @@ export default function UsersAdminPanel() {
               <div>
                 <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">User Management</h1>
                 <p className="text-sm text-gray-500">
-                  {isSuperAdmin
-                    ? "Super Admins + Admins + Employees + Marketing Team"
-                    : "Admins + Employees + Marketing Team"}
+                  {isSuperAdmin ? "Super Admins + Admins + Employees + Marketing Team" : "Admins + Employees + Marketing Team"}
                 </p>
               </div>
             </div>
@@ -909,31 +916,11 @@ export default function UsersAdminPanel() {
 
           {/* Tabs */}
           <div className="mt-4 flex flex-wrap gap-2">
-            <SegTab
-              active={tab === "employees"}
-              onClick={() => setTab("employees")}
-              icon={<FiUser className="w-4 h-4" />}
-              label="Employees"
-            />
-            <SegTab
-              active={tab === "marketing_team"}
-              onClick={() => setTab("marketing_team")}
-              icon={<FiUsers className="w-4 h-4" />}
-              label="Marketing Team"
-            />
-            <SegTab
-              active={tab === "admins"}
-              onClick={() => setTab("admins")}
-              icon={<FiShield className="w-4 h-4" />}
-              label="Admins"
-            />
+            <SegTab active={tab === "employees"} onClick={() => setTab("employees")} icon={<FiUser className="w-4 h-4" />} label="Employees" />
+            <SegTab active={tab === "marketing_team"} onClick={() => setTab("marketing_team")} icon={<FiUsers className="w-4 h-4" />} label="Marketing Team" />
+            <SegTab active={tab === "admins"} onClick={() => setTab("admins")} icon={<FiShield className="w-4 h-4" />} label="Admins" />
             {isSuperAdmin ? (
-              <SegTab
-                active={tab === "superadmins"}
-                onClick={() => setTab("superadmins")}
-                icon={<FiShield className="w-4 h-4" />}
-                label="Super Admins"
-              />
+              <SegTab active={tab === "superadmins"} onClick={() => setTab("superadmins")} icon={<FiShield className="w-4 h-4" />} label="Super Admins" />
             ) : null}
           </div>
         </div>
@@ -977,6 +964,8 @@ export default function UsersAdminPanel() {
           >
             <option value="newest">Newest</option>
             <option value="oldest">Oldest</option>
+            <option value="az">A–Z</option>
+            <option value="za">Z–A</option>
           </select>
         </div>
 
@@ -989,6 +978,7 @@ export default function UsersAdminPanel() {
               </>
             ) : null}
             {debounced ? <span className="ml-2 text-gray-400">• search: “{debounced}”</span> : null}
+            {(sortMode === "az" || sortMode === "za") ? <span className="ml-2 text-gray-400">• sorted locally</span> : null}
           </div>
 
           {hasMore ? (
@@ -1022,8 +1012,8 @@ export default function UsersAdminPanel() {
               <RowSkeleton />
               <RowSkeleton />
             </>
-          ) : list.length > 0 ? (
-            list.map((u) => {
+          ) : displayList.length > 0 ? (
+            displayList.map((u) => {
               const active = !!u?.isActive
               const isMe = String(u?._id) === String(me?._id)
               const canManage = canManageTarget(me?.role, u?.role)
@@ -1043,9 +1033,7 @@ export default function UsersAdminPanel() {
 
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-base font-extrabold text-gray-900 truncate">
-                            {u?.name || "—"}
-                          </p>
+                          <p className="text-base font-extrabold text-gray-900 truncate">{u?.name || "—"}</p>
 
                           <span
                             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ring-1 ${
@@ -1079,9 +1067,7 @@ export default function UsersAdminPanel() {
                           <span className="text-gray-300">•</span>
                           <span className="text-xs text-gray-500">
                             Created{" "}
-                            <span className="font-semibold text-gray-700">
-                              {formatDate(u?.createdAt)}
-                            </span>
+                            <span className="font-semibold text-gray-700">{formatDate(u?.createdAt)}</span>
                           </span>
                         </div>
                       </div>
@@ -1130,7 +1116,13 @@ export default function UsersAdminPanel() {
                       <button
                         onClick={() => setConfirm({ open: true, item: u })}
                         disabled={(tab === "superadmins" && isMe) || disableActions}
-                        title={tab === "superadmins" && isMe ? "You cannot delete yourself" : disableActions ? "Not allowed." : "Delete"}
+                        title={
+                          tab === "superadmins" && isMe
+                            ? "You cannot delete yourself"
+                            : disableActions
+                            ? "Not allowed."
+                            : "Delete"
+                        }
                         className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-rose-600 text-white hover:bg-rose-700 active:scale-[0.99] transition disabled:opacity-60 disabled:cursor-not-allowed"
                       >
                         <FiTrash2 className="w-4 h-4" />
