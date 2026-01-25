@@ -1,42 +1,40 @@
-// routes/activity.routes.js
 import express from "express";
-import {
-  createActivity,
-  getActivities,
-  getActivityById,
-  updateActivity,
-  markActivityDone,
-  deleteActivity,
-  getTimeline,
-  getUpcomingFollowups,
-} from "../controllers/activity.controller.js";
-
+import mongoose from "mongoose";
 import { protect } from "../middleware/auth.middleware.js";
-// If you want admin-only delete from routes, import this:
-// import { isAdminOrSuperAdmin } from "../middleware/auth.middleware.js";
+import ActivityLog from "../models/activityLog.model.js";
 
 const router = express.Router();
 router.use(protect);
 
-// ✅ IMPORTANT: Put fixed routes BEFORE "/:id"
-router.get("/timeline", getTimeline);
-router.get("/upcoming", getUpcomingFollowups);
+const toObjectId = (v) =>
+  mongoose.Types.ObjectId.isValid(v) ? new mongoose.Types.ObjectId(String(v)) : null;
 
-// create + list
-router.post("/", createActivity);
-router.get("/", getActivities);
+/**
+ * GET /activity?leadId=&customerId=&limit=50&cursor=<activityId>
+ */
+router.get("/", async (req, res) => {
+  try {
+    const leadId = toObjectId(req.query.leadId);
+    const customerId = toObjectId(req.query.customerId);
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit || 50)));
+    const cursor = toObjectId(req.query.cursor);
 
-// read + update
-router.get("/:id", getActivityById);
-router.patch("/:id", updateActivity);
+    const filter = {};
+    if (leadId) filter.leadId = leadId;
+    if (customerId) filter.customerId = customerId;
+    if (!leadId && !customerId) return res.status(400).json({ message: "leadId or customerId required" });
 
-// quick complete
-router.patch("/:id/done", markActivityDone);
+    if (cursor) filter._id = { $lt: cursor };
 
-// delete (admin OR creator allowed inside controller)
-router.delete("/:id", deleteActivity);
+    const rows = await ActivityLog.find(filter).sort({ _id: -1 }).limit(limit + 1).lean();
+    const hasMore = rows.length > limit;
+    const items = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore ? String(items[items.length - 1]._id) : null;
 
-// If you want admin-only delete, use this instead:
-// router.delete("/:id", isAdminOrSuperAdmin, deleteActivity);
+    res.json({ items, pageInfo: { limit, hasMore, nextCursor } });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to load activity", error: err.message });
+  }
+});
 
 export default router;

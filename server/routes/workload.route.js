@@ -1,14 +1,20 @@
-// routes/workload.route.js
+// ===============================
+// ✅ routes/workload.route.js (FULL UPDATED)
+// Adds customer-first endpoint + keeps /employees as alias (optional)
+// ===============================
 import express from "express";
 import { protect, isAdminOrSuperAdmin } from "../middleware/auth.middleware.js";
-import { getEmployeeWorkload } from "../controllers/workload.controller.js";
+import { getCustomerWorkload } from "../controllers/workload.controller.js";
 
 const router = express.Router();
 
 router.use(protect);
 
-// ✅ Admin-only dashboard endpoint
-// GET /api/workload/employees?taskStatus=all&includeEmptyCustomers=true&windowDays=7
-router.get("/employees", isAdminOrSuperAdmin, getEmployeeWorkload);
+// ✅ Primary: Customer-first workload
+// GET /api/workload/customers?limit=20&cursor=...&includeTasks=false&taskStatus=all
+router.get("/customers", isAdminOrSuperAdmin, getCustomerWorkload);
+
+// ✅ Optional backward-compatible alias (if your frontend still calls /employees)
+router.get("/employees", isAdminOrSuperAdmin, getCustomerWorkload);
 
 export default router;

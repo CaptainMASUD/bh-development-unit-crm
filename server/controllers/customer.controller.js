@@ -4,12 +4,6 @@ import Customer from "../models/customer.model.js";
 import User from "../models/user.model.js";
 import EngagementTemplate from "../models/engagementTemplate.model.js";
 
-// ✅ NEW CRM MODULES
-import Deal from "../models/deal.model.js";
-import Order from "../models/order.model.js";
-import Invoice from "../models/invoice.model.js";
-import Activity from "../models/activity.model.js";
-
 // ✅ Dashboard cache invalidation (fix counts after create/delete/update)
 import { dashboardCache } from "../utils/cache.js";
 
@@ -32,18 +26,6 @@ const invalidateDashboardCache = () => {
       dashboardCache.flushAll?.();
     } catch {}
   }
-};
-
-const canAccessCustomerDoc = (customerDoc, req) => {
-  if (!customerDoc) return false;
-  if (isAdminOrSuperAdmin(req)) return true;
-
-  const uid = String(req.user?._id || "");
-  const createdBy = String(customerDoc.createdBy?._id ?? customerDoc.createdBy ?? "");
-  const assigned = Array.isArray(customerDoc.assignedTo) ? customerDoc.assignedTo : [];
-  const assignedIds = assigned.map((x) => String(x?._id ?? x));
-
-  return createdBy === uid || assignedIds.includes(uid);
 };
 
 const normalizeContactPerson = (contactPerson) => {
@@ -75,15 +57,20 @@ const normalizeLifecycleStage = (v) => {
   return allowed.has(s) ? s : null;
 };
 
+/**
+ * ✅ UPDATED VISIBILITY:
+ * - By default include BOTH direct + lead customers (so converted customers are visible)
+ * - If client passes includeLeadCustomers=false => only origin:"direct"
+ */
 const buildVisibilityMatch = (req) => {
+  const includeLeadCustomersRaw = req.query?.includeLeadCustomers;
   const includeLeadCustomers =
-    String(req.query?.includeLeadCustomers || "").toLowerCase() === "true";
+    includeLeadCustomersRaw === undefined
+      ? true
+      : String(includeLeadCustomersRaw).toLowerCase() === "true";
 
-  // admin can see lead customers if requested
-  if (includeLeadCustomers && isAdminOrSuperAdmin(req)) return {};
-
-  // default only direct customers
-  return { origin: "direct" };
+  if (!includeLeadCustomers) return { origin: "direct" };
+  return {};
 };
 
 const clampLimit = (v, min = 1, max = 50, fallback = 20) => {
@@ -296,9 +283,6 @@ export const searchEmployeesForCustomerAssign = async (req, res) => {
     if (active === "true") filter.isActive = true;
     else if (active === "false") filter.isActive = false;
 
-    // ✅ Prefer indexed prefix search using nameLower
-    // - If q looks like email, do contains match on email (still indexed on email but regex won't use it fully)
-    // - Else do prefix match on nameLower (uses index: role+isActive+nameLower)
     if (q) {
       const safe = escapeRegex(q);
       const isEmailish = q.includes("@");
@@ -335,6 +319,46 @@ export const searchEmployeesForCustomerAssign = async (req, res) => {
 };
 
 /* ------------------ controllers ------------------ */
+
+/**
+ * ✅ ADMIN ONLY: UPDATE CUSTOMER STATUS (onboarding)
+ * PATCH /customers/:id/status
+ * body: { status: "pending" | "in_progress" | "complete" }
+ */
+export const updateCustomerStatus = async (req, res) => {
+  try {
+    if (!isAdminOrSuperAdmin(req)) return res.status(403).json({ message: "Not authorized." });
+
+    const customerId = toObjectIdOrNull(req.params.id);
+    if (!customerId) return res.status(400).json({ message: "Invalid customer id." });
+
+    const { status } = req.body || {};
+    if (!status) return res.status(400).json({ message: "status is required." });
+
+    const allowed = ["pending", "in_progress", "complete"];
+    const nextStatus = String(status).toLowerCase();
+    if (!allowed.includes(nextStatus)) {
+      return res.status(400).json({ message: `Invalid status. Allowed: ${allowed.join(", ")}` });
+    }
+
+    const customer = await Customer.findByIdAndUpdate(
+      customerId,
+      { $set: { status: nextStatus } },
+      { new: true, runValidators: true }
+    ).select("_id name status customerType origin leadId createdAt updatedAt");
+
+    if (!customer) return res.status(404).json({ message: "Customer not found." });
+
+    invalidateDashboardCache();
+
+    return res.status(200).json({ message: "Customer status updated.", customer });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Server error in updateCustomerStatus.",
+      error: err.message,
+    });
+  }
+};
 
 /**
  * CREATE CUSTOMER
@@ -422,7 +446,6 @@ export const createCustomer = async (req, res) => {
 
     const customer = await Customer.create(payload);
 
-    // ✅ FIX: invalidate dashboard cache so counts stay correct immediately
     invalidateDashboardCache();
 
     return res.status(201).json({
@@ -761,6 +784,7 @@ export const getCustomerTasks = async (req, res) => {
 /**
  * UPDATE CUSTOMER
  * PATCH /customers/:id
+ * ✅ UPDATED: non-admin cannot change status
  */
 export const updateCustomer = async (req, res) => {
   try {
@@ -809,7 +833,13 @@ export const updateCustomer = async (req, res) => {
       };
     }
 
-    if (req.body.status !== undefined) customer.status = normalizeStatus(req.body.status);
+    // ✅ IMPORTANT: block status updates here for non-admin
+    if (req.body.status !== undefined) {
+      if (!isAdminOrSuperAdmin(req)) {
+        return res.status(403).json({ message: "Only admin can change customer status." });
+      }
+      customer.status = normalizeStatus(req.body.status);
+    }
 
     if (req.body.customerType !== undefined)
       customer.customerType = normalizeCustomerType(req.body.customerType);
@@ -849,7 +879,6 @@ export const updateCustomer = async (req, res) => {
 
     await customer.save();
 
-    // ✅ FIX: invalidate dashboard cache on updates too (counts + recent lists)
     invalidateDashboardCache();
 
     return res.status(200).json({ message: "Customer updated.", customer });
@@ -935,7 +964,6 @@ export const deleteCustomer = async (req, res) => {
     const customer = await Customer.findByIdAndDelete(req.params.id).select("_id");
     if (!customer) return res.status(404).json({ message: "Customer not found." });
 
-    // ✅ FIX: clear dashboard cache so counts don't stay stale after delete
     invalidateDashboardCache();
 
     return res.status(200).json({ message: "Customer deleted." });
@@ -1026,255 +1054,6 @@ export const assignCustomer = async (req, res) => {
   } catch (err) {
     return res.status(500).json({
       message: "Server error in assignCustomer.",
-      error: err.message,
-    });
-  }
-};
-
-/* =========================================================
-   CRM ENDPOINTS
-========================================================= */
-
-export const getCustomerSummary = async (req, res) => {
-  try {
-    const customerId = toObjectIdOrNull(req.params.id);
-    if (!customerId) return res.status(400).json({ message: "Invalid customer id." });
-
-    const visibilityMatch = buildVisibilityMatch(req);
-
-    const customer = await Customer.findOne(
-      isAdminOrSuperAdmin(req)
-        ? { _id: customerId, ...visibilityMatch }
-        : {
-            _id: customerId,
-            ...visibilityMatch,
-            $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
-          }
-    )
-      .select("_id name companyName createdBy assignedTo crmTasks")
-      .lean();
-
-    if (!customer) return res.status(404).json({ message: "Customer not found." });
-
-    const tasks = Array.isArray(customer.crmTasks) ? customer.crmTasks : [];
-    const taskCounts = {
-      pending: tasks.filter((t) => t.status === "pending").length,
-      in_progress: tasks.filter((t) => t.status === "in_progress").length,
-      done: tasks.filter((t) => t.status === "done").length,
-    };
-
-    const [dealOpen, dealWon, dealLost, ordersCount, invoicesCount, lastActivity] =
-      await Promise.all([
-        Deal.countDocuments({ customerId, stage: { $nin: ["won", "lost"] } }),
-        Deal.countDocuments({ customerId, stage: "won" }),
-        Deal.countDocuments({ customerId, stage: "lost" }),
-        Order.countDocuments({ customerId }),
-        Invoice.countDocuments({ customerId }),
-        Activity.findOne({ customerId })
-          .sort({ _id: -1 })
-          .select("type text createdAt scheduledAt isDone")
-          .lean(),
-      ]);
-
-    return res.status(200).json({
-      customerId: String(customerId),
-      customerName: customer.name,
-      companyName: customer.companyName,
-      deals: { open: dealOpen, won: dealWon, lost: dealLost },
-      orders: { count: ordersCount },
-      invoices: { count: invoicesCount },
-      tasks: taskCounts,
-      lastActivity: lastActivity || null,
-    });
-  } catch (err) {
-    return res.status(500).json({
-      message: "Server error in getCustomerSummary.",
-      error: err.message,
-    });
-  }
-};
-
-export const getCustomerTimeline = async (req, res) => {
-  try {
-    const customerId = toObjectIdOrNull(req.params.id);
-    if (!customerId) return res.status(400).json({ message: "Invalid customer id." });
-
-    const visibilityMatch = buildVisibilityMatch(req);
-
-    const customer = await Customer.findOne(
-      isAdminOrSuperAdmin(req)
-        ? { _id: customerId, ...visibilityMatch }
-        : {
-            _id: customerId,
-            ...visibilityMatch,
-            $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
-          }
-    )
-      .select("_id createdBy assignedTo")
-      .lean();
-
-    if (!customer) return res.status(404).json({ message: "Customer not found." });
-    if (!canAccessCustomerDoc(customer, req)) return res.status(403).json({ message: "No access." });
-
-    const limit = clampLimit(req.query.limit, 1, 100, 20);
-    const cursor = toObjectIdOrNull(req.query.cursor);
-
-    const filter = { customerId };
-    if (cursor) filter._id = { $lt: cursor };
-
-    const rows = await Activity.find(filter)
-      .sort({ _id: -1 })
-      .limit(limit + 1)
-      .populate("createdBy", "name email role")
-      .lean();
-
-    const hasMore = rows.length > limit;
-    const activities = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = activities.length ? String(activities[activities.length - 1]._id) : null;
-
-    return res.status(200).json({ count: activities.length, hasMore, nextCursor, activities });
-  } catch (err) {
-    return res.status(500).json({
-      message: "Server error in getCustomerTimeline.",
-      error: err.message,
-    });
-  }
-};
-
-export const getCustomerDeals = async (req, res) => {
-  try {
-    const customerId = toObjectIdOrNull(req.params.id);
-    if (!customerId) return res.status(400).json({ message: "Invalid customer id." });
-
-    const visibilityMatch = buildVisibilityMatch(req);
-
-    const customer = await Customer.findOne(
-      isAdminOrSuperAdmin(req)
-        ? { _id: customerId, ...visibilityMatch }
-        : {
-            _id: customerId,
-            ...visibilityMatch,
-            $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
-          }
-    )
-      .select("_id createdBy assignedTo")
-      .lean();
-
-    if (!customer) return res.status(404).json({ message: "Customer not found." });
-    if (!canAccessCustomerDoc(customer, req)) return res.status(403).json({ message: "No access." });
-
-    const limit = clampLimit(req.query.limit, 1, 100, 20);
-    const cursor = toObjectIdOrNull(req.query.cursor);
-    const stage = req.query.stage ? String(req.query.stage).toLowerCase() : null;
-
-    const filter = { customerId };
-    if (cursor) filter._id = { $lt: cursor };
-    if (stage) filter.stage = stage;
-
-    const rows = await Deal.find(filter)
-      .sort({ _id: -1 })
-      .limit(limit + 1)
-      .populate("ownerId", "name email role")
-      .lean();
-
-    const hasMore = rows.length > limit;
-    const deals = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = deals.length ? String(deals[deals.length - 1]._id) : null;
-
-    return res.status(200).json({ count: deals.length, hasMore, nextCursor, deals });
-  } catch (err) {
-    return res.status(500).json({
-      message: "Server error in getCustomerDeals.",
-      error: err.message,
-    });
-  }
-};
-
-export const getCustomerOrders = async (req, res) => {
-  try {
-    const customerId = toObjectIdOrNull(req.params.id);
-    if (!customerId) return res.status(400).json({ message: "Invalid customer id." });
-
-    const visibilityMatch = buildVisibilityMatch(req);
-
-    const customer = await Customer.findOne(
-      isAdminOrSuperAdmin(req)
-        ? { _id: customerId, ...visibilityMatch }
-        : {
-            _id: customerId,
-            ...visibilityMatch,
-            $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
-          }
-    )
-      .select("_id createdBy assignedTo")
-      .lean();
-
-    if (!customer) return res.status(404).json({ message: "Customer not found." });
-    if (!canAccessCustomerDoc(customer, req)) return res.status(403).json({ message: "No access." });
-
-    const limit = clampLimit(req.query.limit, 1, 100, 20);
-    const cursor = toObjectIdOrNull(req.query.cursor);
-    const status = req.query.status ? String(req.query.status).toLowerCase() : null;
-
-    const filter = { customerId };
-    if (cursor) filter._id = { $lt: cursor };
-    if (status) filter.status = status;
-
-    const rows = await Order.find(filter).sort({ _id: -1 }).limit(limit + 1).lean();
-
-    const hasMore = rows.length > limit;
-    const orders = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = orders.length ? String(orders[orders.length - 1]._id) : null;
-
-    return res.status(200).json({ count: orders.length, hasMore, nextCursor, orders });
-  } catch (err) {
-    return res.status(500).json({
-      message: "Server error in getCustomerOrders.",
-      error: err.message,
-    });
-  }
-};
-
-export const getCustomerInvoices = async (req, res) => {
-  try {
-    const customerId = toObjectIdOrNull(req.params.id);
-    if (!customerId) return res.status(400).json({ message: "Invalid customer id." });
-
-    const visibilityMatch = buildVisibilityMatch(req);
-
-    const customer = await Customer.findOne(
-      isAdminOrSuperAdmin(req)
-        ? { _id: customerId, ...visibilityMatch }
-        : {
-            _id: customerId,
-            ...visibilityMatch,
-            $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
-          }
-    )
-      .select("_id createdBy assignedTo")
-      .lean();
-
-    if (!customer) return res.status(404).json({ message: "Customer not found." });
-    if (!canAccessCustomerDoc(customer, req)) return res.status(403).json({ message: "No access." });
-
-    const limit = clampLimit(req.query.limit, 1, 100, 20);
-    const cursor = toObjectIdOrNull(req.query.cursor);
-    const status = req.query.status ? String(req.query.status).toLowerCase() : null;
-
-    const filter = { customerId };
-    if (cursor) filter._id = { $lt: cursor };
-    if (status) filter.status = status;
-
-    const rows = await Invoice.find(filter).sort({ _id: -1 }).limit(limit + 1).lean();
-
-    const hasMore = rows.length > limit;
-    const invoices = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = invoices.length ? String(invoices[invoices.length - 1]._id) : null;
-
-    return res.status(200).json({ count: invoices.length, hasMore, nextCursor, invoices });
-  } catch (err) {
-    return res.status(500).json({
-      message: "Server error in getCustomerInvoices.",
       error: err.message,
     });
   }

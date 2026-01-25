@@ -25,22 +25,17 @@ import taskTemplateRoutes from "./routes/taskTemplate.route.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
 import engagementTemplateRoutes from "./routes/engagementTemplate.route.js";
 import workloadRoutes from "./routes/workload.route.js";
-import dealRoutes from "./routes/deal.routes.js";
 import activityRoutes from "./routes/activity.routes.js";
-import orderRoutes from "./routes/order.routes.js";
-import invoiceRoutes from "./routes/invoice.routes.js";
-import productRoutes from "./routes/product.routes.js";
+
+app.use("/api/activity", activityRoutes);
+
 
 app.use("/api/workload", workloadRoutes);
 
 // dashboard
 app.use("/api/dashboard", dashboardRoutes);
 
- app.use("/api/deals", dealRoutes);
-  app.use("/api/activities", activityRoutes);
-  app.use("/api/orders", orderRoutes);
-  app.use("/api/invoices", invoiceRoutes);
-  app.use("/api/products", productRoutes); // optional
+
   
 // templates
 app.use("/api", taskTemplateRoutes);

@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, memo, useRef, useMemo, useId } from "react"
 import { useNavigate } from "react-router-dom"
-import { FaChevronDown, FaSignOutAlt, FaMoon, FaSun, FaSearch, FaTimes } from "react-icons/fa"
+import { FaChevronDown, FaSignOutAlt, FaMoon, FaSun, FaSearch, FaTimes, FaAngleDoubleLeft } from "react-icons/fa"
 import { useDispatch } from "react-redux"
 import { signOut } from "../../Redux/UserSlice/UserSlice"
 
@@ -147,7 +147,7 @@ function useSubmenuMeasure(sections) {
   return { heights, getSubmenuRef }
 }
 
-const SubMenu = memo(function SubMenu({
+const SubMenuInline = memo(function SubMenuInline({
   subcategories,
   section,
   activeSection,
@@ -193,7 +193,7 @@ const SubMenu = memo(function SubMenu({
       id={regionId}
       ref={subMenuRef}
       className={`overflow-hidden ${
-        reducedMotion ? "" : `transition-all duration-300 ease-in-out ${isExpanded ? "opacity-100" : "opacity-0"}`
+        reducedMotion ? "" : `transition-[max-height,opacity] duration-300 ease-in-out ${isExpanded ? "opacity-100" : "opacity-0"}`
       }`}
       style={{ maxHeight: isExpanded ? height ?? 0 : 0 }}
       role="region"
@@ -201,7 +201,7 @@ const SubMenu = memo(function SubMenu({
       aria-label={`${section} submenu`}
       onKeyDown={onKeyDown}
     >
-      <div className="pl-4 py-2 space-y-1">
+      <div className="pl-3 py-2 space-y-1">
         {Object.keys(subcategories).map((subcategory) => {
           const isActive = activeSection === section && activeSubcategory === subcategory
           return (
@@ -209,13 +209,13 @@ const SubMenu = memo(function SubMenu({
               key={subcategory}
               ref={setBtnRef}
               onClick={() => handleSubcategoryClick(section, subcategory)}
-              className={`group w-full flex items-center px-4 py-2.5 rounded-lg text-sm relative ${
+              className={`group w-full flex items-center px-4 py-2.5 rounded-xl text-sm relative ${
                 reducedMotion ? "" : "transition-all duration-200"
-              } ${
+              } focus:outline-none focus:ring-2 focus:ring-purple-500/60 ${
                 isActive
                   ? isDarkMode
-                    ? "bg-gradient-to-r from-indigo-600/20 via-purple-600/20 to-pink-600/20 text-white font-medium"
-                    : "bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 text-gray-900 font-medium"
+                    ? "bg-white/8 text-white font-semibold"
+                    : "bg-gray-900/5 text-gray-900 font-semibold"
                   : isDarkMode
                   ? "text-gray-400 hover:bg-white/5 hover:text-white"
                   : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
@@ -239,12 +239,94 @@ const SubMenu = memo(function SubMenu({
   )
 })
 
+/** ✅ Flyout submenu (for collapsed/icon sidebar) */
+const FlyoutSubmenu = memo(function FlyoutSubmenu({
+  open,
+  top,
+  left,
+  section,
+  subcategories,
+  onSelect,
+  onClose,
+  isDarkMode,
+  reducedMotion,
+  activeSection,
+  activeSubcategory,
+}) {
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose?.()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [open, onClose])
+
+  if (!open) return null
+  const keys = Object.keys(subcategories || {})
+  if (!keys.length) return null
+
+  return (
+    <>
+      <button type="button" className="fixed inset-0 z-[99998] cursor-default" onClick={onClose} aria-label="Close submenu" />
+      <div
+        className={`fixed z-[99999] w-[280px] rounded-2xl border shadow-2xl overflow-hidden ${
+          isDarkMode ? "bg-gray-900 text-white border-white/10" : "bg-white text-gray-900 border-gray-200"
+        } ${reducedMotion ? "" : "animate-[fadeIn_.12s_ease-out]"}`}
+        style={{ top: `${top}px`, left: `${left}px` }}
+        role="dialog"
+        aria-label={`${section} submenu`}
+        onMouseLeave={onClose}
+      >
+        <div className={`px-4 py-3 border-b ${isDarkMode ? "border-white/10" : "border-gray-200"}`}>
+          <div className="text-sm font-semibold truncate">{section}</div>
+          <div className={`text-xs mt-0.5 ${isDarkMode ? "text-gray-400" : "text-gray-600"}`}>Choose an option</div>
+        </div>
+
+        <div className="p-2">
+          {keys.map((subcategory) => {
+            const isActive = activeSection === section && activeSubcategory === subcategory
+            return (
+              <button
+                key={subcategory}
+                type="button"
+                onClick={() => onSelect(section, subcategory)}
+                className={`w-full text-left px-3 py-2.5 rounded-xl text-sm ${
+                  reducedMotion ? "" : "transition-all duration-150"
+                } focus:outline-none focus:ring-2 focus:ring-purple-500/60 ${
+                  isActive
+                    ? isDarkMode
+                      ? "bg-white/8 text-white font-semibold"
+                      : "bg-gray-900/5 text-gray-900 font-semibold"
+                    : isDarkMode
+                    ? "text-gray-300 hover:bg-white/5 hover:text-white"
+                    : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                }`}
+              >
+                {subcategory}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+      `}</style>
+    </>
+  )
+})
+
 function getInitials(nameOrEmail) {
   const s = String(nameOrEmail || "").trim()
   if (!s) return "U"
   const parts = s.split(" ").filter(Boolean)
   if (parts.length === 1) return parts[0].slice(0, 1).toUpperCase()
   return (parts[0].slice(0, 1) + parts[1].slice(0, 1)).toUpperCase()
+}
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n))
 }
 
 export default function Sidebar({
@@ -260,7 +342,7 @@ export default function Sidebar({
   setIsDarkMode,
 }) {
   const [expandedSection, setExpandedSection] = useState(null)
-  const [user, setUser] = useState(null) // { username, role, prettyRole, avatarUrl }
+  const [user, setUser] = useState(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [showJetsky, setShowJetsky] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
@@ -275,6 +357,13 @@ export default function Sidebar({
 
   const abortNotifRef = useRef(null)
 
+  // ✅ Desktop compact/collapsed mode
+  const [compact, setCompact] = useState(false)
+
+  // ✅ Flyout (for subcategories in compact)
+  const [flyout, setFlyout] = useState({ open: false, section: "", top: 0, left: 0 })
+  const openTimerRef = useRef(null)
+
   const navigate = useNavigate()
   const dispatch = useDispatch()
 
@@ -284,6 +373,31 @@ export default function Sidebar({
 
   const safeSections = sections || {}
   const { heights: subMenuHeights, getSubmenuRef } = useSubmenuMeasure(safeSections)
+
+  // load compact preference
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem("sidebar_compact")
+      setCompact(v === "1")
+    } catch {}
+  }, [])
+
+  // never compact on mobile
+  useEffect(() => {
+    if (isMobileViewport) setCompact(false)
+  }, [isMobileViewport])
+
+  const toggleCompact = useCallback(() => {
+    setCompact((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem("sidebar_compact", next ? "1" : "0")
+      } catch {}
+      return next
+    })
+    setExpandedSection(null)
+    setFlyout({ open: false, section: "", top: 0, left: 0 })
+  }, [])
 
   const toggleTheme = useCallback(() => {
     setIsDarkMode((prev) => {
@@ -296,44 +410,6 @@ export default function Sidebar({
   const toggleSection = useCallback((section) => {
     setExpandedSection((prev) => (prev === section ? null : section))
   }, [])
-
-  const handleSectionClick = useCallback(
-    (section) => {
-      const def = safeSections?.[section]
-      if (!def) return
-
-      if (def.subcategories) toggleSection(section)
-      else {
-        setActiveSection(section)
-        setActiveSubcategory("")
-        if (isMobile) toggleSidebar()
-      }
-    },
-    [safeSections, setActiveSection, setActiveSubcategory, toggleSection, isMobile, toggleSidebar]
-  )
-
-  const handleKeyToggle = useCallback(
-    (e, section) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault()
-        handleSectionClick(section)
-      } else if (e.key === "ArrowRight") {
-        if (safeSections?.[section]?.subcategories) setExpandedSection(section)
-      } else if (e.key === "ArrowLeft") {
-        if (expandedSection === section) setExpandedSection(null)
-      }
-    },
-    [handleSectionClick, safeSections, expandedSection]
-  )
-
-  const handleSubcategoryClick = useCallback(
-    (section, subcategory) => {
-      setActiveSection(section)
-      setActiveSubcategory(subcategory)
-      if (isMobile) toggleSidebar()
-    },
-    [setActiveSection, setActiveSubcategory, isMobile, toggleSidebar]
-  )
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem("user")
@@ -517,7 +593,6 @@ export default function Sidebar({
 
     const without = keys.filter((k) => k !== "About" && k !== "Profile Settings")
     const aboutIndex = keys.indexOf("About")
-
     const before = without.slice(0, Math.max(0, aboutIndex - 1))
     const after = without.slice(Math.max(0, aboutIndex - 1))
     return [...before, "Profile Settings", "About", ...after]
@@ -526,7 +601,6 @@ export default function Sidebar({
   const filteredSectionKeys = useMemo(() => {
     const q = searchTerm.trim().toLowerCase()
     if (!q) return orderedSectionKeys
-
     return orderedSectionKeys.filter((name) => {
       const def = safeSections[name]
       if (!def) return false
@@ -537,8 +611,95 @@ export default function Sidebar({
   }, [orderedSectionKeys, safeSections, searchTerm])
 
   const shouldRingBell = !reducedMotion && notifCount7d > 0 && showBellTip && !isMobileViewport
-
   const initials = getInitials(user?.username)
+
+  // ✅ slightly wider so bell badge never clips
+  const asideWidth = compact ? "w-[96px]" : "w-80"
+  const headerPad = compact ? "p-4" : "p-6"
+  const navPad = compact ? "p-3" : "p-4"
+
+  const closeFlyout = useCallback(() => {
+    if (openTimerRef.current) clearTimeout(openTimerRef.current)
+    setFlyout((p) => ({ ...p, open: false, section: "" }))
+  }, [])
+
+  const openFlyout = useCallback((section, anchorEl) => {
+    if (!anchorEl) return
+    if (openTimerRef.current) clearTimeout(openTimerRef.current)
+
+    const r = anchorEl.getBoundingClientRect()
+    const desiredTop = r.top - 8
+    const maxTop = window.innerHeight - 220
+    const top = clamp(desiredTop, 12, Math.max(12, maxTop))
+    const left = r.right + 12
+
+    setFlyout({ open: true, section, top, left })
+  }, [])
+
+  const handleSectionClick = useCallback(
+    (section, anchorEl) => {
+      const def = safeSections?.[section]
+      if (!def) return
+
+      const hasSubs = !!def.subcategories
+
+      // ✅ compact mode: flyout for subcategories
+      if (!isMobileViewport && compact && hasSubs) {
+        openFlyout(section, anchorEl)
+        return
+      }
+
+      if (hasSubs) toggleSection(section)
+      else {
+        setActiveSection(section)
+        setActiveSubcategory("")
+        closeFlyout()
+        if (isMobile) toggleSidebar()
+      }
+    },
+    [
+      safeSections,
+      compact,
+      isMobileViewport,
+      openFlyout,
+      toggleSection,
+      setActiveSection,
+      setActiveSubcategory,
+      closeFlyout,
+      isMobile,
+      toggleSidebar,
+    ]
+  )
+
+  const handleSubcategoryClick = useCallback(
+    (section, subcategory) => {
+      setActiveSection(section)
+      setActiveSubcategory(subcategory)
+      closeFlyout()
+      if (isMobile) toggleSidebar()
+    },
+    [setActiveSection, setActiveSubcategory, closeFlyout, isMobile, toggleSidebar]
+  )
+
+  const handleKeyToggle = useCallback(
+    (e, section, anchorEl) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault()
+        handleSectionClick(section, anchorEl)
+      } else if (e.key === "ArrowRight") {
+        if (safeSections?.[section]?.subcategories) {
+          if (!isMobileViewport && compact) openFlyout(section, anchorEl)
+          else setExpandedSection(section)
+        }
+      } else if (e.key === "ArrowLeft") {
+        if (!isMobileViewport && compact) closeFlyout()
+        else if (expandedSection === section) setExpandedSection(null)
+      } else if (e.key === "Escape") {
+        closeFlyout()
+      }
+    },
+    [handleSectionClick, safeSections, expandedSection, compact, isMobileViewport, openFlyout, closeFlyout]
+  )
 
   return (
     <>
@@ -562,6 +723,7 @@ export default function Sidebar({
         }
       `}</style>
 
+      {/* Desktop bell tip */}
       {!isMobileViewport && showBellTip && notifCount7d > 0 ? (
         <div
           className="fixed z-[999999] pointer-events-auto"
@@ -592,10 +754,11 @@ export default function Sidebar({
         </div>
       ) : null}
 
+      {/* Mobile overlay */}
       {isMobile && isOpen && (
         <button
           type="button"
-          className="fixed inset-0 z-30 bg-black/35 backdrop-blur-[1px]"
+          className="fixed inset-0 z-30 bg-black/40 backdrop-blur-[2px]"
           onClick={toggleSidebar}
           aria-label="Close sidebar"
         />
@@ -603,88 +766,124 @@ export default function Sidebar({
 
       <NotificationModal open={showNotifications} onClose={() => setShowNotifications(false)} isDarkMode={isDarkMode} />
 
+      {/* ✅ Flyout submenu for collapsed mode */}
+      <FlyoutSubmenu
+        open={!isMobileViewport && compact && flyout.open && !!safeSections?.[flyout.section]?.subcategories}
+        top={flyout.top}
+        left={flyout.left}
+        section={flyout.section}
+        subcategories={safeSections?.[flyout.section]?.subcategories || {}}
+        onSelect={handleSubcategoryClick}
+        onClose={closeFlyout}
+        isDarkMode={isDarkMode}
+        reducedMotion={reducedMotion}
+        activeSection={activeSection}
+        activeSubcategory={activeSubcategory}
+      />
+
       <aside
         id={sidebarId}
-        className={`w-80 flex flex-col h-screen ${
+        className={`${asideWidth} flex flex-col h-screen min-w-0 ${
           isDarkMode ? "bg-gray-900 text-white border-white/10" : "bg-white text-gray-900 border-gray-200"
-        } ${isMobile ? "fixed left-0 top-0 z-40" : "sticky top-0"} ${
-          reducedMotion ? "" : "transition-all duration-300 ease-in-out"
-        } ${isMobile && !isOpen ? "-translate-x-full" : "translate-x-0"} border-r ${
-          isDarkMode ? "shadow-2xl shadow-purple-500/5" : "shadow-xl shadow-gray-200/50"
-        } backdrop-blur-lg`}
+        } ${isMobile ? "fixed left-0 top-0 z-40" : "sticky top-0"} ${reducedMotion ? "" : "transition-all duration-300 ease-in-out"} ${
+          isMobile && !isOpen ? "-translate-x-full" : "translate-x-0"
+        } border-r ${isDarkMode ? "shadow-2xl shadow-purple-500/10" : "shadow-xl shadow-gray-200/70"} backdrop-blur-lg`}
         aria-label="Sidebar Navigation"
       >
         {/* Header */}
-        <div className={`relative p-6 border-b ${isDarkMode ? "border-white/10" : "border-gray-200"}`}>
-          <div className="flex items-center gap-4">
-            <div className="relative">
-              <div className="p-[2px] rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 shadow-[0_10px_26px_-18px_rgba(99,102,241,0.85)]">
-                <div className={`rounded-full p-[2px] ${isDarkMode ? "bg-gray-900" : "bg-white"}`}>
-                  <div className="relative w-[46px] h-[46px] rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
-                    {user?.avatarUrl ? (
-                      <img
-                        src={user.avatarUrl}
-                        alt="Profile"
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.style.display = "none"
-                        }}
-                      />
-                    ) : null}
+        <div className={`relative ${headerPad} border-b ${isDarkMode ? "border-white/10" : "border-gray-200"}`}>
+          {/* top row: profile + collapse */}
+          <div className={`flex items-center ${compact ? "justify-center" : "justify-between"} gap-3`}>
+            <div className={`flex items-center gap-4 ${compact ? "justify-center" : ""}`}>
+              <div className="relative">
+                <div className="p-[2px] rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 shadow-[0_12px_34px_-22px_rgba(99,102,241,0.95)]">
+                  <div className={`rounded-full p-[2px] ${isDarkMode ? "bg-gray-900" : "bg-white"}`}>
+                    <div className="relative w-[46px] h-[46px] rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
+                      {user?.avatarUrl ? (
+                        <img
+                          src={user.avatarUrl}
+                          alt="Profile"
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none"
+                          }}
+                        />
+                      ) : null}
 
-                    {!user?.avatarUrl ? (
-                      <span className={`text-sm font-extrabold ${isDarkMode ? "text-gray-900" : "text-gray-800"}`}>
-                        {initials}
-                      </span>
-                    ) : null}
+                      {!user?.avatarUrl ? (
+                        <span className={`text-sm font-extrabold ${isDarkMode ? "text-gray-900" : "text-gray-800"}`}>
+                          {initials}
+                        </span>
+                      ) : null}
 
-                    <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/10 to-black/10" />
+                      <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/10 to-black/10" />
+                    </div>
                   </div>
                 </div>
+
+                <span
+                  className={`absolute bottom-0 right-0 translate-x-[2px] translate-y-[2px] w-3.5 h-3.5 rounded-full bg-emerald-500 ring-4 ${
+                    isDarkMode ? "ring-gray-900" : "ring-white"
+                  } shadow-[0_6px_14px_-8px_rgba(16,185,129,0.95)]`}
+                  title="Active"
+                  aria-label="Active"
+                />
               </div>
 
-              <span
-                className={`absolute bottom-0 right-0 translate-x-[2px] translate-y-[2px] w-3.5 h-3.5 rounded-full bg-emerald-500 ring-4 ${
-                  isDarkMode ? "ring-gray-900" : "ring-white"
-                } shadow-[0_6px_14px_-8px_rgba(16,185,129,0.95)]`}
-                title="Active"
-                aria-label="Active"
-              />
+              {!compact ? (
+                <div className="flex-1 min-w-0">
+                  <h2 className="text-lg font-semibold tracking-tight truncate">{user?.username || "User"}</h2>
+                  <p className={`text-sm truncate ${isDarkMode ? "text-gray-400" : "text-gray-600"}`}>
+                    {user?.prettyRole || user?.role || "—"}
+                  </p>
+                </div>
+              ) : null}
             </div>
 
-            <div className="flex-1 min-w-0">
-              <h2 className="text-lg font-semibold tracking-tight truncate">{user?.username || "User"}</h2>
-              <p className={`text-sm truncate ${isDarkMode ? "text-gray-400" : "text-gray-600"}`}>
-                {user?.prettyRole || user?.role || "—"}
-              </p>
-            </div>
+            {/* collapse button (desktop only) */}
+            {!isMobileViewport ? (
+              <button
+                onClick={toggleCompact}
+                type="button"
+                className={`hidden md:flex items-center justify-center h-9 w-9 rounded-xl border ${
+                  isDarkMode ? "border-white/10 bg-white/5 hover:bg-white/10 text-gray-200" : "border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-800"
+                } ${reducedMotion ? "" : "transition-all duration-200"} focus:outline-none focus:ring-2 focus:ring-purple-500/60`}
+                aria-label={compact ? "Expand sidebar" : "Collapse sidebar"}
+                title={compact ? "Expand" : "Collapse"}
+              >
+                <FaAngleDoubleLeft className={`${compact ? "rotate-180" : ""} ${reducedMotion ? "" : "transition-transform duration-200"}`} />
+              </button>
+            ) : null}
           </div>
 
-          <div className="flex justify-between items-center mt-6">
-            <button
-              onClick={toggleTheme}
-              className={`p-2 rounded-lg ${reducedMotion ? "" : "transition-all duration-200"} ${
-                isDarkMode
-                  ? "hover:bg-white/10 text-gray-400 hover:text-white"
-                  : "hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-              } hover:scale-110 transform`}
-              aria-label="Toggle theme"
-              title="Toggle theme"
-              type="button"
-            >
-              {isDarkMode ? <FaMoon size={20} /> : <FaSun size={20} />}
-            </button>
+          {/* ✅ ACTIONS ROW
+              - FULL MODE: theme + bell + jetsky
+              - COMPACT MODE: ONLY bell (so nothing clips / nothing hidden) */}
+          <div className={`mt-5 flex ${compact ? "justify-center" : "justify-between"} items-center`}>
+            {!compact ? (
+              <button
+                onClick={toggleTheme}
+                className={`p-2 rounded-xl ${reducedMotion ? "" : "transition-all duration-200"} ${
+                  isDarkMode ? "hover:bg-white/10 text-gray-300 hover:text-white" : "hover:bg-gray-100 text-gray-600 hover:text-gray-900"
+                } hover:scale-110 transform focus:outline-none focus:ring-2 focus:ring-purple-500/60`}
+                aria-label="Toggle theme"
+                title="Toggle theme"
+                type="button"
+              >
+                {isDarkMode ? <FaMoon size={18} /> : <FaSun size={18} />}
+              </button>
+            ) : null}
 
-            <div className="flex items-center gap-2">
+            <div className={`flex items-center ${compact ? "justify-center" : "gap-2"}`}>
               <button
                 ref={bellBtnRef}
                 onClick={() => {
                   dismissBellTip()
                   setShowNotifications(true)
                 }}
-                className={`relative h-9 w-9 flex items-center justify-center rounded-full ${
+                className={`relative h-11 w-11 flex items-center justify-center rounded-2xl ${
                   isDarkMode ? "bg-white/90 text-gray-900" : "bg-gray-900 text-white"
-                } ${reducedMotion ? "" : "hover:scale-110 transition-transform"}`}
+                } ${reducedMotion ? "" : "hover:scale-110 transition-transform"} focus:outline-none focus:ring-2 focus:ring-purple-500/60`}
                 aria-label="Open notifications"
                 title="Notifications"
                 type="button"
@@ -694,11 +893,8 @@ export default function Sidebar({
                 </span>
 
                 {notifCount7d > 0 ? (
-                  <span className="absolute -top-1 -right-1">
-                    <span
-                      className="absolute inset-0 rounded-full blur-md opacity-90"
-                      style={{ backgroundColor: NOTIF_BADGE_COLOR }}
-                    />
+                  <span className="absolute -top-1.5 -right-1.5">
+                    <span className="absolute inset-0 rounded-full blur-md opacity-90" style={{ backgroundColor: NOTIF_BADGE_COLOR }} />
                     <span
                       className="relative min-w-[20px] h-[20px] px-1.5 rounded-full text-[10px] font-bold flex items-center justify-center bg-white/10 backdrop-blur-md text-white border border-white/10"
                       style={{ boxShadow: `0 0 0 1px rgba(255,255,255,0.08) inset` }}
@@ -711,58 +907,93 @@ export default function Sidebar({
                 {notifLoading ? <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-purple-400" /> : null}
               </button>
 
-              <button
-                onClick={() => setShowJetsky(true)}
-                className={`h-9 w-9 flex items-center justify-center rounded-full ${isDarkMode ? "bg-white" : ""} ${
-                  reducedMotion ? "" : "hover:scale-110 transition-transform"
-                }`}
-                aria-label="Open Jetsky modal"
-                title="Jetsky"
-                type="button"
-              >
-                <img
-                  src={(jetsky && (jetsky.src || jetsky)) || "/jetsky.svg"}
-                  alt="Jetsky"
-                  className="h-9 w-9 select-none"
-                  draggable={false}
-                />
-              </button>
+              {!compact ? (
+                <button
+                  onClick={() => setShowJetsky(true)}
+                  className={`h-11 w-11 flex items-center justify-center rounded-2xl ${
+                    isDarkMode ? "bg-white/90" : "bg-gray-900/5"
+                  } ${reducedMotion ? "" : "hover:scale-110 transition-transform"} focus:outline-none focus:ring-2 focus:ring-purple-500/60`}
+                  aria-label="Open Jetsky modal"
+                  title="Jetsky"
+                  type="button"
+                >
+                  <img
+                    src={(jetsky && (jetsky.src || jetsky)) || "/jetsky.svg"}
+                    alt="Jetsky"
+                    className="h-9 w-9 select-none"
+                    draggable={false}
+                  />
+                </button>
+              ) : null}
             </div>
           </div>
+
+          <div
+            className={`absolute inset-x-0 -bottom-px h-px ${
+              isDarkMode ? "bg-gradient-to-r from-transparent via-purple-500/40 to-transparent" : "bg-gradient-to-r from-transparent via-purple-500/30 to-transparent"
+            }`}
+            aria-hidden="true"
+          />
         </div>
 
         {/* Search */}
-        <div className="p-4">
-          <div className="relative group">
-            <FaSearch
-              className={`absolute left-3 top-1/2 -translate-y-1/2 ${
-                isDarkMode ? "text-gray-400" : "text-gray-500"
-              } group-hover:text-purple-500 ${reducedMotion ? "" : "transition-colors duration-200"}`}
-              aria-hidden
-            />
-            <input
-              type="text"
-              placeholder="Search…"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className={`w-full pl-10 pr-10 py-2 rounded-lg ${reducedMotion ? "" : "transition-all duration-200"} ${
-                isDarkMode
-                  ? "bg-gray-800/50 focus:bg-gray-800 text-white placeholder-gray-400"
-                  : "bg-gray-100/50 focus:bg-gray-100 text-gray-900 placeholder-gray-500"
-              } border-2 border-transparent focus:border-purple-500 outline-none group-hover:bg-opacity-100`}
-              aria-label="Search sections"
-            />
-            {searchTerm && (
+        <div className={`${navPad} pb-2`}>
+          <div className={`relative ${compact ? "flex justify-center" : ""}`}>
+            {!compact ? (
+              <div className="relative group w-full">
+                <FaSearch
+                  className={`absolute left-3 top-1/2 -translate-y-1/2 ${
+                    isDarkMode ? "text-gray-400" : "text-gray-500"
+                  } group-hover:text-purple-500 ${reducedMotion ? "" : "transition-colors duration-200"}`}
+                  aria-hidden
+                />
+                <input
+                  type="text"
+                  placeholder="Search…"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className={`w-full pl-10 pr-10 py-2.5 rounded-2xl ${reducedMotion ? "" : "transition-all duration-200"} ${
+                    isDarkMode
+                      ? "bg-gray-800/60 focus:bg-gray-800 text-white placeholder-gray-400"
+                      : "bg-gray-100/60 focus:bg-gray-100 text-gray-900 placeholder-gray-500"
+                  } border border-transparent focus:border-purple-500/70 outline-none focus:ring-2 focus:ring-purple-500/20`}
+                  aria-label="Search sections"
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm("")}
+                    className={`absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-xl ${
+                      isDarkMode ? "text-gray-300 hover:bg-white/10" : "text-gray-600 hover:bg-gray-200/70"
+                    } focus:outline-none focus:ring-2 focus:ring-purple-500/60`}
+                    aria-label="Clear search"
+                    title="Clear search"
+                  >
+                    <FaTimes size={14} />
+                  </button>
+                )}
+              </div>
+            ) : (
               <button
                 type="button"
-                onClick={() => setSearchTerm("")}
-                className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded ${
-                  isDarkMode ? "text-gray-300 hover:bg-white/10" : "text-gray-600 hover:bg-gray-200/70"
-                }`}
-                aria-label="Clear search"
-                title="Clear search"
+                onClick={() => {
+                  // compact: expand to use search
+                  setCompact(false)
+                  try {
+                    localStorage.setItem("sidebar_compact", "0")
+                  } catch {}
+                  setTimeout(() => {
+                    const el = document.querySelector(`#${CSS.escape(sidebarId)} input[aria-label="Search sections"]`)
+                    el?.focus?.()
+                  }, 0)
+                }}
+                className={`h-11 w-11 rounded-2xl flex items-center justify-center border ${
+                  isDarkMode ? "border-white/10 bg-white/5 hover:bg-white/10 text-gray-200" : "border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-800"
+                } ${reducedMotion ? "" : "transition-all duration-200"} focus:outline-none focus:ring-2 focus:ring-purple-500/60`}
+                aria-label="Search"
+                title="Search"
               >
-                <FaTimes size={14} />
+                <FaSearch />
               </button>
             )}
           </div>
@@ -771,11 +1002,12 @@ export default function Sidebar({
         {/* Nav */}
         <nav
           aria-label="Primary"
-          className={`flex-1 overflow-y-auto p-4 space-y-2 scrollbar-thin ${
-            isDarkMode
-              ? "scrollbar-thumb-purple-500 scrollbar-track-transparent"
-              : "scrollbar-thumb-purple-400 scrollbar-track-gray-100"
+          className={`flex-1 overflow-y-auto ${navPad} pt-2 space-y-2 scrollbar-thin ${
+            isDarkMode ? "scrollbar-thumb-purple-500 scrollbar-track-transparent" : "scrollbar-thumb-purple-400 scrollbar-track-gray-100"
           }`}
+          onScroll={() => {
+            if (compact && flyout.open) closeFlyout()
+          }}
         >
           {filteredSectionKeys.map((section) => {
             const def = safeSections[section]
@@ -783,65 +1015,83 @@ export default function Sidebar({
 
             const hasSubs = !!def.subcategories
             const isActiveSection = activeSection === section && !activeSubcategory
+            const isExpanded = expandedSection === section
             const controlsId = hasSubs ? `submenu-${section.replace(/\s+/g, "_")}` : undefined
 
             return (
               <div key={section} className="select-none">
                 <button
-                  onClick={() => handleSectionClick(section)}
-                  onKeyDown={(e) => handleKeyToggle(e, section)}
-                  className={`group w-full flex items-center justify-between px-4 py-3 rounded-lg ${
-                    reducedMotion ? "" : "transition-all duration-200 ease-in-out"
-                  } relative overflow-hidden ${
+                  onClick={(e) => handleSectionClick(section, e.currentTarget)}
+                  onMouseEnter={(e) => {
+                    if (!isMobileViewport && compact && hasSubs) {
+                      if (openTimerRef.current) clearTimeout(openTimerRef.current)
+                      openTimerRef.current = setTimeout(() => openFlyout(section, e.currentTarget), 120)
+                    }
+                  }}
+                  onMouseLeave={() => {
+                    if (openTimerRef.current) clearTimeout(openTimerRef.current)
+                  }}
+                  onFocus={(e) => {
+                    if (!isMobileViewport && compact && hasSubs) openFlyout(section, e.currentTarget)
+                  }}
+                  onKeyDown={(e) => handleKeyToggle(e, section, e.currentTarget)}
+                  className={`group w-full flex items-center ${
+                    compact ? "justify-center px-3 py-3" : "justify-between px-4 py-3"
+                  } rounded-2xl ${reducedMotion ? "" : "transition-all duration-200 ease-in-out"} relative overflow-hidden border ${
                     activeSection === section
                       ? isDarkMode
-                        ? "bg-gradient-to-r from-indigo-600/20 via-purple-600/20 to-pink-600/20 text-white"
-                        : "bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 text-gray-900"
+                        ? "bg-white/8 border-white/10 text-white"
+                        : "bg-gray-900/5 border-gray-200 text-gray-900"
                       : isDarkMode
-                      ? "text-gray-400 hover:text-white"
-                      : "text-gray-600 hover:text-gray-900"
-                  }`}
-                  aria-expanded={hasSubs ? expandedSection === section : undefined}
-                  aria-controls={controlsId}
+                      ? "border-transparent text-gray-300 hover:text-white hover:bg-white/5"
+                      : "border-transparent text-gray-700 hover:text-gray-900 hover:bg-gray-100"
+                  } focus:outline-none focus:ring-2 focus:ring-purple-500/60`}
+                  aria-expanded={hasSubs && !compact ? isExpanded : undefined}
+                  aria-controls={hasSubs && !compact ? controlsId : undefined}
                   aria-current={isActiveSection ? "page" : undefined}
                   title={section}
                   type="button"
                 >
-                  <div className="flex items-center gap-3 relative z-10">
+                  {activeSection === section ? (
                     <span
-                      className={`text-lg ${reducedMotion ? "" : "transition-all duration-200"} ${
-                        activeSection === section ? "scale-110" : ""
+                      className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-8 rounded-r-full bg-gradient-to-b from-indigo-500 via-purple-500 to-pink-500"
+                      aria-hidden="true"
+                    />
+                  ) : null}
+
+                  <div className={`flex items-center ${compact ? "justify-center" : "gap-3"} relative z-10`}>
+                    <span
+                      className={`text-[18px] ${reducedMotion ? "" : "transition-transform duration-200"} ${
+                        activeSection === section ? "scale-110" : "group-hover:scale-105"
                       }`}
                     >
                       {def.icon}
                     </span>
-                    <span className="font-medium">{section}</span>
+                    {!compact ? <span className="font-medium">{section}</span> : null}
                   </div>
 
-                  {hasSubs && (
+                  {hasSubs && !compact ? (
                     <FaChevronDown
-                      className={`${reducedMotion ? "" : "transition-transform duration-300"} relative z-10 ${
-                        expandedSection === section ? "rotate-180" : ""
-                      }`}
+                      className={`${reducedMotion ? "" : "transition-transform duration-300"} relative z-10 ${isExpanded ? "rotate-180" : ""}`}
                       aria-hidden
                     />
-                  )}
+                  ) : null}
                 </button>
 
-                {hasSubs && (
-                  <SubMenu
+                {hasSubs && !compact ? (
+                  <SubMenuInline
                     subcategories={def.subcategories}
                     section={section}
                     activeSection={activeSection}
                     activeSubcategory={activeSubcategory}
                     handleSubcategoryClick={handleSubcategoryClick}
-                    isExpanded={expandedSection === section}
+                    isExpanded={isExpanded}
                     height={subMenuHeights[section]}
                     isDarkMode={isDarkMode}
                     subMenuRef={getSubmenuRef(section)}
                     reducedMotion={reducedMotion}
                   />
-                )}
+                ) : null}
               </div>
             )
           })}
@@ -850,19 +1100,17 @@ export default function Sidebar({
         {/* Logout */}
         <button
           onClick={handleLogout}
-          className={`group p-4 flex items-center justify-center gap-3 ${reducedMotion ? "" : "transition-all duration-200"} border-t relative overflow-hidden ${
-            isDarkMode
-              ? "border-white/10 text-gray-400 hover:text-white hover:bg-white/5"
-              : "border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-          }`}
+          className={`group ${navPad} py-4 flex items-center ${compact ? "justify-center" : "justify-center gap-3"} ${
+            reducedMotion ? "" : "transition-all duration-200"
+          } border-t relative overflow-hidden ${
+            isDarkMode ? "border-white/10 text-gray-300 hover:text-white hover:bg-white/5" : "border-gray-200 text-gray-700 hover:text-gray-900 hover:bg-gray-50"
+          } focus:outline-none focus:ring-2 focus:ring-purple-500/60`}
           aria-label="Logout"
           title="Logout"
           type="button"
         >
-          <FaSignOutAlt
-            className={`text-lg ${reducedMotion ? "" : "transition-transform duration-200"} group-hover:-translate-x-1 relative z-10`}
-          />
-          <span className="font-medium relative z-10">Logout</span>
+          <FaSignOutAlt className={`text-lg ${reducedMotion ? "" : "transition-transform duration-200"} group-hover:-translate-x-1 relative z-10`} />
+          {!compact ? <span className="font-medium relative z-10">Logout</span> : null}
         </button>
       </aside>
 

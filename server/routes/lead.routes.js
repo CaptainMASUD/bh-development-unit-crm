@@ -1,35 +1,34 @@
+// routes/lead.routes.js
 import express from "express";
 import {
   createLead,
-  getLeads,
+  listLeads,
   getLeadById,
   updateLead,
   addLeadNote,
-  deleteLead,
+  markContacted,
+  setFollowUp,
   convertLeadToCustomer,
-  updateLeadFollowup,
-  getLeadTimeline,
-  createDealFromLead,
+  deleteLead,
 } from "../controllers/lead.controller.js";
 
-import { protect, isAdminOrSuperAdmin } from "../middleware/auth.middleware.js";
+import { protect, isMarketingOrAdmin, isAdminOrSuperAdmin } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
-router.use(protect);
+
+router.use(protect, isMarketingOrAdmin);
 
 router.post("/", createLead);
-router.get("/", getLeads);
+router.get("/", listLeads);
 router.get("/:id", getLeadById);
-router.patch("/:id", updateLead);
+router.put("/:id", updateLead);
 
 router.post("/:id/notes", addLeadNote);
-router.patch("/:id/followup", updateLeadFollowup);
+router.patch("/:id/contacted", markContacted);
+router.patch("/:id/followup", setFollowUp);
 
-router.get("/:id/timeline", getLeadTimeline);
+router.post("/:id/convert", convertLeadToCustomer);
 
-router.post("/:id/deals", createDealFromLead);
-
-router.post("/:id/convert", isAdminOrSuperAdmin, convertLeadToCustomer);
 router.delete("/:id", isAdminOrSuperAdmin, deleteLead);
 
 export default router;

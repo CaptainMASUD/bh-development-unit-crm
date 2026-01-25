@@ -881,3 +881,25 @@ export const adminDeleteUserAvatar = async (req, res) => {
   }
 };
 
+export const searchMarketingUsers = async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim().toLowerCase();
+    const limit = Math.min(Number(req.query.limit || 25), 50);
+
+    const filter = { isActive: true, role: "marketing_team" };
+
+    if (q) {
+      filter.nameLower = { $regex: `^${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}` };
+    }
+
+    const users = await User.find(filter)
+      .select("name email role")
+      .sort({ nameLower: 1, _id: -1 })
+      .limit(limit)
+      .lean();
+
+    return res.json({ users });
+  } catch (e) {
+    return res.status(500).json({ message: e.message || "User search failed" });
+  }
+};

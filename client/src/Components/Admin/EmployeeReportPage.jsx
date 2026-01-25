@@ -23,13 +23,14 @@ import {
   FiClock,
   FiCalendar,
   FiInfo,
+  FiBriefcase,
 } from "react-icons/fi"
 import { Loader2 } from "lucide-react"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
 const ENDPOINTS = {
-  LIST_EMPLOYEE_WORKLOAD: `${API_BASE}/workload/employees`,
+  LIST_CUSTOMER_WORKLOAD: `${API_BASE}/workload/customers`, // ✅ new
 }
 
 /* =========================
@@ -211,7 +212,7 @@ function Field({ label, hint, children }) {
 }
 
 /* =========================
-   PREMIUM SWITCH (no true/false)
+   PREMIUM SWITCH
 ========================= */
 function ToggleSwitch({ checked, onChange, labelOn = "Show", labelOff = "Hide" }) {
   return (
@@ -463,13 +464,13 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
 }
 
 /* =========================
-   SKELETONS (Premium)
+   SKELETONS
 ========================= */
 function SkeletonBar({ className = "" }) {
   return <div className={cn("animate-pulse rounded-xl bg-gray-200/80", className)} />
 }
 
-function EmployeeRowSkeleton() {
+function CustomerRowSkeleton() {
   return (
     <div className="p-4 sm:p-5">
       <div className="rounded-2xl border border-gray-100 bg-white px-4 py-4">
@@ -478,11 +479,10 @@ function EmployeeRowSkeleton() {
             <div className="flex items-center gap-3">
               <SkeletonBar className="w-11 h-11 rounded-2xl" />
               <div className="min-w-0 flex-1">
-                <SkeletonBar className="h-4 w-48" />
-                <SkeletonBar className="h-3 w-64 mt-2" />
+                <SkeletonBar className="h-4 w-56" />
+                <SkeletonBar className="h-3 w-72 mt-2" />
               </div>
             </div>
-
             <div className="mt-3 flex flex-wrap gap-2">
               <SkeletonBar className="h-7 w-20 rounded-full" />
               <SkeletonBar className="h-7 w-28 rounded-full" />
@@ -490,7 +490,6 @@ function EmployeeRowSkeleton() {
               <SkeletonBar className="h-7 w-32 rounded-full" />
             </div>
           </div>
-
           <div className="shrink-0 flex items-center gap-2 flex-wrap justify-end">
             <SkeletonBar className="h-8 w-14 rounded-full" />
             <SkeletonBar className="h-8 w-16 rounded-full" />
@@ -504,11 +503,11 @@ function EmployeeRowSkeleton() {
   )
 }
 
-function EmployeeListSkeleton({ rows = 7 }) {
+function CustomerListSkeleton({ rows = 7 }) {
   return (
     <div className="divide-y divide-gray-100">
       {[...Array(rows)].map((_, i) => (
-        <EmployeeRowSkeleton key={i} />
+        <CustomerRowSkeleton key={i} />
       ))}
     </div>
   )
@@ -538,14 +537,6 @@ function statusLabel(status) {
   if (s === "in_progress") return "In progress"
   if (s === "pending") return "Pending"
   return "Unknown"
-}
-
-function maxIsoDate(...values) {
-  const ts = values
-    .map((v) => (v ? new Date(v).getTime() : NaN))
-    .filter((x) => Number.isFinite(x))
-  if (!ts.length) return null
-  return new Date(Math.max(...ts)).toISOString()
 }
 
 function statusDot(status) {
@@ -605,8 +596,29 @@ function ShortCountBadge({ code, value, title, className }) {
   )
 }
 
+function Avatar({ url, label, className = "" }) {
+  const fallback = initials(label)
+  return (
+    <div
+      className={cn(
+        "w-11 h-11 rounded-2xl overflow-hidden ring-1 ring-indigo-600/10 bg-indigo-50 shrink-0",
+        className
+      )}
+    >
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt={label || "Avatar"} className="w-full h-full object-cover" />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center text-indigo-700 font-extrabold">
+          {fallback}
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* =========================
-   FILTER MODAL
+   FILTER MODAL (Customer-first)
 ========================= */
 function FiltersModal({
   open,
@@ -614,8 +626,9 @@ function FiltersModal({
 
   taskStatus,
   setTaskStatus,
-  includeEmptyCustomers,
-  setIncludeEmptyCustomers,
+
+  includeEmptyEmployees,
+  setIncludeEmptyEmployees,
 
   windowDays,
   setWindowDays,
@@ -629,23 +642,30 @@ function FiltersModal({
   setSelectedEmployeeIds,
   employeeOptions,
 
+  includeTasks,
+  setIncludeTasks,
+
+  taskLimit,
+  setTaskLimit,
+
   onClear,
   onApply,
 }) {
   const activeCount =
     (selectedEmployeeIds?.length || 0) +
     (taskStatus !== "all" ? 1 : 0) +
-    (includeEmptyCustomers === false ? 1 : 0) +
+    (includeEmptyEmployees === false ? 1 : 0) +
     (String(windowDays || "").trim() ? 1 : 0) +
     (String(completedFrom || "").trim() ? 1 : 0) +
-    (String(completedTo || "").trim() ? 1 : 0)
+    (String(completedTo || "").trim() ? 1 : 0) +
+    (includeTasks ? 1 : 0)
 
   return (
     <ModalShell
       open={open}
       onClose={onClose}
       title="Filters"
-      subtitle="Filters open here (search box stays the same height)"
+      subtitle="Customer-first workload filters"
       icon={<FiFilter className="w-5 h-5" />}
       maxWidthClass="max-w-4xl"
       footer={
@@ -679,6 +699,9 @@ function FiltersModal({
                 onChange={setSelectedEmployeeIds}
                 placeholder="All employees"
               />
+              <p className="mt-2 text-[11px] text-gray-500 font-semibold">
+                Note: backend can filter only 1 employeeId directly. If you select multiple, we filter in UI.
+              </p>
             </Field>
           </div>
 
@@ -699,17 +722,17 @@ function FiltersModal({
 
           <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4 space-y-4">
             <Field
-              label="Time window (optional)"
-              hint="Show tasks from the last X days. Leave blank to show all time."
+              label="Time window (due soon window)"
+              hint="Used for dueSoon calculations. If blank, default stays 7."
             >
               <input
                 type="number"
                 min={1}
-                max={3650}
+                max={365}
                 value={windowDays}
                 onChange={(e) => setWindowDays(e.target.value)}
                 className={input}
-                placeholder="e.g. 30"
+                placeholder="e.g. 7"
               />
             </Field>
 
@@ -746,18 +769,51 @@ function FiltersModal({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-extrabold text-gray-900">
-                  Show customers with no tasks
+                  Show employees with 0 tasks
                 </p>
                 <p className="text-xs text-gray-500 font-semibold mt-1">
-                  Turn this off if you only want customers that currently have tasks.
+                  Turn this off if you only want employees that currently have tasks.
                 </p>
               </div>
               <ToggleSwitch
-                checked={includeEmptyCustomers}
-                onChange={(v) => setIncludeEmptyCustomers(!!v)}
+                checked={includeEmptyEmployees}
+                onChange={(v) => setIncludeEmptyEmployees(!!v)}
                 labelOn="Show"
                 labelOff="Hide"
               />
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-extrabold text-gray-900">
+                  Include tasks in response
+                </p>
+                <p className="text-xs text-gray-500 font-semibold mt-1">
+                  Turn off for lighter payload (counts only). Turn on to show task lists in UI.
+                </p>
+              </div>
+              <ToggleSwitch
+                checked={includeTasks}
+                onChange={(v) => setIncludeTasks(!!v)}
+                labelOn="On"
+                labelOff="Off"
+              />
+            </div>
+
+            <div className="mt-4">
+              <Field label="Task limit per employee" hint="Only applies if include tasks is on.">
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={taskLimit}
+                  onChange={(e) => setTaskLimit(e.target.value)}
+                  className={input}
+                  placeholder="e.g. 10"
+                />
+              </Field>
             </div>
           </div>
 
@@ -773,15 +829,19 @@ function FiltersModal({
               </span>
 
               <span className={cn(chip, chipSoft)}>
-                Customers with no tasks:{" "}
-                <b className="text-gray-900">{includeEmptyCustomers ? "Shown" : "Hidden"}</b>
+                Empty employees:{" "}
+                <b className="text-gray-900">{includeEmptyEmployees ? "Shown" : "Hidden"}</b>
               </span>
 
               <span className={cn(chip, chipSoft)}>
-                Time window:{" "}
+                Window:{" "}
                 <b className="text-gray-900">
-                  {String(windowDays || "").trim() ? `${windowDays} days` : "All time"}
+                  {String(windowDays || "").trim() ? `${windowDays} days` : "Default"}
                 </b>
+              </span>
+
+              <span className={cn(chip, chipSoft)}>
+                Tasks payload: <b className="text-gray-900">{includeTasks ? "Included" : "Off"}</b>
               </span>
 
               {selectedEmployeeIds?.length ? (
@@ -814,23 +874,40 @@ function FiltersModal({
 }
 
 /* =========================
-   API
+   API (Customer-first + cursor pagination)
 ========================= */
-async function fetchEmployeeWorkload({
+async function fetchCustomerWorkloadPage({
+  cursor,
+  limit = 20,
+  sort = "newest",
+  q,
+
   employeeId,
   taskStatus = "all",
-  includeEmptyCustomers = true,
+  includeEmptyEmployees = true,
   windowDays,
   completedFrom,
   completedTo,
+
+  includeTasks = true,
+  taskLimit = 10,
+
   signal,
 }) {
   const qs = new URLSearchParams()
+
+  qs.set("limit", String(limit))
+  qs.set("sort", String(sort || "newest"))
+
+  if (cursor) qs.set("cursor", String(cursor))
+  if (q) qs.set("q", String(q))
+
   qs.set("taskStatus", String(taskStatus || "all"))
-  qs.set("includeEmptyCustomers", includeEmptyCustomers ? "true" : "false")
+  qs.set("includeEmptyEmployees", includeEmptyEmployees ? "true" : "false")
 
   const wd = String(windowDays || "").trim()
   if (wd) qs.set("windowDays", wd)
+
   if (employeeId) qs.set("employeeId", String(employeeId))
 
   if (completedFrom) {
@@ -842,18 +919,26 @@ async function fetchEmployeeWorkload({
     if (iso) qs.set("completedTo", iso)
   }
 
-  const res = await fetch(`${ENDPOINTS.LIST_EMPLOYEE_WORKLOAD}?${qs.toString()}`, {
+  qs.set("includeTasks", includeTasks ? "true" : "false")
+  if (includeTasks) qs.set("taskLimit", String(taskLimit || 10))
+
+  const res = await fetch(`${ENDPOINTS.LIST_CUSTOMER_WORKLOAD}?${qs.toString()}`, {
     headers: getAuthHeaders(),
     credentials: "include",
     signal,
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Failed to load employee report")
-  return { employees: Array.isArray(data?.employees) ? data.employees : [] }
+  if (!res.ok) throw new Error(data?.message || "Failed to load workload")
+
+  return {
+    customers: Array.isArray(data?.customers) ? data.customers : [],
+    hasMore: !!data?.hasMore,
+    nextCursor: data?.nextCursor || null,
+  }
 }
 
 /* =========================
-   MAIN
+   MAIN — Customer-first Workload Report
 ========================= */
 export default function EmployeeWorkloadReportPage() {
   const [toast, setToast] = useState({ open: false, type: "success", message: "" })
@@ -867,99 +952,118 @@ export default function EmployeeWorkloadReportPage() {
   }, [])
   const closeToast = () => setToast({ open: false, type: "success", message: "" })
 
-  // search
+  // search (customer search -> backend q)
   const [searchTerm, setSearchTerm] = useState("")
   const [debounced, setDebounced] = useState("")
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(searchTerm.trim().toLowerCase()), 240)
+    const t = setTimeout(() => setDebounced(searchTerm.trim()), 280)
     return () => clearTimeout(t)
   }, [searchTerm])
 
   // applied filters
   const [taskStatus, setTaskStatus] = useState("all")
-  const [includeEmptyCustomers, setIncludeEmptyCustomers] = useState(true)
-  const [windowDays, setWindowDays] = useState("")
+  const [includeEmptyEmployees, setIncludeEmptyEmployees] = useState(true)
+  const [windowDays, setWindowDays] = useState("7")
   const [completedFrom, setCompletedFrom] = useState("")
   const [completedTo, setCompletedTo] = useState("")
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([])
+
+  const [includeTasks, setIncludeTasks] = useState(true)
+  const [taskLimit, setTaskLimit] = useState("10")
+
+  // pagination
+  const [sort, setSort] = useState("newest")
+  const [limit, setLimit] = useState(20)
+  const [cursor, setCursor] = useState(null)
+  const [hasMore, setHasMore] = useState(false)
 
   // modal draft
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [dTaskStatus, setDTaskStatus] = useState("all")
   const [dIncludeEmpty, setDIncludeEmpty] = useState(true)
-  const [dWindowDays, setDWindowDays] = useState("")
+  const [dWindowDays, setDWindowDays] = useState("7")
   const [dFrom, setDFrom] = useState("")
   const [dTo, setDTo] = useState("")
   const [dEmpIds, setDEmpIds] = useState([])
+  const [dIncludeTasks, setDIncludeTasks] = useState(true)
+  const [dTaskLimit, setDTaskLimit] = useState("10")
 
   const openFilters = () => {
     setDTaskStatus(taskStatus)
-    setDIncludeEmpty(includeEmptyCustomers)
+    setDIncludeEmpty(includeEmptyEmployees)
     setDWindowDays(String(windowDays || ""))
     setDFrom(String(completedFrom || ""))
     setDTo(String(completedTo || ""))
     setDEmpIds(Array.isArray(selectedEmployeeIds) ? selectedEmployeeIds.slice() : [])
+    setDIncludeTasks(!!includeTasks)
+    setDTaskLimit(String(taskLimit || "10"))
     setFiltersOpen(true)
   }
 
   const clearDraft = () => {
     setDTaskStatus("all")
     setDIncludeEmpty(true)
-    setDWindowDays("")
+    setDWindowDays("7")
     setDFrom("")
     setDTo("")
     setDEmpIds([])
+    setDIncludeTasks(true)
+    setDTaskLimit("10")
   }
 
   const applyDraft = () => {
     setTaskStatus(dTaskStatus)
-    setIncludeEmptyCustomers(!!dIncludeEmpty)
-    setWindowDays(String(dWindowDays || ""))
+    setIncludeEmptyEmployees(!!dIncludeEmpty)
+    setWindowDays(String(dWindowDays || "7"))
     setCompletedFrom(String(dFrom || ""))
     setCompletedTo(String(dTo || ""))
     setSelectedEmployeeIds(Array.isArray(dEmpIds) ? dEmpIds.slice() : [])
+    setIncludeTasks(!!dIncludeTasks)
+    setTaskLimit(String(dTaskLimit || "10"))
     setFiltersOpen(false)
   }
 
   const clearApplied = () => {
     setTaskStatus("all")
-    setIncludeEmptyCustomers(true)
-    setWindowDays("")
+    setIncludeEmptyEmployees(true)
+    setWindowDays("7")
     setCompletedFrom("")
     setCompletedTo("")
     setSelectedEmployeeIds([])
+    setIncludeTasks(true)
+    setTaskLimit("10")
   }
 
   const activeFilterCount = useMemo(() => {
     let n = 0
     if (taskStatus !== "all") n += 1
-    if (includeEmptyCustomers === false) n += 1
-    if (String(windowDays || "").trim()) n += 1
+    if (includeEmptyEmployees === false) n += 1
+    if (String(windowDays || "").trim() && String(windowDays || "").trim() !== "7") n += 1
     if (completedFrom) n += 1
     if (completedTo) n += 1
     if ((selectedEmployeeIds?.length || 0) > 0) n += 1
+    if (!includeTasks) n += 1
     return n
-  }, [taskStatus, includeEmptyCustomers, windowDays, completedFrom, completedTo, selectedEmployeeIds])
+  }, [taskStatus, includeEmptyEmployees, windowDays, completedFrom, completedTo, selectedEmployeeIds, includeTasks])
 
   const hasAppliedFilters = activeFilterCount > 0
 
   // data
-  const [rows, setRows] = useState([])
+  const [rows, setRows] = useState([]) // customers rows
   const [isLoading, setIsLoading] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [error, setError] = useState("")
-
-  // ✅ critical: track if first load finished (prevents "No employees" flash)
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
 
   const abortRef = useRef(null)
 
-  // expand
-  const [openEmployeeIds, setOpenEmployeeIds] = useState(() => new Set())
-  const [openCustomerKeys, setOpenCustomerKeys] = useState(() => new Set())
+  // expand states
+  const [openCustomerIds, setOpenCustomerIds] = useState(() => new Set())
+  const [openEmployeeKeys, setOpenEmployeeKeys] = useState(() => new Set()) // `${customerId}:${employeeId}`
 
-  const toggleEmployee = (empId) => {
-    const id = String(empId)
-    setOpenEmployeeIds((prev) => {
+  const toggleCustomer = (customerId) => {
+    const id = String(customerId)
+    setOpenCustomerIds((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -967,9 +1071,9 @@ export default function EmployeeWorkloadReportPage() {
     })
   }
 
-  const toggleCustomer = (empId, customerId) => {
-    const key = `${String(empId)}:${String(customerId)}`
-    setOpenCustomerKeys((prev) => {
+  const toggleEmployee = (customerId, employeeId) => {
+    const key = `${String(customerId)}:${String(employeeId)}`
+    setOpenEmployeeKeys((prev) => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
       else next.add(key)
@@ -977,7 +1081,7 @@ export default function EmployeeWorkloadReportPage() {
     })
   }
 
-  const load = async () => {
+  const resetAndLoad = async () => {
     if (abortRef.current) abortRef.current.abort()
     const controller = new AbortController()
     abortRef.current = controller
@@ -985,61 +1089,133 @@ export default function EmployeeWorkloadReportPage() {
     setIsLoading(true)
     setError("")
     try {
+      // backend supports only one employeeId filter at a time
       const backendEmployeeId =
         selectedEmployeeIds.length === 1 ? selectedEmployeeIds[0] : null
 
-      const result = await fetchEmployeeWorkload({
+      const first = await fetchCustomerWorkloadPage({
+        cursor: null,
+        limit,
+        sort,
+        q: debounced || "",
+
         employeeId: backendEmployeeId,
         taskStatus,
-        includeEmptyCustomers,
+        includeEmptyEmployees,
         windowDays,
         completedFrom: completedFrom || "",
         completedTo: completedTo || "",
+
+        includeTasks,
+        taskLimit: Number(taskLimit || 10),
+
         signal: controller.signal,
       })
 
-      setRows(result.employees || [])
-      setOpenEmployeeIds(new Set())
-      setOpenCustomerKeys(new Set())
+      setRows(first.customers || [])
+      setHasMore(!!first.hasMore)
+      setCursor(first.nextCursor || null)
+
+      setOpenCustomerIds(new Set())
+      setOpenEmployeeKeys(new Set())
     } catch (e) {
-      if (e?.name !== "AbortError") setError(e?.message || "Failed to load employee report.")
+      if (e?.name !== "AbortError") setError(e?.message || "Failed to load report.")
     } finally {
       setIsLoading(false)
       setHasLoadedOnce(true)
     }
   }
 
+  const loadMore = async () => {
+    if (!hasMore || !cursor || isLoading || isLoadingMore) return
+    if (abortRef.current) abortRef.current.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    setIsLoadingMore(true)
+    setError("")
+    try {
+      const backendEmployeeId =
+        selectedEmployeeIds.length === 1 ? selectedEmployeeIds[0] : null
+
+      const next = await fetchCustomerWorkloadPage({
+        cursor,
+        limit,
+        sort,
+        q: debounced || "",
+
+        employeeId: backendEmployeeId,
+        taskStatus,
+        includeEmptyEmployees,
+        windowDays,
+        completedFrom: completedFrom || "",
+        completedTo: completedTo || "",
+
+        includeTasks,
+        taskLimit: Number(taskLimit || 10),
+
+        signal: controller.signal,
+      })
+
+      setRows((prev) => {
+        const seen = new Set(prev.map((x) => String(x?.customer?.customerId)))
+        const add = (next.customers || []).filter((x) => !seen.has(String(x?.customer?.customerId)))
+        return prev.concat(add)
+      })
+
+      setHasMore(!!next.hasMore)
+      setCursor(next.nextCursor || null)
+    } catch (e) {
+      if (e?.name !== "AbortError") setError(e?.message || "Failed to load more.")
+    } finally {
+      setIsLoadingMore(false)
+      setHasLoadedOnce(true)
+    }
+  }
+
   useEffect(() => {
-    load()
+    resetAndLoad()
     return () => abortRef.current?.abort?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // reload when filters/search change
   useEffect(() => {
-    load()
+    resetAndLoad()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    debounced,
+    sort,
+    limit,
     taskStatus,
-    includeEmptyCustomers,
+    includeEmptyEmployees,
     windowDays,
     completedFrom,
     completedTo,
+    includeTasks,
+    taskLimit,
     JSON.stringify(selectedEmployeeIds),
   ])
 
   const refreshAll = async () => {
-    await load()
+    await resetAndLoad()
     showToast("success", "Refreshed.")
   }
 
+  // Build employeeOptions from loaded rows (best effort)
   const employeeOptions = useMemo(() => {
-    const list = (rows || [])
-      .map((r) => r?.employee)
-      .filter(Boolean)
-      .map((e) => ({
-        value: String(e._id),
-        label: `${e.name || "—"}${e.email ? ` (${e.email})` : ""}`,
-      }))
+    const list = []
+    for (const r of rows || []) {
+      const employees = Array.isArray(r?.employees) ? r.employees : []
+      for (const eEntry of employees) {
+        const e = eEntry?.employee
+        if (!e?._id) continue
+        list.push({
+          value: String(e._id),
+          label: `${e.name || "—"}${e.email ? ` (${e.email})` : ""}`,
+        })
+      }
+    }
     const seen = new Set()
     const out = []
     for (const o of list) {
@@ -1050,27 +1226,26 @@ export default function EmployeeWorkloadReportPage() {
     return out
   }, [rows])
 
+  // If user selects multiple employees, filter in UI
   const filteredRows = useMemo(() => {
     let list = Array.isArray(rows) ? rows.slice() : []
 
     if (selectedEmployeeIds.length > 1) {
       const set = new Set(selectedEmployeeIds.map(String))
-      list = list.filter((r) => set.has(String(r?.employee?._id)))
-    }
-
-    if (debounced) {
-      list = list.filter((r) => {
-        const e = r?.employee || {}
-        const hay = `${e.name || ""} ${e.email || ""}`.toLowerCase()
-        return hay.includes(debounced)
-      })
+      list = list
+        .map((row) => {
+          const employees = Array.isArray(row?.employees) ? row.employees : []
+          const filteredEmployees = employees.filter((x) => set.has(String(x?.employee?._id)))
+          return { ...row, employees: filteredEmployees }
+        })
+        .filter((row) => (row?.employees?.length || 0) > 0)
     }
 
     return list
-  }, [rows, selectedEmployeeIds, debounced])
+  }, [rows, selectedEmployeeIds])
 
   const computedSummary = useMemo(() => {
-    const employeesCount = filteredRows.length
+    const customersCount = filteredRows.length
     let pending = 0
     let in_progress = 0
     let done = 0
@@ -1084,7 +1259,7 @@ export default function EmployeeWorkloadReportPage() {
       overdue += Number(t.overdue || 0)
     }
 
-    return { employeesCount, pending, in_progress, done, overdue }
+    return { customersCount, pending, in_progress, done, overdue }
   }, [filteredRows])
 
   const appliedChips = useMemo(() => {
@@ -1098,32 +1273,32 @@ export default function EmployeeWorkloadReportPage() {
       })
     }
 
-    if (includeEmptyCustomers === false) {
+    if (includeEmptyEmployees === false) {
       chips.push({
-        key: "empty",
-        label: "Hide customers with no tasks",
-        onRemove: () => setIncludeEmptyCustomers(true),
+        key: "emptyEmp",
+        label: "Hide employees with 0 tasks",
+        onRemove: () => setIncludeEmptyEmployees(true),
       })
     }
 
-    if (String(windowDays || "").trim()) {
+    if (String(windowDays || "").trim() && String(windowDays || "").trim() !== "7") {
       chips.push({
         key: "window",
-        label: `Last ${windowDays} days`,
-        onRemove: () => setWindowDays(""),
+        label: `Window ${windowDays}d`,
+        onRemove: () => setWindowDays("7"),
       })
     }
 
     if (completedFrom)
       chips.push({
         key: "from",
-        label: "Completed: from date set",
+        label: "Completed: from set",
         onRemove: () => setCompletedFrom(""),
       })
     if (completedTo)
       chips.push({
         key: "to",
-        label: "Completed: to date set",
+        label: "Completed: to set",
         onRemove: () => setCompletedTo(""),
       })
 
@@ -1138,17 +1313,25 @@ export default function EmployeeWorkloadReportPage() {
       })
     }
 
+    if (!includeTasks) {
+      chips.push({
+        key: "noTasks",
+        label: "Tasks payload off",
+        onRemove: () => setIncludeTasks(true),
+      })
+    }
+
     return chips
   }, [
     taskStatus,
-    includeEmptyCustomers,
+    includeEmptyEmployees,
     windowDays,
     completedFrom,
     completedTo,
     selectedEmployeeIds,
+    includeTasks,
   ])
 
-  // ✅ show skeleton while loading OR before first load finishes
   const showSkeleton = isLoading || !hasLoadedOnce
 
   return (
@@ -1169,8 +1352,8 @@ export default function EmployeeWorkloadReportPage() {
             onClose={() => setFiltersOpen(false)}
             taskStatus={dTaskStatus}
             setTaskStatus={setDTaskStatus}
-            includeEmptyCustomers={dIncludeEmpty}
-            setIncludeEmptyCustomers={setDIncludeEmpty}
+            includeEmptyEmployees={dIncludeEmpty}
+            setIncludeEmptyEmployees={setDIncludeEmpty}
             windowDays={dWindowDays}
             setWindowDays={setDWindowDays}
             completedFrom={dFrom}
@@ -1180,6 +1363,10 @@ export default function EmployeeWorkloadReportPage() {
             selectedEmployeeIds={dEmpIds}
             setSelectedEmployeeIds={setDEmpIds}
             employeeOptions={employeeOptions}
+            includeTasks={dIncludeTasks}
+            setIncludeTasks={setDIncludeTasks}
+            taskLimit={dTaskLimit}
+            setTaskLimit={setDTaskLimit}
             onClear={clearDraft}
             onApply={applyDraft}
           />
@@ -1195,15 +1382,15 @@ export default function EmployeeWorkloadReportPage() {
                 <div className="relative">
                   <div className="absolute inset-0 bg-indigo-500/20 rounded-2xl blur-lg" />
                   <div className="relative bg-indigo-600 w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-sm">
-                    <FiUsers className="w-6 h-6" />
+                    <FiBriefcase className="w-6 h-6" />
                   </div>
                 </div>
                 <div>
                   <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
-                    Employee Workload
+                    Workload Report
                   </h1>
                   <p className="text-sm text-gray-500 font-semibold">
-                    Customer-first view • clear filters • premium UI
+                    Customer-first view • employees with avatars • optimized paging
                   </p>
                 </div>
               </div>
@@ -1218,10 +1405,22 @@ export default function EmployeeWorkloadReportPage() {
                   <FiRefreshCcw className={cn("w-4 h-4", isLoading ? "animate-spin" : "")} />
                   Refresh
                 </button>
+
+                <div className="rounded-2xl border border-gray-100 bg-white px-3 py-2 shadow-sm flex items-center gap-2">
+                  <span className="text-xs text-gray-500 font-extrabold">Sort</span>
+                  <select
+                    value={sort}
+                    onChange={(e) => setSort(e.target.value)}
+                    className="text-sm font-extrabold text-gray-900 bg-transparent outline-none"
+                  >
+                    <option value="newest">Newest</option>
+                    <option value="oldest">Oldest</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            {/* SEARCH + FILTER ICON INSIDE */}
+            {/* SEARCH BAR */}
             <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
               <div className="w-full lg:w-1/2">
                 <div
@@ -1239,7 +1438,7 @@ export default function EmployeeWorkloadReportPage() {
                       "overflow-x-auto",
                       "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                     )}
-                    onClick={() => document.getElementById("employee-report-search")?.focus?.()}
+                    onClick={() => document.getElementById("workload-search")?.focus?.()}
                   >
                     {appliedChips.map((c) => (
                       <span
@@ -1269,11 +1468,11 @@ export default function EmployeeWorkloadReportPage() {
                     ))}
 
                     <input
-                      id="employee-report-search"
+                      id="workload-search"
                       type="search"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder={appliedChips.length ? "Search employee…" : "Search employee name, email…"}
+                      placeholder={appliedChips.length ? "Search customer…" : "Search customer name, company, email…"}
                       className={cn(
                         "flex-1 min-w-[10rem] bg-transparent",
                         "text-sm text-gray-900 placeholder:text-gray-400",
@@ -1320,15 +1519,9 @@ export default function EmployeeWorkloadReportPage() {
                 </div>
 
                 <div className="mt-2 flex items-center gap-2">
-                  {debounced ? (
-                    <p className="text-xs text-gray-500">
-                      Searching within loaded employees.
-                    </p>
-                  ) : (
-                    <p className="text-xs text-gray-500">
-                      Tip: Click the filter icon to open the filtering panel.
-                    </p>
-                  )}
+                  <p className="text-xs text-gray-500 font-semibold">
+                    Search is backend-powered (q) — pagination stays stable.
+                  </p>
                 </div>
               </div>
 
@@ -1348,7 +1541,7 @@ export default function EmployeeWorkloadReportPage() {
                       Overdue <b>{computedSummary.overdue}</b>
                     </span>
                     <span className={cn(chip, chipGray)}>
-                      Employees <b>{computedSummary.employeesCount}</b>
+                      Customers <b>{computedSummary.customersCount}</b>
                     </span>
                   </div>
                 </div>
@@ -1369,15 +1562,15 @@ export default function EmployeeWorkloadReportPage() {
       <div className={cn(card, "overflow-hidden")}>
         <div className="max-h-[72vh] overflow-y-auto">
           {showSkeleton ? (
-            <EmployeeListSkeleton rows={7} />
+            <CustomerListSkeleton rows={7} />
           ) : (
             <div className="divide-y divide-gray-100">
               <AnimatePresence>
                 {filteredRows.length ? (
                   filteredRows.map((row) => {
-                    const emp = row?.employee || {}
-                    const empId = String(emp?._id || "")
-                    const isOpen = openEmployeeIds.has(empId)
+                    const customer = row?.customer || {}
+                    const cid = String(customer?.customerId || "")
+                    const isOpen = openCustomerIds.has(cid)
 
                     const totals = row?.totals || {}
                     const pending = Number(totals.pending ?? 0)
@@ -1385,21 +1578,34 @@ export default function EmployeeWorkloadReportPage() {
                     const done = Number(totals.done ?? 0)
                     const overdue = Number(totals.overdue ?? 0)
                     const dueSoon = Number(totals.dueSoon ?? 0)
+                    const totalTasks = Number(totals.total ?? 0)
 
-                    const allTasks = (row?.customers || []).flatMap((c) =>
-                      (c?.tasks || []).map((t) => ({ ...t }))
-                    )
-                    const lastActivityAt = allTasks.reduce((acc, t) => {
-                      const d = maxIsoDate(acc, t?.completedAt, t?.createdAt, t?.dueAt)
-                      return d || acc
-                    }, null)
+                    const employees = Array.isArray(row?.employees) ? row.employees : []
+                    const employeesCount = employees.length
 
-                    const customersCount = Array.isArray(row?.customers) ? row.customers.length : 0
-                    const tasksCount = allTasks.length
+                    const lastTouch = (() => {
+                      if (!includeTasks) return null
+                      let max = 0
+                      for (const eEntry of employees) {
+                        const tasks = Array.isArray(eEntry?.tasks) ? eEntry.tasks : []
+                        for (const t of tasks) {
+                          const a = t?.completedAt ? new Date(t.completedAt).getTime() : NaN
+                          const b = t?.createdAt ? new Date(t.createdAt).getTime() : NaN
+                          const c = t?.dueAt ? new Date(t.dueAt).getTime() : NaN
+                          const m = Math.max(
+                            Number.isFinite(a) ? a : 0,
+                            Number.isFinite(b) ? b : 0,
+                            Number.isFinite(c) ? c : 0
+                          )
+                          if (m > max) max = m
+                        }
+                      }
+                      return max ? new Date(max).toISOString() : null
+                    })()
 
                     return (
                       <motion.div
-                        key={empId}
+                        key={cid}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
@@ -1407,7 +1613,7 @@ export default function EmployeeWorkloadReportPage() {
                       >
                         <button
                           type="button"
-                          onClick={() => toggleEmployee(empId)}
+                          onClick={() => toggleCustomer(cid)}
                           className={cn(
                             "w-full text-left rounded-2xl border border-gray-100 bg-white",
                             "px-4 py-4",
@@ -1419,38 +1625,34 @@ export default function EmployeeWorkloadReportPage() {
                           <div className="flex items-start justify-between gap-4">
                             <div className="min-w-0">
                               <div className="flex items-center gap-3">
-                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10 flex items-center justify-center font-extrabold">
-                                  {initials(emp?.name || emp?.email)}
+                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10 flex items-center justify-center font-extrabold shrink-0">
+                                  {initials(customer?.companyName || customer?.name)}
                                 </div>
                                 <div className="min-w-0">
                                   <p className="text-base font-extrabold text-gray-900 truncate">
-                                    {emp?.name || "—"}
+                                    {customer?.name || "Customer"}
+                                    {customer?.companyName ? (
+                                      <span className="text-gray-500"> • {customer.companyName}</span>
+                                    ) : null}
                                   </p>
                                   <p className="text-xs text-gray-500 truncate">
-                                    {emp?.email || "—"}
+                                    {customer?.email || "—"}
+                                    {customer?.phone ? ` • ${customer.phone}` : ""}
                                   </p>
                                 </div>
                               </div>
 
                               <div className="mt-3 flex flex-wrap gap-2">
-                                {emp?.role ? (
-                                  <span className={cn(chip, chipGray)}>
-                                    {String(emp.role).toUpperCase()}
-                                  </span>
-                                ) : null}
-                                {emp?.isActive === false ? (
-                                  <span className={cn(chip, chipRose)}>Inactive</span>
-                                ) : null}
                                 <span className={cn(chip, chipGray)}>
-                                  Customers <b>{customersCount}</b>
+                                  <FiUsers className="w-3.5 h-3.5" /> Employees <b>{employeesCount}</b>
                                 </span>
                                 <span className={cn(chip, chipGray)}>
-                                  Tasks <b>{tasksCount}</b>
+                                  Tasks <b>{totalTasks}</b>
                                 </span>
-                                {lastActivityAt ? (
+                                {lastTouch ? (
                                   <span className={cn(chip, chipGray)}>
                                     <FiClock className="w-3.5 h-3.5" />
-                                    {formatDateTime(lastActivityAt)}
+                                    {formatDateTime(lastTouch)}
                                   </span>
                                 ) : null}
                               </div>
@@ -1477,59 +1679,58 @@ export default function EmployeeWorkloadReportPage() {
                               className="overflow-hidden"
                             >
                               <div className="mt-4 rounded-2xl border border-gray-100 bg-gray-50/60 p-3 sm:p-4">
-                                <div className="space-y-3">
-                                  {(row?.customers || []).length ? (
-                                    (row.customers || []).map((c) => {
-                                      const customerId = String(c?.customerId || "")
-                                      const key = `${empId}:${customerId}`
-                                      const cOpen = openCustomerKeys.has(key)
+                                {(employees || []).length ? (
+                                  <div className="space-y-3">
+                                    {employees.map((eEntry) => {
+                                      const emp = eEntry?.employee || {}
+                                      const empId = String(emp?._id || "")
+                                      const eKey = `${cid}:${empId}`
+                                      const eOpen = openEmployeeKeys.has(eKey)
 
-                                      const counts = c?.counts || {}
+                                      const counts = eEntry?.counts || {}
                                       const p = Number(counts.pending || 0)
                                       const ip = Number(counts.in_progress || 0)
                                       const d = Number(counts.done || 0)
                                       const od = Number(counts.overdue || 0)
+                                      const ds = Number(counts.dueSoon || 0)
+                                      const total = Number(counts.total || 0)
 
-                                      const ctasks = Array.isArray(c?.tasks) ? c.tasks : []
-                                      const total = ctasks.length
-
-                                      const customerLabel = c?.customerName || c?.companyName || "Customer"
+                                      const tasks = includeTasks && Array.isArray(eEntry?.tasks) ? eEntry.tasks : []
 
                                       return (
                                         <div
-                                          key={key}
+                                          key={eKey}
                                           className="rounded-2xl overflow-hidden border border-gray-200 bg-white shadow-[0_16px_40px_-30px_rgba(0,0,0,0.55)]"
                                         >
                                           <button
                                             type="button"
-                                            onClick={() => toggleCustomer(empId, customerId)}
+                                            onClick={() => toggleEmployee(cid, empId)}
                                             className={cn(
                                               "w-full text-left",
                                               "px-4 py-4",
                                               "flex items-start justify-between gap-3",
                                               "hover:bg-gray-50/70 transition focus:outline-none"
                                             )}
-                                            aria-expanded={cOpen}
+                                            aria-expanded={eOpen}
                                           >
                                             <div className="flex items-start gap-3 min-w-0">
                                               <div className="w-1.5 self-stretch rounded-full bg-indigo-600/80" aria-hidden="true" />
-                                              <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10 flex items-center justify-center font-extrabold shrink-0">
-                                                {initials(customerLabel)}
-                                              </div>
+                                              <Avatar url={emp?.avatarUrl} label={emp?.name || emp?.email} />
 
                                               <div className="min-w-0">
                                                 <p className="text-sm sm:text-base font-extrabold text-gray-900 truncate">
-                                                  {c?.customerName || "Customer"}
-                                                  {c?.companyName ? <span className="text-gray-500"> • {c.companyName}</span> : null}
+                                                  {emp?.name || "—"}
+                                                  {emp?.isActive === false ? (
+                                                    <span className="ml-2 text-[11px] font-extrabold text-rose-600 bg-rose-50 border border-rose-100 px-2 py-0.5 rounded-full">
+                                                      Inactive
+                                                    </span>
+                                                  ) : null}
                                                 </p>
-
                                                 <p className="text-xs sm:text-sm text-gray-500 truncate mt-0.5">
-                                                  {c?.customerEmail || "—"}
-                                                  {c?.customerPhone ? ` • ${c.customerPhone}` : ""}
+                                                  {emp?.email || "—"}
                                                 </p>
-
                                                 <p className="mt-1 text-[11px] text-gray-400 font-semibold truncate">
-                                                  P=Pending • IP=In progress • D=Done • OD=Overdue • T=Total
+                                                  P=Pending • IP=In progress • D=Done • OD=Overdue • S=Due soon • T=Total
                                                 </p>
                                               </div>
                                             </div>
@@ -1539,13 +1740,14 @@ export default function EmployeeWorkloadReportPage() {
                                               <ShortCountBadge code="IP" value={ip} title="In progress" className={cn(chipIndigo)} />
                                               <ShortCountBadge code="D" value={d} title="Done" className={cn(chipEmerald)} />
                                               <ShortCountBadge code="OD" value={od} title="Overdue" className={cn(chipRose)} />
+                                              <ShortCountBadge code="S" value={ds} title="Due soon" className={cn(chipGray)} />
                                               <ShortCountBadge code="T" value={total} title="Total tasks" className={cn(chipGray)} />
-                                              <FiChevronDown className={cn("w-4 h-4 text-gray-500 transition", cOpen ? "rotate-180" : "")} />
+                                              <FiChevronDown className={cn("w-4 h-4 text-gray-500 transition", eOpen ? "rotate-180" : "")} />
                                             </div>
                                           </button>
 
                                           <AnimatePresence>
-                                            {cOpen ? (
+                                            {eOpen ? (
                                               <motion.div
                                                 initial={{ height: 0, opacity: 0 }}
                                                 animate={{ height: "auto", opacity: 1 }}
@@ -1554,9 +1756,13 @@ export default function EmployeeWorkloadReportPage() {
                                                 className="overflow-hidden"
                                               >
                                                 <div className="px-4 pb-4">
-                                                  {ctasks.length ? (
+                                                  {!includeTasks ? (
+                                                    <div className="mt-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-600 text-center font-semibold">
+                                                      Tasks payload is disabled. Turn it on in Filters to view task lists.
+                                                    </div>
+                                                  ) : tasks.length ? (
                                                     <div className="mt-2 space-y-2">
-                                                      {ctasks.map((t) => {
+                                                      {tasks.map((t) => {
                                                         const overdueNow = isOverdueTask(t)
                                                         const dueSoonNow = isDueSoonTask(t, 3)
                                                         const doneNow = String(t?.status) === "done"
@@ -1625,7 +1831,7 @@ export default function EmployeeWorkloadReportPage() {
                                                     </div>
                                                   ) : (
                                                     <div className="mt-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-500 text-center font-semibold">
-                                                      No tasks for this customer
+                                                      No tasks for this employee (with current filters)
                                                     </div>
                                                   )}
                                                 </div>
@@ -1634,13 +1840,13 @@ export default function EmployeeWorkloadReportPage() {
                                           </AnimatePresence>
                                         </div>
                                       )
-                                    })
-                                  ) : (
-                                    <div className="rounded-2xl border border-gray-100 bg-white p-4 text-sm text-gray-500 text-center font-semibold">
-                                      No customers
-                                    </div>
-                                  )}
-                                </div>
+                                    })}
+                                  </div>
+                                ) : (
+                                  <div className="rounded-2xl border border-gray-100 bg-white p-4 text-sm text-gray-500 text-center font-semibold">
+                                    No assigned employees for this customer
+                                  </div>
+                                )}
                               </div>
                             </motion.div>
                           ) : null}
@@ -1650,7 +1856,7 @@ export default function EmployeeWorkloadReportPage() {
                   })
                 ) : (
                   <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-10 text-center">
-                    <p className="text-sm font-extrabold text-gray-900">No employees found</p>
+                    <p className="text-sm font-extrabold text-gray-900">No customers found</p>
                     <p className="text-xs text-gray-500 font-semibold mt-1">
                       Try clearing filters or changing search.
                     </p>
@@ -1666,18 +1872,34 @@ export default function EmployeeWorkloadReportPage() {
           )}
         </div>
 
-        <div className="p-4 border-t border-gray-100 bg-white flex items-center justify-between">
+        {/* FOOTER */}
+        <div className="p-4 border-t border-gray-100 bg-white flex items-center justify-between gap-3 flex-wrap">
           <span className="text-sm text-gray-600">
-            Showing <b className="text-gray-900">{filteredRows.length}</b>
+            Showing <b className="text-gray-900">{filteredRows.length}</b> customers
+            {hasMore ? <span className="text-gray-400"> • more available</span> : null}
           </span>
-          <button
-            onClick={refreshAll}
-            className={cn(btn, btnPrimary, "px-4 py-2")}
-            disabled={isLoading}
-          >
-            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            Refresh
-          </button>
+
+          <div className="flex items-center gap-2">
+            {hasMore ? (
+              <button
+                onClick={loadMore}
+                className={cn(btn, btnGhost, "px-4 py-2")}
+                disabled={isLoadingMore || isLoading}
+              >
+                {isLoadingMore ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                Load more
+              </button>
+            ) : null}
+
+            <button
+              onClick={refreshAll}
+              className={cn(btn, btnPrimary, "px-4 py-2")}
+              disabled={isLoading}
+            >
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              Refresh
+            </button>
+          </div>
         </div>
       </div>
     </div>

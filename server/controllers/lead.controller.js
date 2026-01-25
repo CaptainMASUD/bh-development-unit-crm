@@ -1,571 +1,609 @@
 import mongoose from "mongoose";
 import Lead from "../models/lead.model.js";
 import Customer from "../models/customer.model.js";
-import Activity from "../models/activity.model.js";
-import Deal from "../models/deal.model.js";
+import { dashboardCache } from "../utils/cache.js";
+import { getReqMeta, writeAudit, writeActivity, writeConversionLog } from "../utils/audit.js";
 
-const isAdminOrSuperAdmin = (req) =>
-  req.user?.role === "admin" || req.user?.role === "superadmin";
-
-const isMarketing = (req) => req.user?.role === "marketing_team";
-
-const toObjectIdSafe = (id) => {
+const invalidateDashboardCache = () => {
   try {
-    if (!id) return null;
-    if (mongoose.isValidObjectId(id)) return new mongoose.Types.ObjectId(String(id));
-    return null;
+    const keys = dashboardCache.keys?.() || [];
+    for (const k of keys) {
+      if (String(k).startsWith("dashboard:v1:")) dashboardCache.del(k);
+    }
   } catch {
-    return null;
+    try {
+      dashboardCache.flushAll?.();
+    } catch {}
   }
 };
 
-const clampInt = (n, min, max, fallback) => {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return fallback;
-  return Math.max(min, Math.min(max, Math.trunc(v)));
+const toObjectId = (v) => {
+  if (!v) return null;
+  return mongoose.Types.ObjectId.isValid(v) ? new mongoose.Types.ObjectId(v) : null;
 };
 
-const idOf = (val) => {
-  if (!val) return null;
-  if (typeof val === "object" && val._id) return val._id;
-  return val;
+const pick = (obj, keys) =>
+  keys.reduce((acc, k) => {
+    if (obj?.[k] !== undefined) acc[k] = obj[k];
+    return acc;
+  }, {});
+
+const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+
+const applyCursor = (filter, cursor) => {
+  const c = toObjectId(cursor);
+  if (c) filter._id = { ...(filter._id || {}), $lt: c };
 };
 
-const canAccessLead = (req, lead) => {
-  if (isAdminOrSuperAdmin(req)) return true;
-  if (isMarketing(req)) {
-    const assignedToId = idOf(lead.assignedTo);
-    return String(assignedToId) === String(req.user._id);
-  }
-  return false;
-};
-
-const normalizeContact = (contact) => {
-  const contactName = contact?.name ? String(contact.name).trim() : "";
-  const companyName = contact?.companyName ? String(contact.companyName).trim() : "";
-  const email = contact?.email ? String(contact.email).trim().toLowerCase() : "";
-  const phone = contact?.phone ? String(contact.phone).trim() : "";
-  return { contactName, companyName, email, phone };
-};
-
-const allowedLeadStatus = new Set(["new", "contacted", "pending", "confirmed", "lost"]);
-
+/* =======================
+   CREATE LEAD
+======================= */
 export const createLead = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
-    if (!(isMarketing(req) || isAdminOrSuperAdmin(req))) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(403).json({ message: "Not authorized to create leads." });
+    const meta = getReqMeta(req);
+    const { contact, source, tags, assignedTo, company } = req.body || {};
+
+    if (!contact?.name || !contact?.companyName) {
+      return res.status(400).json({ message: "contact.name and contact.companyName are required." });
     }
 
-    const { contact, source, assignedTo } = req.body;
-    const { contactName, companyName, email, phone } = normalizeContact(contact);
+    const assignedUserId = toObjectId(assignedTo) || req.user._id;
 
-    if (!contactName) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({ message: "Contact person name is required." });
-    }
-    if (!companyName) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({ message: "Customer/Company name is required." });
-    }
-
-    const leadSource = source ? String(source).trim() : "";
-    const assignedUserId = toObjectIdSafe(assignedTo) || req.user._id;
-
-    const [lead] = await Lead.create(
-      [
-        {
-          contact: { name: contactName, email, phone, companyName },
-          source: leadSource,
-          createdBy: req.user._id,
-          assignedTo: assignedUserId,
-          status: "new",
-          convertedAt: null,
-          lastContactedAt: null,
-          nextFollowUpAt: null,
-        },
-      ],
-      { session }
-    );
-
-    const [customer] = await Customer.create(
-      [
-        {
-          name: companyName,
-          companyName,
-          email,
-          phone,
-          address: "",
-          contactPerson: { name: contactName, email, phone, designation: "Lead Contact" },
-          status: "pending",
-          origin: "lead",
-          leadId: lead._id,
-          createdBy: req.user._id,
-          assignedTo: [],
-        },
-      ],
-      { session }
-    );
-
-    await Lead.updateOne(
-      { _id: lead._id },
-      { $set: { customerId: customer._id, convertedCustomer: customer._id, convertedAt: null } },
-      { session }
-    );
-
-    await session.commitTransaction();
-    session.endSession();
-
-    const populated = await Lead.findById(lead._id)
-      .populate("assignedTo", "name email role")
-      .populate("createdBy", "name email role")
-      .populate("customerId")
-      .lean();
-
-    return res.status(201).json({
-      message: "Lead created and customer added as pending.",
-      lead: populated,
-      customer,
+    const doc = await Lead.create({
+      contact: {
+        name: String(contact.name).trim(),
+        email: String(contact.email || "").trim().toLowerCase(),
+        phone: String(contact.phone || "").trim(),
+        companyName: String(contact.companyName).trim(),
+      },
+      source: source ? String(source).trim() : "",
+      tags: Array.isArray(tags) ? tags.map((t) => String(t).trim()).filter(Boolean) : [],
+      company: {
+        website: String(company?.website || "").trim(),
+        industry: String(company?.industry || "").trim(),
+        address: String(company?.address || "").trim(),
+      },
+      createdBy: req.user._id,
+      assignedTo: assignedUserId,
     });
+
+    await writeAudit({
+      actorId: req.user._id,
+      action: "create",
+      entityType: "Lead",
+      entityId: doc._id,
+      before: null,
+      after: doc.toObject(),
+      meta,
+    });
+
+    await writeActivity({
+      leadId: doc._id,
+      entityType: "Lead",
+      entityId: doc._id,
+      type: "created",
+      message: "Lead created",
+      createdBy: req.user._id,
+    });
+
+    return res.status(201).json({ message: "Lead created", lead: doc });
   } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    return res.status(500).json({ message: "Server error in createLead.", error: err.message });
+    return res.status(500).json({ message: "Failed to create lead", error: err.message });
   }
 };
 
-export const getLeads = async (req, res) => {
+/* =======================
+   LIST LEADS (optimized)
+======================= */
+export const listLeads = async (req, res) => {
   try {
-    if (!isAdminOrSuperAdmin(req) && !isMarketing(req)) {
-      return res.status(403).json({ message: "Not allowed for this role." });
-    }
+    const {
+      status,
+      pipelineStage,
+      source,
+      assignedTo,
+      createdBy,
+      tag,
+      q,
+      nextFollowUpFrom,
+      nextFollowUpTo,
+      lastContactedFrom,
+      lastContactedTo,
+      cursor,
+      limit,
+    } = req.query;
 
-    const limit = clampInt(req.query.limit, 1, 100, 20);
-    const cursor = toObjectIdSafe(req.query.cursor);
-    const status = req.query.status ? String(req.query.status).toLowerCase() : "";
-    const source = req.query.source ? String(req.query.source).trim() : "";
-    const search = req.query.search ? String(req.query.search).trim() : "";
-    const includeCount = String(req.query.includeCount || "") === "1";
-
+    const pageSize = clamp(parseInt(limit || "20", 10), 1, 100);
     const filter = {};
 
-    if (isMarketing(req)) filter.assignedTo = req.user._id;
-    if (cursor) filter._id = { $lt: cursor };
-    if (status && allowedLeadStatus.has(status)) filter.status = status;
-    if (source) filter.source = source;
-    if (search) filter.$text = { $search: search };
+    if (status) filter.status = status;
+    if (pipelineStage) filter.pipelineStage = pipelineStage;
+    if (source) filter.source = String(source).trim();
 
-    const projection = "leadNumber contact status source nextFollowUpAt lastContactedAt createdAt";
+    const assignedId = toObjectId(assignedTo);
+    if (assignedId) filter.assignedTo = assignedId;
 
-    const rows = await Lead.find(filter)
-      .select(projection)
-      .sort({ _id: -1 })
-      .limit(limit + 1)
-      .lean();
+    const createdId = toObjectId(createdBy);
+    if (createdId) filter.createdBy = createdId;
 
-    const hasMore = rows.length > limit;
-    const items = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = items.length ? String(items[items.length - 1]._id) : null;
+    if (tag) filter.tags = String(tag).trim();
 
-    let totalCount = null;
-    if (includeCount) {
-      const countFilter = { ...filter };
-      delete countFilter._id;
-      totalCount = await Lead.countDocuments(countFilter);
+    if (nextFollowUpFrom || nextFollowUpTo) {
+      filter.nextFollowUpAt = {};
+      if (nextFollowUpFrom) filter.nextFollowUpAt.$gte = new Date(nextFollowUpFrom);
+      if (nextFollowUpTo) filter.nextFollowUpAt.$lte = new Date(nextFollowUpTo);
     }
 
-    return res.status(200).json({
-      items,
-      leads: items,
-      count: includeCount ? totalCount : items.length,
-      hasMore,
-      nextCursor,
-    });
+    if (lastContactedFrom || lastContactedTo) {
+      filter.lastContactedAt = {};
+      if (lastContactedFrom) filter.lastContactedAt.$gte = new Date(lastContactedFrom);
+      if (lastContactedTo) filter.lastContactedAt.$lte = new Date(lastContactedTo);
+    }
+
+    if (cursor) applyCursor(filter, cursor);
+
+    const projection = {
+      leadNumber: 1,
+      contact: 1,
+      status: 1,
+      pipelineStage: 1,
+      source: 1,
+      tags: 1,
+      assignedTo: 1,
+      createdBy: 1,
+      lastContactedAt: 1,
+      nextFollowUpAt: 1,
+      customerId: 1,
+      convertedCustomer: 1,
+      convertedAt: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    let query = Lead.find(filter).select(projection).lean({ virtuals: false });
+
+    if (q && String(q).trim()) {
+      query = query
+        .find({ ...filter, $text: { $search: String(q).trim() } })
+        .select({ ...projection, score: { $meta: "textScore" } })
+        .sort({ score: { $meta: "textScore" }, _id: -1 });
+    } else {
+      query = query.sort({ _id: -1 });
+    }
+
+    const rows = await query.limit(pageSize + 1);
+
+    const hasNextPage = rows.length > pageSize;
+    const items = hasNextPage ? rows.slice(0, pageSize) : rows;
+    const nextCursor = hasNextPage ? String(items[items.length - 1]._id) : null;
+
+    return res.json({ items, pageInfo: { limit: pageSize, hasNextPage, nextCursor } });
   } catch (err) {
-    return res.status(500).json({ message: "Server error in getLeads.", error: err.message });
+    return res.status(500).json({ message: "Failed to list leads", error: err.message });
   }
 };
 
 export const getLeadById = async (req, res) => {
   try {
-    const lead = await Lead.findById(req.params.id)
-      .populate("assignedTo", "name email role")
-      .populate("createdBy", "name email role")
-      .populate("customerId")
-      .lean();
+    const id = toObjectId(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid lead id" });
 
-    if (!lead) return res.status(404).json({ message: "Lead not found." });
+    const lead = await Lead.findById(id).lean();
+    if (!lead) return res.status(404).json({ message: "Lead not found" });
 
-    if (!canAccessLead(req, lead)) {
-      return res.status(403).json({ message: "You cannot access this lead." });
-    }
-
-    return res.status(200).json({ lead });
+    return res.json({ lead });
   } catch (err) {
-    return res.status(500).json({ message: "Server error in getLeadById.", error: err.message });
+    return res.status(500).json({ message: "Failed to get lead", error: err.message });
   }
 };
 
+/* =======================
+   UPDATE LEAD + AUDIT
+======================= */
 export const updateLead = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
-    const lead = await Lead.findById(req.params.id).session(session);
-    if (!lead) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(404).json({ message: "Lead not found." });
+    const meta = getReqMeta(req);
+    const id = toObjectId(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid lead id" });
+
+    const before = await Lead.findById(id).lean();
+    if (!before) return res.status(404).json({ message: "Lead not found" });
+
+    const allowedTop = [
+      "status",
+      "pipelineStage",
+      "source",
+      "tags",
+      "assignedTo",
+      "lastContactedAt",
+      "nextFollowUpAt",
+    ];
+
+    const allowedContact = ["name", "email", "phone", "companyName"];
+    const allowedCompany = ["website", "industry", "address"];
+
+    const payload = pick(req.body || {}, allowedTop);
+
+    if (payload.source !== undefined) payload.source = String(payload.source || "").trim();
+
+    if (payload.tags !== undefined) {
+      payload.tags = Array.isArray(payload.tags)
+        ? payload.tags.map((t) => String(t).trim()).filter(Boolean)
+        : [];
     }
 
-    if (!canAccessLead(req, lead)) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(403).json({ message: "You cannot update this lead." });
+    if (payload.assignedTo !== undefined) {
+      const aid = toObjectId(payload.assignedTo);
+      if (!aid) return res.status(400).json({ message: "Invalid assignedTo id" });
+      payload.assignedTo = aid;
     }
 
-    const { contact, status, source, assignedTo } = req.body;
-    let contactChanged = false;
-
-    if (contact) {
-      const { contactName, companyName, email, phone } = normalizeContact(contact);
-
-      if (!contactName) {
-        await session.abortTransaction();
-        session.endSession();
-        return res.status(400).json({ message: "Contact person name is required." });
-      }
-      if (!companyName) {
-        await session.abortTransaction();
-        session.endSession();
-        return res.status(400).json({ message: "Customer/Company name is required." });
-      }
-
-      lead.contact = { name: contactName, email, phone, companyName };
-      contactChanged = true;
+    if (payload.lastContactedAt !== undefined) {
+      payload.lastContactedAt = payload.lastContactedAt ? new Date(payload.lastContactedAt) : null;
     }
 
-    if (source !== undefined) lead.source = String(source || "").trim();
-
-    if (status !== undefined) {
-      const st = String(status).toLowerCase();
-      if (!allowedLeadStatus.has(st)) {
-        await session.abortTransaction();
-        session.endSession();
-        return res.status(400).json({ message: "Invalid lead status." });
-      }
-      lead.status = st;
+    if (payload.nextFollowUpAt !== undefined) {
+      payload.nextFollowUpAt = payload.nextFollowUpAt ? new Date(payload.nextFollowUpAt) : null;
     }
 
-    if (assignedTo !== undefined) {
-      if (!isAdminOrSuperAdmin(req)) {
-        await session.abortTransaction();
-        session.endSession();
-        return res.status(403).json({ message: "Only admin can reassign leads." });
-      }
-      const aid = toObjectIdSafe(assignedTo);
-      if (!aid) {
-        await session.abortTransaction();
-        session.endSession();
-        return res.status(400).json({ message: "Invalid assignedTo." });
-      }
-      lead.assignedTo = aid;
+    const contactPatch = pick(req.body?.contact || {}, allowedContact);
+    if (Object.keys(contactPatch).length) {
+      if (contactPatch.email !== undefined)
+        contactPatch.email = String(contactPatch.email || "").trim().toLowerCase();
+      if (contactPatch.phone !== undefined)
+        contactPatch.phone = String(contactPatch.phone || "").trim();
+      if (contactPatch.name !== undefined)
+        contactPatch.name = String(contactPatch.name || "").trim();
+      if (contactPatch.companyName !== undefined)
+        contactPatch.companyName = String(contactPatch.companyName || "").trim();
+      payload.contact = contactPatch;
     }
 
-    await lead.save({ session });
-
-    if (lead.customerId && contactChanged) {
-      const customer = await Customer.findById(lead.customerId).session(session);
-      if (customer) {
-        const c = lead.contact || {};
-
-        if (c.companyName) {
-          customer.name = c.companyName;
-          customer.companyName = c.companyName;
-        }
-        customer.email = c.email || customer.email;
-        customer.phone = c.phone || customer.phone;
-
-        customer.contactPerson = {
-          ...(customer.contactPerson || {}),
-          name: c.name || customer.contactPerson?.name,
-          email: c.email || customer.contactPerson?.email,
-          phone: c.phone || customer.contactPerson?.phone,
-          designation: customer.contactPerson?.designation || "Lead Contact",
-        };
-
-        await customer.save({ session });
-      }
+    const companyPatch = pick(req.body?.company || {}, allowedCompany);
+    if (Object.keys(companyPatch).length) {
+      Object.keys(companyPatch).forEach((k) => (companyPatch[k] = String(companyPatch[k] || "").trim()));
+      payload.company = companyPatch;
     }
 
-    await session.commitTransaction();
-    session.endSession();
+    const lead = await Lead.findByIdAndUpdate(id, { $set: payload }, { new: true, runValidators: true });
+    if (!lead) return res.status(404).json({ message: "Lead not found" });
 
-    const populated = await Lead.findById(lead._id)
-      .populate("assignedTo", "name email role")
-      .populate("createdBy", "name email role")
-      .populate("customerId")
-      .lean();
+    await writeAudit({
+      actorId: req.user._id,
+      action: "update",
+      entityType: "Lead",
+      entityId: id,
+      before,
+      after: lead.toObject(),
+      meta,
+    });
 
-    return res.status(200).json({ message: "Lead updated.", lead: populated });
+    await writeActivity({
+      leadId: id,
+      entityType: "Lead",
+      entityId: id,
+      type: "updated",
+      message: "Lead updated",
+      createdBy: req.user._id,
+      meta: { fields: Object.keys(payload) },
+    });
+
+    return res.json({ message: "Lead updated", lead });
   } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    return res.status(500).json({ message: "Server error in updateLead.", error: err.message });
+    return res.status(500).json({ message: "Failed to update lead", error: err.message });
   }
 };
 
 export const addLeadNote = async (req, res) => {
   try {
-    const note = String(req.body.note || "").trim();
-    if (!note) return res.status(400).json({ message: "Note is required." });
+    const meta = getReqMeta(req);
+    const id = toObjectId(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid lead id" });
 
-    const lead = await Lead.findById(req.params.id).select("_id assignedTo").lean();
-    if (!lead) return res.status(404).json({ message: "Lead not found." });
+    const { note } = req.body || {};
+    if (!note || !String(note).trim()) return res.status(400).json({ message: "note is required" });
 
-    if (isMarketing(req) && String(lead.assignedTo) !== String(req.user._id)) {
-      return res.status(403).json({ message: "You cannot add note to this lead." });
-    }
-    if (!isAdminOrSuperAdmin(req) && !isMarketing(req)) {
-      return res.status(403).json({ message: "Not allowed for this role." });
-    }
+    const before = await Lead.findById(id).lean();
+    if (!before) return res.status(404).json({ message: "Lead not found" });
 
-    await Lead.updateOne(
-      { _id: lead._id },
-      { $push: { notes: { note, createdBy: req.user._id, createdAt: new Date() } } }
+    const lead = await Lead.findByIdAndUpdate(
+      id,
+      {
+        $push: {
+          notes: {
+            note: String(note).trim(),
+            createdBy: req.user._id,
+            createdAt: new Date(),
+          },
+        },
+      },
+      { new: true }
     );
 
-    return res.status(200).json({ message: "Note added." });
+    await writeAudit({
+      actorId: req.user._id,
+      action: "note",
+      entityType: "Lead",
+      entityId: id,
+      before,
+      after: lead.toObject(),
+      meta,
+    });
+
+    await writeActivity({
+      leadId: id,
+      entityType: "Lead",
+      entityId: id,
+      type: "note_added",
+      message: "Note added to lead",
+      createdBy: req.user._id,
+    });
+
+    return res.json({ message: "Note added", lead });
   } catch (err) {
-    return res.status(500).json({ message: "Server error in addLeadNote.", error: err.message });
+    return res.status(500).json({ message: "Failed to add note", error: err.message });
+  }
+};
+
+export const markContacted = async (req, res) => {
+  try {
+    const meta = getReqMeta(req);
+    const id = toObjectId(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid lead id" });
+
+    const before = await Lead.findById(id).lean();
+    if (!before) return res.status(404).json({ message: "Lead not found" });
+
+    const lead = await Lead.findByIdAndUpdate(
+      id,
+      { $set: { status: "contacted", lastContactedAt: new Date() } },
+      { new: true }
+    );
+
+    await writeAudit({
+      actorId: req.user._id,
+      action: "status",
+      entityType: "Lead",
+      entityId: id,
+      before,
+      after: lead.toObject(),
+      meta,
+    });
+
+    await writeActivity({
+      leadId: id,
+      entityType: "Lead",
+      entityId: id,
+      type: "contacted",
+      message: "Lead marked as contacted",
+      createdBy: req.user._id,
+    });
+
+    return res.json({ message: "Lead marked as contacted", lead });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to mark contacted", error: err.message });
+  }
+};
+
+export const setFollowUp = async (req, res) => {
+  try {
+    const meta = getReqMeta(req);
+    const id = toObjectId(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid lead id" });
+
+    const { nextFollowUpAt } = req.body || {};
+    if (!nextFollowUpAt) return res.status(400).json({ message: "nextFollowUpAt is required" });
+
+    const dt = new Date(nextFollowUpAt);
+    if (Number.isNaN(dt.getTime())) return res.status(400).json({ message: "Invalid nextFollowUpAt date" });
+
+    const before = await Lead.findById(id).lean();
+    if (!before) return res.status(404).json({ message: "Lead not found" });
+
+    const lead = await Lead.findByIdAndUpdate(id, { $set: { nextFollowUpAt: dt } }, { new: true });
+
+    await writeAudit({
+      actorId: req.user._id,
+      action: "update",
+      entityType: "Lead",
+      entityId: id,
+      before,
+      after: lead.toObject(),
+      meta,
+    });
+
+    await writeActivity({
+      leadId: id,
+      entityType: "Lead",
+      entityId: id,
+      type: "followup_set",
+      message: "Follow-up date updated",
+      createdBy: req.user._id,
+      meta: { nextFollowUpAt: dt },
+    });
+
+    return res.json({ message: "Follow-up updated", lead });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to set follow-up", error: err.message });
+  }
+};
+
+/* =======================
+   CONVERT (best practice)
+======================= */
+export const convertLeadToCustomer = async (req, res) => {
+  const session = await mongoose.startSession();
+  try {
+    const meta = getReqMeta(req);
+    const leadId = toObjectId(req.params.id);
+    if (!leadId) return res.status(400).json({ message: "Invalid lead id" });
+
+    session.startTransaction();
+
+    const lead = await Lead.findById(leadId).session(session);
+    if (!lead) {
+      await session.abortTransaction();
+      return res.status(404).json({ message: "Lead not found" });
+    }
+
+    if (lead.convertedCustomer) {
+      await session.abortTransaction();
+      return res.status(409).json({ message: "Lead already converted", customerId: lead.convertedCustomer });
+    }
+
+    // ✅ hard safety: if crash happened before lead updated
+    const existingCustomer = await Customer.findOne({ leadId: lead._id }).session(session).select("_id status");
+    if (existingCustomer?._id) {
+      lead.convertedCustomer = existingCustomer._id;
+      lead.customerId = existingCustomer._id;
+      lead.convertedAt = new Date();
+      lead.pipelineStage = "won";
+      lead.status = "confirmed";
+      await lead.save({ session });
+
+      await session.commitTransaction();
+      invalidateDashboardCache();
+
+      return res.status(200).json({
+        message: "Lead already has customer (relinked)",
+        leadId: String(lead._id),
+        customerId: String(existingCustomer._id),
+      });
+    }
+
+    const customerPayload = {
+      name: lead.contact.name,
+      companyName: lead.contact.companyName,
+      email: lead.contact.email,
+      phone: lead.contact.phone,
+      address: lead.company?.address || "",
+
+      contactPerson: {
+        name: lead.contact.name,
+        email: lead.contact.email || "",
+        phone: lead.contact.phone || "",
+        designation: "",
+      },
+
+      secondaryContacts: [],
+      tags: lead.tags || [],
+      lifecycleStage: "prospect",
+
+      status: "pending",
+      customerType: "new",
+
+      origin: "lead",
+      leadId: lead._id,
+
+      createdBy: req.user._id,
+      assignedTo: [lead.assignedTo],
+
+      customerFiles: [],
+      engagements: [],
+      crmTasks: [],
+    };
+
+    const [customer] = await Customer.create([customerPayload], { session });
+
+    // update lead links + pipeline
+    lead.convertedCustomer = customer._id;
+    lead.customerId = customer._id;
+    lead.convertedAt = new Date();
+    lead.pipelineStage = "won";
+    lead.status = "confirmed";
+
+    await lead.save({ session });
+
+    // ✅ conversion log snapshot
+    await writeConversionLog({
+      session,
+      leadId: lead._id,
+      customerId: customer._id,
+      convertedBy: req.user._id,
+      leadSnapshot: lead.toObject(),
+      customerSnapshot: customer.toObject(),
+    });
+
+    // ✅ audit
+    await writeAudit({
+      session,
+      actorId: req.user._id,
+      action: "convert",
+      entityType: "Lead",
+      entityId: lead._id,
+      before: null,
+      after: { customerId: customer._id },
+      meta,
+    });
+
+    // ✅ timeline activity for both Lead + Customer
+    await writeActivity({
+      session,
+      leadId: lead._id,
+      customerId: customer._id,
+      entityType: "Lead",
+      entityId: lead._id,
+      type: "converted",
+      message: "Lead converted to customer",
+      createdBy: req.user._id,
+      meta: { customerId: customer._id },
+    });
+
+    await writeActivity({
+      session,
+      leadId: lead._id,
+      customerId: customer._id,
+      entityType: "Customer",
+      entityId: customer._id,
+      type: "created",
+      message: "Customer created from lead",
+      createdBy: req.user._id,
+      meta: { leadId: lead._id },
+    });
+
+    await session.commitTransaction();
+    invalidateDashboardCache();
+
+    return res.status(200).json({
+      message: "Lead converted to customer",
+      leadId: String(lead._id),
+      customerId: String(customer._id),
+      customerStatus: customer.status,
+    });
+  } catch (err) {
+    try {
+      await session.abortTransaction();
+    } catch {}
+    return res.status(500).json({ message: "Failed to convert lead", error: err.message });
+  } finally {
+    session.endSession();
   }
 };
 
 export const deleteLead = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
-    if (!isAdminOrSuperAdmin(req)) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(403).json({ message: "Only admin can delete leads." });
-    }
+    const meta = getReqMeta(req);
+    const id = toObjectId(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid lead id" });
 
-    const lead = await Lead.findById(req.params.id).session(session);
-    if (!lead) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(404).json({ message: "Lead not found." });
-    }
+    const before = await Lead.findById(id).lean();
+    if (!before) return res.status(404).json({ message: "Lead not found" });
 
-    if (lead.customerId) {
-      const customer = await Customer.findById(lead.customerId).session(session);
-      if (customer && String(customer.status || "").toLowerCase() === "pending") {
-        await Customer.deleteOne({ _id: customer._id }).session(session);
-      }
-    }
+    const deleted = await Lead.findByIdAndDelete(id);
+    invalidateDashboardCache();
 
-    await Lead.deleteOne({ _id: lead._id }).session(session);
-
-    await session.commitTransaction();
-    session.endSession();
-
-    return res.status(200).json({ message: "Lead deleted." });
-  } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    return res.status(500).json({ message: "Server error in deleteLead.", error: err.message });
-  }
-};
-
-export const convertLeadToCustomer = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
-    if (!isAdminOrSuperAdmin(req)) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(403).json({ message: "Only admin can convert/activate leads." });
-    }
-
-    const lead = await Lead.findById(req.params.id).session(session);
-    if (!lead) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(404).json({ message: "Lead not found." });
-    }
-
-    if (lead.status !== "confirmed") {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({ message: "Lead must be confirmed before activation." });
-    }
-
-    if (!lead.customerId) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(400).json({ message: "No customer linked with this lead." });
-    }
-
-    const customer = await Customer.findById(lead.customerId).session(session);
-    if (!customer) {
-      await session.abortTransaction();
-      session.endSession();
-      return res.status(404).json({ message: "Linked customer not found." });
-    }
-
-    if (String(customer.status || "").toLowerCase() === "pending") customer.status = "in_progress";
-    customer.origin = "lead";
-    if (!customer.leadId) customer.leadId = lead._id;
-
-    await customer.save({ session });
-
-    lead.convertedCustomer = customer._id;
-    lead.convertedAt = new Date();
-    await lead.save({ session });
-
-    await session.commitTransaction();
-    session.endSession();
-
-    return res.status(200).json({
-      message: "Lead confirmed. Customer activated (in_progress).",
-      customer,
-    });
-  } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
-    return res.status(500).json({ message: "Server error in convertLeadToCustomer.", error: err.message });
-  }
-};
-
-export const updateLeadFollowup = async (req, res) => {
-  try {
-    const lead = await Lead.findById(req.params.id).select("_id assignedTo").lean();
-    if (!lead) return res.status(404).json({ message: "Lead not found." });
-
-    if (isMarketing(req) && String(lead.assignedTo) !== String(req.user._id)) {
-      return res.status(403).json({ message: "You cannot update this lead." });
-    }
-    if (!isAdminOrSuperAdmin(req) && !isMarketing(req)) {
-      return res.status(403).json({ message: "Not allowed for this role." });
-    }
-
-    const update = {};
-
-    if (req.body.lastContactedAt !== undefined) {
-      const d = req.body.lastContactedAt ? new Date(req.body.lastContactedAt) : null;
-      if (d && Number.isNaN(d.getTime())) return res.status(400).json({ message: "Invalid lastContactedAt." });
-      update.lastContactedAt = d;
-    }
-
-    if (req.body.nextFollowUpAt !== undefined) {
-      const d = req.body.nextFollowUpAt ? new Date(req.body.nextFollowUpAt) : null;
-      if (d && Number.isNaN(d.getTime())) return res.status(400).json({ message: "Invalid nextFollowUpAt." });
-      update.nextFollowUpAt = d;
-    }
-
-    await Lead.updateOne({ _id: lead._id }, { $set: update });
-
-    const fresh = await Lead.findById(lead._id).select("lastContactedAt nextFollowUpAt").lean();
-
-    return res.status(200).json({ message: "Lead follow-up updated.", lead: fresh });
-  } catch (err) {
-    return res.status(500).json({ message: "Server error in updateLeadFollowup.", error: err.message });
-  }
-};
-
-export const getLeadTimeline = async (req, res) => {
-  try {
-    const lead = await Lead.findById(req.params.id).select("_id assignedTo").lean();
-    if (!lead) return res.status(404).json({ message: "Lead not found." });
-
-    if (isMarketing(req) && String(lead.assignedTo) !== String(req.user._id)) {
-      return res.status(403).json({ message: "You cannot access this lead." });
-    }
-
-    if (!isAdminOrSuperAdmin(req) && !isMarketing(req)) {
-      return res.status(403).json({ message: "Not allowed for this role." });
-    }
-
-    const limit = clampInt(req.query.limit, 1, 100, 20);
-    const cursor = toObjectIdSafe(req.query.cursor);
-
-    const filter = { leadId: lead._id };
-    if (cursor) filter._id = { $lt: cursor };
-
-    const rows = await Activity.find(filter)
-      .sort({ _id: -1 })
-      .limit(limit + 1)
-      .populate("createdBy", "name email role")
-      .lean();
-
-    const hasMore = rows.length > limit;
-    const activities = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = activities.length ? String(activities[activities.length - 1]._id) : null;
-
-    return res.status(200).json({
-      count: activities.length,
-      hasMore,
-      nextCursor,
-      activities,
-    });
-  } catch (err) {
-    return res.status(500).json({ message: "Server error in getLeadTimeline.", error: err.message });
-  }
-};
-
-export const createDealFromLead = async (req, res) => {
-  try {
-    const lead = await Lead.findById(req.params.id).select("_id assignedTo customerId").lean();
-    if (!lead) return res.status(404).json({ message: "Lead not found." });
-
-    if (!isAdminOrSuperAdmin(req) && isMarketing(req)) {
-      if (String(lead.assignedTo) !== String(req.user._id)) {
-        return res.status(403).json({ message: "No access to this lead." });
-      }
-    } else if (!isAdminOrSuperAdmin(req) && !isMarketing(req)) {
-      return res.status(403).json({ message: "Not allowed for this role." });
-    }
-
-    if (!lead.customerId) return res.status(400).json({ message: "Lead has no linked customerId." });
-
-    const title = String(req.body.title || "").trim();
-    if (!title) return res.status(400).json({ message: "title is required." });
-
-    const expectedCloseAt = req.body.expectedCloseAt ? new Date(req.body.expectedCloseAt) : null;
-    if (expectedCloseAt && Number.isNaN(expectedCloseAt.getTime())) {
-      return res.status(400).json({ message: "Invalid expectedCloseAt." });
-    }
-
-    const valueNum = Number(req.body.value);
-    const value = Number.isFinite(valueNum) && valueNum >= 0 ? valueNum : 0;
-
-    const currency = String(req.body.currency || "BDT").trim();
-    const note = String(req.body.note || "").trim();
-
-    const deal = await Deal.create({
-      title,
-      customerId: lead.customerId,
-      leadId: lead._id,
-      stage: "new",
-      value,
-      currency,
-      expectedCloseAt,
-      createdBy: req.user._id,
-      assignedTo: isMarketing(req) ? [req.user._id] : [lead.assignedTo],
-      notes: note ? [{ text: note, createdBy: req.user._id }] : [],
+    await writeAudit({
+      actorId: req.user._id,
+      action: "delete",
+      entityType: "Lead",
+      entityId: id,
+      before,
+      after: null,
+      meta,
     });
 
-    return res.status(201).json({ message: "Deal created from lead.", deal });
+    return res.json({ message: "Lead deleted" });
   } catch (err) {
-    return res.status(500).json({ message: "Server error in createDealFromLead.", error: err.message });
+    return res.status(500).json({ message: "Failed to delete lead", error: err.message });
   }
 };

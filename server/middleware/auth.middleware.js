@@ -1,3 +1,6 @@
+// ===============================
+// middleware/auth.middleware.js
+// ===============================
 import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
 
@@ -57,7 +60,7 @@ export const isAdminOrSuperAdmin = (req, res, next) => {
   next();
 };
 
-// (optional) Admin only (strict)
+// ✅ Admin only (strict)
 export const isAdmin = (req, res, next) => {
   if (req.user?.role !== "admin") {
     return res.status(403).json({ message: "Admin access required." });
@@ -65,10 +68,36 @@ export const isAdmin = (req, res, next) => {
   next();
 };
 
-// Employee only
+// ✅ Employee only
 export const isEmployee = (req, res, next) => {
   if (req.user?.role !== "employee") {
     return res.status(403).json({ message: "Employee access required." });
+  }
+  next();
+};
+
+// ✅ Marketing Team only
+export const isMarketingTeam = (req, res, next) => {
+  if (req.user?.role !== "marketing_team") {
+    return res.status(403).json({ message: "Marketing team access required." });
+  }
+  next();
+};
+
+// ✅ Marketing Team OR Admin OR Super Admin
+export const isMarketingOrAdmin = (req, res, next) => {
+  if (!["marketing_team", "admin", "superadmin"].includes(req.user?.role)) {
+    return res.status(403).json({
+      message: "Marketing/Admin access required.",
+    });
+  }
+  next();
+};
+
+// ✅ Employee OR Marketing Team (staff routes)
+export const isEmployeeOrMarketing = (req, res, next) => {
+  if (!["employee", "marketing_team"].includes(req.user?.role)) {
+    return res.status(403).json({ message: "Staff access required." });
   }
   next();
 };

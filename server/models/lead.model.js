@@ -39,7 +39,7 @@ const leadSchema = new mongoose.Schema(
       index: true,
     },
 
-    source: { type: String, trim: true, index: true },
+    source: { type: String, trim: true, default: "", index: true },
 
     company: {
       website: { type: String, trim: true, default: "" },
@@ -58,14 +58,17 @@ const leadSchema = new mongoose.Schema(
     nextFollowUpAt: { type: Date, default: null, index: true },
 
     customerId: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", default: null, index: true },
-
     convertedCustomer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", default: null },
-
     convertedAt: { type: Date, default: null, index: true },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    minimize: true,
+    optimisticConcurrency: true, // ✅ protects from overwrite races
+  }
 );
 
+/* ✅ FAST LISTING INDEXES */
 leadSchema.index({ assignedTo: 1, _id: -1 });
 leadSchema.index({ assignedTo: 1, status: 1, _id: -1 });
 leadSchema.index({ assignedTo: 1, nextFollowUpAt: 1, _id: -1 });
@@ -73,6 +76,7 @@ leadSchema.index({ assignedTo: 1, nextFollowUpAt: 1, _id: -1 });
 leadSchema.index({ createdBy: 1, status: 1 });
 leadSchema.index({ pipelineStage: 1, assignedTo: 1, _id: -1 });
 
+/* ✅ TEXT SEARCH */
 leadSchema.index(
   {
     "contact.name": "text",
@@ -85,6 +89,7 @@ leadSchema.index(
   { name: "lead_text_search" }
 );
 
+/* ✅ leadNumber generation */
 leadSchema.pre("save", function (next) {
   if (!this.leadNumber) {
     const idSuffix = String(this._id).slice(-4).toUpperCase();
