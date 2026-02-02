@@ -1,6 +1,8 @@
+// controllers/lead.controller.js
 import mongoose from "mongoose";
 import Lead from "../models/lead.model.js";
 import Customer from "../models/customer.model.js";
+import PurchaseType from "../models/purchaseType.model.js"; // ✅ NEW (master list)
 import { dashboardCache } from "../utils/cache.js";
 import { getReqMeta, writeAudit, writeActivity, writeConversionLog } from "../utils/audit.js";
 
@@ -35,17 +37,104 @@ const applyCursor = (filter, cursor) => {
   if (c) filter._id = { ...(filter._id || {}), $lt: c };
 };
 
+/**
+ * ✅ Allowed fields for server-side projection (dynamic columns)
+ */
+const ALLOWED_LIST_FIELDS = new Set([
+  "leadNumber",
+  "contact",
+  "contact.name",
+  "contact.email",
+  "contact.phone",
+  "contact.companyName",
+  "status",
+  "pipelineStage",
+  "priority",
+  "purchaseType", // ✅ keep string field in Lead
+  "source",
+  "tags",
+  "assignedTo",
+  "createdBy",
+  "lastContactedAt",
+  "nextFollowUpAt",
+  "customerId",
+  "convertedCustomer",
+  "convertedAt",
+  "createdAt",
+  "updatedAt",
+]);
+
+/**
+ * ✅ Always include these for row actions + stable UI behavior
+ */
+const ALWAYS_INCLUDE_FOR_LIST = {
+  _id: 1,
+  status: 1,
+  pipelineStage: 1,
+  "contact.name": 1,
+  "contact.companyName": 1,
+  nextFollowUpAt: 1,
+  lastContactedAt: 1,
+  customerId: 1,
+  convertedCustomer: 1,
+};
+
+const parseFieldsProjection = (fieldsRaw) => {
+  if (!fieldsRaw) return null;
+
+  const parts = String(fieldsRaw)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (!parts.length) return null;
+
+  const proj = {};
+  for (const f of parts) {
+    if (!ALLOWED_LIST_FIELDS.has(f)) continue;
+    proj[f] = 1;
+  }
+
+  return { ...proj, ...ALWAYS_INCLUDE_FOR_LIST };
+};
+
+// ✅ helper: validate purchase type against master list (accepts key or name)
+const validatePurchaseTypeOrThrow = async (purchaseType) => {
+  const pt = String(purchaseType || "").trim();
+  if (!pt) return ""; // allow empty
+
+  const exists = await PurchaseType.exists({
+    isActive: true,
+    $or: [{ key: pt.toLowerCase() }, { name: pt }],
+  });
+
+  if (!exists) {
+    const err = new Error("Invalid purchaseType");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return pt;
+};
+
 /* =======================
-   CREATE LEAD
+   CREATE LEAD (UPDATED)
 ======================= */
 export const createLead = async (req, res) => {
   try {
     const meta = getReqMeta(req);
-    const { contact, source, tags, assignedTo, company } = req.body || {};
+    const { contact, source, tags, assignedTo, company, priority, purchaseType } = req.body || {};
 
     if (!contact?.name || !contact?.companyName) {
       return res.status(400).json({ message: "contact.name and contact.companyName are required." });
     }
+
+    // ✅ validate priority (optional)
+    const pr = priority ? String(priority).toLowerCase().trim() : "medium";
+    const safePriority = ["low", "medium", "high"].includes(pr) ? pr : "medium";
+
+    // ✅ validate purchaseType (must exist in PurchaseType master list if provided)
+    const safePurchaseType = await validatePurchaseTypeOrThrow(purchaseType);
 
     const assignedUserId = toObjectId(assignedTo) || req.user._id;
 
@@ -63,6 +152,11 @@ export const createLead = async (req, res) => {
         industry: String(company?.industry || "").trim(),
         address: String(company?.address || "").trim(),
       },
+
+      // ✅ new fields
+      priority: safePriority,
+      purchaseType: safePurchaseType,
+
       createdBy: req.user._id,
       assignedTo: assignedUserId,
     });
@@ -88,7 +182,8 @@ export const createLead = async (req, res) => {
 
     return res.status(201).json({ message: "Lead created", lead: doc });
   } catch (err) {
-    return res.status(500).json({ message: "Failed to create lead", error: err.message });
+    const code = err.statusCode || 500;
+    return res.status(code).json({ message: err.statusCode ? err.message : "Failed to create lead", error: err.message });
   }
 };
 
@@ -100,6 +195,8 @@ export const listLeads = async (req, res) => {
     const {
       status,
       pipelineStage,
+      priority,
+      purchaseType,
       source,
       assignedTo,
       createdBy,
@@ -111,6 +208,7 @@ export const listLeads = async (req, res) => {
       lastContactedTo,
       cursor,
       limit,
+      fields,
     } = req.query;
 
     const pageSize = clamp(parseInt(limit || "20", 10), 1, 100);
@@ -119,6 +217,13 @@ export const listLeads = async (req, res) => {
     if (status) filter.status = status;
     if (pipelineStage) filter.pipelineStage = pipelineStage;
     if (source) filter.source = String(source).trim();
+
+    if (priority) {
+      const pr = String(priority).toLowerCase().trim();
+      if (["low", "medium", "high"].includes(pr)) filter.priority = pr;
+    }
+
+    if (purchaseType) filter.purchaseType = String(purchaseType).trim();
 
     const assignedId = toObjectId(assignedTo);
     if (assignedId) filter.assignedTo = assignedId;
@@ -142,11 +247,15 @@ export const listLeads = async (req, res) => {
 
     if (cursor) applyCursor(filter, cursor);
 
-    const projection = {
+    const dynamicProjection = parseFieldsProjection(fields);
+
+    const defaultProjection = {
       leadNumber: 1,
       contact: 1,
       status: 1,
       pipelineStage: 1,
+      priority: 1,
+      purchaseType: 1,
       source: 1,
       tags: 1,
       assignedTo: 1,
@@ -158,7 +267,10 @@ export const listLeads = async (req, res) => {
       convertedAt: 1,
       createdAt: 1,
       updatedAt: 1,
+      _id: 1,
     };
+
+    const projection = dynamicProjection || defaultProjection;
 
     let query = Lead.find(filter).select(projection).lean({ virtuals: false });
 
@@ -198,7 +310,7 @@ export const getLeadById = async (req, res) => {
 };
 
 /* =======================
-   UPDATE LEAD + AUDIT
+   UPDATE LEAD + AUDIT (UPDATED)
 ======================= */
 export const updateLead = async (req, res) => {
   try {
@@ -217,6 +329,8 @@ export const updateLead = async (req, res) => {
       "assignedTo",
       "lastContactedAt",
       "nextFollowUpAt",
+      "priority",
+      "purchaseType", // ✅ NEW
     ];
 
     const allowedContact = ["name", "email", "phone", "companyName"];
@@ -225,6 +339,19 @@ export const updateLead = async (req, res) => {
     const payload = pick(req.body || {}, allowedTop);
 
     if (payload.source !== undefined) payload.source = String(payload.source || "").trim();
+
+    if (payload.priority !== undefined) {
+      const pr = String(payload.priority || "").toLowerCase().trim();
+      if (!["low", "medium", "high"].includes(pr)) {
+        return res.status(400).json({ message: "Invalid priority. Use: low, medium, high." });
+      }
+      payload.priority = pr;
+    }
+
+    // ✅ validate purchaseType if provided (must exist in master list)
+    if (payload.purchaseType !== undefined) {
+      payload.purchaseType = await validatePurchaseTypeOrThrow(payload.purchaseType);
+    }
 
     if (payload.tags !== undefined) {
       payload.tags = Array.isArray(payload.tags)
@@ -290,7 +417,8 @@ export const updateLead = async (req, res) => {
 
     return res.json({ message: "Lead updated", lead });
   } catch (err) {
-    return res.status(500).json({ message: "Failed to update lead", error: err.message });
+    const code = err.statusCode || 500;
+    return res.status(code).json({ message: err.statusCode ? err.message : "Failed to update lead", error: err.message });
   }
 };
 
@@ -451,7 +579,6 @@ export const convertLeadToCustomer = async (req, res) => {
       return res.status(409).json({ message: "Lead already converted", customerId: lead.convertedCustomer });
     }
 
-    // ✅ hard safety: if crash happened before lead updated
     const existingCustomer = await Customer.findOne({ leadId: lead._id }).session(session).select("_id status");
     if (existingCustomer?._id) {
       lead.convertedCustomer = existingCustomer._id;
@@ -505,7 +632,6 @@ export const convertLeadToCustomer = async (req, res) => {
 
     const [customer] = await Customer.create([customerPayload], { session });
 
-    // update lead links + pipeline
     lead.convertedCustomer = customer._id;
     lead.customerId = customer._id;
     lead.convertedAt = new Date();
@@ -514,7 +640,6 @@ export const convertLeadToCustomer = async (req, res) => {
 
     await lead.save({ session });
 
-    // ✅ conversion log snapshot
     await writeConversionLog({
       session,
       leadId: lead._id,
@@ -524,7 +649,6 @@ export const convertLeadToCustomer = async (req, res) => {
       customerSnapshot: customer.toObject(),
     });
 
-    // ✅ audit
     await writeAudit({
       session,
       actorId: req.user._id,
@@ -536,7 +660,6 @@ export const convertLeadToCustomer = async (req, res) => {
       meta,
     });
 
-    // ✅ timeline activity for both Lead + Customer
     await writeActivity({
       session,
       leadId: lead._id,
@@ -589,7 +712,7 @@ export const deleteLead = async (req, res) => {
     const before = await Lead.findById(id).lean();
     if (!before) return res.status(404).json({ message: "Lead not found" });
 
-    const deleted = await Lead.findByIdAndDelete(id);
+    await Lead.findByIdAndDelete(id);
     invalidateDashboardCache();
 
     await writeAudit({

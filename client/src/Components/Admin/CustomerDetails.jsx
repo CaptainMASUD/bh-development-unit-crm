@@ -136,8 +136,12 @@ function ContactCard({ icon, label, value, href }) {
   return <div className="block flex-1 min-w-[240px]">{inner}</div>
 }
 
-export default function CustomerDetails({ customerId, onBack }) {
-  const [tab, setTab] = useState("overview")
+/**
+ * ✅ NEW PROP: initialTab ("overview" | "crm")
+ * - "overview" is now shown as "Tasks" in UI
+ */
+export default function CustomerDetails({ customerId, onBack, initialTab = "overview" }) {
+  const [tab, setTab] = useState(initialTab === "crm" ? "crm" : "overview")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
   const [toast, setToast] = useState("")
@@ -189,6 +193,12 @@ export default function CustomerDetails({ customerId, onBack }) {
   useEffect(() => {
     fetchMe()
   }, [fetchMe])
+
+  // ✅ when a new customer loads, keep chosen initialTab
+  useEffect(() => {
+    setTab(initialTab === "crm" ? "crm" : "overview")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerId, initialTab])
 
   useEffect(() => {
     setCustomer(null)
@@ -247,18 +257,10 @@ export default function CustomerDetails({ customerId, onBack }) {
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-gray-50">
       <Toast message={toast} />
 
-      {/* Cover */}
       <div className="relative">
-        {/* ✅ Banner image with ONLY top-left & top-right rounded (design flow friendly) */}
         <div className="h-44 sm:h-56 w-full pointer-events-none relative overflow-hidden rounded-t-3xl">
-          <img
-            src={bannerimg}
-            alt="Legacy banner"
-            className="absolute inset-0 w-full h-full object-cover"
-          />
-          {/* soft overlay for readability */}
+          <img src={bannerimg} alt="Legacy banner" className="absolute inset-0 w-full h-full object-cover" />
           <div className="absolute inset-0 bg-black/10" />
-          {/* subtle bottom glow */}
           <div className="absolute -bottom-12 left-0 right-0 h-24 bg-white/70 blur-2xl" />
         </div>
 
@@ -323,17 +325,11 @@ export default function CustomerDetails({ customerId, onBack }) {
               </div>
             </div>
 
-            {/* contact row */}
             <div className="mt-5">
               <div className="flex flex-wrap items-stretch gap-3">
                 <ContactCard icon={<FiMail />} label="Email" value={customer?.email || "—"} href={emailHref || undefined} />
                 <ContactCard icon={<FiPhone />} label="Phone" value={customer?.phone || "—"} href={phoneHref || undefined} />
-                <ContactCard
-                  icon={<FiMapPin />}
-                  label="Address"
-                  value={customer?.address || "—"}
-                  href={mapHref || undefined}
-                />
+                <ContactCard icon={<FiMapPin />} label="Address" value={customer?.address || "—"} href={mapHref || undefined} />
               </div>
             </div>
 
@@ -351,10 +347,20 @@ export default function CustomerDetails({ customerId, onBack }) {
               </div>
             ) : null}
 
-            {/* tabs */}
+            {/* ✅ tabs renamed to Tasks + CRM */}
             <div className="mt-6 flex flex-wrap gap-2">
-              <TabBtn active={tab === "overview"} icon={<FiUsers />} label="Overview" onClick={() => setTab("overview")} />
-              <TabBtn active={tab === "crm"} icon={<FiClipboard />} label="CRM" onClick={() => setTab("crm")} />
+              <TabBtn
+                active={tab === "overview"}
+                icon={<FiUsers />}
+                label="overview"
+                onClick={() => setTab("overview")}
+              />
+              <TabBtn
+                active={tab === "crm"}
+                icon={<FiClipboard />}
+                label="CRM"
+                onClick={() => setTab("crm")}
+              />
             </div>
 
             {error ? (
@@ -367,7 +373,6 @@ export default function CustomerDetails({ customerId, onBack }) {
         </div>
       </div>
 
-      {/* Body */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-10">
         <div className="mt-2">
           {tab === "overview" ? (

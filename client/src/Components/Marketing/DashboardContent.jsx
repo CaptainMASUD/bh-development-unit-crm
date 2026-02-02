@@ -695,7 +695,7 @@ export default function DashboardContent() {
                 ))
               ) : (
                 <div className={`${premiumCard} bg-white`}>
-                  <EmptyState title="No leads yet" subtitle="Marketing team will see their assigned leads here." />
+                  <EmptyState title="No leads yet" subtitle="business_development_team will see their assigned leads here." />
                 </div>
               )}
             </div>

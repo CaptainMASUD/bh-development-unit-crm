@@ -36,11 +36,17 @@ const toObjectIdSafe = (id) => {
 const clampInt = (n, min, max, fallback) => {
   const v = Number(n);
   if (!Number.isFinite(v)) return fallback;
-  return Math.max(min, Math.min(max, v));
+  const t = Math.trunc(v);
+  return Math.max(min, Math.min(max, t));
 };
 
 const ensureEmployeesExistFast = async (ids) => {
-  const count = await User.countDocuments({ _id: { $in: ids }, role: "employee" });
+  // ✅ Updated to respect your User model's isActive flag
+  const count = await User.countDocuments({
+    _id: { $in: ids },
+    role: "employee",
+    isActive: true,
+  });
   return count === ids.length;
 };
 
@@ -100,15 +106,31 @@ const customerAccessForEmployee = (customer, userId) => {
 };
 
 /**
+ * ✅ NEW: resolve rootJobId (max depth=2)
+ * - if job.parentJobId is null => rootJobId = jobId
+ * - else rootJobId = parentJobId (must point to a root)
+ */
+const resolveRootJobId = (jobs, jobId) => {
+  const idStr = String(jobId);
+  const node = (jobs || []).find((j) => String(j._id) === idStr);
+  if (!node) return { error: "jobId not found under this customer." };
+
+  if (!node.parentJobId) {
+    return { rootJobId: node._id, jobNode: node };
+  }
+
+  const parent = (jobs || []).find((j) => String(j._id) === String(node.parentJobId));
+  if (!parent) return { error: "jobId parentJobId is invalid (parent not found)." };
+  if (parent.parentJobId) return { error: "Invalid job tree (parent is not root)." };
+
+  return { rootJobId: parent._id, jobNode: node };
+};
+
+/**
  * ✅ NEW: normalize task subtitles (manual create/update)
  * Keeps existing files/notes by:
  *  - matching _id if provided
  *  - else matching text (case-insensitive) if _id not provided
- *
- * Input accepts:
- * - array of strings
- * - array of { text }
- * - array of { _id?, text, files?, notes? } (admin could send full)
  */
 const normalizeManualSubtitlesV2 = (subtitles, existingSubtitles = []) => {
   if (subtitles === undefined || subtitles === null) return { subtitles: [] };
@@ -182,20 +204,18 @@ const normalizeManualSubtitlesV2 = (subtitles, existingSubtitles = []) => {
  * Supports:
  * - single: { key, url, originalName, ... }
  * - multi:  { files: [ { key, url, originalName, ... }, ... ] }
- *
- * NOTE: We manually add _id in controller (important for "note under file" feature).
  */
 const normalizeFilesInput = (body) => {
   const toFile = (f) => {
     const key = String(f?.key ?? "").trim();
-    const url = String(f?.url ?? "").trim(); // keep required here (recommended)
+    const url = String(f?.url ?? "").trim();
     const originalName = String(f?.originalName ?? "").trim();
 
     if (!key || !originalName) return null;
 
     return {
       key,
-      url, // can be empty if you store private; but frontend usually sends it
+      url,
       originalName,
       displayName: f?.displayName ? String(f.displayName).trim() : "",
       mimeType: f?.mimeType ? String(f.mimeType).trim() : "",
@@ -217,8 +237,7 @@ const normalizeFilesInput = (body) => {
 };
 
 /**
- * ✅ NEW: build subtitle note
- * Supports optional fileId (attach note under a specific file)
+ * ✅ NEW: build subtitle note (optional fileId)
  */
 const buildSubtitleNote = (req, text, fileId = null) => {
   const t = String(text ?? "").trim();
@@ -271,10 +290,10 @@ const buildTaskFromTemplate = async (templateId, selectedSubtitleIds = undefined
 };
 
 /* =========================================================
-   ✅ TASKS LIST (cursor pagination)
-   GET /customers/:customerId/tasks?limit=20&cursor=<taskId>
-   - Admin: all
-   - Employee: only assigned tasks
+   ✅ TASKS LIST (cursor pagination) + optional job filters
+   GET /customers/:customerId/tasks?limit=20&cursor=<taskId>&jobId=&rootJobId=
+   - Admin: all tasks
+   - Employee: must have customer access AND only assigned tasks
 ========================================================= */
 export const getCustomerTasks = async (req, res) => {
   try {
@@ -284,20 +303,37 @@ export const getCustomerTasks = async (req, res) => {
     const limit = clampInt(req.query.limit, 1, MAX_LIMIT, DEFAULT_LIMIT);
     const cursor = toObjectIdSafe(req.query.cursor);
 
+    const jobId = req.query.jobId ? toObjectIdSafe(req.query.jobId) : null;
+    if (req.query.jobId && !jobId) return res.status(400).json({ message: "Invalid jobId filter." });
+
+    const rootJobId = req.query.rootJobId ? toObjectIdSafe(req.query.rootJobId) : null;
+    if (req.query.rootJobId && !rootJobId) return res.status(400).json({ message: "Invalid rootJobId filter." });
+
     const isAdmin = isAdminOrSuperAdmin(req);
     const uid = toObjectIdSafe(req.user?._id);
+
+    // ✅ ensure employees can’t query tasks for a customer they don’t have access to
+    const customer = await Customer.findById(customerId).select("_id createdBy assignedTo").lean();
+    if (!customer) return res.status(404).json({ message: "Customer not found." });
+
+    if (!isAdmin) {
+      if (!customerAccessForEmployee(customer, req.user._id)) {
+        return res.status(403).json({ message: "No access to this customer." });
+      }
+    }
 
     const matchTask = {};
     if (cursor) matchTask["crmTasks._id"] = { $lt: cursor };
 
-    if (!isAdmin && uid) {
-      matchTask["crmTasks.assignedTo"] = uid;
-    }
+    if (!isAdmin && uid) matchTask["crmTasks.assignedTo"] = uid;
+
+    if (jobId) matchTask["crmTasks.jobId"] = jobId;
+    if (rootJobId) matchTask["crmTasks.rootJobId"] = rootJobId;
 
     const pipeline = [
       { $match: { _id: customerId } },
       { $unwind: "$crmTasks" },
-      { $match: matchTask },
+      ...(Object.keys(matchTask).length ? [{ $match: matchTask }] : []),
       { $sort: { "crmTasks._id": -1 } },
       { $limit: limit + 1 },
       { $replaceRoot: { newRoot: "$crmTasks" } },
@@ -305,7 +341,12 @@ export const getCustomerTasks = async (req, res) => {
         $project: {
           _id: 1,
           title: 1,
-          subtitles: 1, // ✅ files + notes live here now
+
+          // ✅ NEW
+          jobId: 1,
+          rootJobId: 1,
+
+          subtitles: 1,
           templateId: 1,
           description: 1,
           status: 1,
@@ -339,8 +380,9 @@ export const getCustomerTasks = async (req, res) => {
 };
 
 /* =========================================================
-   ✅ CREATE TASK (Admin only)
+   ✅ CREATE TASK (Admin only) + MUST attach to Job/SubJob
    POST /customers/:customerId/tasks
+   Required: jobId
 ========================================================= */
 export const addTask = async (req, res) => {
   try {
@@ -353,6 +395,10 @@ export const addTask = async (req, res) => {
 
     const { description, dueAt, status, templateId, selectedSubtitleIds } = req.body;
 
+    // ✅ NEW: jobId required
+    const jobId = toObjectIdSafe(req.body?.jobId);
+    if (!jobId) return res.status(400).json({ message: "jobId is required and must be valid." });
+
     const finalStatus = status ? String(status) : "pending";
     if (!ALLOWED_STATUSES.includes(finalStatus)) {
       return res.status(400).json({ message: "Invalid status value." });
@@ -362,9 +408,10 @@ export const addTask = async (req, res) => {
     if (error) return res.status(400).json({ message: error });
 
     const okEmployees = await ensureEmployeesExistFast(ids);
-    if (!okEmployees) return res.status(404).json({ message: "One or more employees not found." });
+    if (!okEmployees) return res.status(404).json({ message: "One or more employees not found or inactive." });
 
-    const customer = await Customer.findById(customerId).select("_id assignedTo").lean();
+    // ✅ need assignedTo + jobs for rootJobId resolution
+    const customer = await Customer.findById(customerId).select("_id assignedTo jobs").lean();
     if (!customer) return res.status(404).json({ message: "Customer not found." });
 
     const check = ensureAssigneesAssignedToCustomerFast(customer.assignedTo, ids);
@@ -374,6 +421,10 @@ export const addTask = async (req, res) => {
         notAssigned: check.notAssigned,
       });
     }
+
+    // ✅ compute rootJobId and validate job belongs to customer
+    const { rootJobId, error: jobErr } = resolveRootJobId(customer.jobs || [], jobId);
+    if (jobErr) return res.status(400).json({ message: jobErr });
 
     let taskTitle = "";
     let taskSubtitles = [];
@@ -404,6 +455,11 @@ export const addTask = async (req, res) => {
     const taskDoc = {
       _id: taskId,
       title: taskTitle,
+
+      // ✅ NEW
+      jobId,
+      rootJobId,
+
       subtitles: taskSubtitles,
       templateId: usedTemplateId,
 
@@ -429,6 +485,11 @@ export const addTask = async (req, res) => {
 /* =========================================================
    ✅ ADMIN UPDATE TASK
    PATCH /customers/:customerId/tasks/:taskId
+   Supports updating:
+   - jobId (auto recompute rootJobId)
+   - title/subtitles (manual)
+   - templateId change
+   - dueAt/status/description/assignedTo
 ========================================================= */
 export const updateTaskByAdmin = async (req, res) => {
   try {
@@ -451,15 +512,19 @@ export const updateTaskByAdmin = async (req, res) => {
       assignedTo,
       templateId,
       selectedSubtitleIds,
+
+      // ✅ NEW
+      jobId: nextJobIdRaw,
     } = req.body;
 
     if (status !== undefined && !ALLOWED_STATUSES.includes(String(status))) {
       return res.status(400).json({ message: "Invalid status value." });
     }
 
+    // need customer.jobs to validate job changes, and customer.assignedTo for assignee validation
     const found = await Customer.findOne(
       { _id: customerId, "crmTasks._id": taskId },
-      { assignedTo: 1, "crmTasks.$": 1 }
+      { assignedTo: 1, jobs: 1, "crmTasks.$": 1 }
     ).lean();
 
     if (!found) return res.status(404).json({ message: "Customer or task not found." });
@@ -472,6 +537,18 @@ export const updateTaskByAdmin = async (req, res) => {
     if (description !== undefined) $set["crmTasks.$.description"] = String(description || "").trim();
     if (dueAt !== undefined) $set["crmTasks.$.dueAt"] = dueAt ? new Date(dueAt) : null;
 
+    // ✅ NEW: jobId update
+    if (nextJobIdRaw !== undefined) {
+      const nextJobId = nextJobIdRaw ? toObjectIdSafe(nextJobIdRaw) : null;
+      if (!nextJobId) return res.status(400).json({ message: "jobId must be valid." });
+
+      const { rootJobId, error: jobErr } = resolveRootJobId(found.jobs || [], nextJobId);
+      if (jobErr) return res.status(400).json({ message: jobErr });
+
+      $set["crmTasks.$.jobId"] = nextJobId;
+      $set["crmTasks.$.rootJobId"] = rootJobId;
+    }
+
     // assignments update
     const wantsAssignmentUpdate =
       assignedTo !== undefined || employeeId !== undefined || employeeIds !== undefined;
@@ -481,7 +558,7 @@ export const updateTaskByAdmin = async (req, res) => {
       if (error) return res.status(400).json({ message: error });
 
       const okEmployees = await ensureEmployeesExistFast(ids);
-      if (!okEmployees) return res.status(404).json({ message: "One or more employees not found." });
+      if (!okEmployees) return res.status(404).json({ message: "One or more employees not found or inactive." });
 
       const check = ensureAssigneesAssignedToCustomerFast(found.assignedTo, ids);
       if (!check.ok) {
@@ -494,7 +571,7 @@ export const updateTaskByAdmin = async (req, res) => {
       $set["crmTasks.$.assignedTo"] = ids;
     }
 
-    // template change (this resets subtitles/files/notes because it's a new snapshot)
+    // template change (resets subtitles/files/notes because it's a new snapshot)
     if (templateId !== undefined) {
       if (templateId) {
         const built = await buildTaskFromTemplate(templateId, selectedSubtitleIds);
@@ -629,15 +706,6 @@ export const updateTaskStatus = async (req, res) => {
 /* =========================================================
    ✅ ADD FILE(S) UNDER A SUBTITLE (+ optional note)
    POST /customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files
-   body:
-     - single: { key, url, originalName, ... , note?: "optional", attachNoteTo?: "subtitle"|"file" }
-     - multi:  { files: [{...},{...}], note?: "optional", attachNoteTo?: "subtitle"|"file" }
-   Rules:
-     - employee allowed only if assigned to task
-     - admin/superadmin allowed
-   Note attachment:
-     - attachNoteTo="subtitle" (default): adds a note not tied to any file
-     - attachNoteTo="file": ties the note to the uploaded file(s)
 ========================================================= */
 export const addSubtitleFiles = async (req, res) => {
   try {
@@ -649,7 +717,6 @@ export const addSubtitleFiles = async (req, res) => {
       return res.status(400).json({ message: "Invalid ids." });
     }
 
-    // load minimal (customer+task)
     const found = await Customer.findOne(
       { _id: customerId, "crmTasks._id": taskId },
       { createdBy: 1, assignedTo: 1, "crmTasks.$": 1 }
@@ -681,8 +748,7 @@ export const addSubtitleFiles = async (req, res) => {
     const { files, error } = normalizeFilesInput(req.body);
     if (error) return res.status(400).json({ message: error });
 
-    // IMPORTANT: because we are using updateOne ($push), Mongo won't auto-generate subdoc _id
-    // so we create _id ourselves so "note under file" works.
+    // IMPORTANT: since we use updateOne $push, create _id manually for file subdocs
     const readyFiles = files.map((f) => ({
       _id: new Types.ObjectId(),
       ...f,
@@ -697,10 +763,8 @@ export const addSubtitleFiles = async (req, res) => {
     let notesToPush = [];
     if (noteText) {
       if (attachNoteTo === "file") {
-        // tie note to each uploaded file
         notesToPush = readyFiles.map((rf) => buildSubtitleNote(req, noteText, rf._id));
       } else {
-        // subtitle-level note
         notesToPush = [buildSubtitleNote(req, noteText, null)];
       }
       notesToPush = notesToPush.filter(Boolean);
@@ -735,9 +799,6 @@ export const addSubtitleFiles = async (req, res) => {
 /* =========================================================
    ✅ ADD NOTE UNDER A SUBTITLE (admin + employee)
    POST /customers/:customerId/tasks/:taskId/subtitles/:subtitleId/notes
-   body: { text: "...", fileId?: "<fileSubdocId>" }
-   Rules:
-     - if fileId present => note becomes "under that file"
 ========================================================= */
 export const addSubtitleNote = async (req, res) => {
   try {
@@ -828,7 +889,6 @@ export const deleteTask = async (req, res) => {
 
 /* =========================================================
    ✅ OLD ROUTE (DEPRECATED)
-   Previously: addTaskFile (task-level files)
 ========================================================= */
 export const addTaskFile = async (req, res) => {
   return res.status(410).json({
@@ -838,7 +898,7 @@ export const addTaskFile = async (req, res) => {
 };
 
 /* =========================================================
-   ✅ DEADLINE NOTIFICATIONS (unchanged)
+   ✅ DEADLINE NOTIFICATIONS (UPDATED to include jobId/rootJobId in response)
 ========================================================= */
 
 const parseDeadlineQuery = (req) => {
@@ -851,7 +911,7 @@ const parseDeadlineQuery = (req) => {
 };
 
 const buildDeadlineItemsAgg = async ({ req, mode }) => {
-  const { now, windowDays, includeOverdue, limit, windowEnd } = parseDeadlineQuery(req);
+  const { now, includeOverdue, limit, windowEnd } = parseDeadlineQuery(req);
   const uid = toObjectIdSafe(req.user?._id);
 
   const matchTask = {
@@ -893,6 +953,10 @@ const buildDeadlineItemsAgg = async ({ req, mode }) => {
         status: "$crmTasks.status",
         dueAt: "$crmTasks.dueAt",
         assignedTo: "$crmTasks.assignedTo",
+
+        // ✅ NEW
+        jobId: "$crmTasks.jobId",
+        rootJobId: "$crmTasks.rootJobId",
       },
     },
   ];
@@ -919,7 +983,7 @@ const buildDeadlineItemsAgg = async ({ req, mode }) => {
     }
   }
 
-  return { now, windowDays, includeOverdue, count: items.length, items };
+  return { now, count: items.length, items };
 };
 
 export const getDeadlineNotificationsAdmin = async (req, res) => {

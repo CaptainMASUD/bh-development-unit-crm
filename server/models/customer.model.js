@@ -15,14 +15,13 @@ const contactPersonSchema = new mongoose.Schema(
   { _id: false }
 );
 
-// ✅ NEW (optional): multiple extra contacts per customer (keeps your main contactPerson)
 const secondaryContactSchema = new mongoose.Schema(
   {
     name: { type: String, trim: true, default: "" },
     email: { type: String, lowercase: true, trim: true, default: "" },
     phone: { type: String, trim: true, default: "" },
     designation: { type: String, trim: true, default: "" },
-    isPrimary: { type: Boolean, default: false }, // optional flag
+    isPrimary: { type: Boolean, default: false },
   },
   { _id: true }
 );
@@ -37,8 +36,8 @@ const reminderSchema = new mongoose.Schema(
 
 const fileSchema = new mongoose.Schema(
   {
-    key: { type: String, required: true }, // S3 key
-    url: { type: String, required: true }, // S3 object URL (private url you store)
+    key: { type: String, required: true },
+    url: { type: String, required: true },
 
     originalName: { type: String, required: true, trim: true },
     displayName: { type: String, default: "", trim: true },
@@ -51,7 +50,7 @@ const fileSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
-      index: true, // small win for file audit queries
+      index: true,
     },
   },
   { _id: true }
@@ -59,8 +58,8 @@ const fileSchema = new mongoose.Schema(
 
 const customerFileSchema = new mongoose.Schema(
   {
-    key: { type: String, required: true }, // S3 key
-    url: { type: String, required: true }, // S3 object URL (private url you store)
+    key: { type: String, required: true },
+    url: { type: String, required: true },
 
     originalName: { type: String, required: true, trim: true },
     displayName: { type: String, default: "", trim: true },
@@ -73,7 +72,7 @@ const customerFileSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
-      index: true, // small win for file audit queries
+      index: true,
     },
   },
   { _id: true }
@@ -82,7 +81,7 @@ const customerFileSchema = new mongoose.Schema(
 const subtitleNoteSchema = new mongoose.Schema(
   {
     text: { type: String, required: true, trim: true },
-    fileId: { type: mongoose.Schema.Types.ObjectId, default: null }, // optional
+    fileId: { type: mongoose.Schema.Types.ObjectId, default: null },
 
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -95,16 +94,53 @@ const subtitleNoteSchema = new mongoose.Schema(
   { _id: true }
 );
 
-/**
- * ✅ Subtitle snapshot schema (saved inside a task)
- * Includes files + notes
- */
 const subtitleSchema = new mongoose.Schema(
   {
     text: { type: String, required: true, trim: true },
-
     files: { type: [fileSchema], default: [] },
     notes: { type: [subtitleNoteSchema], default: [] },
+  },
+  { _id: true }
+);
+
+/**
+ * ✅ NEW: Customer Job Tree (max depth=2)
+ * - parentJobId: null => top-level Job
+ * - parentJobId: <jobId> => Sub-Job
+ *
+ * Important: we store ALL job nodes in ONE array (flat),
+ * and build tree in controller using parentJobId.
+ * This is easier than nested arrays for updates & queries.
+ */
+const jobNodeSchema = new mongoose.Schema(
+  {
+    title: { type: String, required: true, trim: true, index: true },
+
+    // null = root job, otherwise points to another node inside customer.jobs._id
+    parentJobId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
+
+    status: {
+      type: String,
+      enum: ["active", "on_hold", "completed"],
+      default: "active",
+      index: true,
+    },
+
+    // optional metadata
+    code: { type: String, trim: true, default: "" }, // ex: "STEEL-2026"
+    startAt: { type: Date, default: null },
+    endAt: { type: Date, default: null },
+
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+    assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: "User", index: true }],
+
+    createdAt: { type: Date, default: Date.now, index: true },
+    updatedAt: { type: Date, default: Date.now, index: true },
   },
   { _id: true }
 );
@@ -113,7 +149,12 @@ const taskSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
 
-    // ✅ subtitles now contain files + notes
+    // ✅ NEW: tasks belong to a job node (job or sub-job)
+    jobId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+
+    // ✅ NEW: always store top-level job id for reporting/grouping
+    rootJobId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+
     subtitles: { type: [subtitleSchema], default: [] },
 
     templateId: {
@@ -123,12 +164,11 @@ const taskSchema = new mongoose.Schema(
       index: true,
     },
 
-    // ✅ task-level notes remain
     description: { type: String, trim: true, default: "" },
 
     status: {
       type: String,
-      enum: ["pending", "in_progress", "done"], // (keeping your existing values)
+      enum: ["pending", "in_progress", "done"],
       default: "pending",
       index: true,
     },
@@ -153,8 +193,7 @@ const taskSchema = new mongoose.Schema(
 );
 
 /**
- * ✅ Engagement history per year
- * IMPORTANT: subEngagementIds are subdocument _ids inside EngagementTemplate.subEngagements
+ * Engagement history per year
  */
 const customerEngagementSchema = new mongoose.Schema(
   {
@@ -168,9 +207,9 @@ const customerEngagementSchema = new mongoose.Schema(
     },
 
     subEngagementIds: {
-      type: [mongoose.Schema.Types.ObjectId], // references EngagementTemplate.subEngagements._id
+      type: [mongoose.Schema.Types.ObjectId],
       default: [],
-      index: true, // ✅ helps filtering by sub engagements
+      index: true,
     },
 
     updatedAt: { type: Date, default: Date.now, index: true },
@@ -184,7 +223,6 @@ const customerEngagementSchema = new mongoose.Schema(
   { _id: true }
 );
 
-// ✅ NEW (optional): structured addresses for real CRM + orders
 const addressSchema = new mongoose.Schema(
   {
     line1: { type: String, trim: true, default: "" },
@@ -209,16 +247,13 @@ const customerSchema = new mongoose.Schema(
     email: { type: String, lowercase: true, trim: true, index: true },
     phone: { type: String, trim: true, index: true },
 
-    // kept for backward compatibility
     address: { type: String, trim: true, default: "" },
 
     contactPerson: { type: contactPersonSchema, required: true },
 
-    // ✅ NEW (optional): multiple contacts (does not remove current feature)
     secondaryContacts: { type: [secondaryContactSchema], default: [] },
 
-    // ✅ NEW: tags + lifecycle stage (common CRM features)
-    tags: { type: [String], default: [], index: true }, // ex: ["vip","wholesale"]
+    tags: { type: [String], default: [], index: true },
     lifecycleStage: {
       type: String,
       enum: ["prospect", "active", "dormant", "churned"],
@@ -226,11 +261,9 @@ const customerSchema = new mongoose.Schema(
       index: true,
     },
 
-    // ✅ NEW (optional): billing/shipping address
     billingAddress: { type: addressSchema, default: () => ({}) },
     shippingAddress: { type: addressSchema, default: () => ({}) },
 
-    // ✅ customer type (kept)
     customerType: {
       type: String,
       enum: ["new", "recurring"],
@@ -268,13 +301,14 @@ const customerSchema = new mongoose.Schema(
 
     assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: "User", index: true }],
 
-    // ✅ Customer-level files (kept)
     customerFiles: { type: [customerFileSchema], default: [] },
 
-    // ✅ Engagement history per year (kept)
     engagements: { type: [customerEngagementSchema], default: [] },
 
-    // ✅ tasks with subtitle files + notes (kept)
+    // ✅ NEW: job nodes stored here (flat list, tree via parentJobId)
+    jobs: { type: [jobNodeSchema], default: [] },
+
+    // ✅ UPDATED: tasks belong to a job node now
     crmTasks: { type: [taskSchema], default: [] },
   },
   {
@@ -292,11 +326,13 @@ customerSchema.index({ assignedTo: 1, status: 1 });
 customerSchema.index({ createdBy: 1, status: 1 });
 customerSchema.index({ origin: 1, status: 1 });
 
-// embedded task indexes (kept)
+// tasks indexes (kept + new)
 customerSchema.index({ "crmTasks.status": 1 });
 customerSchema.index({ "crmTasks.dueAt": 1 });
 customerSchema.index({ "crmTasks.assignedTo": 1 });
 customerSchema.index({ "crmTasks.templateId": 1 });
+customerSchema.index({ "crmTasks.jobId": 1 });
+customerSchema.index({ "crmTasks.rootJobId": 1 });
 
 // subtitle-level indexes (kept)
 customerSchema.index({ "crmTasks.subtitles._id": 1 });
@@ -327,7 +363,10 @@ customerSchema.index({ assignedTo: 1, status: 1, _id: -1 });
 customerSchema.index({ createdBy: 1, status: 1, _id: -1 });
 customerSchema.index({ origin: 1, status: 1, _id: -1 });
 
-// ✅ NEW: helpful indexes for CRM filters
+// ✅ NEW: job indexes
+customerSchema.index({ "jobs.parentJobId": 1, _id: -1 });
+customerSchema.index({ "jobs.status": 1, _id: -1 });
+
 customerSchema.index({ lifecycleStage: 1, _id: -1 });
 customerSchema.index({ tags: 1, _id: -1 });
 

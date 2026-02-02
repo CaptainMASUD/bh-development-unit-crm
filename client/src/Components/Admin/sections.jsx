@@ -1,13 +1,13 @@
 // sections.js (or whatever your sections config file is named)
 import React from "react"
-import { FaUserFriends, FaUsers, FaCog, FaInfoCircle, FaChartBar } from "react-icons/fa"
+import { FaUsers, FaCog, FaInfoCircle, FaChartBar, FaUserFriends } from "react-icons/fa"
 import { LuLayoutDashboard } from "react-icons/lu"
 import { FiLayers } from "react-icons/fi"
 import { FiTarget } from "react-icons/fi"
 
 import Dashboard from "./DashboardContent"
 import Customers from "./CustomersPage"
-import AdminLead from "./AdminLeadPage" 
+import AdminLead from "./AdminLeadPage"
 import Users from "./UserContent"
 import ProfileSettings from "./ProfileSettings"
 import About from "./About"
@@ -15,8 +15,11 @@ import About from "./About"
 import TitlesAdd from "./TittlesAdd"
 import EngagementTemplatePage from "./EngagementTemplatePage"
 
-// ✅ NEW: Employee Report page/component
+// ✅ Employee Report page/component
 import EmployeeReportPage from "./EmployeeReportPage"
+import CustomerCRMInner from "./CustomerCRMInner"
+
+
 
 const sections = {
   Dashboard: {
@@ -24,12 +27,17 @@ const sections = {
     component: <Dashboard />,
   },
 
-  Customers: {
+  // ✅ NEW: Clients dropdown (replaces old Customers + Client Task Add)
+  Clients: {
     icon: <FaUserFriends className="w-5 h-5" />,
-    component: <Customers />,
+    subcategories: {
+      // ✅ renamed: Customers -> Clients
+      Clients: <Customers />,
+      // ✅ renamed: Client Task Add -> Client Tasks
+      "Client Tasks": <CustomerCRMInner />,
+    },
   },
 
-  // ✅ NEW: Leads (added right below Customers)
   Leads: {
     icon: <FiTarget className="w-5 h-5" />,
     component: <AdminLead />,

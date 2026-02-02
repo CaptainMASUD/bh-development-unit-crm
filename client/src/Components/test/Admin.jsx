@@ -1,314 +1,1021 @@
-"use client"
-
-import { useEffect, useMemo, useRef, useState } from "react"
-import axios from "axios"
-import { motion, AnimatePresence } from "framer-motion"
-import { Button, Modal, TextInput, Select, Table, Tooltip, Toast, Spinner, Checkbox } from "flowbite-react"
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  FiSliders,
-  FiRefreshCw,
-  FiSearch,
-  FiEye,
-  FiEyeOff,
-  FiChevronDown,
-  FiChevronUp,
-  FiCheck,
-  FiX,
-  FiAlertTriangle,
-  FiUploadCloud,
-  FiSettings,
-} from "react-icons/fi"
+  FaSearch,
+  FaShoppingCart,
+  FaHeart,
+  FaStar,
+  FaChevronLeft,
+  FaChevronRight,
+  FaFilter,
+  FaTags,
+} from "react-icons/fa";
 
-const API_BASE = "http://localhost:4000"
+/**
+ * Single-file ecommerce homepage / landing page.
+ * - Top hero slider
+ * - Campaign (badge) filter
+ * - Search
+ * - Category cards
+ * - Product grid
+ * - "See more" expandable details
+ * - Pagination
+ *
+ * TailwindCSS required.
+ */
 
-export default function AdminFeatures() {
-  const [data, setData] = useState([])              // flat list from /api/features?flat=true
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [query, setQuery] = useState("")
-  const [role, setRole] = useState("")
-  const [expanded, setExpanded] = useState({})      // { sectionKey: bool }
-  const [toasts, setToasts] = useState([])
-  const [showSeed, setShowSeed] = useState(false)
-  const [bulk, setBulk] = useState({ keys: new Set(), action: "" })
+const HERO_SLIDES = [
+  {
+    id: "s1",
+    title: "New Year Mega Sale",
+    subtitle: "Up to 60% off on fashion, electronics & more",
+    cta: "Shop Deals",
+    bg: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=2200&q=80",
+    tag: "SALE",
+  },
+  {
+    id: "s2",
+    title: "Fresh Drops for 2026",
+    subtitle: "New arrivals curated for your daily essentials",
+    cta: "Explore New",
+    bg: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=2200&q=80",
+    tag: "NEW",
+  },
+  {
+    id: "s3",
+    title: "Fast Delivery, Easy Returns",
+    subtitle: "Order in minutes — track every step, return with ease",
+    cta: "Start Shopping",
+    bg: "https://images.unsplash.com/photo-1515165562835-c3b8c9f93474?auto=format&fit=crop&w=2200&q=80",
+    tag: "FAST",
+  },
+];
 
-  const mounted = useRef(false)
+const CAMPAIGNS = [
+  { key: "all", label: "All" },
+  { key: "sale", label: "On Sale" },
+  { key: "new", label: "New" },
+  { key: "hot", label: "Trending" },
+  { key: "freeShip", label: "Free Shipping" },
+];
 
-  const fetchFlat = async ({ withRole } = {}) => {
-    setLoading(true)
-    try {
-      const url = new URL(`${API_BASE}/api/features`)
-      url.searchParams.set("flat", "true")
-      if (withRole) url.searchParams.set("role", withRole)
-      const { data } = await axios.get(url.toString(), { headers: { "Cache-Control": "no-cache" } })
-      setData(Array.isArray(data) ? data : [])
-    } catch (e) {
-      toast("Failed to load features", "error")
-    } finally {
-      setLoading(false)
-    }
-  }
+const CATEGORIES = [
+  {
+    key: "fashion",
+    label: "Fashion",
+    emoji: "🧥",
+    blurb: "Streetwear & essentials",
+  },
+  {
+    key: "electronics",
+    label: "Electronics",
+    emoji: "🎧",
+    blurb: "Audio, gadgets, more",
+  },
+  {
+    key: "home",
+    label: "Home",
+    emoji: "🏠",
+    blurb: "Decor & daily living",
+  },
+  {
+    key: "beauty",
+    label: "Beauty",
+    emoji: "💄",
+    blurb: "Skincare & self-care",
+  },
+  {
+    key: "sports",
+    label: "Sports",
+    emoji: "🏃",
+    blurb: "Gear & performance",
+  },
+  {
+    key: "grocery",
+    label: "Grocery",
+    emoji: "🥑",
+    blurb: "Fresh & pantry",
+  },
+];
 
-  useEffect(() => {
-    mounted.current = true
-    fetchFlat({ withRole: role || undefined })
-    return () => { mounted.current = false }
-  }, [role])
+// Mock products (replace with API data later)
+const PRODUCTS = [
+  {
+    id: "p1",
+    title: "Wireless Noise-Canceling Headphones",
+    price: 89.99,
+    compareAt: 129.99,
+    rating: 4.6,
+    reviews: 1824,
+    category: "electronics",
+    campaign: ["sale", "hot", "freeShip"],
+    image:
+      "https://images.unsplash.com/photo-1518441902117-f0aebd98d314?auto=format&fit=crop&w=1200&q=80",
+    desc:
+      "Punchy sound, adaptive noise canceling, and a lightweight fit for all-day comfort. Includes quick-charge support and multi-device pairing.",
+  },
+  {
+    id: "p2",
+    title: "Minimal Sneakers",
+    price: 49.0,
+    compareAt: 0,
+    rating: 4.4,
+    reviews: 932,
+    category: "fashion",
+    campaign: ["new", "freeShip"],
+    image:
+      "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1200&q=80",
+    desc:
+      "Clean, comfortable, and built for everyday wear. Breathable upper with a durable sole for long walks and quick errands.",
+  },
+  {
+    id: "p3",
+    title: "Ceramic Mug Set (6 pcs)",
+    price: 22.5,
+    compareAt: 28.0,
+    rating: 4.7,
+    reviews: 411,
+    category: "home",
+    campaign: ["sale"],
+    image:
+      "https://images.unsplash.com/photo-1517705008128-361805f42e86?auto=format&fit=crop&w=1200&q=80",
+    desc:
+      "A timeless mug set with a smooth glaze. Microwave-safe, dishwasher-safe, and perfect for coffee, tea, or hot chocolate.",
+  },
+  {
+    id: "p4",
+    title: "Hydrating Face Serum",
+    price: 19.99,
+    compareAt: 0,
+    rating: 4.5,
+    reviews: 267,
+    category: "beauty",
+    campaign: ["new"],
+    image:
+      "https://images.unsplash.com/photo-1611930022073-b7a4ba5fcccd?auto=format&fit=crop&w=1200&q=80",
+    desc:
+      "A lightweight serum formulated to hydrate and brighten. Designed for daily use with a smooth, non-sticky finish.",
+  },
+  {
+    id: "p5",
+    title: "Running Shoes Pro",
+    price: 74.95,
+    compareAt: 99.95,
+    rating: 4.3,
+    reviews: 705,
+    category: "sports",
+    campaign: ["sale", "hot"],
+    image:
+      "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=1200&q=80",
+    desc:
+      "Responsive cushioning and a breathable mesh upper. Ideal for daily runs, training sessions, and long walks.",
+  },
+  {
+    id: "p6",
+    title: "Modern Table Lamp",
+    price: 34.0,
+    compareAt: 0,
+    rating: 4.2,
+    reviews: 188,
+    category: "home",
+    campaign: ["freeShip"],
+    image:
+      "https://images.unsplash.com/photo-1519710164239-da123dc03ef4?auto=format&fit=crop&w=1200&q=80",
+    desc:
+      "Warm ambient light with a minimalist silhouette. Great for bedrooms, reading corners, and cozy desks.",
+  },
+  {
+    id: "p7",
+    title: "Premium Hoodie",
+    price: 39.99,
+    compareAt: 55.0,
+    rating: 4.8,
+    reviews: 1209,
+    category: "fashion",
+    campaign: ["sale", "hot"],
+    image:
+      "https://images.unsplash.com/photo-1520975682071-a57d5f7f5e08?auto=format&fit=crop&w=1200&q=80",
+    desc:
+      "Soft fleece interior, structured hood, and a relaxed fit. Built for comfort with clean seams and durable stitching.",
+  },
+  {
+    id: "p8",
+    title: "Smart Fitness Band",
+    price: 29.99,
+    compareAt: 39.99,
+    rating: 4.1,
+    reviews: 1433,
+    category: "electronics",
+    campaign: ["sale", "freeShip"],
+    image:
+      "https://images.unsplash.com/photo-1557825835-70d97c4aa567?auto=format&fit=crop&w=1200&q=80",
+    desc:
+      "Track steps, sleep, and workouts with week-long battery life. Water-resistant and easy to sync to your phone.",
+  },
+  {
+    id: "p9",
+    title: "Everyday Sunscreen SPF 50",
+    price: 15.0,
+    compareAt: 0,
+    rating: 4.6,
+    reviews: 514,
+    category: "beauty",
+    campaign: ["hot", "freeShip"],
+    image:
+      "https://images.unsplash.com/photo-1600185365483-26d7a4cc7519?auto=format&fit=crop&w=1200&q=80",
+    desc:
+      "Lightweight protection with no white cast. Wear under makeup or on its own for daily UV defense.",
+  },
+  {
+    id: "p10",
+    title: "Organic Mixed Nuts (1kg)",
+    price: 17.25,
+    compareAt: 0,
+    rating: 4.7,
+    reviews: 322,
+    category: "grocery",
+    campaign: ["new", "freeShip"],
+    image:
+      "https://images.unsplash.com/photo-1546554137-f86b9593a222?auto=format&fit=crop&w=1200&q=80",
+    desc:
+      "A balanced mix of almonds, cashews, walnuts, and more. Great for snacking, topping bowls, or baking.",
+  },
+  {
+    id: "p11",
+    title: "Bluetooth Speaker Mini",
+    price: 24.99,
+    compareAt: 0,
+    rating: 4.0,
+    reviews: 990,
+    category: "electronics",
+    campaign: ["hot"],
+    image:
+      "https://images.unsplash.com/photo-1558537348-c0f8e733989d?auto=format&fit=crop&w=1200&q=80",
+    desc:
+      "Pocket-size speaker with surprisingly big sound. Easy pairing, solid bass, and a sturdy travel-friendly body.",
+  },
+  {
+    id: "p12",
+    title: "Kitchen Knife Set",
+    price: 52.0,
+    compareAt: 74.0,
+    rating: 4.5,
+    reviews: 278,
+    category: "home",
+    campaign: ["sale"],
+    image:
+      "https://images.unsplash.com/photo-1514989940723-e8e51635b782?auto=format&fit=crop&w=1200&q=80",
+    desc:
+      "Sharp, balanced, and easy to maintain. Includes essential blades for slicing, dicing, and prep work.",
+  },
+];
 
-  const grouped = useMemo(() => {
-    const secs = data.filter((d) => d.type === "section").sort((a,b)=>a.order-b.order)
-    const items = data.filter((d) => d.type === "item").sort((a,b)=>a.order-b.order)
-    const byParent = items.reduce((m, it) => {
-      if (!m[it.parentKey]) m[it.parentKey] = []
-      m[it.parentKey].push(it)
-      return m
-    }, {})
-    return secs.map((s) => ({ section: s, items: byParent[s.key] || [] }))
-  }, [data])
-
-  const filtered = useMemo(() => {
-    if (!query.trim()) return grouped
-    const q = query.toLowerCase()
-    return grouped
-      .map(({ section, items }) => ({ section, items: items.filter((i) => (i.label||i.key).toLowerCase().includes(q)) }))
-      .filter(({ section, items }) => (section.label||section.key).toLowerCase().includes(q) || items.length)
-  }, [grouped, query])
-
-  const toggleExpand = (k) => setExpanded((m) => ({ ...m, [k]: !m[k] }))
-
-  const optimisticToggle = async (key, visible) => {
-    const prev = data
-    setData((arr) => arr.map((r) => (r.key === key ? { ...r, visible } : r)))
-    try {
-      await axios.patch(`${API_BASE}/api/features/${encodeURIComponent(key)}/visibility`, { visible })
-      toast(`${visible ? "Shown" : "Hidden"}: ${key}`, "success")
-    } catch (e) {
-      setData(prev)
-      toast("Save failed — reverted", "error")
-    }
-  }
-
-  const doBulk = async (action) => {
-    const keys = Array.from(bulk.keys)
-    if (!keys.length) return toast("Select at least one item", "warning")
-    const visible = action === "show"
-    setSaving(true)
-    const prev = data
-    setData((arr) => arr.map((r) => (bulk.keys.has(r.key) ? { ...r, visible } : r)))
-    try {
-      await axios.patch(`${API_BASE}/api/features/visibility/bulk`, keys.map((k) => ({ key: k, visible })))
-      toast(`Bulk ${visible ? "show" : "hide"} applied to ${keys.length} items`, "success")
-      setBulk({ keys: new Set(), action: "" })
-    } catch (e) {
-      setData(prev)
-      toast("Bulk update failed — reverted", "error")
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const seedDefaults = async () => {
-    setSaving(true)
-    try {
-      await axios.post(`${API_BASE}/api/features/seed-defaults`)
-      toast("Seeded defaults", "success")
-      fetchFlat({ withRole: role || undefined })
-    } catch (e) {
-      toast("Seed failed", "error")
-    } finally {
-      setSaving(false); setShowSeed(false)
-    }
-  }
-
-  const toggleSelect = (key) => setBulk((b) => {
-    const set = new Set(b.keys)
-    if (set.has(key)) set.delete(key); else set.add(key)
-    return { ...b, keys: set }
-  })
-
-  const allSelectableKeys = useMemo(() => data.filter((d)=>d.type==="item").map((d)=>d.key), [data])
-  const toggleSelectAll = (checked) => setBulk({ keys: new Set(checked ? allSelectableKeys : []), action: bulk.action })
-
-  const toast = (message, type = "success") => {
-    const id = Math.random().toString(36).slice(2)
-    setToasts((t) => [...t, { id, message, type }])
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 2600)
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50/60 p-4 sm:p-6 lg:p-8">
-      {/* top progress line */}
-      <div className={`fixed left-0 top-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 transition-all duration-300 ${loading || saving ? "w-full opacity-100" : "w-0 opacity-0"}`} style={{ zIndex: 40 }} />
-
-      {/* header */}
-      <motion.div initial={{ opacity: 0, y: -14 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 p-6 bg-white rounded-2xl border border-gray-100 shadow-lg">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className="absolute inset-0 bg-indigo-500/30 rounded-xl blur-lg" />
-              <div className="relative w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center shadow-lg">
-                <FiSliders className="w-6 h-6" />
-              </div>
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Feature Visibility (Admin)</h1>
-              <p className="text-sm text-gray-500">Show or hide sidebar sections and items. Backed by MongoDB.</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Tooltip content="Refresh">
-              <Button color="light" onClick={() => fetchFlat({ withRole: role || undefined })}>
-                <FiRefreshCw className="w-4 h-4" />
-              </Button>
-            </Tooltip>
-            <Button color="light" onClick={() => setShowSeed(true)}><FiUploadCloud className="w-4 h-4" /> Seed defaults</Button>
-          </div>
-        </div>
-      </motion.div>
-
-      {/* toolbar */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-        <div className="relative">
-          <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <TextInput value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search sections or items…" className="pl-10" />
-        </div>
-        <div className="md:col-span-2 flex flex-wrap items-center gap-2 justify-end">
-          <Select value={role} onChange={(e) => setRole(e.target.value)} className="w-44">
-            <option value="">All roles</option>
-            <option value="owner">Owner</option>
-            <option value="manager">Manager</option>
-            <option value="staff">Staff</option>
-          </Select>
-
-          <div className="hidden md:flex items-center gap-2">
-            <Checkbox checked={bulk.keys.size === allSelectableKeys.length && allSelectableKeys.length>0} onChange={(e) => toggleSelectAll(e.target.checked)} />
-            <span className="text-sm text-gray-600">Select all items</span>
-          </div>
-          <Button color="light" onClick={() => doBulk("show")} disabled={saving || bulk.keys.size===0}><FiEye /> Show</Button>
-          <Button color="light" onClick={() => doBulk("hide")} disabled={saving || bulk.keys.size===0}><FiEyeOff /> Hide</Button>
-        </div>
-      </div>
-
-      {/* table */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-lg overflow-hidden">
-        <Table hoverable>
-          <Table.Head>
-            <Table.HeadCell className="w-10"></Table.HeadCell>
-            <Table.HeadCell>Section / Item</Table.HeadCell>
-            <Table.HeadCell className="hidden sm:table-cell">Key</Table.HeadCell>
-            <Table.HeadCell className="hidden md:table-cell text-center">Order</Table.HeadCell>
-            <Table.HeadCell className="text-center">Visible</Table.HeadCell>
-            <Table.HeadCell className="text-right">Select</Table.HeadCell>
-          </Table.Head>
-          <Table.Body className="divide-y">
-            {loading ? (
-              <tr><td colSpan={6} className="p-6 text-center text-gray-500"><Spinner /></td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td colSpan={6} className="p-6 text-center text-gray-500">No features</td></tr>
-            ) : (
-              filtered.map(({ section, items }) => (
-                <SectionRow
-                  key={section.key}
-                  section={section}
-                  items={items}
-                  expanded={!!expanded[section.key]}
-                  onToggleExpand={() => toggleExpand(section.key)}
-                  onToggleVisible={(v)=>optimisticToggle(section.key,v)}
-                  onToggleSelect={toggleSelect}
-                  selectedSet={bulk.keys}
-                  onToggleItemVisible={optimisticToggle}
-                />
-              ))
-            )}
-          </Table.Body>
-        </Table>
-      </div>
-
-      {/* seed modal */}
-      <Modal show={showSeed} onClose={() => setShowSeed(false)}>
-        <Modal.Header>Seed default features?</Modal.Header>
-        <Modal.Body>
-          <p className="text-sm text-gray-700">This will upsert the known sections/items into the database. Existing records will be kept and updated.</p>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button color="gray" onClick={() => setShowSeed(false)}>Cancel</Button>
-          <Button onClick={seedDefaults}>
-            {saving ? <span className="inline-flex items-center gap-2"><Spinner size="sm"/> Seeding…</span> : "Seed now"}
-          </Button>
-        </Modal.Footer>
-      </Modal>
-
-      {/* toasts */}
-      <div className="fixed bottom-4 right-4 z-50 space-y-2">
-        <AnimatePresence initial={false}>
-          {toasts.map((t) => (
-            <motion.div key={t.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
-              <Toast>
-                <div className={`p-2 rounded-lg ${t.type === "error" ? "bg-red-100 text-red-700" : t.type === "warning" ? "bg-yellow-100 text-yellow-800" : "bg-emerald-100 text-emerald-700"}`}>
-                  {t.type === "error" ? <FiAlertTriangle /> : t.type === "warning" ? <FiAlertTriangle /> : <FiCheck />}
-                </div>
-                <div className="text-sm font-medium text-gray-900 ml-2 mr-2">{t.message}</div>
-                <button className="text-gray-400 hover:text-gray-600" onClick={() => setToasts((arr)=>arr.filter((x)=>x.id!==t.id))}><FiX/></button>
-              </Toast>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
-    </div>
-  )
+function money(n) {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(n);
 }
 
-/* -------------------------- subcomponents -------------------------- */
-function SectionRow({ section, items, expanded, onToggleExpand, onToggleVisible, onToggleSelect, selectedSet, onToggleItemVisible }) {
-  return (
-    <>
-      <Table.Row className="bg-white">
-        <Table.Cell className="align-top">
-          <button onClick={onToggleExpand} className="p-1 rounded hover:bg-gray-50">
-            {expanded ? <FiChevronUp /> : <FiChevronDown />}
-          </button>
-        </Table.Cell>
-        <Table.Cell>
-          <div className="font-semibold text-gray-900">{section.label || section.key}</div>
-          <div className="text-xs text-gray-500">Section</div>
-        </Table.Cell>
-        <Table.Cell className="hidden sm:table-cell align-top"><code className="text-xs text-gray-500">{section.key}</code></Table.Cell>
-        <Table.Cell className="hidden md:table-cell text-center align-top">{section.order}</Table.Cell>
-        <Table.Cell className="text-center align-top">
-          <Switch visible={!!section.visible} onChange={(v) => onToggleVisible(section.key, v)} />
-        </Table.Cell>
-        <Table.Cell className="text-right align-top">
-          {/* Section row not selectable for bulk to avoid mass mistakes */}
-        </Table.Cell>
-      </Table.Row>
-
-      {expanded && items.map((it) => (
-        <Table.Row key={it.key} className="bg-gray-50/60">
-          <Table.Cell></Table.Cell>
-          <Table.Cell>
-            <div className="text-gray-900">{it.label || it.key}</div>
-            <div className="text-xs text-gray-500">Item in <span className="font-medium">{section.label || section.key}</span></div>
-          </Table.Cell>
-          <Table.Cell className="hidden sm:table-cell"><code className="text-xs text-gray-500">{it.key}</code></Table.Cell>
-          <Table.Cell className="hidden md:table-cell text-center">{it.order}</Table.Cell>
-          <Table.Cell className="text-center"><Switch visible={!!it.visible} onChange={(v) => onToggleItemVisible(it.key, v)} /></Table.Cell>
-          <Table.Cell className="text-right">
-            <Checkbox checked={selectedSet.has(it.key)} onChange={() => onToggleSelect(it.key)} />
-          </Table.Cell>
-        </Table.Row>
-      ))}
-    </>
-  )
+function classNames(...xs) {
+  return xs.filter(Boolean).join(" ");
 }
 
-function Switch({ visible, onChange }) {
+function Stars({ rating }) {
+  const full = Math.floor(rating);
+  const hasHalf = rating - full >= 0.5;
+  const stars = Array.from({ length: 5 }).map((_, i) => {
+    const isFull = i < full;
+    const isHalf = i === full && hasHalf;
+    return (
+      <span key={i} className="inline-flex items-center">
+        <FaStar
+          className={classNames(
+            "text-[12px]",
+            isFull || isHalf ? "text-amber-500" : "text-slate-300"
+          )}
+        />
+      </span>
+    );
+  });
+  return <span className="inline-flex gap-1">{stars}</span>;
+}
+
+function Pill({ children }) {
+  return (
+    <span className="inline-flex items-center rounded-full border border-slate-200 bg-white/70 px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm backdrop-blur">
+      {children}
+    </span>
+  );
+}
+
+function IconButton({ onClick, ariaLabel, children }) {
   return (
     <button
-      onClick={() => onChange(!visible)}
-      className={`inline-flex items-center h-6 w-11 rounded-full transition ${visible ? "bg-emerald-500" : "bg-gray-300"}`}
-      aria-label="toggle visible"
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-[1px] hover:shadow md:h-11 md:w-11"
     >
-      <span className={`h-5 w-5 bg-white rounded-full shadow transform transition ${visible ? "translate-x-5" : "translate-x-1"}`} />
+      {children}
     </button>
-  )
+  );
+}
+
+function Pagination({ page, pageCount, onPage }) {
+  const pages = useMemo(() => {
+    // Simple windowed pagination
+    const windowSize = 5;
+    const start = Math.max(1, page - Math.floor(windowSize / 2));
+    const end = Math.min(pageCount, start + windowSize - 1);
+    const start2 = Math.max(1, end - windowSize + 1);
+    return Array.from({ length: end - start2 + 1 }, (_, i) => start2 + i);
+  }, [page, pageCount]);
+
+  return (
+    <div className="flex flex-col items-center justify-between gap-3 sm:flex-row">
+      <div className="text-sm text-slate-600">
+        Page <span className="font-semibold text-slate-900">{page}</span> of{" "}
+        <span className="font-semibold text-slate-900">{pageCount}</span>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onPage(Math.max(1, page - 1))}
+          disabled={page === 1}
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-[1px] hover:shadow disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <FaChevronLeft />
+          Prev
+        </button>
+
+        <div className="hidden items-center gap-2 sm:flex">
+          {pages.map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => onPage(p)}
+              className={classNames(
+                "h-10 w-10 rounded-xl border text-sm font-semibold shadow-sm transition hover:-translate-y-[1px] hover:shadow",
+                p === page
+                  ? "border-slate-900 bg-slate-900 text-white"
+                  : "border-slate-200 bg-white text-slate-800"
+              )}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onPage(Math.min(pageCount, page + 1))}
+          disabled={page === pageCount}
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-[1px] hover:shadow disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Next
+          <FaChevronRight />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ProductCard({ p, expanded, onToggle, onAddToCart }) {
+  const discountPct =
+    p.compareAt && p.compareAt > p.price
+      ? Math.round(((p.compareAt - p.price) / p.compareAt) * 100)
+      : 0;
+
+  return (
+    <div className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-[2px] hover:shadow">
+      <div className="relative">
+        <img
+          src={p.image}
+          alt={p.title}
+          className="h-44 w-full object-cover sm:h-48"
+          loading="lazy"
+        />
+
+        <div className="absolute left-3 top-3 flex flex-wrap gap-2">
+          {p.campaign.includes("new") && <Pill>New</Pill>}
+          {p.campaign.includes("sale") && <Pill>Sale</Pill>}
+          {p.campaign.includes("freeShip") && <Pill>Free Ship</Pill>}
+          {!!discountPct && <Pill>-{discountPct}%</Pill>}
+        </div>
+
+        <button
+          type="button"
+          className="absolute right-3 top-3 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white/90 shadow-sm backdrop-blur transition hover:scale-[1.02]"
+          aria-label="Save"
+        >
+          <FaHeart className="text-slate-700" />
+        </button>
+      </div>
+
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="line-clamp-2 text-sm font-semibold text-slate-900">
+              {p.title}
+            </h3>
+            <div className="mt-2 flex items-center gap-2">
+              <Stars rating={p.rating} />
+              <span className="text-xs text-slate-600">
+                {p.rating.toFixed(1)} ({p.reviews.toLocaleString()})
+              </span>
+            </div>
+          </div>
+
+          <div className="text-right">
+            <div className="text-base font-extrabold text-slate-900">
+              {money(p.price)}
+            </div>
+            {p.compareAt && p.compareAt > p.price ? (
+              <div className="text-xs font-semibold text-slate-500 line-through">
+                {money(p.compareAt)}
+              </div>
+            ) : (
+              <div className="text-xs font-semibold text-slate-500">&nbsp;</div>
+            )}
+          </div>
+        </div>
+
+        <div
+          className={classNames(
+            "mt-3 text-sm leading-relaxed text-slate-600",
+            expanded ? "" : "line-clamp-2"
+          )}
+        >
+          {p.desc}
+        </div>
+
+        <div className="mt-4 flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={onToggle}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:-translate-y-[1px] hover:shadow"
+          >
+            {expanded ? "See less" : "See more"}
+          </button>
+
+          <button
+            type="button"
+            onClick={onAddToCart}
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-[1px] hover:shadow"
+          >
+            <FaShoppingCart />
+            Add
+          </button>
+        </div>
+      </div>
+
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-white/90 to-transparent opacity-0 transition group-hover:opacity-100" />
+    </div>
+  );
+}
+
+export default function EcommerceHomePage() {
+  // Slider
+  const [slideIdx, setSlideIdx] = useState(0);
+  const sliderTimer = useRef(null);
+
+  // Filters
+  const [campaign, setCampaign] = useState("all");
+  const [category, setCategory] = useState("all");
+  const [query, setQuery] = useState("");
+
+  // UI states
+  const [expandedIds, setExpandedIds] = useState(() => new Set());
+  const [cartCount, setCartCount] = useState(0);
+
+  // Pagination
+  const PAGE_SIZE = 8;
+  const [page, setPage] = useState(1);
+
+  // Slider autoplay
+  useEffect(() => {
+    if (sliderTimer.current) clearInterval(sliderTimer.current);
+    sliderTimer.current = setInterval(() => {
+      setSlideIdx((i) => (i + 1) % HERO_SLIDES.length);
+    }, 4500);
+
+    return () => {
+      if (sliderTimer.current) clearInterval(sliderTimer.current);
+    };
+  }, []);
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setPage(1);
+  }, [campaign, category, query]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return PRODUCTS.filter((p) => {
+      const okCampaign = campaign === "all" ? true : p.campaign.includes(campaign);
+      const okCategory = category === "all" ? true : p.category === category;
+      const okQuery =
+        !q ||
+        p.title.toLowerCase().includes(q) ||
+        p.desc.toLowerCase().includes(q);
+      return okCampaign && okCategory && okQuery;
+    });
+  }, [campaign, category, query]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const activeSlide = HERO_SLIDES[slideIdx];
+
+  function prevSlide() {
+    setSlideIdx((i) => (i - 1 + HERO_SLIDES.length) % HERO_SLIDES.length);
+  }
+  function nextSlide() {
+    setSlideIdx((i) => (i + 1) % HERO_SLIDES.length);
+  }
+
+  function toggleExpanded(id) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function addToCart() {
+    setCartCount((c) => c + 1);
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      {/* Top bar */}
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/75 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-2xl bg-slate-900 text-white shadow-sm">
+              <FaTags />
+            </div>
+            <div className="leading-tight">
+              <div className="text-sm font-extrabold tracking-tight sm:text-base">
+                LuluMart
+              </div>
+              <div className="text-xs text-slate-500">Shop smarter, faster</div>
+            </div>
+          </div>
+
+          <div className="hidden items-center gap-2 md:flex">
+            <a
+              href="#categories"
+              className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+            >
+              Categories
+            </a>
+            <a
+              href="#deals"
+              className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+            >
+              Deals
+            </a>
+            <a
+              href="#products"
+              className="rounded-xl px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+            >
+              Products
+            </a>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="relative hidden sm:block">
+              <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search products..."
+                className="h-11 w-[280px] rounded-2xl border border-slate-200 bg-white pl-10 pr-4 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-slate-400"
+              />
+            </div>
+
+            <div className="relative">
+              <div className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-slate-900 px-1 text-[11px] font-extrabold text-white">
+                {cartCount}
+              </div>
+              <button
+                type="button"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-[1px] hover:shadow"
+                aria-label="Cart"
+              >
+                <FaShoppingCart />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile search */}
+        <div className="mx-auto max-w-7xl px-4 pb-3 sm:hidden">
+          <div className="relative">
+            <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search products..."
+              className="h-11 w-full rounded-2xl border border-slate-200 bg-white pl-10 pr-4 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-slate-400"
+            />
+          </div>
+        </div>
+      </header>
+
+      {/* Hero slider */}
+      <section className="mx-auto max-w-7xl px-4 pt-6 sm:px-6">
+        <div className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div
+            className="relative h-[280px] sm:h-[340px]"
+            style={{
+              backgroundImage: `url(${activeSlide.bg})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-slate-950/70 via-slate-950/35 to-transparent" />
+
+            <div className="relative z-10 flex h-full flex-col justify-end p-5 sm:p-8">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="inline-flex items-center rounded-full bg-white/15 px-3 py-1 text-xs font-extrabold tracking-wide text-white backdrop-blur">
+                  {activeSlide.tag}
+                </span>
+                <span className="inline-flex items-center rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white/90 backdrop-blur">
+                  Limited time
+                </span>
+              </div>
+
+              <h1 className="max-w-2xl text-2xl font-black tracking-tight text-white sm:text-4xl">
+                {activeSlide.title}
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm font-medium text-white/90 sm:text-base">
+                {activeSlide.subtitle}
+              </p>
+
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  className="rounded-2xl bg-white px-4 py-2.5 text-sm font-extrabold text-slate-900 shadow-sm transition hover:-translate-y-[1px] hover:shadow"
+                >
+                  {activeSlide.cta}
+                </button>
+                <button
+                  type="button"
+                  className="rounded-2xl border border-white/35 bg-white/10 px-4 py-2.5 text-sm font-bold text-white shadow-sm backdrop-blur transition hover:-translate-y-[1px] hover:bg-white/15 hover:shadow"
+                >
+                  View Categories
+                </button>
+              </div>
+
+              <div className="mt-6 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {HERO_SLIDES.map((s, i) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setSlideIdx(i)}
+                      aria-label={`Go to slide ${i + 1}`}
+                      className={classNames(
+                        "h-2.5 rounded-full transition",
+                        i === slideIdx
+                          ? "w-8 bg-white"
+                          : "w-2.5 bg-white/45 hover:bg-white/70"
+                      )}
+                    />
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <IconButton onClick={prevSlide} ariaLabel="Previous slide">
+                    <FaChevronLeft />
+                  </IconButton>
+                  <IconButton onClick={nextSlide} ariaLabel="Next slide">
+                    <FaChevronRight />
+                  </IconButton>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick trust badges */}
+          <div className="grid gap-3 border-t border-slate-200 bg-white p-4 sm:grid-cols-3 sm:p-5">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-sm font-extrabold">Fast shipping</div>
+              <div className="mt-1 text-sm text-slate-600">
+                Track orders end-to-end
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-sm font-extrabold">Secure checkout</div>
+              <div className="mt-1 text-sm text-slate-600">
+                Protected payments
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="text-sm font-extrabold">Easy returns</div>
+              <div className="mt-1 text-sm text-slate-600">
+                Simple return policy
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Categories */}
+      <section id="categories" className="mx-auto max-w-7xl px-4 pt-10 sm:px-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-xl font-black tracking-tight sm:text-2xl">
+              Shop by category
+            </h2>
+            <p className="mt-1 text-sm font-medium text-slate-600">
+              Quick picks tailored for your needs
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600">
+              <FaFilter />
+              Active:
+            </span>
+            <Pill>
+              {category === "all"
+                ? "All categories"
+                : CATEGORIES.find((c) => c.key === category)?.label}
+            </Pill>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <button
+            type="button"
+            onClick={() => setCategory("all")}
+            className={classNames(
+              "group overflow-hidden rounded-2xl border bg-white p-4 text-left shadow-sm transition hover:-translate-y-[2px] hover:shadow",
+              category === "all" ? "border-slate-900" : "border-slate-200"
+            )}
+          >
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="text-sm font-extrabold">All</div>
+                <div className="mt-1 text-sm text-slate-600">
+                  Browse everything
+                </div>
+              </div>
+              <div className="text-2xl">✨</div>
+            </div>
+          </button>
+
+          {CATEGORIES.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              onClick={() => setCategory(c.key)}
+              className={classNames(
+                "group overflow-hidden rounded-2xl border bg-white p-4 text-left shadow-sm transition hover:-translate-y-[2px] hover:shadow",
+                category === c.key ? "border-slate-900" : "border-slate-200"
+              )}
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-sm font-extrabold">{c.label}</div>
+                  <div className="mt-1 text-sm text-slate-600">{c.blurb}</div>
+                </div>
+                <div className="text-2xl">{c.emoji}</div>
+              </div>
+              <div className="mt-4 flex items-center gap-2 text-xs font-semibold text-slate-500">
+                <span className="h-2 w-2 rounded-full bg-slate-300 group-hover:bg-slate-400" />
+                Explore deals
+              </div>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Campaign filter + products */}
+      <section id="products" className="mx-auto max-w-7xl px-4 pb-16 pt-10 sm:px-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h2 className="text-xl font-black tracking-tight sm:text-2xl">
+              Featured products
+            </h2>
+            <p className="mt-1 text-sm font-medium text-slate-600">
+              Filter by campaigns, search, and browse with pagination
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="flex flex-wrap gap-2">
+              {CAMPAIGNS.map((c) => (
+                <button
+                  key={c.key}
+                  type="button"
+                  onClick={() => setCampaign(c.key)}
+                  className={classNames(
+                    "rounded-2xl border px-3 py-2 text-sm font-semibold shadow-sm transition hover:-translate-y-[1px] hover:shadow",
+                    campaign === c.key
+                      ? "border-slate-900 bg-slate-900 text-white"
+                      : "border-slate-200 bg-white text-slate-800"
+                  )}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative sm:hidden">
+              <FaSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search products..."
+                className="h-11 w-full rounded-2xl border border-slate-200 bg-white pl-10 pr-4 text-sm font-medium text-slate-900 shadow-sm outline-none transition focus:border-slate-400"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Results bar */}
+        <div className="mt-5 flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-sm font-semibold text-slate-700">
+            Showing <span className="font-extrabold text-slate-900">{paged.length}</span> of{" "}
+            <span className="font-extrabold text-slate-900">{filtered.length}</span> results
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Pill>
+              Campaign: {campaign === "all" ? "All" : CAMPAIGNS.find((x) => x.key === campaign)?.label}
+            </Pill>
+            <Pill>
+              Category: {category === "all" ? "All" : CATEGORIES.find((x) => x.key === category)?.label}
+            </Pill>
+            {query.trim() ? <Pill>Search: “{query.trim()}”</Pill> : null}
+          </div>
+        </div>
+
+        {/* Deals anchor */}
+        <div id="deals" className="sr-only" />
+
+        {/* Product grid */}
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {paged.map((p) => (
+            <ProductCard
+              key={p.id}
+              p={p}
+              expanded={expandedIds.has(p.id)}
+              onToggle={() => toggleExpanded(p.id)}
+              onAddToCart={addToCart}
+            />
+          ))}
+        </div>
+
+        {filtered.length === 0 ? (
+          <div className="mt-10 rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center">
+            <div className="text-lg font-black">No results found</div>
+            <div className="mt-2 text-sm font-medium text-slate-600">
+              Try removing filters or searching different keywords.
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setCampaign("all");
+                setCategory("all");
+                setQuery("");
+              }}
+              className="mt-5 inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-extrabold text-white shadow-sm transition hover:-translate-y-[1px] hover:shadow"
+            >
+              Reset filters
+            </button>
+          </div>
+        ) : null}
+
+        {/* Pagination */}
+        {filtered.length > PAGE_SIZE ? (
+          <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <Pagination page={page} pageCount={pageCount} onPage={setPage} />
+          </div>
+        ) : null}
+
+        {/* Newsletter */}
+        <div className="mt-10 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="grid gap-6 p-6 md:grid-cols-2 md:items-center">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-extrabold text-slate-700">
+                <FaTags /> Weekly deals
+              </div>
+              <h3 className="mt-3 text-xl font-black tracking-tight">
+                Get updates on new arrivals & exclusive offers
+              </h3>
+              <p className="mt-2 text-sm font-medium text-slate-600">
+                Subscribe to receive curated picks. No spam — unsubscribe anytime.
+              </p>
+            </div>
+
+            <form
+              onSubmit={(e) => e.preventDefault()}
+              className="flex flex-col gap-3 sm:flex-row"
+            >
+              <input
+                type="email"
+                placeholder="your@email.com"
+                className="h-12 flex-1 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-900 shadow-sm outline-none transition focus:border-slate-400"
+              />
+              <button
+                type="submit"
+                className="h-12 rounded-2xl bg-slate-900 px-5 text-sm font-extrabold text-white shadow-sm transition hover:-translate-y-[1px] hover:shadow"
+              >
+                Subscribe
+              </button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-slate-200 bg-white">
+        <div className="mx-auto grid max-w-7xl gap-6 px-4 py-10 sm:px-6 md:grid-cols-4">
+          <div className="md:col-span-2">
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 place-items-center rounded-2xl bg-slate-900 text-white shadow-sm">
+                <FaTags />
+              </div>
+              <div>
+                <div className="text-sm font-extrabold">LuluMart</div>
+                <div className="text-xs text-slate-500">
+                  Modern ecommerce landing UI
+                </div>
+              </div>
+            </div>
+            <p className="mt-4 max-w-md text-sm font-medium text-slate-600">
+              This is a UI template. Replace PRODUCTS with API data and connect actions (cart, checkout, auth) as needed.
+            </p>
+          </div>
+
+          <div>
+            <div className="text-sm font-extrabold">Company</div>
+            <ul className="mt-3 space-y-2 text-sm font-medium text-slate-600">
+              <li>
+                <a className="hover:text-slate-900" href="#">
+                  About
+                </a>
+              </li>
+              <li>
+                <a className="hover:text-slate-900" href="#">
+                  Careers
+                </a>
+              </li>
+              <li>
+                <a className="hover:text-slate-900" href="#">
+                  Press
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          <div>
+            <div className="text-sm font-extrabold">Support</div>
+            <ul className="mt-3 space-y-2 text-sm font-medium text-slate-600">
+              <li>
+                <a className="hover:text-slate-900" href="#">
+                  Help Center
+                </a>
+              </li>
+              <li>
+                <a className="hover:text-slate-900" href="#">
+                  Returns
+                </a>
+              </li>
+              <li>
+                <a className="hover:text-slate-900" href="#">
+                  Shipping
+                </a>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="border-t border-slate-200">
+          <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-2 px-4 py-5 text-xs font-medium text-slate-500 sm:flex-row sm:px-6">
+            <div>© {new Date().getFullYear()} LuluMart. All rights reserved.</div>
+            <div className="flex items-center gap-3">
+              <a className="hover:text-slate-900" href="#">
+                Privacy
+              </a>
+              <a className="hover:text-slate-900" href="#">
+                Terms
+              </a>
+              <a className="hover:text-slate-900" href="#">
+                Cookies
+              </a>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
 }

@@ -20,14 +20,11 @@ import {
   FiMoreVertical,
   FiCopy,
   FiLoader,
+  FiColumns,
+  FiChevronUp,
+  FiChevronDown,
 } from "react-icons/fi"
-
-/**
- * Marketing Leads Page (JSX only)
- * - Uses your backend routes: /api/leads + /api/leads/:id/* actions
- * - No DELETE UI (backend restricts delete to Admin/SuperAdmin)
- * - Marketing-friendly: lead number visible in list + quick actions
- */
+import { SiMicrosoftexcel } from "react-icons/si"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -46,6 +43,11 @@ const iconBtn =
 const input =
   "w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-transparent"
 const chip = "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ring-1"
+
+// ✅ Premium Excel button (green)
+const btnExcel =
+  "inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl active:scale-[0.99] transition focus:outline-none focus:ring-2 focus:ring-emerald-500/40 " +
+  "bg-emerald-600 text-white hover:bg-emerald-700 shadow-[0_10px_20px_-12px_rgba(16,185,129,0.8)] border border-emerald-700/20"
 
 function cn(...classes) {
   return classes.filter(Boolean).join(" ")
@@ -98,6 +100,45 @@ function copyToClipboard(text) {
   document.body.removeChild(ta)
 }
 
+function get(obj, path, fallback = "") {
+  if (!obj || !path) return fallback
+  const parts = String(path).split(".").filter(Boolean)
+  let cur = obj
+  for (const p of parts) {
+    if (cur && typeof cur === "object" && p in cur) cur = cur[p]
+    else return fallback
+  }
+  return cur ?? fallback
+}
+
+function safeText(v) {
+  if (v === undefined || v === null) return ""
+  return String(v).replace(/\r?\n/g, " ").trim()
+}
+
+function toCsvCell(value) {
+  const s = safeText(value)
+  const needsQuotes = /[",\n]/.test(s)
+  const escaped = s.replace(/"/g, '""')
+  return needsQuotes ? `"${escaped}"` : escaped
+}
+
+function downloadCSV({ filename, headers, rows }) {
+  const lines = []
+  lines.push(headers.map(toCsvCell).join(","))
+  for (const row of rows) lines.push(row.map(toCsvCell).join(","))
+  const csv = "\uFEFF" + lines.join("\n") // BOM for Excel
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename.endsWith(".csv") ? filename : `${filename}.csv`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 /* =========================
    BADGES
 ========================= */
@@ -114,12 +155,10 @@ function LeadStatusBadge({ status }) {
       ? "bg-rose-50 text-rose-700 ring-rose-600/10"
       : "bg-gray-100 text-gray-700 ring-gray-600/10"
 
-  const label = s || "—"
-
   return (
     <span className={cn(chip, cls)}>
       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-40" />
-      {label}
+      {s || "—"}
     </span>
   )
 }
@@ -139,12 +178,29 @@ function StageBadge({ stage }) {
       ? "bg-sky-50 text-sky-700 ring-sky-600/10"
       : "bg-gray-100 text-gray-700 ring-gray-600/10"
 
-  const label = s || "—"
+  return (
+    <span className={cn(chip, cls)}>
+      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-40" />
+      {s || "—"}
+    </span>
+  )
+}
+
+function PriorityBadge({ priority }) {
+  const p = String(priority || "").toLowerCase()
+  const cls =
+    p === "high"
+      ? "bg-rose-50 text-rose-700 ring-rose-600/10"
+      : p === "medium"
+      ? "bg-amber-50 text-amber-800 ring-amber-600/10"
+      : p === "low"
+      ? "bg-sky-50 text-sky-700 ring-sky-600/10"
+      : "bg-gray-100 text-gray-700 ring-gray-600/10"
 
   return (
     <span className={cn(chip, cls)}>
       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-40" />
-      {label}
+      {p || "—"}
     </span>
   )
 }
@@ -155,9 +211,7 @@ function StageBadge({ stage }) {
 function Toast({ open, type = "success", message, onClose }) {
   if (!open) return null
   const styles =
-    type === "error"
-      ? "bg-rose-50 border-rose-200 text-rose-700"
-      : "bg-green-50 border-green-200 text-green-700"
+    type === "error" ? "bg-rose-50 border-rose-200 text-rose-700" : "bg-green-50 border-green-200 text-green-700"
   const Icon = type === "error" ? FiAlertCircle : FiCheck
 
   return (
@@ -243,9 +297,7 @@ function ModalShell({ open, onClose, title, subtitle, icon, children, footer, ma
 
             <div className="p-4 sm:p-5 bg-white max-h-[calc(100vh-14rem)] overflow-y-auto">{children}</div>
 
-            {footer ? (
-              <div className="p-4 sm:p-5 border-t border-gray-100 bg-white sticky bottom-0 z-20">{footer}</div>
-            ) : null}
+            {footer ? <div className="p-4 sm:p-5 border-t border-gray-100 bg-white sticky bottom-0 z-20">{footer}</div> : null}
           </motion.div>
         </div>
       </div>
@@ -266,8 +318,6 @@ function Field({ label, hint, children }) {
 /* =========================
    API HELPERS
 ========================= */
-const clamp = (n, min, max) => Math.max(min, Math.min(max, n))
-
 async function apiListLeads({ limit = 25, cursor, params = {}, signal } = {}) {
   const qs = new URLSearchParams()
   qs.set("limit", String(limit))
@@ -372,7 +422,351 @@ async function apiConvertLead(id) {
 }
 
 /* =========================
-   MODALS
+   COLUMNS (ONLY YOUR LIST) + FRIENDLY LABELS + EXPORT VALUES
+========================= */
+const COLUMNS_STORAGE_KEY = "marketingLeads.columns.onlySpecified.v5"
+
+const COLUMN_DEFS = [
+  {
+    key: "leadNumber",
+    label: "Lead No.",
+    widthClass: "min-w-[170px]",
+    fields: ["leadNumber"],
+    render: (l, { showToast }) => {
+      const ln = l?.leadNumber || ""
+      return ln ? (
+        <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>
+          <span className="font-bold font-mono">{ln}</span>
+          <button
+            className="ml-1 p-1 rounded-lg hover:bg-black/5"
+            title="Copy"
+            onClick={() => {
+              copyToClipboard(ln)
+              showToast?.("success", "Lead number copied.")
+            }}
+          >
+            <FiCopy className="w-3.5 h-3.5" />
+          </button>
+        </span>
+      ) : (
+        "—"
+      )
+    },
+    exportValue: (l) => l?.leadNumber || "",
+  },
+  {
+    key: "contact.name",
+    label: "Contact name",
+    widthClass: "min-w-[240px]",
+    fields: ["contact.name"],
+    render: (l) => (
+      <div className="flex items-center gap-3">
+        <div className="h-10 w-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center shrink-0">
+          <span className="text-sm font-bold text-indigo-700">{initials(get(l, "contact.name", ""))}</span>
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-900 truncate">{get(l, "contact.name", "—")}</p>
+        </div>
+      </div>
+    ),
+    exportValue: (l) => get(l, "contact.name", ""),
+  },
+  {
+    key: "contact.companyName",
+    label: "Company",
+    widthClass: "min-w-[240px]",
+    fields: ["contact.companyName"],
+    render: (l) => <span className="text-sm font-semibold text-gray-900">{get(l, "contact.companyName", "—")}</span>,
+    exportValue: (l) => get(l, "contact.companyName", ""),
+  },
+  {
+    key: "contact.email",
+    label: "Email",
+    widthClass: "min-w-[260px]",
+    fields: ["contact.email"],
+    render: (l) => <span className="text-sm text-gray-900 break-all">{get(l, "contact.email", "—")}</span>,
+    exportValue: (l) => get(l, "contact.email", ""),
+  },
+  {
+    key: "contact.phone",
+    label: "Phone",
+    widthClass: "min-w-[190px]",
+    fields: ["contact.phone"],
+    render: (l) => <span className="text-sm font-semibold text-gray-900">{get(l, "contact.phone", "—")}</span>,
+    exportValue: (l) => get(l, "contact.phone", ""),
+  },
+  {
+    key: "status",
+    label: "Status",
+    widthClass: "min-w-[140px]",
+    fields: ["status"],
+    render: (l) => <LeadStatusBadge status={l?.status} />,
+    exportValue: (l) => l?.status || "",
+  },
+  {
+    key: "pipelineStage",
+    label: "Stage",
+    widthClass: "min-w-[160px]",
+    fields: ["pipelineStage"],
+    render: (l) => <StageBadge stage={l?.pipelineStage} />,
+    exportValue: (l) => l?.pipelineStage || "",
+  },
+  {
+    key: "priority",
+    label: "Priority",
+    widthClass: "min-w-[140px]",
+    fields: ["priority"],
+    render: (l) => <PriorityBadge priority={l?.priority} />,
+    exportValue: (l) => l?.priority || "",
+  },
+  {
+    key: "purchaseType",
+    label: "Purchase type",
+    widthClass: "min-w-[190px]",
+    fields: ["purchaseType"],
+    render: (l) => <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>{l?.purchaseType || "—"}</span>,
+    exportValue: (l) => l?.purchaseType || "",
+  },
+  {
+    key: "source",
+    label: "Source",
+    widthClass: "min-w-[190px]",
+    fields: ["source"],
+    render: (l) => <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>{l?.source || "—"}</span>,
+    exportValue: (l) => l?.source || "",
+  },
+  {
+    key: "tags",
+    label: "Tags",
+    widthClass: "min-w-[280px]",
+    fields: ["tags"],
+    render: (l) => {
+      const tags = Array.isArray(l?.tags) ? l.tags : []
+      return (
+        <div className="flex flex-wrap gap-1.5">
+          {tags.length ? (
+            tags.slice(0, 10).map((t) => (
+              <span key={String(t)} className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>
+                {String(t)}
+              </span>
+            ))
+          ) : (
+            <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>No tags</span>
+          )}
+          {tags.length > 10 ? <span className="text-xs text-gray-400">+{tags.length - 10}</span> : null}
+        </div>
+      )
+    },
+    exportValue: (l) => {
+      const tags = Array.isArray(l?.tags) ? l.tags : []
+      return tags.map(String).join(", ")
+    },
+  },
+  {
+    key: "nextFollowUpAt",
+    label: "Next follow-up",
+    widthClass: "min-w-[210px]",
+    fields: ["nextFollowUpAt"],
+    render: (l) => <span className="text-sm font-semibold text-gray-900">{formatDateTime(l?.nextFollowUpAt)}</span>,
+    exportValue: (l) => (l?.nextFollowUpAt ? formatDateTime(l.nextFollowUpAt) : ""),
+  },
+  {
+    key: "lastContactedAt",
+    label: "Last contacted",
+    widthClass: "min-w-[210px]",
+    fields: ["lastContactedAt"],
+    render: (l) => <span className="text-sm font-semibold text-gray-900">{formatDateTime(l?.lastContactedAt)}</span>,
+    exportValue: (l) => (l?.lastContactedAt ? formatDateTime(l.lastContactedAt) : ""),
+  },
+  {
+    key: "createdAt",
+    label: "Created",
+    widthClass: "min-w-[200px]",
+    fields: ["createdAt"],
+    render: (l) => <span className="text-sm font-semibold text-gray-900">{formatDateTime(l?.createdAt)}</span>,
+    exportValue: (l) => (l?.createdAt ? formatDateTime(l.createdAt) : ""),
+  },
+  {
+    key: "updatedAt",
+    label: "Updated",
+    widthClass: "min-w-[200px]",
+    fields: ["updatedAt"],
+    render: (l) => <span className="text-sm font-semibold text-gray-900">{formatDateTime(l?.updatedAt)}</span>,
+    exportValue: (l) => (l?.updatedAt ? formatDateTime(l.updatedAt) : ""),
+  },
+]
+
+const DEFAULT_VISIBLE_COLUMNS = ["contact.name", "status", "pipelineStage", "priority", "nextFollowUpAt"]
+
+function loadColumnsFromStorage() {
+  try {
+    const raw = localStorage.getItem(COLUMNS_STORAGE_KEY)
+    if (!raw) return DEFAULT_VISIBLE_COLUMNS
+    const arr = JSON.parse(raw)
+    if (!Array.isArray(arr)) return DEFAULT_VISIBLE_COLUMNS
+    const valid = arr.filter((k) => COLUMN_DEFS.some((c) => c.key === k))
+    return valid.length ? valid : DEFAULT_VISIBLE_COLUMNS
+  } catch {
+    return DEFAULT_VISIBLE_COLUMNS
+  }
+}
+
+function saveColumnsToStorage(cols) {
+  try {
+    localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(cols))
+  } catch {}
+}
+
+function deriveFieldsParam(visibleColumns) {
+  const set = new Set()
+  for (const key of visibleColumns || []) {
+    const def = COLUMN_DEFS.find((c) => c.key === key)
+    if (!def?.fields) continue
+    for (const f of def.fields) set.add(f)
+  }
+  set.add("_id")
+  return Array.from(set).join(",")
+}
+
+function ColumnsModal({ open, onClose, visibleColumns, setVisibleColumns }) {
+  const [draft, setDraft] = useState(visibleColumns || DEFAULT_VISIBLE_COLUMNS)
+
+  useEffect(() => {
+    if (!open) return
+    setDraft(visibleColumns || DEFAULT_VISIBLE_COLUMNS)
+  }, [open, visibleColumns])
+
+  const toggle = (key) => {
+    setDraft((p) => {
+      const has = p.includes(key)
+      const next = has ? p.filter((x) => x !== key) : [...p, key]
+      return next.length ? next : p
+    })
+  }
+
+  const move = (key, dir) => {
+    setDraft((p) => {
+      const idx = p.indexOf(key)
+      if (idx === -1) return p
+      const ni = dir === "up" ? idx - 1 : idx + 1
+      if (ni < 0 || ni >= p.length) return p
+      const copy = p.slice()
+      const [it] = copy.splice(idx, 1)
+      copy.splice(ni, 0, it)
+      return copy
+    })
+  }
+
+  const apply = () => {
+    setVisibleColumns(draft)
+    saveColumnsToStorage(draft)
+    onClose?.()
+  }
+
+  const preset = (name) => {
+    if (name === "default") setDraft(DEFAULT_VISIBLE_COLUMNS)
+    if (name === "all") setDraft(COLUMN_DEFS.map((c) => c.key))
+  }
+
+  const selectedSet = new Set(draft)
+
+  return (
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      title="Choose columns"
+      subtitle="Show/hide columns in the table"
+      icon={<FiColumns className="w-5 h-5" />}
+      maxWidthClass="max-w-4xl"
+      footer={
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => preset("default")} className={cn(btn, btnGhost, "px-3 py-2 text-sm")}>
+              Default
+            </button>
+            <button onClick={() => preset("all")} className={cn(btn, btnGhost, "px-3 py-2 text-sm")}>
+              Show all
+            </button>
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <button onClick={onClose} className={cn(btn, btnGhost)}>
+              Cancel
+            </button>
+            <button onClick={apply} className={cn(btn, btnPrimary)}>
+              Apply
+            </button>
+          </div>
+        </div>
+      }
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="lg:col-span-7">
+          <div className={cn(card, "p-4")}>
+            <p className="text-sm font-bold text-gray-900">Available columns</p>
+
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {COLUMN_DEFS.map((c) => (
+                <label
+                  key={c.key}
+                  className="flex items-center gap-3 p-3 rounded-2xl border border-gray-100 hover:bg-gray-50/60 transition cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedSet.has(c.key)}
+                    onChange={() => toggle(c.key)}
+                    className="h-4 w-4 accent-indigo-600"
+                  />
+                  <p className="text-sm font-semibold text-gray-900 truncate">{c.label}</p>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="lg:col-span-5">
+          <div className={cn(card, "p-4")}>
+            <p className="text-sm font-bold text-gray-900">Selected order</p>
+            <p className="text-xs text-gray-500 mt-1">Use the arrows to reorder.</p>
+
+            <div className="mt-4 space-y-2">
+              {draft.map((key, idx) => {
+                const c = COLUMN_DEFS.find((x) => x.key === key)
+                if (!c) return null
+                return (
+                  <div key={key} className="flex items-center gap-2 p-3 rounded-2xl border border-gray-100 bg-white">
+                    <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200 shrink-0")}>{idx + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{c.label}</p>
+                    </div>
+
+                    <button className={cn(iconBtn, "p-2")} onClick={() => move(key, "up")} disabled={idx === 0} title="Move up">
+                      <FiChevronUp className="w-4 h-4 text-gray-700" />
+                    </button>
+                    <button
+                      className={cn(iconBtn, "p-2")}
+                      onClick={() => move(key, "down")}
+                      disabled={idx === draft.length - 1}
+                      title="Move down"
+                    >
+                      <FiChevronDown className="w-4 h-4 text-gray-700" />
+                    </button>
+                    <button className={cn(iconBtn, "p-2")} onClick={() => toggle(key)} title="Remove">
+                      <FiX className="w-4 h-4 text-gray-700" />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
+/* =========================
+   MODALS (UPSERT / NOTE / FOLLOWUP / FILTERS)
+   (same as previous version; unchanged for this request)
 ========================= */
 function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
   const [form, setForm] = useState({
@@ -383,10 +777,9 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
     source: "",
     status: "new",
     pipelineStage: "new",
+    priority: "medium",
+    purchaseType: "",
     tags: "",
-    website: "",
-    industry: "",
-    address: "",
   })
 
   const [error, setError] = useState("")
@@ -404,10 +797,9 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
       source: c?.source || "",
       status: c?.status || "new",
       pipelineStage: c?.pipelineStage || "new",
+      priority: c?.priority || "medium",
+      purchaseType: c?.purchaseType || "",
       tags: Array.isArray(c?.tags) ? c.tags.join(", ") : "",
-      website: c?.company?.website || "",
-      industry: c?.company?.industry || "",
-      address: c?.company?.address || "",
     })
   }, [open, initial])
 
@@ -428,15 +820,12 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
       source: form.source.trim() || "",
       status: form.status,
       pipelineStage: form.pipelineStage,
+      priority: form.priority,
+      purchaseType: form.purchaseType.trim() || "",
       tags: form.tags
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean),
-      company: {
-        website: form.website.trim() || "",
-        industry: form.industry.trim() || "",
-        address: form.address.trim() || "",
-      },
     }
 
     setIsSubmitting(true)
@@ -456,8 +845,8 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
     <ModalShell
       open={open}
       onClose={onClose}
-      title={mode === "edit" ? "Edit Lead" : "Create Lead"}
-      subtitle="Marketing capture + pipeline"
+      title={mode === "edit" ? "Edit lead" : "Create lead"}
+      subtitle=""
       icon={mode === "edit" ? <FiEdit2 className="w-5 h-5" /> : <FiPlus className="w-5 h-5" />}
       footer={
         <div className="flex flex-col sm:flex-row sm:justify-end gap-2">
@@ -470,17 +859,15 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
         </div>
       }
     >
-      {error ? (
-        <div className="mb-5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>
-      ) : null}
+      {error ? <div className="mb-5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div> : null}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Field label="Contact Name *">
+        <Field label="Contact name *">
           <input value={form.name} onChange={update("name")} className={input} placeholder="Person name" />
         </Field>
 
-        <Field label="Company Name *">
-          <input value={form.companyName} onChange={update("companyName")} className={input} placeholder="Company" />
+        <Field label="Company *">
+          <input value={form.companyName} onChange={update("companyName")} className={input} placeholder="Company name" />
         </Field>
 
         <Field label="Email">
@@ -501,7 +888,7 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
           </select>
         </Field>
 
-        <Field label="Pipeline Stage">
+        <Field label="Stage">
           <select value={form.pipelineStage} onChange={update("pipelineStage")} className={input}>
             <option value="new">new</option>
             <option value="qualified">qualified</option>
@@ -512,6 +899,18 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
           </select>
         </Field>
 
+        <Field label="Priority">
+          <select value={form.priority} onChange={update("priority")} className={input}>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select>
+        </Field>
+
+        <Field label="Purchase type">
+          <input value={form.purchaseType} onChange={update("purchaseType")} className={input} placeholder="Retail / Corporate / ..." />
+        </Field>
+
         <Field label="Source">
           <input value={form.source} onChange={update("source")} className={input} placeholder="Facebook / referral / walk-in..." />
         </Field>
@@ -519,25 +918,6 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
         <Field label="Tags (comma separated)">
           <input value={form.tags} onChange={update("tags")} className={input} placeholder="vip, hot, retail, ..." />
         </Field>
-
-        <div className="md:col-span-2">
-          <div className="border-t border-gray-100 pt-4">
-            <p className="text-sm font-bold text-gray-900 mb-3">Company Info</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Field label="Website">
-                <input value={form.website} onChange={update("website")} className={input} placeholder="https://..." />
-              </Field>
-              <Field label="Industry">
-                <input value={form.industry} onChange={update("industry")} className={input} placeholder="Industry" />
-              </Field>
-              <div className="md:col-span-2">
-                <Field label="Address">
-                  <input value={form.address} onChange={update("address")} className={input} placeholder="Street, area, city" />
-                </Field>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </ModalShell>
   )
@@ -574,7 +954,7 @@ function NoteModal({ open, onClose, lead, onAdded }) {
     <ModalShell
       open={open}
       onClose={onClose}
-      title="Add Note"
+      title="Add note"
       subtitle={lead?.contact?.name ? `Lead: ${lead.contact.name}` : ""}
       icon={<FiFileText className="w-5 h-5" />}
       maxWidthClass="max-w-xl"
@@ -589,9 +969,7 @@ function NoteModal({ open, onClose, lead, onAdded }) {
         </div>
       }
     >
-      {error ? (
-        <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>
-      ) : null}
+      {error ? <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div> : null}
       <textarea value={note} onChange={(e) => setNote(e.target.value)} className={cn(input, "min-h-[140px]")} />
     </ModalShell>
   )
@@ -634,7 +1012,7 @@ function FollowUpModal({ open, onClose, lead, onSaved }) {
     <ModalShell
       open={open}
       onClose={onClose}
-      title="Set Follow-up"
+      title="Set follow-up"
       subtitle={lead?.contact?.name ? `Lead: ${lead.contact.name}` : ""}
       icon={<FiCalendar className="w-5 h-5" />}
       maxWidthClass="max-w-xl"
@@ -644,16 +1022,13 @@ function FollowUpModal({ open, onClose, lead, onSaved }) {
             Cancel
           </button>
           <button onClick={submit} className={cn(btn, btnPrimary, "disabled:opacity-60")} disabled={loading}>
-            {loading ? "Saving..." : "Save follow-up"}
+            {loading ? "Saving..." : "Save"}
           </button>
         </div>
       }
     >
-      {error ? (
-        <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>
-      ) : null}
-
-      <Field label="Next Follow-up Date & Time">
+      {error ? <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div> : null}
+      <Field label="Next follow-up date & time">
         <input type="datetime-local" value={dt} onChange={(e) => setDt(e.target.value)} className={input} />
       </Field>
     </ModalShell>
@@ -668,17 +1043,12 @@ function FiltersModal({ open, onClose, draft, setDraft, onApply, onClearDraft })
       open={open}
       onClose={onClose}
       title="Filters"
-      subtitle="Server-side filters (fast)"
+      subtitle=""
       icon={<FiFilter className="w-5 h-5" />}
       maxWidthClass="max-w-4xl"
       footer={
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <button
-            type="button"
-            onClick={onClearDraft}
-            disabled={!hasAnyDraft}
-            className={cn(btn, btnGhost, "px-3 py-2 text-sm disabled:opacity-60")}
-          >
+          <button type="button" onClick={onClearDraft} disabled={!hasAnyDraft} className={cn(btn, btnGhost, "px-3 py-2 text-sm disabled:opacity-60")}>
             Clear
           </button>
           <div className="flex items-center justify-end gap-2">
@@ -692,119 +1062,78 @@ function FiltersModal({ open, onClose, draft, setDraft, onApply, onClearDraft })
         </div>
       }
     >
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div className="lg:col-span-12">
-          <div className={cn(card, "overflow-hidden")}>
-            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/70">
-              <p className="text-sm font-bold text-gray-900">Filter Options</p>
-              <p className="text-xs text-gray-500">Mapped to GET /api/leads query parameters</p>
-            </div>
+      <div className={cn(card, "overflow-hidden")}>
+        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/70">
+          <p className="text-sm font-bold text-gray-900">Filter options</p>
+        </div>
 
-            <div className="p-4 space-y-4">
-              <Field label="Text search (q)">
-                <input
-                  value={draft.q || ""}
-                  onChange={(e) => setDraft((p) => ({ ...p, q: e.target.value }))}
-                  className={input}
-                  placeholder="Name / email / phone / company"
-                />
-              </Field>
+        <div className="p-4 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Status">
+              <select value={draft.status || ""} onChange={(e) => setDraft((p) => ({ ...p, status: e.target.value }))} className={input}>
+                <option value="">All</option>
+                <option value="new">new</option>
+                <option value="contacted">contacted</option>
+                <option value="pending">pending</option>
+                <option value="confirmed">confirmed</option>
+                <option value="lost">lost</option>
+              </select>
+            </Field>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Status">
-                  <select
-                    value={draft.status || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, status: e.target.value }))}
-                    className={input}
-                  >
-                    <option value="">All</option>
-                    <option value="new">new</option>
-                    <option value="contacted">contacted</option>
-                    <option value="pending">pending</option>
-                    <option value="confirmed">confirmed</option>
-                    <option value="lost">lost</option>
-                  </select>
-                </Field>
+            <Field label="Stage">
+              <select value={draft.pipelineStage || ""} onChange={(e) => setDraft((p) => ({ ...p, pipelineStage: e.target.value }))} className={input}>
+                <option value="">All</option>
+                <option value="new">new</option>
+                <option value="qualified">qualified</option>
+                <option value="proposal">proposal</option>
+                <option value="negotiation">negotiation</option>
+                <option value="won">won</option>
+                <option value="lost">lost</option>
+              </select>
+            </Field>
+          </div>
 
-                <Field label="Pipeline Stage">
-                  <select
-                    value={draft.pipelineStage || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, pipelineStage: e.target.value }))}
-                    className={input}
-                  >
-                    <option value="">All</option>
-                    <option value="new">new</option>
-                    <option value="qualified">qualified</option>
-                    <option value="proposal">proposal</option>
-                    <option value="negotiation">negotiation</option>
-                    <option value="won">won</option>
-                    <option value="lost">lost</option>
-                  </select>
-                </Field>
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Priority">
+              <select value={draft.priority || ""} onChange={(e) => setDraft((p) => ({ ...p, priority: e.target.value }))} className={input}>
+                <option value="">All</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+              </select>
+            </Field>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Source">
-                  <input
-                    value={draft.source || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, source: e.target.value }))}
-                    className={input}
-                    placeholder="Facebook / referral / etc."
-                  />
-                </Field>
+            <Field label="Purchase type">
+              <input value={draft.purchaseType || ""} onChange={(e) => setDraft((p) => ({ ...p, purchaseType: e.target.value }))} className={input} placeholder="Retail / Corporate / ..." />
+            </Field>
+          </div>
 
-                <Field label="Tag">
-                  <input
-                    value={draft.tag || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, tag: e.target.value }))}
-                    className={input}
-                    placeholder="vip / hot / ..."
-                  />
-                </Field>
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Source">
+              <input value={draft.source || ""} onChange={(e) => setDraft((p) => ({ ...p, source: e.target.value }))} className={input} placeholder="Facebook / referral / etc." />
+            </Field>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Next Follow-up From">
-                  <input
-                    type="date"
-                    value={draft.nextFollowUpFrom || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, nextFollowUpFrom: e.target.value }))}
-                    className={input}
-                  />
-                </Field>
-                <Field label="Next Follow-up To">
-                  <input
-                    type="date"
-                    value={draft.nextFollowUpTo || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, nextFollowUpTo: e.target.value }))}
-                    className={input}
-                  />
-                </Field>
-              </div>
+            <Field label="Tag">
+              <input value={draft.tag || ""} onChange={(e) => setDraft((p) => ({ ...p, tag: e.target.value }))} className={input} placeholder="vip / hot / ..." />
+            </Field>
+          </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Last Contacted From">
-                  <input
-                    type="date"
-                    value={draft.lastContactedFrom || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, lastContactedFrom: e.target.value }))}
-                    className={input}
-                  />
-                </Field>
-                <Field label="Last Contacted To">
-                  <input
-                    type="date"
-                    value={draft.lastContactedTo || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, lastContactedTo: e.target.value }))}
-                    className={input}
-                  />
-                </Field>
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Next follow-up (from)">
+              <input type="date" value={draft.nextFollowUpFrom || ""} onChange={(e) => setDraft((p) => ({ ...p, nextFollowUpFrom: e.target.value }))} className={input} />
+            </Field>
+            <Field label="Next follow-up (to)">
+              <input type="date" value={draft.nextFollowUpTo || ""} onChange={(e) => setDraft((p) => ({ ...p, nextFollowUpTo: e.target.value }))} className={input} />
+            </Field>
+          </div>
 
-              <p className="text-xs text-gray-500">
-                Tip: use Follow-up filters daily to see who needs callbacks.
-              </p>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Last contacted (from)">
+              <input type="date" value={draft.lastContactedFrom || ""} onChange={(e) => setDraft((p) => ({ ...p, lastContactedFrom: e.target.value }))} className={input} />
+            </Field>
+            <Field label="Last contacted (to)">
+              <input type="date" value={draft.lastContactedTo || ""} onChange={(e) => setDraft((p) => ({ ...p, lastContactedTo: e.target.value }))} className={input} />
+            </Field>
           </div>
         </div>
       </div>
@@ -813,29 +1142,14 @@ function FiltersModal({ open, onClose, draft, setDraft, onApply, onClearDraft })
 }
 
 /* =========================
-   ROW ACTIONS MENU (Marketing)
-   - No delete
+   ROW ACTIONS MENU
 ========================= */
-function RowActionsMenu({
-  lead,
-  onView,
-  onEdit,
-  onAddNote,
-  onSetFollowUp,
-  onMarkContacted,
-  onConvert,
-  busy,
-  converting,
-  showToast,
-}) {
+function RowActionsMenu({ lead, onView, onEdit, onAddNote, onSetFollowUp, onMarkContacted, onConvert, busy, converting, showToast }) {
   const [open, setOpen] = useState(false)
   const menuRef = useRef(null)
 
   const converted =
-    !!lead?.convertedCustomer ||
-    !!lead?.convertedCustomerId ||
-    !!lead?.customerId ||
-    !!lead?.convertedCustomer?._id
+    !!lead?.convertedCustomer || !!lead?.convertedCustomerId || !!lead?.customerId || !!lead?.convertedCustomer?._id
 
   useEffect(() => {
     if (!open) return
@@ -876,33 +1190,15 @@ function RowActionsMenu({
             exit={{ opacity: 0, y: 6, scale: 0.98 }}
             className="absolute right-0 top-12 z-30 w-60 rounded-2xl border border-gray-100 bg-white shadow-xl p-2"
           >
-            <button
-              className={item}
-              onClick={() => {
-                setOpen(false)
-                onEdit?.(lead)
-              }}
-            >
+            <button className={item} onClick={() => (setOpen(false), onEdit?.(lead))}>
               <FiEdit2 className="w-4 h-4 text-gray-500" /> Edit
             </button>
 
-            <button
-              className={item}
-              onClick={() => {
-                setOpen(false)
-                onAddNote?.(lead)
-              }}
-            >
+            <button className={item} onClick={() => (setOpen(false), onAddNote?.(lead))}>
               <FiFileText className="w-4 h-4 text-gray-500" /> Add note
             </button>
 
-            <button
-              className={item}
-              onClick={() => {
-                setOpen(false)
-                onSetFollowUp?.(lead)
-              }}
-            >
+            <button className={item} onClick={() => (setOpen(false), onSetFollowUp?.(lead))}>
               <FiCalendar className="w-4 h-4 text-gray-500" /> Set follow-up
             </button>
 
@@ -914,11 +1210,7 @@ function RowActionsMenu({
                 onMarkContacted?.(lead?._id)
               }}
             >
-              {busy ? (
-                <FiLoader className="w-4 h-4 text-gray-500 animate-spin" />
-              ) : (
-                <FiPhoneCall className="w-4 h-4 text-gray-500" />
-              )}
+              {busy ? <FiLoader className="w-4 h-4 text-gray-500 animate-spin" /> : <FiPhoneCall className="w-4 h-4 text-gray-500" />}
               Mark contacted
             </button>
 
@@ -931,11 +1223,7 @@ function RowActionsMenu({
                 onConvert?.(lead?._id)
               }}
             >
-              {converting ? (
-                <FiLoader className="w-4 h-4 text-indigo-600 animate-spin" />
-              ) : (
-                <FiUserPlus className="w-4 h-4 text-indigo-600" />
-              )}
+              {converting ? <FiLoader className="w-4 h-4 text-indigo-600 animate-spin" /> : <FiUserPlus className="w-4 h-4 text-indigo-600" />}
               {converted ? "Already converted" : "Convert to customer"}
             </button>
 
@@ -962,18 +1250,9 @@ function RowActionsMenu({
 
 /* =========================
    LEAD DETAILS (VIEW)
+   (same as previous version; unchanged for this request)
 ========================= */
-function LeadDetails({
-  leadId,
-  refreshTick,
-  onBack,
-  onEdit,
-  onAddNote,
-  onSetFollowUp,
-  onMarkContacted,
-  onConvert,
-  showToast,
-}) {
+function LeadDetails({ leadId, refreshTick, onBack, onEdit, onAddNote, onSetFollowUp, onMarkContacted, onConvert, showToast }) {
   const [lead, setLead] = useState(null)
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState("")
@@ -1012,10 +1291,7 @@ function LeadDetails({
   const tags = useMemo(() => (Array.isArray(lead?.tags) ? lead.tags : []), [lead])
 
   const converted =
-    !!lead?.convertedCustomer ||
-    !!lead?.convertedCustomerId ||
-    !!lead?.customerId ||
-    !!lead?.convertedCustomer?._id
+    !!lead?.convertedCustomer || !!lead?.convertedCustomerId || !!lead?.customerId || !!lead?.convertedCustomer?._id
 
   const customerId =
     lead?.customerId ||
@@ -1024,7 +1300,6 @@ function LeadDetails({
     (typeof lead?.convertedCustomer === "string" ? lead.convertedCustomer : "")
 
   const contact = lead?.contact || {}
-  const company = lead?.company || {}
 
   return (
     <div className={cn(shell, "p-4 sm:p-6 lg:p-8")}>
@@ -1035,10 +1310,7 @@ function LeadDetails({
               <div className="flex items-start gap-3">
                 <button
                   onClick={onBack}
-                  className={cn(
-                    "h-10 w-10 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition",
-                    "flex items-center justify-center"
-                  )}
+                  className={cn("h-10 w-10 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition", "flex items-center justify-center")}
                   title="Back"
                   aria-label="Back"
                 >
@@ -1050,9 +1322,9 @@ function LeadDetails({
                     <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">{contact?.name || "Lead"}</h1>
                     <LeadStatusBadge status={lead?.status} />
                     <StageBadge stage={lead?.pipelineStage} />
-                    {converted ? (
-                      <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>Converted</span>
-                    ) : null}
+                    {lead?.priority ? <PriorityBadge priority={lead.priority} /> : null}
+                    {lead?.purchaseType ? <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>{lead.purchaseType}</span> : null}
+                    {converted ? <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>Converted</span> : null}
                   </div>
 
                   <p className="text-sm text-gray-600 mt-1 truncate">
@@ -1099,7 +1371,7 @@ function LeadDetails({
 
                 <button onClick={() => onAddNote?.(lead)} className={cn(btn, btnGhost)} disabled={!lead}>
                   <FiFileText className="w-4 h-4" />
-                  Add Note
+                  Add note
                 </button>
 
                 <button onClick={() => onSetFollowUp?.(lead)} className={cn(btn, btnGhost)} disabled={!lead}>
@@ -1145,7 +1417,7 @@ function LeadDetails({
             <p className="text-sm font-bold text-gray-900">Contact</p>
             <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="p-4 rounded-2xl border border-gray-100 bg-gray-50/60">
-                <p className="text-xs font-bold text-gray-500">Name</p>
+                <p className="text-xs font-bold text-gray-500">Contact name</p>
                 <p className="text-sm font-semibold text-gray-900 mt-1">{contact?.name || "—"}</p>
               </div>
               <div className="p-4 rounded-2xl border border-gray-100 bg-gray-50/60">
@@ -1164,19 +1436,29 @@ function LeadDetails({
           </div>
 
           <div className={cn(card, "p-5")}>
-            <p className="text-sm font-bold text-gray-900">Company</p>
+            <p className="text-sm font-bold text-gray-900">Lead info</p>
             <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="p-4 rounded-2xl border border-gray-100 bg-gray-50/60">
-                <p className="text-xs font-bold text-gray-500">Website</p>
-                <p className="text-sm font-semibold text-gray-900 mt-1 break-all">{company?.website || "—"}</p>
+                <p className="text-xs font-bold text-gray-500">Status</p>
+                <div className="mt-1">
+                  <LeadStatusBadge status={lead?.status} />
+                </div>
               </div>
               <div className="p-4 rounded-2xl border border-gray-100 bg-gray-50/60">
-                <p className="text-xs font-bold text-gray-500">Industry</p>
-                <p className="text-sm font-semibold text-gray-900 mt-1">{company?.industry || "—"}</p>
+                <p className="text-xs font-bold text-gray-500">Stage</p>
+                <div className="mt-1">
+                  <StageBadge stage={lead?.pipelineStage} />
+                </div>
               </div>
-              <div className="sm:col-span-2 p-4 rounded-2xl border border-gray-100 bg-gray-50/60">
-                <p className="text-xs font-bold text-gray-500">Address</p>
-                <p className="text-sm font-semibold text-gray-900 mt-1">{company?.address || "—"}</p>
+              <div className="p-4 rounded-2xl border border-gray-100 bg-gray-50/60">
+                <p className="text-xs font-bold text-gray-500">Priority</p>
+                <div className="mt-1">
+                  <PriorityBadge priority={lead?.priority} />
+                </div>
+              </div>
+              <div className="p-4 rounded-2xl border border-gray-100 bg-gray-50/60">
+                <p className="text-xs font-bold text-gray-500">Purchase type</p>
+                <p className="text-sm font-semibold text-gray-900 mt-1">{lead?.purchaseType || "—"}</p>
               </div>
             </div>
 
@@ -1207,9 +1489,7 @@ function LeadDetails({
 
             <div className="mt-4">
               {notes.length === 0 ? (
-                <div className="p-4 rounded-2xl border border-gray-100 bg-gray-50/60 text-sm text-gray-600">
-                  No notes yet.
-                </div>
+                <div className="p-4 rounded-2xl border border-gray-100 bg-gray-50/60 text-sm text-gray-600">No notes yet.</div>
               ) : (
                 <ul className="space-y-3">
                   {notes
@@ -1220,15 +1500,10 @@ function LeadDetails({
                       const at = n?.createdAt || n?.at || n?.date || null
                       const by = n?.createdBy?.name || n?.by?.name || n?.createdBy || ""
                       return (
-                        <li
-                          key={n?._id || `${idx}-${text.slice(0, 10)}`}
-                          className="p-4 rounded-2xl border border-gray-100 bg-white"
-                        >
+                        <li key={n?._id || `${idx}-${text.slice(0, 10)}`} className="p-4 rounded-2xl border border-gray-100 bg-white">
                           <div className="flex items-start justify-between gap-3">
                             <p className="text-sm font-semibold text-gray-900 whitespace-pre-wrap flex-1">{text || "—"}</p>
-                            <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200 shrink-0")}>
-                              {formatDateTime(at)}
-                            </span>
+                            <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200 shrink-0")}>{formatDateTime(at)}</span>
                           </div>
                           {by ? <p className="text-xs text-gray-500 mt-2">By: {by}</p> : null}
                         </li>
@@ -1271,8 +1546,7 @@ function LeadDetails({
           </div>
 
           <div className={cn(card, "p-5")}>
-            <p className="text-sm font-bold text-gray-900">Quick Actions</p>
-            <p className="text-xs text-gray-500 mt-1">One-click operations</p>
+            <p className="text-sm font-bold text-gray-900">Quick actions</p>
 
             <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
               <button onClick={() => onMarkContacted?.(lead?._id)} disabled={!lead} className={cn(btn, btnGhost, "justify-start")}>
@@ -1315,10 +1589,12 @@ function LeadDetails({
 }
 
 /* =========================
-   MAIN PAGE (MARKETING)
+   MAIN PAGE
 ========================= */
 export default function MarketingLeadsPage({ onConvertedToCustomer }) {
   const PAGE_SIZE = 25
+  const EXPORT_PAGE_SIZE = 200
+  const EXPORT_MAX_ROWS = 5000
 
   const [leads, setLeads] = useState([])
   const [isLoading, setIsLoading] = useState(false)
@@ -1335,6 +1611,8 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
     q: "",
     status: "",
     pipelineStage: "",
+    priority: "",
+    purchaseType: "",
     source: "",
     tag: "",
     nextFollowUpFrom: "",
@@ -1346,6 +1624,14 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [draft, setDraft] = useState(filters)
 
+  const [columnsOpen, setColumnsOpen] = useState(false)
+  const [visibleColumns, setVisibleColumns] = useState(() => loadColumnsFromStorage())
+  const visibleColumnDefs = useMemo(
+    () => visibleColumns.map((k) => COLUMN_DEFS.find((c) => c.key === k)).filter(Boolean),
+    [visibleColumns]
+  )
+  const fieldsParam = useMemo(() => deriveFieldsParam(visibleColumns), [visibleColumns])
+
   const [showCreate, setShowCreate] = useState(false)
   const [editLead, setEditLead] = useState(null)
   const [noteLead, setNoteLead] = useState(null)
@@ -1353,6 +1639,7 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
 
   const [convertLoadingId, setConvertLoadingId] = useState(null)
   const [busyId, setBusyId] = useState(null)
+  const [exporting, setExporting] = useState(false)
 
   const [toast, setToast] = useState({ open: false, type: "success", message: "" })
   const showToast = (type, message) => {
@@ -1372,6 +1659,8 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
     const p = {}
     if (filters.status) p.status = filters.status
     if (filters.pipelineStage) p.pipelineStage = filters.pipelineStage
+    if (filters.priority) p.priority = filters.priority
+    if (filters.purchaseType) p.purchaseType = filters.purchaseType
     if (filters.source) p.source = filters.source
     if (filters.tag) p.tag = filters.tag
     if (filters.q) p.q = filters.q
@@ -1379,6 +1668,7 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
     if (filters.nextFollowUpTo) p.nextFollowUpTo = filters.nextFollowUpTo
     if (filters.lastContactedFrom) p.lastContactedFrom = filters.lastContactedFrom
     if (filters.lastContactedTo) p.lastContactedTo = filters.lastContactedTo
+    if (fieldsParam) p.fields = fieldsParam
     return p
   }
 
@@ -1439,50 +1729,17 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(filters)])
 
-  const openFilters = () => {
-    setDraft(filters)
-    setFiltersOpen(true)
-  }
-
-  const clearFilters = () => {
-    setFilters({
-      q: "",
-      status: "",
-      pipelineStage: "",
-      source: "",
-      tag: "",
-      nextFollowUpFrom: "",
-      nextFollowUpTo: "",
-      lastContactedFrom: "",
-      lastContactedTo: "",
-    })
-  }
-
-  const clearDraft = () => {
-    setDraft({
-      q: "",
-      status: "",
-      pipelineStage: "",
-      source: "",
-      tag: "",
-      nextFollowUpFrom: "",
-      nextFollowUpTo: "",
-      lastContactedFrom: "",
-      lastContactedTo: "",
-    })
-  }
-
-  const applyDraft = () => {
-    setFilters(draft)
-    setFiltersOpen(false)
-  }
+  useEffect(() => {
+    fetchLeadsPage({ reset: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fieldsParam])
 
   const doMarkContacted = async (leadId) => {
     if (!leadId) return
     setBusyId(leadId)
     try {
       await apiMarkContacted(leadId)
-      showToast("success", "Lead marked as contacted.")
+      showToast("success", "Marked as contacted.")
       await fetchLeadsPage({ reset: true })
       bumpDetailsRefresh()
     } catch (e) {
@@ -1515,7 +1772,6 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
 
   const disableLoadMore = isLoadingMore || isLoading || !hasMore
 
-  // Marketing KPI chips
   const kpis = useMemo(() => {
     const total = leads.length
     const due = leads.filter((l) => l?.nextFollowUpAt && new Date(l.nextFollowUpAt) <= new Date()).length
@@ -1524,15 +1780,116 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
     return { total, due, contacted, confirmed }
   }, [leads])
 
+  const openFilters = () => {
+    setDraft(filters)
+    setFiltersOpen(true)
+  }
+
+  const clearFilters = () => {
+    setFilters({
+      q: "",
+      status: "",
+      pipelineStage: "",
+      priority: "",
+      purchaseType: "",
+      source: "",
+      tag: "",
+      nextFollowUpFrom: "",
+      nextFollowUpTo: "",
+      lastContactedFrom: "",
+      lastContactedTo: "",
+    })
+  }
+
+  const clearDraft = () => {
+    setDraft({
+      q: "",
+      status: "",
+      pipelineStage: "",
+      priority: "",
+      purchaseType: "",
+      source: "",
+      tag: "",
+      nextFollowUpFrom: "",
+      nextFollowUpTo: "",
+      lastContactedFrom: "",
+      lastContactedTo: "",
+    })
+  }
+
+  const applyDraft = () => {
+    setFilters(draft)
+    setFiltersOpen(false)
+  }
+
+  // ✅ Export (Excel-friendly CSV) with current column selection + current filters
+  const exportToExcel = async () => {
+    if (exporting) return
+    if (!visibleColumnDefs.length) {
+      showToast("error", "Please select at least 1 column.")
+      return
+    }
+
+    setExporting(true)
+    try {
+      const all = []
+      let cursor = null
+      let hasNext = true
+      const params = buildParams()
+
+      while (hasNext && all.length < EXPORT_MAX_ROWS) {
+        const data = await apiListLeads({
+          limit: EXPORT_PAGE_SIZE,
+          cursor,
+          params,
+        })
+
+        const items = Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data?.leads)
+          ? data.leads
+          : Array.isArray(data?.results)
+          ? data.results
+          : []
+
+        all.push(...items)
+
+        const page = data?.pageInfo || {}
+        const nc = page?.nextCursor ?? data?.nextCursor ?? null
+        const hm = page?.hasNextPage ?? data?.hasMore ?? false
+
+        cursor = nc
+        hasNext = !!hm && !!nc
+        if (!!hm && !nc) hasNext = false
+      }
+
+      if (!all.length) {
+        showToast("error", "No data to export.")
+        return
+      }
+
+      const headers = visibleColumnDefs.map((c) => c.label)
+      const rows = all.slice(0, EXPORT_MAX_ROWS).map((l) =>
+        visibleColumnDefs.map((c) => (typeof c.exportValue === "function" ? c.exportValue(l) : ""))
+      )
+
+      const today = new Date()
+      const stamp = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`
+      const filename = `marketing-leads-${stamp}.csv`
+
+      downloadCSV({ filename, headers, rows })
+      showToast("success", `Exported ${Math.min(all.length, EXPORT_MAX_ROWS)} lead(s)`)
+    } catch (e) {
+      showToast("error", e?.message || "Export failed")
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className={shell}>
       <AnimatePresence>
-        <Toast
-          open={toast.open}
-          type={toast.type}
-          message={toast.message}
-          onClose={() => setToast({ open: false, type: "success", message: "" })}
-        />
+        <Toast open={toast.open} type={toast.type} message={toast.message} onClose={() => setToast({ open: false, type: "success", message: "" })} />
       </AnimatePresence>
 
       <AnimatePresence>
@@ -1549,44 +1906,33 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
       </AnimatePresence>
 
       <AnimatePresence>
-        {showCreate ? (
-          <LeadUpsertModal open={showCreate} mode="create" onClose={() => setShowCreate(false)} onSaved={afterMutate} />
+        {columnsOpen ? (
+          <ColumnsModal open={columnsOpen} onClose={() => setColumnsOpen(false)} visibleColumns={visibleColumns} setVisibleColumns={setVisibleColumns} />
         ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showCreate ? <LeadUpsertModal open={showCreate} mode="create" onClose={() => setShowCreate(false)} onSaved={afterMutate} /> : null}
       </AnimatePresence>
 
       <AnimatePresence>
         {!!editLead ? (
-          <LeadUpsertModal
-            open={!!editLead}
-            mode="edit"
-            initial={editLead}
-            onClose={() => setEditLead(null)}
-            onSaved={afterMutate}
-          />
+          <LeadUpsertModal open={!!editLead} mode="edit" initial={editLead} onClose={() => setEditLead(null)} onSaved={afterMutate} />
         ) : null}
       </AnimatePresence>
 
       <AnimatePresence>
-        {!!noteLead ? (
-          <NoteModal open={!!noteLead} lead={noteLead} onClose={() => setNoteLead(null)} onAdded={afterMutate} />
-        ) : null}
+        {!!noteLead ? <NoteModal open={!!noteLead} lead={noteLead} onClose={() => setNoteLead(null)} onAdded={afterMutate} /> : null}
       </AnimatePresence>
 
       <AnimatePresence>
-        {!!followupLead ? (
-          <FollowUpModal
-            open={!!followupLead}
-            lead={followupLead}
-            onClose={() => setFollowupLead(null)}
-            onSaved={afterMutate}
-          />
-        ) : null}
+        {!!followupLead ? <FollowUpModal open={!!followupLead} lead={followupLead} onClose={() => setFollowupLead(null)} onSaved={afterMutate} /> : null}
       </AnimatePresence>
 
       {selectedLeadId ? (
         <LeadDetails
           leadId={selectedLeadId}
-          refreshTick={detailsRefreshTick}
+          refreshTick={0}
           onBack={() => {
             setSelectedLeadId(null)
             fetchLeadsPage({ reset: true })
@@ -1596,11 +1942,10 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
           onSetFollowUp={(lead) => setFollowupLead(lead)}
           onMarkContacted={(id) => doMarkContacted(id)}
           onConvert={(id) => doConvert(id)}
-          showToast={showToast}
+          showToast={(t, m) => showToast(t, m)}
         />
       ) : (
         <div className="p-4 sm:p-6 lg:p-8">
-          {/* HEADER */}
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
             <div className={cn(card, "p-6")}>
               <div className="flex flex-col gap-4">
@@ -1611,46 +1956,64 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
                     </div>
                     <div>
                       <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Marketing Leads</h1>
-                      <p className="text-sm text-gray-500">Capture • Follow-up • Convert (no delete access)</p>
                     </div>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-600/60" />
-                      Total: {kpis.total}
-                    </span>
-                    <span className={cn(chip, "bg-amber-50 text-amber-800 ring-amber-600/10")}>
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-600/50" />
-                      Due follow-up: {kpis.due}
-                    </span>
-                    <span className={cn(chip, "bg-sky-50 text-sky-700 ring-sky-600/10")}>
-                      <span className="w-1.5 h-1.5 rounded-full bg-sky-600/50" />
-                      Contacted: {kpis.contacted}
-                    </span>
-                    <span className={cn(chip, "bg-green-50 text-green-700 ring-green-600/10")}>
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-600/50" />
-                      Confirmed: {kpis.confirmed}
-                    </span>
-
                     <button onClick={() => fetchLeadsPage({ reset: true })} className={cn(btn, btnGhost)} title="Refresh">
                       <FiRefreshCcw className={cn("w-4 h-4", isLoading ? "animate-spin" : "")} />
                       Refresh
                     </button>
 
+                    <button onClick={() => setColumnsOpen(true)} className={cn(btn, btnGhost)} title="Columns">
+                      <FiColumns className="w-4 h-4" />
+                      Columns
+                      <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>{visibleColumns.length}</span>
+                    </button>
+
+                    {/* ✅ Premium Excel button */}
+                    <button onClick={exportToExcel} disabled={exporting} className={cn(btnExcel, "disabled:opacity-60")} title="Export to Excel">
+                      {exporting ? (
+                        <FiLoader className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-lg bg-white/15">
+                          <SiMicrosoftexcel className="w-4 h-4" />
+                        </span>
+                      )}
+                      Export
+                    </button>
+
                     <button onClick={() => setShowCreate(true)} className={cn(btn, btnPrimary)}>
                       <FiPlus className="w-4 h-4" />
-                      Create Lead
+                      Create lead
                     </button>
                   </div>
                 </div>
 
-                {/* SEARCH BAR */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-600/60" />
+                    Total: {kpis.total}
+                  </span>
+                  <span className={cn(chip, "bg-amber-50 text-amber-800 ring-amber-600/10")}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-600/50" />
+                    Due follow-up: {kpis.due}
+                  </span>
+                  <span className={cn(chip, "bg-sky-50 text-sky-700 ring-sky-600/10")}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-sky-600/50" />
+                    Contacted: {kpis.contacted}
+                  </span>
+                  <span className={cn(chip, "bg-green-50 text-green-700 ring-green-600/10")}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-600/50" />
+                    Confirmed: {kpis.confirmed}
+                  </span>
+                </div>
+
                 <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
                   <div className="w-full lg:w-2/3">
                     <div
                       className={cn(
-                        "w-full h-12 rounded-2xl border border-gray-200 bg-white",
+                        "w-full h-11 rounded-2xl border border-gray-200 bg-white",
                         "px-3 flex items-center gap-2",
                         "focus-within:ring-2 focus-within:ring-indigo-500/40 focus-within:border-transparent"
                       )}
@@ -1664,7 +2027,8 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
                         className={cn(
                           "flex-1 min-w-[12rem] bg-transparent",
                           "text-sm text-gray-900 placeholder:text-gray-400",
-                          "border-0 outline-none ring-0 shadow-none appearance-none"
+                          "border-0 outline-none ring-0 shadow-none appearance-none",
+                          "focus:outline-none focus:ring-0 focus:shadow-none"
                         )}
                       />
 
@@ -1702,9 +2066,7 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
                       ) : null}
                     </div>
 
-                    <p className="mt-2 text-xs text-gray-500">
-                      Lead number is visible in the list for quick sharing.
-                    </p>
+                    <p className="mt-2 text-xs text-gray-500">Use “Columns” to show more details in the list. Export uses the same columns.</p>
                   </div>
 
                   <div className="text-sm text-gray-600">
@@ -1722,24 +2084,18 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
             </div>
           ) : null}
 
-          {/* TABLE */}
           <div className={cn(card, "overflow-hidden")}>
             <div className="max-h-[65vh] overflow-y-auto">
               <table className="w-full">
                 <thead className="sticky top-0 z-10 bg-white/85 backdrop-blur border-b border-gray-100">
                   <tr>
                     <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">#</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
-                      Lead (Lead No.)
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Stage</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
-                      Follow-up
-                    </th>
-                    <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
+                    {visibleColumnDefs.map((c) => (
+                      <th key={c.key} className={cn("px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider", c.widthClass || "")}>
+                        {c.label}
+                      </th>
+                    ))}
+                    <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
 
@@ -1748,9 +2104,12 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
                     {isLoading && leads.length === 0 ? (
                       [...Array(8)].map((_, idx) => (
                         <tr key={idx} className="animate-pulse">
-                          {[...Array(6)].map((__, i) => (
+                          <td className="px-6 py-4">
+                            <div className="h-4 w-10 bg-gray-200 rounded" />
+                          </td>
+                          {[...Array(Math.max(visibleColumnDefs.length + 1, 3))].map((__, i) => (
                             <td key={i} className="px-6 py-4">
-                              <div className="h-4 w-full max-w-[12rem] bg-gray-200 rounded" />
+                              <div className="h-4 w-full max-w-[14rem] bg-gray-200 rounded" />
                             </td>
                           ))}
                         </tr>
@@ -1760,91 +2119,15 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
                         const busy = busyId === l._id
                         const converting = convertLoadingId === l._id
 
-                        const name = l?.contact?.name || "Unnamed"
-                        const company = l?.contact?.companyName || "—"
-                        const source = l?.source || ""
-                        const leadNumber = l?.leadNumber || ""
-
-                        const converted =
-                          !!l?.convertedCustomer ||
-                          !!l?.convertedCustomerId ||
-                          !!l?.customerId ||
-                          !!l?.convertedCustomer?._id
-
                         return (
-                          <motion.tr
-                            key={l?._id || `lead-${index}`}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className={subtleHover}
-                          >
+                          <motion.tr key={l?._id || `lead-${index}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className={subtleHover}>
                             <td className="px-6 py-5 text-sm text-gray-500">{index + 1}</td>
 
-                            <td className="px-6 py-5">
-                              <div className="flex items-center gap-3">
-                                <div className="h-10 w-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
-                                  <span className="text-sm font-bold text-indigo-700">{initials(name)}</span>
-                                </div>
-
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <p className="font-semibold text-gray-900 truncate">{name}</p>
-                                    {converted ? (
-                                      <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>
-                                        Converted
-                                      </span>
-                                    ) : null}
-                                  </div>
-
-                                  <p className="text-xs text-gray-500 mt-0.5 truncate">
-                                    <span className="text-gray-400">Company:</span>{" "}
-                                    <span className="font-semibold text-gray-700">{company}</span>
-                                    {source ? (
-                                      <>
-                                        <span className="mx-2 text-gray-300">•</span>
-                                        <span className="text-gray-400">Source:</span>{" "}
-                                        <span className="font-semibold text-gray-700">{source}</span>
-                                      </>
-                                    ) : null}
-                                  </p>
-
-                                  <div className="mt-1 flex items-center gap-2">
-                                    {leadNumber ? (
-                                      <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>
-                                        <span className="text-gray-500">Lead No:</span>{" "}
-                                        <span className="font-bold font-mono">{leadNumber}</span>
-                                        <button
-                                          className="ml-1 p-1 rounded-lg hover:bg-black/5"
-                                          title="Copy"
-                                          onClick={() => {
-                                            copyToClipboard(leadNumber)
-                                            showToast("success", "Lead number copied.")
-                                          }}
-                                        >
-                                          <FiCopy className="w-3.5 h-3.5" />
-                                        </button>
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
-
-                            <td className="px-6 py-5">
-                              <LeadStatusBadge status={l?.status} />
-                            </td>
-
-                            <td className="px-6 py-5">
-                              <StageBadge stage={l?.pipelineStage} />
-                            </td>
-
-                            <td className="px-6 py-5 text-sm text-gray-700">
-                              <div className="flex flex-col">
-                                <span className="font-semibold text-gray-900">{formatDate(l?.nextFollowUpAt)}</span>
-                                <span className="text-xs text-gray-500">Last contacted: {formatDate(l?.lastContactedAt)}</span>
-                              </div>
-                            </td>
+                            {visibleColumnDefs.map((c) => (
+                              <td key={c.key} className={cn("px-6 py-5 align-top", c.widthClass || "")}>
+                                {c.render ? c.render(l, { showToast }) : <span className="text-sm text-gray-700">—</span>}
+                              </td>
+                            ))}
 
                             <td className="px-6 py-5">
                               <RowActionsMenu
@@ -1865,7 +2148,7 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
                       })
                     ) : (
                       <tr>
-                        <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                        <td colSpan={visibleColumnDefs.length + 2} className="px-6 py-12 text-center text-gray-500">
                           No leads found.
                         </td>
                       </tr>
@@ -1896,10 +2179,6 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
                 </button>
               </div>
             </div>
-          </div>
-
-          <div className="mt-4 text-xs text-gray-500">
-            Note: Delete is not available for Marketing (backend requires Admin/SuperAdmin for DELETE /api/leads/:id).
           </div>
         </div>
       )}

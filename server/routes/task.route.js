@@ -31,28 +31,30 @@ router.use(protect);
 ========================= */
 
 // list (cursor pagination)
-// GET /customers/:customerId/tasks?limit=20&cursor=<taskId>
+// GET /customers/:customerId/tasks?limit=20&cursor=<taskId>&jobId=&rootJobId=
 router.get("/customers/:customerId/tasks", getCustomerTasks);
 
 // create task (admin/superadmin)
+// POST /customers/:customerId/tasks
 router.post("/customers/:customerId/tasks", addTask);
 
 // admin update full task
+// PATCH /customers/:customerId/tasks/:taskId
 router.patch("/customers/:customerId/tasks/:taskId", updateTaskByAdmin);
 
 // employee/admin update status
+// PATCH /customers/:customerId/tasks/:taskId/status
 router.patch("/customers/:customerId/tasks/:taskId/status", updateTaskStatus);
 
-// ✅ NEW: upload file(s) under a subtitle (+ optional note)
-// body: single {key,url,originalName,..., note?, attachNoteTo?}
-// or multi {files:[...], note?, attachNoteTo?}
+// ✅ upload file(s) under a subtitle (+ optional note)
+// POST /customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files
 router.post(
   "/customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files",
   addSubtitleFiles
 );
 
-// ✅ NEW: add note under a subtitle (or under a specific file via fileId)
-// body: { text, fileId? }
+// ✅ add note under a subtitle (or under a specific file via fileId)
+// POST /customers/:customerId/tasks/:taskId/subtitles/:subtitleId/notes
 router.post(
   "/customers/:customerId/tasks/:taskId/subtitles/:subtitleId/notes",
   addSubtitleNote
@@ -62,6 +64,7 @@ router.post(
 router.post("/customers/:customerId/tasks/:taskId/files", addTaskFile);
 
 // delete task (admin/superadmin)
+// DELETE /customers/:customerId/tasks/:taskId
 router.delete("/customers/:customerId/tasks/:taskId", deleteTask);
 
 /* =========================

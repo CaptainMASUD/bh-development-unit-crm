@@ -39,6 +39,17 @@ const leadSchema = new mongoose.Schema(
       index: true,
     },
 
+    // ✅ NEW: priority
+    priority: {
+      type: String,
+      enum: ["low", "medium", "high"],
+      default: "medium",
+      index: true,
+    },
+
+    // ✅ NEW: purchase type (kept flexible, can be enum later)
+    purchaseType: { type: String, trim: true, default: "", index: true },
+
     source: { type: String, trim: true, default: "", index: true },
 
     company: {
@@ -64,7 +75,7 @@ const leadSchema = new mongoose.Schema(
   {
     timestamps: true,
     minimize: true,
-    optimisticConcurrency: true, // ✅ protects from overwrite races
+    optimisticConcurrency: true,
   }
 );
 
@@ -72,9 +83,13 @@ const leadSchema = new mongoose.Schema(
 leadSchema.index({ assignedTo: 1, _id: -1 });
 leadSchema.index({ assignedTo: 1, status: 1, _id: -1 });
 leadSchema.index({ assignedTo: 1, nextFollowUpAt: 1, _id: -1 });
-
 leadSchema.index({ createdBy: 1, status: 1 });
 leadSchema.index({ pipelineStage: 1, assignedTo: 1, _id: -1 });
+
+// ✅ NEW: supports quick priority filters at scale
+leadSchema.index({ assignedTo: 1, priority: 1, _id: -1 });
+leadSchema.index({ priority: 1, _id: -1 });
+leadSchema.index({ purchaseType: 1, _id: -1 });
 
 /* ✅ TEXT SEARCH */
 leadSchema.index(
@@ -85,6 +100,7 @@ leadSchema.index(
     "contact.companyName": "text",
     leadNumber: "text",
     source: "text",
+    purchaseType: "text",
   },
   { name: "lead_text_search" }
 );

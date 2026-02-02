@@ -13,6 +13,7 @@ import NotFoundPremium from './Components/ErrorBoundary/NotFoundPremium';
 import EmployeeDashboard from './Components/Employee/Dashboard';
 import RegisterForm from './Components/Register/Register';
 import MarketingDashboard from './Components/Marketing/Dashboard';
+import EcommerceHomePage from './Components/test/Admin';
 
 
 
@@ -29,6 +30,7 @@ const router = createBrowserRouter([
       { path: 'employee', element: <EmployeeDashboard /> },
       { path: 'marketing', element: <MarketingDashboard /> },
       { path: 'crm', element: <RegisterForm /> },
+      { path: 't', element: <EcommerceHomePage /> },
       
     ],
   },

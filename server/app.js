@@ -26,6 +26,8 @@ import dashboardRoutes from "./routes/dashboard.routes.js";
 import engagementTemplateRoutes from "./routes/engagementTemplate.route.js";
 import workloadRoutes from "./routes/workload.route.js";
 import activityRoutes from "./routes/activity.routes.js";
+import viewPreferenceRoutes from "./routes/viewPreference.routes.js";
+import purchaseTypeRoutes from "./routes/purchaseType.routes.js";
 
 app.use("/api/activity", activityRoutes);
 
@@ -49,6 +51,9 @@ app.use("/api", reportRoutes);
 
 app.use("/api/upload", uploadRoutes);
 app.use("/api/users", userRoutes);
+
+app.use("/api/view-preferences", viewPreferenceRoutes);
+app.use("/api/purchase-types", purchaseTypeRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

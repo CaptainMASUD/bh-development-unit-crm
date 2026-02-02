@@ -21,7 +21,6 @@ const invalidateDashboardCache = () => {
       if (String(k).startsWith("dashboard:v1:")) dashboardCache.del(k);
     }
   } catch {
-    // fallback
     try {
       dashboardCache.flushAll?.();
     } catch {}
@@ -260,6 +259,108 @@ const buildCustomerListMatch = (req) => {
   return { match, error: null };
 };
 
+/* ------------------ access helpers ------------------ */
+
+const customerAccessForEmployee = (customer, userId) => {
+  if (!customer) return false;
+  const uid = String(userId);
+
+  const createdBy = String(customer.createdBy?._id ?? customer.createdBy ?? "");
+  const assigned = Array.isArray(customer.assignedTo) ? customer.assignedTo : [];
+  const assignedIds = assigned.map((x) => String(x?._id ?? x));
+
+  return createdBy === uid || assignedIds.includes(uid);
+};
+
+const ensureEmployeesExistActive = async (ids) => {
+  if (!Array.isArray(ids) || ids.length === 0) return true;
+  const count = await User.countDocuments({ _id: { $in: ids }, role: "employee", isActive: true });
+  return count === ids.length;
+};
+
+const ensureIdsSubsetOfCustomerAssigned = (customerAssignedTo, ids) => {
+  const set = new Set((customerAssignedTo || []).map((x) => String(x?._id ?? x)));
+  const notAssigned = (ids || []).filter((id) => !set.has(String(id)));
+  return { ok: notAssigned.length === 0, notAssigned };
+};
+
+/* ------------------ Jobs helpers (max depth = 2) ------------------ */
+
+const normalizeJobStatus = (v) => {
+  const s = String(v ?? "active").toLowerCase();
+  const allowed = new Set(["active", "on_hold", "completed"]);
+  return allowed.has(s) ? s : "active";
+};
+
+const buildJobsTreeDepth2 = (jobsFlat = []) => {
+  const byId = new Map();
+  for (const j of jobsFlat || []) {
+    byId.set(String(j._id), {
+      ...j,
+      _id: j._id,
+      parentJobId: j.parentJobId ?? null,
+      children: [],
+    });
+  }
+
+  const roots = [];
+  for (const node of byId.values()) {
+    if (!node.parentJobId) {
+      roots.push(node);
+      continue;
+    }
+    const parent = byId.get(String(node.parentJobId));
+    if (parent) parent.children.push(node);
+    else roots.push({ ...node, parentJobId: null }); // fallback: treat as root
+  }
+
+  // stable-ish sort (newest first)
+  const sortBy = (a, b) => String(b._id).localeCompare(String(a._id));
+  roots.sort(sortBy);
+  for (const r of roots) r.children.sort(sortBy);
+
+  return roots;
+};
+
+const validateJobParentDepth2 = (jobsFlat, parentJobId) => {
+  if (!parentJobId) return { ok: true, parent: null };
+
+  const pid = String(parentJobId);
+  const parent = (jobsFlat || []).find((j) => String(j._id) === pid);
+  if (!parent) return { ok: false, error: "parentJobId not found under this customer." };
+
+  // parent must be a root (depth=1), not a sub-job
+  if (parent.parentJobId) {
+    return { ok: false, error: "Max depth=2. parentJobId must be a root job (not a sub-job)." };
+  }
+
+  return { ok: true, parent };
+};
+
+const getJobNodeById = (jobsFlat, jobId) => {
+  const jid = String(jobId);
+  return (jobsFlat || []).find((j) => String(j._id) === jid) || null;
+};
+
+const getJobIdSetForDeletion = (jobsFlat, jobId) => {
+  const base = String(jobId);
+  const node = getJobNodeById(jobsFlat, base);
+  if (!node) return { error: "jobId not found under this customer." };
+
+  const ids = new Set([base]);
+
+  // if deleting a root job, include its children
+  if (!node.parentJobId) {
+    for (const j of jobsFlat || []) {
+      if (j.parentJobId && String(j.parentJobId) === base) {
+        ids.add(String(j._id));
+      }
+    }
+  }
+
+  return { ids };
+};
+
 /* =========================================================
    EMPLOYEE SEARCH FOR ASSIGN (optimized)
    GET /customers/employees/search?q=&active=true|false|all&limit=&cursor=<userId>
@@ -290,10 +391,7 @@ export const searchEmployeesForCustomerAssign = async (req, res) => {
       if (isEmailish) {
         filter.email = new RegExp(safe, "i");
       } else {
-        filter.$or = [
-          { nameLower: new RegExp(`^${safe}`, "i") },
-          { email: new RegExp(`^${safe}`, "i") },
-        ];
+        filter.$or = [{ nameLower: new RegExp(`^${safe}`, "i") }, { email: new RegExp(`^${safe}`, "i") }];
       }
     }
 
@@ -390,17 +488,13 @@ export const createCustomer = async (req, res) => {
       return res.status(400).json({ message: "Contact person name is required." });
     }
 
-    const { files: normalizedFiles, error: filesErr } = normalizeCustomerFiles(
-      customerFiles,
-      req.user._id
-    );
+    const { files: normalizedFiles, error: filesErr } = normalizeCustomerFiles(customerFiles, req.user._id);
     if (filesErr) return res.status(400).json({ message: filesErr });
 
     // engagement required
     const y = clampYearOrNull(engagementYear);
     if (!y) return res.status(400).json({ message: "engagementYear is required." });
-    if (!engagementTemplateId)
-      return res.status(400).json({ message: "engagementTemplateId is required." });
+    if (!engagementTemplateId) return res.status(400).json({ message: "engagementTemplateId is required." });
 
     const val = await validateEngagementSelection({ engagementTemplateId, subEngagementIds });
     if (val.error) return res.status(400).json({ message: val.error });
@@ -441,6 +535,8 @@ export const createCustomer = async (req, res) => {
       customerFiles: normalizedFiles ?? [],
       engagements,
 
+      // ✅ NEW: start empty job-tree + tasks
+      jobs: [],
       crmTasks: [],
     };
 
@@ -510,6 +606,10 @@ export const getCustomers = async (req, res) => {
           createdBy: 1,
           createdAt: 1,
           updatedAt: 1,
+
+          // optional quick counts (cheap fields)
+          jobsCount: { $size: { $ifNull: ["$jobs", []] } },
+          tasksCount: { $size: { $ifNull: ["$crmTasks", []] } },
         },
       },
 
@@ -558,6 +658,7 @@ export const getCustomers = async (req, res) => {
 /**
  * GET SINGLE CUSTOMER
  * GET /customers/:id
+ * ✅ UPDATED: includes jobs + jobsTree (depth=2)
  */
 export const getCustomerById = async (req, res) => {
   try {
@@ -597,6 +698,10 @@ export const getCustomerById = async (req, res) => {
           createdBy: 1,
           customerFiles: 1,
           engagements: 1,
+
+          // ✅ NEW
+          jobs: 1,
+
           createdAt: 1,
           updatedAt: 1,
         },
@@ -703,7 +808,9 @@ export const getCustomerById = async (req, res) => {
     const rows = await Customer.aggregate(pipeline);
     if (!rows.length) return res.status(404).json({ message: "Customer not found." });
 
-    return res.status(200).json({ customer: rows[0] });
+    const customer = rows[0];
+    const jobsTree = buildJobsTreeDepth2(customer.jobs || []);
+    return res.status(200).json({ customer: { ...customer, jobsTree } });
   } catch (err) {
     return res.status(500).json({
       message: "Server error in getCustomerById.",
@@ -714,7 +821,10 @@ export const getCustomerById = async (req, res) => {
 
 /**
  * GET CUSTOMER TASKS
- * GET /customers/:id/tasks?limit=20&cursor=<taskId>
+ * GET /customers/:id/tasks?limit=20&cursor=<taskId>&jobId=&rootJobId=
+ * ✅ UPDATED: includes jobId/rootJobId in projection + supports filters
+ *
+ * NOTE: If you prefer, you can remove this route and use task.controller.js only.
  */
 export const getCustomerTasks = async (req, res) => {
   try {
@@ -723,6 +833,13 @@ export const getCustomerTasks = async (req, res) => {
 
     const limit = clampLimit(req.query.limit, 1, 50, 20);
     const taskCursor = toObjectIdOrNull(req.query.cursor);
+
+    const jobId = req.query.jobId ? toObjectIdOrNull(req.query.jobId) : null;
+    if (req.query.jobId && !jobId) return res.status(400).json({ message: "Invalid jobId filter." });
+
+    const rootJobId = req.query.rootJobId ? toObjectIdOrNull(req.query.rootJobId) : null;
+    if (req.query.rootJobId && !rootJobId)
+      return res.status(400).json({ message: "Invalid rootJobId filter." });
 
     const visibilityMatch = buildVisibilityMatch(req);
 
@@ -743,6 +860,8 @@ export const getCustomerTasks = async (req, res) => {
 
       ...(isAdminOrSuperAdmin(req) ? [] : [{ $match: { "crmTasks.assignedTo": meId } }]),
       ...(taskCursor ? [{ $match: { "crmTasks._id": { $lt: taskCursor } } }] : []),
+      ...(jobId ? [{ $match: { "crmTasks.jobId": jobId } }] : []),
+      ...(rootJobId ? [{ $match: { "crmTasks.rootJobId": rootJobId } }] : []),
 
       { $sort: { "crmTasks._id": -1 } },
       { $limit: limit + 1 },
@@ -751,6 +870,11 @@ export const getCustomerTasks = async (req, res) => {
       {
         $project: {
           title: 1,
+
+          // ✅ NEW
+          jobId: 1,
+          rootJobId: 1,
+
           subtitles: 1,
           templateId: 1,
           description: 1,
@@ -841,8 +965,7 @@ export const updateCustomer = async (req, res) => {
       customer.status = normalizeStatus(req.body.status);
     }
 
-    if (req.body.customerType !== undefined)
-      customer.customerType = normalizeCustomerType(req.body.customerType);
+    if (req.body.customerType !== undefined) customer.customerType = normalizeCustomerType(req.body.customerType);
 
     if (req.body.lifecycleStage !== undefined) {
       const ls = normalizeLifecycleStage(req.body.lifecycleStage);
@@ -858,9 +981,7 @@ export const updateCustomer = async (req, res) => {
     }
 
     if (req.body.secondaryContacts !== undefined) {
-      customer.secondaryContacts = Array.isArray(req.body.secondaryContacts)
-        ? req.body.secondaryContacts
-        : [];
+      customer.secondaryContacts = Array.isArray(req.body.secondaryContacts) ? req.body.secondaryContacts : [];
     }
 
     if (req.body.billingAddress !== undefined) {
@@ -896,9 +1017,7 @@ export const updateCustomer = async (req, res) => {
  */
 export const upsertCustomerEngagement = async (req, res) => {
   try {
-    const customer = await Customer.findById(req.params.id).select(
-      "_id createdBy assignedTo engagements origin"
-    );
+    const customer = await Customer.findById(req.params.id).select("_id createdBy assignedTo engagements origin");
     if (!customer) return res.status(404).json({ message: "Customer not found." });
 
     const isOwner = String(customer.createdBy) === String(req.user._id);
@@ -911,8 +1030,7 @@ export const upsertCustomerEngagement = async (req, res) => {
     if (!year) return res.status(400).json({ message: "Valid year is required." });
 
     const engagementTemplateId = req.body.engagementTemplateId;
-    if (!engagementTemplateId)
-      return res.status(400).json({ message: "engagementTemplateId is required." });
+    if (!engagementTemplateId) return res.status(400).json({ message: "engagementTemplateId is required." });
 
     const val = await validateEngagementSelection({
       engagementTemplateId,
@@ -1020,8 +1138,7 @@ export const assignCustomer = async (req, res) => {
       ids = one.length ? [one[0]] : [];
     } else {
       return res.status(400).json({
-        message:
-          "Provide employeeId (single) or employeeIds (multiple). To clear, send employeeIds: [].",
+        message: "Provide employeeId (single) or employeeIds (multiple). To clear, send employeeIds: [].",
       });
     }
 
@@ -1056,5 +1173,257 @@ export const assignCustomer = async (req, res) => {
       message: "Server error in assignCustomer.",
       error: err.message,
     });
+  }
+};
+
+/* =========================================================
+   ✅ JOBS (Customer -> Job -> SubJob)  (max depth = 2)
+========================================================= */
+
+/**
+ * GET CUSTOMER JOBS (tree)
+ * GET /customers/:id/jobs
+ */
+export const getCustomerJobs = async (req, res) => {
+  try {
+    const customerId = toObjectIdOrNull(req.params.id);
+    if (!customerId) return res.status(400).json({ message: "Invalid customer id." });
+
+    const visibilityMatch = buildVisibilityMatch(req);
+
+    const customerMatch = isAdminOrSuperAdmin(req)
+      ? { _id: customerId, ...visibilityMatch }
+      : {
+          _id: customerId,
+          ...visibilityMatch,
+          $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
+        };
+
+    const customer = await Customer.findOne(customerMatch).select("_id jobs").lean();
+    if (!customer) return res.status(404).json({ message: "Customer not found." });
+
+    const jobsTree = buildJobsTreeDepth2(customer.jobs || []);
+    return res.status(200).json({ jobsTree, jobsFlat: customer.jobs || [] });
+  } catch (err) {
+    return res.status(500).json({ message: "Server error in getCustomerJobs.", error: err.message });
+  }
+};
+
+/**
+ * CREATE JOB / SUB-JOB (Admin only)
+ * POST /customers/:id/jobs
+ * body:
+ *  - title (required)
+ *  - parentJobId (optional) -> if provided, creates SubJob under a ROOT job
+ *  - status, code, startAt, endAt, assignedTo (optional)
+ */
+export const addCustomerJob = async (req, res) => {
+  try {
+    if (!isAdminOrSuperAdmin(req)) {
+      return res.status(403).json({ message: "Only admin/superadmin can create jobs." });
+    }
+
+    const customerId = toObjectIdOrNull(req.params.id);
+    if (!customerId) return res.status(400).json({ message: "Invalid customer id." });
+
+    const title = String(req.body?.title ?? "").trim();
+    if (!title) return res.status(400).json({ message: "title is required." });
+
+    const parentJobId = req.body?.parentJobId ? toObjectIdOrNull(req.body.parentJobId) : null;
+    if (req.body?.parentJobId && !parentJobId) return res.status(400).json({ message: "Invalid parentJobId." });
+
+    const status = normalizeJobStatus(req.body?.status);
+    const code = req.body?.code ? String(req.body.code).trim() : "";
+    const startAt = req.body?.startAt ? new Date(req.body.startAt) : null;
+    const endAt = req.body?.endAt ? new Date(req.body.endAt) : null;
+
+    const assignedTo = Array.isArray(req.body?.assignedTo)
+      ? req.body.assignedTo.map(toObjectIdOrNull).filter(Boolean)
+      : [];
+
+    const customer = await Customer.findById(customerId).select("_id assignedTo jobs").lean();
+    if (!customer) return res.status(404).json({ message: "Customer not found." });
+
+    // validate assignedTo subset of customer.assignedTo (optional, but recommended)
+    const sub = ensureIdsSubsetOfCustomerAssigned(customer.assignedTo, assignedTo);
+    if (!sub.ok) {
+      return res.status(400).json({
+        message: "All job assignees must be assigned to this customer first.",
+        notAssigned: sub.notAssigned,
+      });
+    }
+
+    // validate parent depth=2
+    const parentCheck = validateJobParentDepth2(customer.jobs || [], parentJobId);
+    if (!parentCheck.ok) return res.status(400).json({ message: parentCheck.error });
+
+    const now = new Date();
+    const jobDoc = {
+      _id: new mongoose.Types.ObjectId(),
+      title,
+      parentJobId: parentJobId || null,
+      status,
+      code,
+      startAt: startAt && !Number.isNaN(startAt.getTime()) ? startAt : null,
+      endAt: endAt && !Number.isNaN(endAt.getTime()) ? endAt : null,
+      createdBy: req.user._id,
+      assignedTo,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await Customer.updateOne({ _id: customerId }, { $push: { jobs: jobDoc } });
+
+    invalidateDashboardCache();
+
+    return res.status(201).json({ message: "Job created.", job: jobDoc });
+  } catch (err) {
+    return res.status(500).json({ message: "Server error in addCustomerJob.", error: err.message });
+  }
+};
+
+/**
+ * UPDATE JOB / SUB-JOB (Admin only)
+ * PATCH /customers/:id/jobs/:jobId
+ * body: any of { title, status, code, startAt, endAt, assignedTo }
+ * NOTE: parentJobId change is intentionally NOT supported here (keeps tree sane).
+ */
+export const updateCustomerJob = async (req, res) => {
+  try {
+    if (!isAdminOrSuperAdmin(req)) {
+      return res.status(403).json({ message: "Only admin/superadmin can update jobs." });
+    }
+
+    const customerId = toObjectIdOrNull(req.params.id);
+    const jobId = toObjectIdOrNull(req.params.jobId);
+    if (!customerId || !jobId) return res.status(400).json({ message: "Invalid ids." });
+
+    const customer = await Customer.findById(customerId).select("_id assignedTo jobs").lean();
+    if (!customer) return res.status(404).json({ message: "Customer not found." });
+
+    const node = getJobNodeById(customer.jobs || [], jobId);
+    if (!node) return res.status(404).json({ message: "Job not found under this customer." });
+
+    const $set = {};
+    if (req.body.title !== undefined) {
+      const t = String(req.body.title ?? "").trim();
+      if (!t) return res.status(400).json({ message: "title cannot be empty." });
+      $set["jobs.$.title"] = t;
+    }
+
+    if (req.body.status !== undefined) {
+      $set["jobs.$.status"] = normalizeJobStatus(req.body.status);
+    }
+
+    if (req.body.code !== undefined) {
+      $set["jobs.$.code"] = String(req.body.code ?? "").trim();
+    }
+
+    if (req.body.startAt !== undefined) {
+      $set["jobs.$.startAt"] = req.body.startAt ? new Date(req.body.startAt) : null;
+    }
+
+    if (req.body.endAt !== undefined) {
+      $set["jobs.$.endAt"] = req.body.endAt ? new Date(req.body.endAt) : null;
+    }
+
+    if (req.body.assignedTo !== undefined) {
+      if (!Array.isArray(req.body.assignedTo)) return res.status(400).json({ message: "assignedTo must be an array." });
+
+      const ids = req.body.assignedTo.map(toObjectIdOrNull).filter(Boolean);
+      const okUsers = await ensureEmployeesExistActive(ids);
+      if (!okUsers) return res.status(404).json({ message: "One or more employees not found or inactive." });
+
+      const sub = ensureIdsSubsetOfCustomerAssigned(customer.assignedTo, ids);
+      if (!sub.ok) {
+        return res.status(400).json({
+          message: "All job assignees must be assigned to this customer first.",
+          notAssigned: sub.notAssigned,
+        });
+      }
+
+      $set["jobs.$.assignedTo"] = ids;
+    }
+
+    if (Object.keys($set).length === 0) {
+      return res.status(200).json({ message: "No changes.", job: node });
+    }
+
+    $set["jobs.$.updatedAt"] = new Date();
+
+    await Customer.updateOne({ _id: customerId, "jobs._id": jobId }, { $set });
+
+    invalidateDashboardCache();
+
+    const updated = await Customer.findOne({ _id: customerId, "jobs._id": jobId }, { "jobs.$": 1 }).lean();
+    return res.status(200).json({ message: "Job updated.", job: updated?.jobs?.[0] ?? null });
+  } catch (err) {
+    return res.status(500).json({ message: "Server error in updateCustomerJob.", error: err.message });
+  }
+};
+
+/**
+ * DELETE JOB / SUB-JOB (Admin only)
+ * DELETE /customers/:id/jobs/:jobId?force=true|false
+ *
+ * Rules:
+ * - If deleting a ROOT job, it deletes its direct sub-jobs too (depth=2)
+ * - If tasks exist for these jobIds, default is BLOCK (409)
+ * - If force=true, it will also delete tasks under those jobIds (crmTasks pull)
+ */
+export const deleteCustomerJob = async (req, res) => {
+  try {
+    if (!isAdminOrSuperAdmin(req)) {
+      return res.status(403).json({ message: "Only admin/superadmin can delete jobs." });
+    }
+
+    const customerId = toObjectIdOrNull(req.params.id);
+    const jobId = toObjectIdOrNull(req.params.jobId);
+    if (!customerId || !jobId) return res.status(400).json({ message: "Invalid ids." });
+
+    const force = String(req.query.force ?? "false").toLowerCase() === "true";
+
+    const customer = await Customer.findById(customerId).select("_id jobs crmTasks").lean();
+    if (!customer) return res.status(404).json({ message: "Customer not found." });
+
+    const del = getJobIdSetForDeletion(customer.jobs || [], jobId);
+    if (del.error) return res.status(404).json({ message: del.error });
+
+    const idsArr = Array.from(del.ids).map((s) => new mongoose.Types.ObjectId(String(s)));
+
+    // check tasks referencing these jobs
+    const tasks = customer.crmTasks || [];
+    const hit = tasks.filter((t) => del.ids.has(String(t.jobId)) || del.ids.has(String(t.rootJobId)));
+    if (hit.length && !force) {
+      return res.status(409).json({
+        message: "Cannot delete job because tasks exist under it. Use force=true to delete tasks too.",
+        tasksCount: hit.length,
+        sampleTaskIds: hit.slice(0, 20).map((t) => String(t._id)),
+      });
+    }
+
+    const update = {
+      $pull: {
+        jobs: { _id: { $in: idsArr } },
+      },
+    };
+
+    if (force) {
+      update.$pull.crmTasks = { jobId: { $in: idsArr } };
+      // tasks under sub-job still have jobId=sub-job, so this is enough.
+      // (rootJobId also matches, but jobId is the strict pointer)
+    }
+
+    await Customer.updateOne({ _id: customerId }, update);
+
+    invalidateDashboardCache();
+
+    return res.status(200).json({
+      message: force ? "Job deleted (and tasks deleted)." : "Job deleted.",
+      deletedJobIds: Array.from(del.ids),
+      deletedTasks: force ? hit.length : 0,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Server error in deleteCustomerJob.", error: err.message });
   }
 };

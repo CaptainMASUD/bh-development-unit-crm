@@ -856,9 +856,7 @@ export default function Sidebar({
             ) : null}
           </div>
 
-          {/* ✅ ACTIONS ROW
-              - FULL MODE: theme + bell + jetsky
-              - COMPACT MODE: ONLY bell (so nothing clips / nothing hidden) */}
+          {/* ✅ ACTIONS ROW */}
           <div className={`mt-5 flex ${compact ? "justify-center" : "justify-between"} items-center`}>
             {!compact ? (
               <button
@@ -977,7 +975,6 @@ export default function Sidebar({
               <button
                 type="button"
                 onClick={() => {
-                  // compact: expand to use search
                   setCompact(false)
                   try {
                     localStorage.setItem("sidebar_compact", "0")

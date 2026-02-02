@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, useLayoutEffect, useId } from "react"
+import { useEffect, useMemo, useRef, useState, useLayoutEffect, useId, Fragment } from "react"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "framer-motion"
 import {
@@ -17,6 +17,8 @@ import {
   FiCheck,
   FiAlertCircle,
   FiFilter,
+  FiBriefcase,
+  FiCornerDownRight,
 } from "react-icons/fi"
 import { AlertTriangle, Loader2, Trash2 } from "lucide-react"
 import CustomerDetails from "./CustomerDetails"
@@ -24,7 +26,7 @@ import CustomerDetails from "./CustomerDetails"
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
 /* =========================
-   UI TOKENS (slightly more “standard” + lighter)
+   UI TOKENS
 ========================= */
 
 const card = "rounded-2xl border border-gray-100 bg-white shadow-sm"
@@ -51,27 +53,32 @@ function getAuthHeaders() {
   }
 }
 
+/* =========================
+   SMALL HELPERS
+========================= */
+
 function normalizeAssignedToArray(assignedTo) {
   if (!assignedTo) return []
   if (Array.isArray(assignedTo)) return assignedTo
   return [assignedTo]
 }
 
-function StatusBadge({ status }) {
+function normalizeStatus(s) {
+  return String(s || "").trim().toLowerCase()
+}
+
+function JobStatusBadge({ status }) {
   const s = String(status || "").toLowerCase()
   const cls =
-    s === "complete"
+    s === "completed"
       ? "bg-green-50 text-green-700 ring-green-600/10"
-      : s === "in_progress"
-      ? "bg-sky-50 text-sky-700 ring-sky-600/10"
-      : s === "pending"
+      : s === "on_hold"
       ? "bg-amber-50 text-amber-800 ring-amber-600/10"
-      : "bg-gray-100 text-gray-700 ring-gray-600/10"
-
+      : "bg-sky-50 text-sky-700 ring-sky-600/10"
   return (
     <span className={cn(chip, cls)}>
       <span className="w-1.5 h-1.5 rounded-full bg-current opacity-40" />
-      {s || "—"}
+      {s || "active"}
     </span>
   )
 }
@@ -151,7 +158,6 @@ function ModalShell({
               maxWidthClass
             )}
           >
-            {/* Sticky header */}
             <div className="p-4 sm:p-5 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-20">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm shrink-0">
@@ -172,12 +178,10 @@ function ModalShell({
               </button>
             </div>
 
-            {/* Content */}
             <div className="p-4 sm:p-5 bg-white max-h-[calc(100vh-14rem)] overflow-y-auto">
               {children}
             </div>
 
-            {/* Sticky footer */}
             {footer ? (
               <div className="p-4 sm:p-5 border-t border-gray-100 bg-white sticky bottom-0 z-20">
                 {footer}
@@ -201,7 +205,7 @@ function Field({ label, hint, children }) {
 }
 
 /* =========================
-   MULTI SELECT (PORTAL + HEIGHT FIX — NEVER OFFSCREEN)
+   MULTI SELECT (PORTAL + NEVER OFFSCREEN)
 ========================= */
 
 function MultiSelectDropdown({ options = [], value = [], onChange, placeholder = "Select..." }) {
@@ -252,7 +256,6 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
     const spaceAbove = r.top - GAP
 
     const openUp = spaceBelow < 260 && spaceAbove > spaceBelow
-
     const available = Math.max(0, openUp ? spaceAbove : spaceBelow)
     const capped = Math.min(MAX, available)
     const maxHeight = Math.max(MIN, capped)
@@ -277,13 +280,10 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
 
   useEffect(() => {
     if (!open) return
-
     const onResize = () => recomputeMenuPos()
     const onScroll = () => recomputeMenuPos()
-
     window.addEventListener("resize", onResize)
     window.addEventListener("scroll", onScroll, true)
-
     return () => {
       window.removeEventListener("resize", onResize)
       window.removeEventListener("scroll", onScroll, true)
@@ -344,12 +344,12 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
                     <li key={String(o.value)}>
                       <button
                         type="button"
+                        role="option"
+                        aria-selected={checked}
                         onClick={() => toggle(o.value)}
                         className={cn(
                           "w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl border transition text-left focus:outline-none",
-                          checked
-                            ? "bg-indigo-50 border-indigo-200"
-                            : "bg-white border-transparent hover:bg-gray-50"
+                          checked ? "bg-indigo-50 border-indigo-200" : "bg-white border-transparent hover:bg-gray-50"
                         )}
                       >
                         <span className="text-sm font-semibold text-gray-800">{o.label}</span>
@@ -398,6 +398,7 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
         onClick={() => setOpen((p) => !p)}
         className={cn(input, "text-left flex items-center justify-between gap-3 focus:outline-none")}
         aria-haspopup="listbox"
+        aria-controls={menuId}
         aria-expanded={open}
       >
         <span className={cn("min-w-0 truncate", selectedCount ? "text-gray-900" : "text-gray-500")}>
@@ -417,7 +418,7 @@ function MultiSelectDropdown({ options = [], value = [], onChange, placeholder =
 }
 
 /* =========================
-   API
+   API (CUSTOMERS)
 ========================= */
 
 async function fetchCustomerDetails(customerId, signal) {
@@ -431,7 +432,6 @@ async function fetchCustomerDetails(customerId, signal) {
   return data?.customer || null
 }
 
-// search employees for assignment
 async function searchEmployeesForAssign({ q = "", limit = 20, signal } = {}) {
   const params = new URLSearchParams()
   params.set("q", String(q || ""))
@@ -457,7 +457,48 @@ async function searchEmployeesForAssign({ q = "", limit = 20, signal } = {}) {
 }
 
 /* =========================
-   FILTER MODAL (UPDATED — ✅ adds Customer Status)
+   API (JOBS)
+========================= */
+
+async function apiJson(url, { method = "GET", body, signal } = {}) {
+  const res = await fetch(url, {
+    method,
+    headers: getAuthHeaders(),
+    credentials: "include",
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal,
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const err = new Error(data?.message || "Request failed")
+    err.status = res.status
+    err.data = data
+    throw err
+  }
+  return data
+}
+
+async function fetchCustomerJobs(customerId, signal) {
+  return apiJson(`${API_BASE}/customers/${customerId}/jobs`, { signal })
+}
+
+async function createCustomerJob(customerId, payload) {
+  return apiJson(`${API_BASE}/customers/${customerId}/jobs`, { method: "POST", body: payload })
+}
+
+async function updateCustomerJob(customerId, jobId, payload) {
+  return apiJson(`${API_BASE}/customers/${customerId}/jobs/${jobId}`, { method: "PATCH", body: payload })
+}
+
+async function deleteCustomerJob(customerId, jobId, { force = false } = {}) {
+  const qs = new URLSearchParams()
+  if (force) qs.set("force", "true")
+  const url = `${API_BASE}/customers/${customerId}/jobs/${jobId}${qs.toString() ? `?${qs.toString()}` : ""}`
+  return apiJson(url, { method: "DELETE" })
+}
+
+/* =========================
+   FILTER MODAL (UNCHANGED)
 ========================= */
 
 function FilterChip({ children, onRemove }) {
@@ -482,29 +523,20 @@ function FilterChip({ children, onRemove }) {
 function FiltersModal({
   open,
   onClose,
-
   engagementTemplates,
   tplLoading,
-
   draftTemplateId,
   setDraftTemplateId,
-
   draftYear,
   setDraftYear,
-
   draftSubIds,
   setDraftSubIds,
-
   draftSubMatch,
   setDraftSubMatch,
-
-  // ✅ NEW: status draft
   draftStatus,
   setDraftStatus,
-
   onApply,
   onClearDraft,
-
   activeSummary,
 }) {
   const selectedTemplate = useMemo(() => {
@@ -588,7 +620,6 @@ function FiltersModal({
             </div>
 
             <div className="p-4 space-y-4">
-              {/* ✅ Customer status */}
               <Field label="Customer Status">
                 <select
                   value={String(draftStatus || "")}
@@ -666,10 +697,7 @@ function FiltersModal({
                   />
                 </Field>
 
-                <Field
-                  label="Sub match"
-                  hint={!draftTemplateId || !draftSubIds.length ? "Select subs to enable" : ""}
-                >
+                <Field label="Sub match" hint={!draftTemplateId || !draftSubIds.length ? "Select subs to enable" : ""}>
                   <select
                     value={draftSubMatch}
                     onChange={(e) => setDraftSubMatch(e.target.value === "all" ? "all" : "any")}
@@ -712,7 +740,7 @@ function FiltersModal({
 }
 
 /* =========================
-   CUSTOMER UPSERT MODAL (unchanged logic)
+   CUSTOMER UPSERT MODAL (UNCHANGED)
 ========================= */
 
 function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
@@ -1063,7 +1091,12 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
               </Field>
 
               <Field label="Designation">
-                <input value={form.cpDesignation} onChange={update("cpDesignation")} className={input} placeholder="Manager / Owner" />
+                <input
+                  value={form.cpDesignation}
+                  onChange={update("cpDesignation")}
+                  className={input}
+                  placeholder="Manager / Owner"
+                />
               </Field>
             </div>
           </div>
@@ -1074,7 +1107,7 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
 }
 
 /* =========================
-   ASSIGN MODAL (unchanged)
+   ASSIGN MODAL (UNCHANGED)
 ========================= */
 
 function AssignModal({ open, onClose, customer, onAssign }) {
@@ -1088,7 +1121,6 @@ function AssignModal({ open, onClose, customer, onAssign }) {
   const [loading, setLoading] = useState(false)
   const abortRef = useRef(null)
 
-  // local cache for showing selected labels even if not in current results
   const cacheRef = useRef(new Map())
 
   useEffect(() => {
@@ -1103,7 +1135,6 @@ function AssignModal({ open, onClose, customer, onAssign }) {
     setDebouncedQ("")
     setResults([])
 
-    // seed selected from customer.assignedTo
     const arr = normalizeAssignedToArray(customer?.assignedTo)
     const ids = arr
       .map((x) => (typeof x === "object" ? x?._id : x))
@@ -1111,7 +1142,6 @@ function AssignModal({ open, onClose, customer, onAssign }) {
       .map(String)
     setEmployeeIds(ids)
 
-    // seed cache
     for (const u of arr) {
       if (u && typeof u === "object" && u._id) cacheRef.current.set(String(u._id), u)
     }
@@ -1127,7 +1157,6 @@ function AssignModal({ open, onClose, customer, onAssign }) {
     })
   }
 
-  // fetch results
   useEffect(() => {
     if (!open) return
 
@@ -1141,7 +1170,6 @@ function AssignModal({ open, onClose, customer, onAssign }) {
       .then((rows) => {
         const list = Array.isArray(rows) ? rows : []
         setResults(list)
-
         for (const u of list) {
           if (u?._id) cacheRef.current.set(String(u._id), u)
         }
@@ -1171,7 +1199,7 @@ function AssignModal({ open, onClose, customer, onAssign }) {
     setIsSaving(true)
     setError("")
     try {
-      await onAssign?.(employeeIds) // can be [] to clear
+      await onAssign?.(employeeIds)
       onClose?.()
     } catch (e) {
       setError(e?.message || "Assign failed")
@@ -1180,15 +1208,8 @@ function AssignModal({ open, onClose, customer, onAssign }) {
     }
   }
 
-  const listTitle = useMemo(() => {
-    if (!debouncedQ) return "Employees"
-    return "Search results"
-  }, [debouncedQ])
-
-  const resultsHint = useMemo(() => {
-    if (!debouncedQ) return "Showing recent employees"
-    return `Matches for “${debouncedQ}”`
-  }, [debouncedQ])
+  const listTitle = useMemo(() => (!debouncedQ ? "Employees" : "Search results"), [debouncedQ])
+  const resultsHint = useMemo(() => (!debouncedQ ? "Showing recent employees" : `Matches for “${debouncedQ}”`), [debouncedQ])
 
   return (
     <ModalShell
@@ -1225,9 +1246,7 @@ function AssignModal({ open, onClose, customer, onAssign }) {
         <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>
       ) : null}
 
-      {/* Layout: sticky “search + selected” block, list scrolls below */}
       <div className="rounded-2xl border border-gray-100 overflow-hidden">
-        {/* Sticky top block */}
         <div className="sticky top-0 z-10 bg-white border-b border-gray-100">
           <div className="p-4">
             <div className="flex items-center justify-between gap-3">
@@ -1271,7 +1290,6 @@ function AssignModal({ open, onClose, customer, onAssign }) {
               </div>
             </div>
 
-            {/* Selected pills (compact) */}
             {selectedBadges.length ? (
               <div className="mt-3 flex flex-wrap gap-2">
                 {selectedBadges.slice(0, 6).map((b) => (
@@ -1299,14 +1317,12 @@ function AssignModal({ open, onClose, customer, onAssign }) {
             )}
           </div>
 
-          {/* List header */}
           <div className="px-4 py-2.5 bg-gray-50/80 flex items-center justify-between">
             <p className="text-sm font-bold text-gray-900">{listTitle}</p>
             <p className="text-xs text-gray-500">{resultsHint}</p>
           </div>
         </div>
 
-        {/* Scrollable results */}
         <div className="max-h-[50vh] overflow-y-auto p-2 bg-white">
           {loading && results.length === 0 ? (
             <div className="p-4 text-sm text-gray-600 flex items-center gap-2">
@@ -1317,11 +1333,11 @@ function AssignModal({ open, onClose, customer, onAssign }) {
             <div className="p-4 text-sm text-gray-600">No employees found.</div>
           ) : (
             <ul className="space-y-2">
-              {results.map((e) => {
+              {results.map((e, idx) => {
                 const id = String(e?._id || "")
                 const checked = employeeIds.includes(id)
                 return (
-                  <li key={id || Math.random()}>
+                  <li key={id || `emp-${idx}`}>
                     <button
                       type="button"
                       onClick={() => toggle(e?._id)}
@@ -1356,30 +1372,20 @@ function AssignModal({ open, onClose, customer, onAssign }) {
   )
 }
 
-function StatusSelect({ value, onChange, disabled }) {
-  return (
-    <div className="relative inline-flex items-center">
-      <select
-        value={value || "pending"}
-        onChange={(e) => onChange?.(e.target.value)}
-        disabled={disabled}
-        className={cn(
-          "appearance-none pr-10 pl-3 py-2 rounded-xl text-sm font-semibold border",
-          "border-gray-200 bg-white",
-          "focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent",
-          disabled ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-50"
-        )}
-      >
-        <option value="pending">pending</option>
-        <option value="in_progress">in_progress</option>
-        <option value="complete">complete</option>
-      </select>
-      <FiChevronDown className="absolute right-3 w-4 h-4 text-gray-500 pointer-events-none" />
-    </div>
-  )
-}
+/* =========================
+   CONFIRM DELETE MODAL (UNCHANGED)
+========================= */
 
-function ConfirmDeleteModal({ open, title, description, confirmText = "Delete", loading, onClose, onConfirm }) {
+function ConfirmDeleteModal({
+  open,
+  title,
+  description,
+  confirmText = "Delete",
+  loading,
+  onClose,
+  onConfirm,
+  extra,
+}) {
   const closeBtnRef = useRef(null)
 
   useEffect(() => {
@@ -1410,6 +1416,7 @@ function ConfirmDeleteModal({ open, title, description, confirmText = "Delete", 
           <div className="min-w-0 flex-1">
             <h3 className="text-base font-bold text-gray-900">{title}</h3>
             <p className="text-sm text-gray-600 mt-1">{description}</p>
+            {extra ? <div className="mt-3">{extra}</div> : null}
           </div>
           <button
             ref={closeBtnRef}
@@ -1447,6 +1454,453 @@ function ConfirmDeleteModal({ open, title, description, confirmText = "Delete", 
 }
 
 /* =========================
+   VIEW CHOICE MODAL (UPDATED)
+========================= */
+
+function ViewChoiceModal({ open, onClose, customerName, onPick }) {
+  if (!open) return null
+
+  return (
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      title="Open Customer"
+      subtitle={customerName ? `Choose what to open for: ${customerName}` : "Choose what to open"}
+      icon={<FiEye className="w-5 h-5" />}
+      maxWidthClass="max-w-md"
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button onClick={onClose} className={cn(btn, btnGhost)}>
+            Cancel
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-3">
+        {/* ✅ Changed Tasks -> Overview */}
+        <button
+          type="button"
+          onClick={() => onPick?.("overview")}
+          className={cn(
+            "w-full rounded-2xl border border-gray-200 bg-white hover:bg-gray-50 transition p-4 text-left",
+            "flex items-center justify-between gap-3"
+          )}
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-extrabold text-gray-900">Overview</p>
+            <p className="text-xs text-gray-500 mt-0.5">Open the Overview tab</p>
+          </div>
+          <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>Default</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onPick?.("crm")}
+          className={cn(
+            "w-full rounded-2xl border border-gray-200 bg-white hover:bg-gray-50 transition p-4 text-left",
+            "flex items-center justify-between gap-3"
+          )}
+        >
+          <div className="min-w-0">
+            <p className="text-sm font-extrabold text-gray-900">CRM</p>
+            <p className="text-xs text-gray-500 mt-0.5">Open the CRM tab directly</p>
+          </div>
+          <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>Open</span>
+        </button>
+      </div>
+    </ModalShell>
+  )
+}
+
+/* =========================
+   JOB UPSERT MODAL (UNCHANGED)
+========================= */
+
+function toLocalInputValue(dt) {
+  if (!dt) return ""
+  const d = new Date(dt)
+  if (Number.isNaN(d.getTime())) return ""
+  const pad = (n) => String(n).padStart(2, "0")
+  const yyyy = d.getFullYear()
+  const mm = pad(d.getMonth() + 1)
+  const dd = pad(d.getDate())
+  const hh = pad(d.getHours())
+  const mi = pad(d.getMinutes())
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`
+}
+
+function JobUpsertModal({ open, onClose, customer, mode = "create", initialJob, parentJobId, onSaved }) {
+  const assignedUsers = normalizeAssignedToArray(customer?.assignedTo)
+  const assigneeOptions = useMemo(
+    () =>
+      assignedUsers
+        .filter((u) => u && typeof u === "object" && u._id)
+        .map((u) => ({
+          value: String(u._id),
+          label: `${u.name || "Employee"}${u.email ? ` • ${u.email}` : ""}`,
+        })),
+    [customer?.assignedTo]
+  )
+
+  const [form, setForm] = useState({
+    title: "",
+    status: "active",
+    code: "",
+    startAt: "",
+    endAt: "",
+    assignedTo: [],
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    if (!open) return
+    setError("")
+    if (mode === "edit" && initialJob) {
+      setForm({
+        title: String(initialJob?.title || ""),
+        status: String(initialJob?.status || "active"),
+        code: String(initialJob?.code || ""),
+        startAt: toLocalInputValue(initialJob?.startAt),
+        endAt: toLocalInputValue(initialJob?.endAt),
+        assignedTo: Array.isArray(initialJob?.assignedTo) ? initialJob.assignedTo.map(String) : [],
+      })
+    } else {
+      setForm({ title: "", status: "active", code: "", startAt: "", endAt: "", assignedTo: [] })
+    }
+  }, [open, mode, initialJob])
+
+  const submit = async () => {
+    if (!customer?._id) return
+    const title = String(form.title || "").trim()
+    if (!title) return setError("Job title is required.")
+
+    setSaving(true)
+    setError("")
+    try {
+      const payload = {
+        title,
+        status: String(form.status || "active"),
+        code: String(form.code || "").trim(),
+        startAt: form.startAt ? new Date(form.startAt).toISOString() : null,
+        endAt: form.endAt ? new Date(form.endAt).toISOString() : null,
+        assignedTo: Array.isArray(form.assignedTo) ? form.assignedTo.map(String) : [],
+        ...(mode === "create" && parentJobId ? { parentJobId: String(parentJobId) } : {}),
+      }
+
+      if (mode === "edit" && initialJob?._id) {
+        await updateCustomerJob(String(customer._id), String(initialJob._id), payload)
+      } else {
+        await createCustomerJob(String(customer._id), payload)
+      }
+
+      onSaved?.()
+      onClose?.()
+    } catch (e) {
+      setError(e?.message || "Save failed")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      title={mode === "edit" ? "Edit Job" : parentJobId ? "Create Sub-job" : "Create Job"}
+      subtitle={customer?.name ? `Customer: ${customer.name}` : ""}
+      icon={<FiBriefcase className="w-5 h-5" />}
+      maxWidthClass="max-w-2xl"
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button onClick={onClose} disabled={saving} className={cn(btn, btnGhost, "disabled:opacity-60")}>
+            Cancel
+          </button>
+          <button onClick={submit} disabled={saving} className={cn(btn, btnPrimary, "disabled:opacity-60")}>
+            {saving ? "Saving..." : mode === "edit" ? "Update" : "Create"}
+          </button>
+        </div>
+      }
+    >
+      {error ? (
+        <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>
+      ) : null}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="md:col-span-2">
+          <Field label="Job title *">
+            <input
+              value={form.title}
+              onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))}
+              className={input}
+              placeholder="e.g. Audit preparation"
+            />
+          </Field>
+        </div>
+
+        <Field label="Status">
+          <select
+            value={form.status}
+            onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}
+            className={input}
+          >
+            <option value="active">active</option>
+            <option value="on_hold">on_hold</option>
+            <option value="completed">completed</option>
+          </select>
+        </Field>
+
+        <Field label="Code (optional)">
+          <input
+            value={form.code}
+            onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))}
+            className={input}
+            placeholder="e.g. JOB-001"
+          />
+        </Field>
+
+        <Field label="Start (optional)">
+          <input
+            type="datetime-local"
+            value={form.startAt}
+            onChange={(e) => setForm((p) => ({ ...p, startAt: e.target.value }))}
+            className={input}
+          />
+        </Field>
+
+        <Field label="End (optional)">
+          <input
+            type="datetime-local"
+            value={form.endAt}
+            onChange={(e) => setForm((p) => ({ ...p, endAt: e.target.value }))}
+            className={input}
+          />
+        </Field>
+
+        <div className="md:col-span-2">
+          <Field
+            label="Assignees (optional)"
+            hint={
+              assigneeOptions.length
+                ? "Only employees already assigned to this customer can be assigned to jobs (backend rule)."
+                : "Assign employees to this customer first (customer assign), then you can pick them here."
+            }
+          >
+            <MultiSelectDropdown
+              options={assigneeOptions}
+              value={form.assignedTo}
+              onChange={(ids) => setForm((p) => ({ ...p, assignedTo: ids }))}
+              placeholder={assigneeOptions.length ? "Select employee(s)" : "No customer assignees"}
+            />
+          </Field>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
+/* =========================
+   JOBS DROPDOWN PANEL (UPDATED: JOBS + SUBJOBS BOTH DROPDOWN)
+========================= */
+
+function JobsDropdownPanel({
+  customer,
+  state,
+  onRefresh,
+  onCreateRoot,
+  onCreateSub,
+  onEdit,
+  onDelete,
+}) {
+  const jobs = Array.isArray(state?.jobsTree) ? state.jobsTree : []
+  const loading = !!state?.loading
+  const error = state?.error || ""
+
+  // ✅ each job/sub-job dropdown state
+  const [openJobIds, setOpenJobIds] = useState(new Set())
+
+  useEffect(() => {
+    // reset expand state when customer changes / dropdown opens
+    setOpenJobIds(new Set())
+  }, [customer?._id])
+
+  const toggleJobOpen = (jobId) => {
+    const id = String(jobId || "")
+    if (!id) return
+    setOpenJobIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const JobNode = ({ job, depth = 0 }) => {
+    const id = String(job?._id || "")
+    const children = Array.isArray(job?.children) ? job.children : []
+    const hasChildren = children.length > 0
+    const isOpen = openJobIds.has(id)
+
+    return (
+      <div className={cn("rounded-2xl border border-gray-100 bg-white shadow-sm overflow-hidden", depth ? "ml-6" : "")}>
+        <div className="p-4 flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              {hasChildren ? (
+                <button
+                  type="button"
+                  onClick={() => toggleJobOpen(id)}
+                  className={cn(
+                    "h-9 w-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition",
+                    "flex items-center justify-center focus:outline-none shrink-0"
+                  )}
+                  title={isOpen ? "Collapse" : "Expand"}
+                  aria-label={isOpen ? "Collapse job" : "Expand job"}
+                >
+                  <FiChevronDown className={cn("w-4 h-4 text-gray-700 transition", isOpen ? "rotate-180" : "")} />
+                </button>
+              ) : (
+                <span className="h-9 w-9 rounded-xl border border-gray-100 bg-gray-50 flex items-center justify-center shrink-0">
+                  {depth ? <FiCornerDownRight className="w-4 h-4 text-gray-400" /> : <FiBriefcase className="w-4 h-4 text-gray-500" />}
+                </span>
+              )}
+
+              <p className="text-sm font-extrabold text-gray-900 truncate">{job?.title || "Untitled job"}</p>
+              <JobStatusBadge status={job?.status} />
+
+              {job?.code ? (
+                <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>Code: {job.code}</span>
+              ) : null}
+
+              {hasChildren ? (
+                <span className={cn(chip, "bg-white text-gray-700 ring-gray-200")}>
+                  Sub-jobs: {children.length}
+                </span>
+              ) : null}
+            </div>
+
+            <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-600">
+              {job?.startAt ? (
+                <span className={cn(chip, "bg-white text-gray-700 ring-gray-200")}>
+                  Start: {new Date(job.startAt).toLocaleString()}
+                </span>
+              ) : null}
+              {job?.endAt ? (
+                <span className={cn(chip, "bg-white text-gray-700 ring-gray-200")}>
+                  End: {new Date(job.endAt).toLocaleString()}
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => onCreateSub(job)}
+              className={cn(btn, btnGhost, "px-3 py-2")}
+              title="Add sub-job"
+            >
+              <FiPlus className="w-4 h-4" />
+              Sub-job
+            </button>
+
+            <button onClick={() => onEdit(job)} className={iconBtn} title="Edit job" aria-label="Edit job">
+              <FiEdit2 className="w-4 h-4 text-gray-700" />
+            </button>
+
+            <button
+              onClick={() => onDelete(job)}
+              className={cn(iconBtn, btnDanger)}
+              title="Delete job"
+              aria-label="Delete job"
+            >
+              <FiTrash2 className="w-4 h-4 text-rose-600" />
+            </button>
+          </div>
+        </div>
+
+        <AnimatePresence initial={false}>
+          {hasChildren && isOpen ? (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="border-t border-gray-100 bg-gray-50/60"
+            >
+              <div className="p-3 space-y-3">
+                {children.map((child) => (
+                  <JobNode key={String(child?._id)} job={child} depth={depth + 1} />
+                ))}
+              </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-4 sm:p-5 bg-gray-50/60 border-t border-gray-100">
+      <div className="rounded-2xl border border-gray-100 bg-white shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 bg-white flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="w-9 h-9 rounded-2xl bg-indigo-50 text-indigo-700 border border-indigo-100 flex items-center justify-center">
+              <FiBriefcase className="w-4 h-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-extrabold text-gray-900 truncate">Jobs & Sub-jobs</p>
+              <p className="text-xs text-gray-500 truncate">
+                Customer: <span className="font-semibold text-gray-700">{customer?.name || "—"}</span>
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className={cn(chip, "bg-gray-50 text-gray-800 ring-gray-200")}>Root jobs: {jobs.length}</span>
+
+            <button onClick={onRefresh} className={cn(btn, btnGhost, "px-3 py-2")}>
+              <FiRefreshCcw className={cn("w-4 h-4", loading ? "animate-spin" : "")} />
+              Refresh
+            </button>
+
+            <button onClick={onCreateRoot} className={cn(btn, btnPrimary, "px-3 py-2")}>
+              <FiPlus className="w-4 h-4" />
+              Add job
+            </button>
+          </div>
+        </div>
+
+        {error ? (
+          <div className="p-4 bg-rose-50 border-b border-rose-200 text-rose-700 text-sm flex items-start gap-2">
+            <FiAlertCircle className="w-5 h-5 mt-0.5" />
+            <span className="font-semibold">{error}</span>
+          </div>
+        ) : null}
+
+        <div className="p-4">
+          {loading && jobs.length === 0 ? (
+            <div className="p-3 rounded-xl bg-gray-50 border border-gray-200 text-gray-700 text-sm flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Loading jobs...
+            </div>
+          ) : jobs.length === 0 ? (
+            <div className="p-4 rounded-2xl border border-dashed border-gray-200 bg-white">
+              <p className="text-sm font-bold text-gray-900">No jobs yet</p>
+              <p className="text-xs text-gray-500 mt-1">Click “Add job” to create the first root job.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {jobs.map((job) => (
+                <JobNode key={String(job?._id)} job={job} depth={0} />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* =========================
    MAIN
 ========================= */
 
@@ -1466,18 +1920,22 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
   const [debounced, setDebounced] = useState("")
 
   const [selectedCustomerId, setSelectedCustomerId] = useState(null)
+  const [selectedCustomerTab, setSelectedCustomerTab] = useState("overview")
 
   const [showCreate, setShowCreate] = useState(false)
   const [editCustomer, setEditCustomer] = useState(null)
   const [assignCustomer, setAssignCustomer] = useState(null)
 
-  const [savingStatusId, setSavingStatusId] = useState(null)
+  const [viewChoice, setViewChoice] = useState({ open: false, customer: null })
 
   const [toast, setToast] = useState({ open: false, type: "success", message: "" })
+  const toastTimerRef = useRef(null)
   const showToast = (type, message) => {
     setToast({ open: true, type, message })
-    window.clearTimeout(showToast._t)
-    showToast._t = window.setTimeout(() => setToast({ open: false, type: "success", message: "" }), 2200)
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast({ open: false, type: "success", message: "" })
+    }, 2200)
   }
 
   const abortRef = useRef(null)
@@ -1485,7 +1943,6 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
   const [deleteModal, setDeleteModal] = useState({ open: false, customerId: "", customerName: "" })
   const [deleteLoading, setDeleteLoading] = useState(false)
 
-  // engagement filters
   const [engagementTemplates, setEngagementTemplates] = useState([])
   const [tplLoading, setTplLoading] = useState(false)
 
@@ -1494,18 +1951,36 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
   const [filterSubEngagementIds, setFilterSubEngagementIds] = useState([])
   const [subMatch, setSubMatch] = useState("any")
 
-  // ✅ NEW: customer status filter (server-side)
-  const [filterStatus, setFilterStatus] = useState("") // "" = all
+  const [filterStatus, setFilterStatus] = useState("")
 
-  // Filter modal + DRAFT states
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [draftTemplateId, setDraftTemplateId] = useState("")
   const [draftYear, setDraftYear] = useState("")
   const [draftSubIds, setDraftSubIds] = useState([])
   const [draftSubMatch, setDraftSubMatch] = useState("any")
-
-  // ✅ NEW: status draft
   const [draftStatus, setDraftStatus] = useState("")
+
+  // ✅ row dropdown (jobs CRUD only)
+  const [expandedCustomerId, setExpandedCustomerId] = useState(null)
+  const [jobsByCustomerId, setJobsByCustomerId] = useState({}) // { [customerId]: { loading, error, jobsTree, jobsFlat } }
+
+  // ✅ job CRUD modals
+  const [jobUpsert, setJobUpsert] = useState({
+    open: false,
+    customer: null,
+    mode: "create", // create | edit
+    initialJob: null,
+    parentJobId: null,
+  })
+
+  const [jobDelete, setJobDelete] = useState({
+    open: false,
+    customer: null,
+    job: null,
+    force: false,
+    blockInfo: null, // from 409
+  })
+  const [jobDeleteLoading, setJobDeleteLoading] = useState(false)
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(searchTerm.trim().toLowerCase()), 250)
@@ -1515,6 +1990,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
   useEffect(() => {
     if (!openCustomerId) return
     setSelectedCustomerId(openCustomerId)
+    setSelectedCustomerTab("overview")
     onCustomerOpened?.()
   }, [openCustomerId, onCustomerOpened])
 
@@ -1544,8 +2020,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     const params = new URLSearchParams()
     params.set("limit", String(PAGE_SIZE))
 
-    // ✅ status filter can work alone
-    const status = String(filterStatus || "").trim().toLowerCase()
+    const status = normalizeStatus(filterStatus)
     if (status) params.set("status", status)
 
     const tplId = String(filterEngagementTemplateId || "").trim()
@@ -1615,7 +2090,6 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ✅ refetch when filters change (now includes status)
   useEffect(() => {
     fetchCustomersPage({ reset: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1688,38 +2162,17 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     await fetchCustomersPage({ reset: true })
   }
 
-  const doStatusUpdateInline = async (customerId, newStatus) => {
-    setSavingStatusId(customerId)
-    try {
-      const res = await fetch(`${API_BASE}/customers/${customerId}`, {
-        method: "PATCH",
-        headers: getAuthHeaders(),
-        credentials: "include",
-        body: JSON.stringify({ status: newStatus }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.message || "Status update failed")
-
-      setCustomers((prev) => prev.map((c) => (c._id === customerId ? { ...c, status: newStatus } : c)))
-      showToast("success", "Status updated.")
-    } catch (e) {
-      showToast("error", e?.message || "Status update failed")
-    } finally {
-      setSavingStatusId(null)
-    }
-  }
-
   const clearFilters = () => {
     setFilterEngagementTemplateId("")
     setFilterYear("")
     setFilterSubEngagementIds([])
     setSubMatch("any")
-    setFilterStatus("") // ✅ NEW
+    setFilterStatus("")
   }
 
   const activeFilterCount = useMemo(() => {
     let n = 0
-    if (String(filterStatus || "").trim()) n += 1 // ✅ NEW
+    if (String(filterStatus || "").trim()) n += 1
     if (String(filterEngagementTemplateId || "").trim()) n += 1
     if (String(filterYear || "").trim()) n += 1
     if ((filterSubEngagementIds?.length || 0) > 0) n += 1
@@ -1731,7 +2184,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     setDraftYear(String(filterYear || ""))
     setDraftSubIds(Array.isArray(filterSubEngagementIds) ? filterSubEngagementIds.map(String) : [])
     setDraftSubMatch(subMatch === "all" ? "all" : "any")
-    setDraftStatus(String(filterStatus || "")) // ✅ NEW
+    setDraftStatus(String(filterStatus || ""))
     setFiltersOpen(true)
   }
 
@@ -1740,7 +2193,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     setDraftYear("")
     setDraftSubIds([])
     setDraftSubMatch("any")
-    setDraftStatus("") // ✅ NEW
+    setDraftStatus("")
   }
 
   const applyDraft = () => {
@@ -1748,7 +2201,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     setFilterYear(String(draftYear || ""))
     setFilterSubEngagementIds(Array.isArray(draftSubIds) ? draftSubIds.map(String) : [])
     setSubMatch(draftSubMatch === "all" ? "all" : "any")
-    setFilterStatus(String(draftStatus || "")) // ✅ NEW
+    setFilterStatus(String(draftStatus || ""))
     setFiltersOpen(false)
   }
 
@@ -1818,7 +2271,6 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
   const appliedFilterChips = useMemo(() => {
     const chips = []
 
-    // ✅ status chip
     const status = String(filterStatus || "").trim()
     if (status) {
       chips.push({
@@ -1894,12 +2346,110 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     !!String(filterYear || "").trim() ||
     (filterSubEngagementIds?.length || 0) > 0
 
+  const openCustomerWithTab = (customerId, tabKey) => {
+    setSelectedCustomerTab(tabKey === "crm" ? "crm" : "overview")
+    setSelectedCustomerId(customerId)
+  }
+
+  // ✅ Jobs dropdown actions
+  const loadJobsForCustomer = async (customerId) => {
+    const cid = String(customerId || "")
+    if (!cid) return
+    setJobsByCustomerId((p) => ({ ...p, [cid]: { ...(p[cid] || {}), loading: true, error: "" } }))
+    try {
+      const data = await fetchCustomerJobs(cid)
+      setJobsByCustomerId((p) => ({
+        ...p,
+        [cid]: {
+          loading: false,
+          error: "",
+          jobsTree: Array.isArray(data?.jobsTree) ? data.jobsTree : [],
+          jobsFlat: Array.isArray(data?.jobsFlat) ? data.jobsFlat : [],
+        },
+      }))
+    } catch (e) {
+      setJobsByCustomerId((p) => ({
+        ...p,
+        [cid]: { ...(p[cid] || {}), loading: false, error: e?.message || "Failed to load jobs." },
+      }))
+    }
+  }
+
+  const toggleRowDropdown = (customer) => {
+    const cid = String(customer?._id || "")
+    if (!cid) return
+    setExpandedCustomerId((prev) => (prev === cid ? null : cid))
+    // lazy fetch on open
+    const has = jobsByCustomerId[cid]?.jobsTree || jobsByCustomerId[cid]?.loading
+    if (!has) loadJobsForCustomer(cid)
+  }
+
+  const openCreateRootJob = (customer) => {
+    setJobUpsert({ open: true, customer, mode: "create", initialJob: null, parentJobId: null })
+  }
+
+  const openCreateSubJob = (customer, parentJob) => {
+    setJobUpsert({
+      open: true,
+      customer,
+      mode: "create",
+      initialJob: null,
+      parentJobId: String(parentJob?._id || ""),
+    })
+  }
+
+  const openEditJob = (customer, job) => {
+    setJobUpsert({ open: true, customer, mode: "edit", initialJob: job, parentJobId: null })
+  }
+
+  const askDeleteJob = (customer, job) => {
+    setJobDelete({ open: true, customer, job, force: false, blockInfo: null })
+  }
+
+  const closeJobDelete = () => {
+    if (jobDeleteLoading) return
+    setJobDelete((p) => ({ ...p, open: false }))
+  }
+
+  const confirmJobDelete = async () => {
+    const customer = jobDelete.customer
+    const job = jobDelete.job
+    if (!customer?._id || !job?._id) return
+
+    setJobDeleteLoading(true)
+    try {
+      await deleteCustomerJob(String(customer._id), String(job._id), { force: !!jobDelete.force })
+      showToast("success", "Job deleted.")
+      setJobDelete((p) => ({ ...p, open: false }))
+      await loadJobsForCustomer(String(customer._id))
+    } catch (e) {
+      // backend sends 409 when tasks exist (per your controller)
+      if (e?.status === 409) {
+        setJobDelete((p) => ({
+          ...p,
+          open: true,
+          blockInfo: {
+            tasksCount: e?.data?.tasksCount,
+            message: e?.message,
+          },
+        }))
+        showToast("error", e?.message || "Cannot delete job (tasks exist).")
+      } else {
+        showToast("error", e?.message || "Delete failed")
+      }
+    } finally {
+      setJobDeleteLoading(false)
+    }
+  }
+
   if (selectedCustomerId) {
     return (
       <CustomerDetails
         customerId={selectedCustomerId}
+        initialTab={selectedCustomerTab}
         onBack={() => {
           setSelectedCustomerId(null)
+          setSelectedCustomerTab("overview")
           fetchCustomersPage({ reset: true })
         }}
       />
@@ -1930,6 +2480,59 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
         onConfirm={confirmDelete}
       />
 
+      <ConfirmDeleteModal
+        open={jobDelete.open}
+        title="Delete job?"
+        description={jobDelete?.job?.title ? `This will delete "${jobDelete.job.title}".` : "This will delete this job."}
+        confirmText={jobDelete.force ? "Force delete" : "Delete"}
+        loading={jobDeleteLoading}
+        onClose={closeJobDelete}
+        onConfirm={confirmJobDelete}
+        extra={
+          <div className="space-y-3">
+            {jobDelete.blockInfo?.message ? (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+                <p className="font-bold">Blocked by tasks</p>
+                <p className="mt-1">
+                  {jobDelete.blockInfo.message}
+                  {typeof jobDelete.blockInfo.tasksCount === "number" ? (
+                    <span className="font-semibold"> (Tasks: {jobDelete.blockInfo.tasksCount})</span>
+                  ) : null}
+                </p>
+              </div>
+            ) : null}
+
+            <label className="flex items-start gap-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={!!jobDelete.force}
+                onChange={(e) => setJobDelete((p) => ({ ...p, force: !!e.target.checked }))}
+              />
+              <span className="text-sm text-gray-700">
+                Force delete (also deletes tasks under this job){" "}
+                <span className="text-rose-600 font-semibold">— use carefully</span>
+              </span>
+            </label>
+          </div>
+        }
+      />
+
+      <AnimatePresence>
+        {viewChoice.open ? (
+          <ViewChoiceModal
+            open={viewChoice.open}
+            customerName={viewChoice.customer?.name || ""}
+            onClose={() => setViewChoice({ open: false, customer: null })}
+            onPick={(tabKey) => {
+              const id = viewChoice.customer?._id
+              setViewChoice({ open: false, customer: null })
+              if (id) openCustomerWithTab(id, tabKey)
+            }}
+          />
+        ) : null}
+      </AnimatePresence>
+
       <AnimatePresence>
         {filtersOpen ? (
           <FiltersModal
@@ -1945,7 +2548,6 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
             setDraftSubIds={setDraftSubIds}
             draftSubMatch={draftSubMatch}
             setDraftSubMatch={setDraftSubMatch}
-            // ✅ NEW status props
             draftStatus={draftStatus}
             setDraftStatus={setDraftStatus}
             onApply={applyDraft}
@@ -1955,6 +2557,27 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
         ) : null}
       </AnimatePresence>
 
+      <AnimatePresence>
+        {jobUpsert.open ? (
+          <JobUpsertModal
+            open={jobUpsert.open}
+            customer={jobUpsert.customer}
+            mode={jobUpsert.mode}
+            initialJob={jobUpsert.initialJob}
+            parentJobId={jobUpsert.parentJobId}
+            onClose={() =>
+              setJobUpsert({ open: false, customer: null, mode: "create", initialJob: null, parentJobId: null })
+            }
+            onSaved={() => {
+              const cid = String(jobUpsert.customer?._id || "")
+              if (cid) loadJobsForCustomer(cid)
+              showToast("success", jobUpsert.mode === "edit" ? "Job updated." : "Job created.")
+            }}
+          />
+        ) : null}
+      </AnimatePresence>
+
+      {/* HEADER */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
         <div className={cn(card, "p-6")}>
           <div className="flex flex-col gap-4">
@@ -1967,7 +2590,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
                 </div>
                 <div>
                   <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Customers</h1>
-                  <p className="text-sm text-gray-500">Cursor pagination • Fast list</p>
+                  <p className="text-sm text-gray-500">Cursor pagination • Jobs & Sub-jobs dropdown</p>
                 </div>
               </div>
 
@@ -1977,13 +2600,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
                   Loaded: {customers.length}
                 </span>
 
-                <button
-                  onClick={() => {
-                    fetchCustomersPage({ reset: true })
-                  }}
-                  className={cn(btn, btnGhost)}
-                  title="Refresh"
-                >
+                <button onClick={() => fetchCustomersPage({ reset: true })} className={cn(btn, btnGhost)} title="Refresh">
                   <FiRefreshCcw className={cn("w-4 h-4", isLoading ? "animate-spin" : "")} />
                   Refresh
                 </button>
@@ -2012,10 +2629,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
                       "overflow-x-auto",
                       "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                     )}
-                    onClick={() => {
-                      const el = document.getElementById("customers-search-input")
-                      el?.focus?.()
-                    }}
+                    onClick={() => document.getElementById("customers-search-input")?.focus?.()}
                   >
                     {appliedFilterChips.map((c) => (
                       <span
@@ -2049,9 +2663,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
                       type="search"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder={
-                        appliedFilterChips.length ? "Search…" : "Search customer, company, phone, contact, assigned, status…"
-                      }
+                      placeholder={appliedFilterChips.length ? "Search…" : "Search customer, company, phone, contact, assigned…"}
                       className={cn(
                         "flex-1 min-w-[10rem] bg-transparent",
                         "text-sm text-gray-900 placeholder:text-gray-400",
@@ -2127,7 +2739,6 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
               <tr>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">No.</th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">Customer</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">Status</th>
                 <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">Assigned</th>
                 <th className="px-6 py-4 text-right text-sm font-semibold text-gray-600">Actions</th>
               </tr>
@@ -2137,9 +2748,9 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
               <AnimatePresence>
                 {isLoading && customers.length === 0 ? (
                   [...Array(8)].map((_, idx) => (
-                    <tr key={idx} className="animate-pulse">
-                      {[...Array(5)].map((__, i) => (
-                        <td key={i} className="px-6 py-4">
+                    <tr key={`sk-${idx}`} className="animate-pulse">
+                      {[...Array(4)].map((__, i) => (
+                        <td key={`sk-${idx}-${i}`} className="px-6 py-4">
                           <div className="h-4 w-full max-w-[12rem] bg-gray-200 rounded" />
                         </td>
                       ))}
@@ -2153,79 +2764,100 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
                       .filter(Boolean)
 
                     const assignedDisplay = assignedNames.length ? assignedNames.join(", ") : "—"
-                    const busy = savingStatusId === c._id
+                    const isExpanded = String(expandedCustomerId || "") === String(c?._id || "")
 
                     return (
-                      <motion.tr
-                        key={c?._id || `cust-${index}`}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className={subtleHover}
-                        onClick={() => setSelectedCustomerId(c._id)}
-                        role="button"
-                        tabIndex={0}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") setSelectedCustomerId(c._id)
-                        }}
-                      >
-                        <td className="px-6 py-4 text-sm text-gray-600">{index + 1}</td>
+                      <Fragment key={String(c?._id || `cust-${index}`)}>
+                        <motion.tr
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          className={cn(subtleHover, "cursor-pointer")}
+                          onClick={() => toggleRowDropdown(c)}
+                          title="Click row to open Jobs dropdown"
+                        >
+                          <td className="px-6 py-4 text-sm text-gray-600">{index + 1}</td>
 
-                        <td className="px-6 py-4">
-                          <p className="font-semibold text-gray-900">{c?.name || "Unnamed"}</p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            {c?.companyName ? `Company: ${c.companyName}` : "Company: —"} •{" "}
-                            {c?.contactPerson?.name ? `Contact: ${c.contactPerson.name}` : "Contact: —"}
-                          </p>
-                        </td>
-
-                        <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center gap-3">
-                            <StatusSelect value={c?.status} disabled={busy} onChange={(v) => doStatusUpdateInline(c._id, v)} />
-                            <div className="hidden xl:block">
-                              <StatusBadge status={c?.status} />
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <p className="font-semibold text-gray-900">{c?.name || "Unnamed"}</p>
+                              <span
+                                className={cn(
+                                  chip,
+                                  isExpanded
+                                    ? "bg-indigo-50 text-indigo-700 ring-indigo-600/10"
+                                    : "bg-gray-50 text-gray-700 ring-gray-200"
+                                )}
+                              >
+                                <FiBriefcase className="w-3.5 h-3.5" />
+                                Jobs
+                              </span>
                             </div>
-                          </div>
-                        </td>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {c?.companyName ? `Company: ${c.companyName}` : "Company: —"} •{" "}
+                              {c?.contactPerson?.name ? `Contact: ${c.contactPerson.name}` : "Contact: —"}
+                            </p>
+                          </td>
 
-                        <td className="px-6 py-4 text-sm text-gray-700">{assignedDisplay}</td>
+                          <td className="px-6 py-4 text-sm text-gray-700">{assignedDisplay}</td>
 
-                        <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center justify-end gap-2">
-                            <button onClick={() => setSelectedCustomerId(c._id)} className={cn(btn, btnPrimary, "px-3.5 py-2")}>
-                              <FiEye className="w-4 h-4" />
-                              View
-                            </button>
+                          <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => setViewChoice({ open: true, customer: c })}
+                                className={cn(btn, btnPrimary, "px-3.5 py-2")}
+                              >
+                                <FiEye className="w-4 h-4" />
+                                View
+                              </button>
 
-                            <button onClick={() => setEditCustomer(c)} className={iconBtn} title="Edit" aria-label="Edit">
-                              <FiEdit2 className="w-4 h-4 text-gray-700" />
-                            </button>
+                              <button onClick={() => setEditCustomer(c)} className={iconBtn} title="Edit" aria-label="Edit">
+                                <FiEdit2 className="w-4 h-4 text-gray-700" />
+                              </button>
 
-                            <button
-                              onClick={() => setAssignCustomer(c)}
-                              className={iconBtn}
-                              title="Assign"
-                              aria-label="Assign"
+                              <button onClick={() => setAssignCustomer(c)} className={iconBtn} title="Assign" aria-label="Assign">
+                                <FiUserCheck className="w-4 h-4 text-gray-700" />
+                              </button>
+
+                              <button
+                                onClick={() => requestDeleteCustomer(c)}
+                                className={cn(iconBtn, btnDanger)}
+                                title="Delete"
+                                aria-label="Delete"
+                              >
+                                <FiTrash2 className="w-4 h-4 text-rose-600" />
+                              </button>
+                            </div>
+                          </td>
+                        </motion.tr>
+
+                        <AnimatePresence initial={false}>
+                          {isExpanded ? (
+                            <motion.tr
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: "auto" }}
+                              exit={{ opacity: 0, height: 0 }}
                             >
-                              <FiUserCheck className="w-4 h-4 text-gray-700" />
-                            </button>
-
-                            <button
-                              onClick={() => requestDeleteCustomer(c)}
-                              className={cn(iconBtn, btnDanger)}
-                              title="Delete"
-                              aria-label="Delete"
-                            >
-                              <FiTrash2 className="w-4 h-4 text-rose-600" />
-                            </button>
-                          </div>
-                        </td>
-                      </motion.tr>
+                              <td colSpan={4} className="p-0">
+                                <JobsDropdownPanel
+                                  customer={c}
+                                  state={jobsByCustomerId[String(c._id)] || { loading: false, error: "", jobsTree: [] }}
+                                  onRefresh={() => loadJobsForCustomer(String(c._id))}
+                                  onCreateRoot={() => openCreateRootJob(c)}
+                                  onCreateSub={(parentJob) => openCreateSubJob(c, parentJob)}
+                                  onEdit={(job) => openEditJob(c, job)}
+                                  onDelete={(job) => askDeleteJob(c, job)}
+                                />
+                              </td>
+                            </motion.tr>
+                          ) : null}
+                        </AnimatePresence>
+                      </Fragment>
                     )
                   })
                 ) : (
                   <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
                       {debounced ? "No customers match your search." : "No customers found."}
                     </td>
                   </tr>
