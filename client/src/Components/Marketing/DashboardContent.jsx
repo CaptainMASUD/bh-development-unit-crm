@@ -33,7 +33,7 @@ import {
   CartesianGrid,
 } from "recharts"
 
-const API_BASE = "http://localhost:4000/api"
+const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
 function getAuthHeaders() {
   const token = localStorage.getItem("token")
@@ -695,7 +695,7 @@ export default function DashboardContent() {
                 ))
               ) : (
                 <div className={`${premiumCard} bg-white`}>
-                  <EmptyState title="No leads yet" subtitle="business_development_team will see their assigned leads here." />
+                  <EmptyState title="No leads yet" subtitle="team will see their assigned leads here." />
                 </div>
               )}
             </div>

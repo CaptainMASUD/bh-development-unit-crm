@@ -22,7 +22,7 @@ import JetskyModal from "./JetskyModal"
 import NotificationModal from "./NotificationModal"
 import { Bell } from "lucide-react"
 
-const API_BASE = "http://localhost:4000/api"
+const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const NOTIF_BADGE_COLOR = "#5850EC"
 
 function getAuthHeaders() {

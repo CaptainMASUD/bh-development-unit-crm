@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { X, Bell, Loader2, Search, AlertTriangle, Clock } from "lucide-react"
 
-const API_BASE = "https://ca-farm-crm-api.vercel.app/api"
+const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
 function getAuthHeaders() {
   const token = localStorage.getItem("token")
