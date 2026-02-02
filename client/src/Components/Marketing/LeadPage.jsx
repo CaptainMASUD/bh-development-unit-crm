@@ -557,10 +557,7 @@ const COLUMN_DEFS = [
         </div>
       )
     },
-    exportValue: (l) => {
-      const tags = Array.isArray(l?.tags) ? l.tags : []
-      return tags.map(String).join(", ")
-    },
+    exportValue: (l) => (Array.isArray(l?.tags) ? l.tags.map(String).join(", ") : ""),
   },
   {
     key: "nextFollowUpAt",
@@ -766,7 +763,6 @@ function ColumnsModal({ open, onClose, visibleColumns, setVisibleColumns }) {
 
 /* =========================
    MODALS (UPSERT / NOTE / FOLLOWUP / FILTERS)
-   (same as previous version; unchanged for this request)
 ========================= */
 function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
   const [form, setForm] = useState({
@@ -780,6 +776,11 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
     priority: "medium",
     purchaseType: "",
     tags: "",
+    // ✅ added missing fields:
+    website: "",
+    industry: "",
+    address: "",
+    assignedTo: "",
   })
 
   const [error, setError] = useState("")
@@ -800,6 +801,11 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
       priority: c?.priority || "medium",
       purchaseType: c?.purchaseType || "",
       tags: Array.isArray(c?.tags) ? c.tags.join(", ") : "",
+      // ✅ prefill from company + assignedTo:
+      website: c?.company?.website || "",
+      industry: c?.company?.industry || "",
+      address: c?.company?.address || "",
+      assignedTo: typeof c?.assignedTo === "string" ? c.assignedTo : c?.assignedTo?._id || "",
     })
   }, [open, initial])
 
@@ -820,12 +826,20 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
       source: form.source.trim() || "",
       status: form.status,
       pipelineStage: form.pipelineStage,
-      priority: form.priority,
+      priority: String(form.priority || "medium").toLowerCase(),
       purchaseType: form.purchaseType.trim() || "",
       tags: form.tags
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean),
+      // ✅ added company object:
+      company: {
+        website: form.website.trim() || "",
+        industry: form.industry.trim() || "",
+        address: form.address.trim() || "",
+      },
+      // ✅ optional assignedTo:
+      ...(form.assignedTo.trim() ? { assignedTo: form.assignedTo.trim() } : {}),
     }
 
     setIsSubmitting(true)
@@ -846,7 +860,7 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
       open={open}
       onClose={onClose}
       title={mode === "edit" ? "Edit lead" : "Create lead"}
-      subtitle=""
+      subtitle="Contact + pipeline + company info"
       icon={mode === "edit" ? <FiEdit2 className="w-5 h-5" /> : <FiPlus className="w-5 h-5" />}
       footer={
         <div className="flex flex-col sm:flex-row sm:justify-end gap-2">
@@ -918,6 +932,33 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
         <Field label="Tags (comma separated)">
           <input value={form.tags} onChange={update("tags")} className={input} placeholder="vip, hot, retail, ..." />
         </Field>
+
+        {/* ✅ Company section */}
+        <div className="md:col-span-2">
+          <div className="border-t border-gray-100 pt-4">
+            <p className="text-sm font-bold text-gray-900 mb-3">Company</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Field label="Website">
+                <input value={form.website} onChange={update("website")} className={input} placeholder="https://..." />
+              </Field>
+              <Field label="Industry">
+                <input value={form.industry} onChange={update("industry")} className={input} placeholder="Industry" />
+              </Field>
+              <div className="md:col-span-2">
+                <Field label="Address">
+                  <input value={form.address} onChange={update("address")} className={input} placeholder="Street, area, city" />
+                </Field>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ✅ Assigned to */}
+        <div className="md:col-span-2">
+          <Field label="Assigned To (optional User ID)">
+            <input value={form.assignedTo} onChange={update("assignedTo")} className={input} placeholder="UserId (optional)" />
+          </Field>
+        </div>
       </div>
     </ModalShell>
   )
@@ -1250,7 +1291,6 @@ function RowActionsMenu({ lead, onView, onEdit, onAddNote, onSetFollowUp, onMark
 
 /* =========================
    LEAD DETAILS (VIEW)
-   (same as previous version; unchanged for this request)
 ========================= */
 function LeadDetails({ leadId, refreshTick, onBack, onEdit, onAddNote, onSetFollowUp, onMarkContacted, onConvert, showToast }) {
   const [lead, setLead] = useState(null)
@@ -1303,6 +1343,9 @@ function LeadDetails({ leadId, refreshTick, onBack, onEdit, onAddNote, onSetFoll
 
   return (
     <div className={cn(shell, "p-4 sm:p-6 lg:p-8")}>
+      {/* ... unchanged (same as your file) ... */}
+      {/* (Keeping LeadDetails UI as-is; create/update now sends company + assignedTo so backend stores it.) */}
+
       <div className="mb-6">
         <div className={cn(card, "p-5 sm:p-6")}>
           <div className="flex flex-col gap-4">
@@ -1411,6 +1454,7 @@ function LeadDetails({ leadId, refreshTick, onBack, onEdit, onAddNote, onSetFoll
         </div>
       </div>
 
+      {/* Rest of LeadDetails kept same */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-7 space-y-6">
           <div className={cn(card, "p-5")}>
@@ -1946,6 +1990,7 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
         />
       ) : (
         <div className="p-4 sm:p-6 lg:p-8">
+          {/* HEADER */}
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
             <div className={cn(card, "p-6")}>
               <div className="flex flex-col gap-4">
@@ -1971,7 +2016,6 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
                       <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>{visibleColumns.length}</span>
                     </button>
 
-                    {/* ✅ Premium Excel button */}
                     <button onClick={exportToExcel} disabled={exporting} className={cn(btnExcel, "disabled:opacity-60")} title="Export to Excel">
                       {exporting ? (
                         <FiLoader className="w-4 h-4 animate-spin" />
