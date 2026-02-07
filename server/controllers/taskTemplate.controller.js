@@ -21,20 +21,9 @@ const clampInt = (n, min, max, fallback) => {
   return Math.max(min, Math.min(max, v));
 };
 
-const toId = (v) => {
-  if (!v) return null;
-  try {
-    return new mongoose.Types.ObjectId(String(v));
-  } catch {
-    return null;
-  }
-};
-
-const normalizeSubtitles = (subtitles) => {
-  if (subtitles === undefined) return { subtitles: [] };
+const normalizeSubtitleTexts = (subtitles) => {
+  if (subtitles === undefined) return { texts: [] };
   if (!Array.isArray(subtitles)) return { error: "subtitles must be an array." };
-
-  // hard safety limit
   if (subtitles.length > 200) return { error: "Too many subtitles (max 200)." };
 
   const arr = [];
@@ -48,17 +37,17 @@ const normalizeSubtitles = (subtitles) => {
     }
   }
 
-  // remove duplicates (case-insensitive) while keeping order
+  // de-dupe case-insensitive keep order
   const seen = new Set();
-  const normalized = [];
+  const out = [];
   for (const t of arr) {
-    const key = t.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    normalized.push({ text: t });
+    const k = t.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(t);
   }
 
-  return { subtitles: normalized };
+  return { texts: out };
 };
 
 /**
@@ -75,8 +64,10 @@ export const createTaskTemplate = async (req, res) => {
     const title = String(req.body.title ?? "").trim();
     if (!title) return res.status(400).json({ message: "title is required." });
 
-    const { subtitles, error } = normalizeSubtitles(req.body.subtitles);
+    const { texts, error } = normalizeSubtitleTexts(req.body.subtitles);
     if (error) return res.status(400).json({ message: error });
+
+    const subtitles = texts.map((t) => ({ text: t, files: [] }));
 
     const tpl = await TaskTemplate.create({
       title,
@@ -85,7 +76,6 @@ export const createTaskTemplate = async (req, res) => {
       isActive: true,
     });
 
-    // keep response light
     return res.status(201).json({
       message: "Template created.",
       template: {
@@ -106,61 +96,37 @@ export const createTaskTemplate = async (req, res) => {
 };
 
 /**
- * ✅ List templates (dropdown use)
- * GET /task-templates?active=true&q=searchText&limit=100&cursor=<ObjectId>&sort=title|newest
- *
- * - default sort: title asc (dropdown friendly)
- * - sort=newest supports cursor pagination with _id desc
+ * GET /task-templates
  */
 export const listTaskTemplates = async (req, res) => {
   try {
     const active = String(req.query.active ?? "true") === "true";
     const qText = String(req.query.q ?? "").trim();
-    const sortMode = String(req.query.sort ?? "title"); // "title" | "newest"
+    const sortMode = String(req.query.sort ?? "title");
     const limit = clampInt(req.query.limit, 1, 200, 200);
-
-    const cursorId = req.query.cursor ? toId(req.query.cursor) : null;
 
     const filter = {};
     if (active) filter.isActive = true;
+    if (qText) filter.$text = { $search: qText };
 
-    // ✅ Fast search using text index when q exists
-    // NOTE: this requires taskTemplateSchema.index({ title: "text" })
-    if (qText) {
-      filter.$text = { $search: qText };
-    }
-
-    // ✅ Cursor pagination only applies cleanly to newest sort
-    if (sortMode === "newest" && cursorId) {
-      filter._id = { $lt: cursorId };
-    }
-
-    // projection
     const projection = qText
       ? { score: { $meta: "textScore" }, title: 1, subtitles: 1, isActive: 1, createdAt: 1, updatedAt: 1 }
       : { title: 1, subtitles: 1, isActive: 1, createdAt: 1, updatedAt: 1 };
 
-    // sorting
     let sort = { title: 1 };
     if (sortMode === "newest") sort = { _id: -1 };
     if (qText) sort = { score: { $meta: "textScore" }, title: 1 };
 
     const templates = await TaskTemplate.find(filter)
-      .collation({ locale: "en", strength: 2 }) // keeps title sorting consistent & case-insensitive
+      .collation({ locale: "en", strength: 2 })
       .select(projection)
       .sort(sort)
       .limit(limit)
       .lean();
 
-    // ✅ cursor meta (only meaningful for newest)
-    const nextCursor = sortMode === "newest" && templates.length ? String(templates[templates.length - 1]._id) : null;
-    const hasMore = sortMode === "newest" ? templates.length === limit : false;
-
     return res.status(200).json({
       message: "Templates fetched.",
       templates,
-      nextCursor,
-      hasMore,
       count: templates.length,
     });
   } catch (err) {
@@ -169,7 +135,6 @@ export const listTaskTemplates = async (req, res) => {
 };
 
 /**
- * ✅ Get one template
  * GET /task-templates/:id
  */
 export const getTaskTemplateById = async (req, res) => {
@@ -182,9 +147,7 @@ export const getTaskTemplateById = async (req, res) => {
 
     return res.status(200).json({ message: "Template fetched.", template: tpl });
   } catch (err) {
-    if (err?.name === "CastError") {
-      return res.status(400).json({ message: "Invalid template id." });
-    }
+    if (err?.name === "CastError") return res.status(400).json({ message: "Invalid template id." });
     return res.status(500).json({ message: "Server error in getTaskTemplateById.", error: err.message });
   }
 };
@@ -194,8 +157,9 @@ export const getTaskTemplateById = async (req, res) => {
  * PATCH /task-templates/:id
  * body: { title?, subtitles?, isActive? }
  *
- * Optimization:
- * - No extra "exists" query; rely on unique index + duplicate key handling
+ * ✅ FIX: If subtitles sent as strings, preserve existing subtitle _id and files by INDEX.
+ * - If you remove subtitles, removed items (and their files) are removed too.
+ * - If you add subtitles, new items start with files: []
  */
 export const updateTaskTemplate = async (req, res) => {
   try {
@@ -211,14 +175,32 @@ export const updateTaskTemplate = async (req, res) => {
       update.title = t;
     }
 
-    if (req.body.subtitles !== undefined) {
-      const { subtitles, error } = normalizeSubtitles(req.body.subtitles);
-      if (error) return res.status(400).json({ message: error });
-      update.subtitles = subtitles;
-    }
-
     if (req.body.isActive !== undefined) {
       update.isActive = Boolean(req.body.isActive);
+    }
+
+    // If subtitles provided: preserve files by index
+    if (req.body.subtitles !== undefined) {
+      const { texts, error } = normalizeSubtitleTexts(req.body.subtitles);
+      if (error) return res.status(400).json({ message: error });
+
+      const existing = await TaskTemplate.findById(req.params.id).select("subtitles").lean();
+      if (!existing) return res.status(404).json({ message: "Template not found." });
+
+      const oldSubs = Array.isArray(existing.subtitles) ? existing.subtitles : [];
+      const merged = texts.map((text, idx) => {
+        const old = oldSubs[idx];
+        if (old) {
+          return {
+            _id: old._id, // ✅ preserve same subtitle id
+            text,
+            files: Array.isArray(old.files) ? old.files : [], // ✅ preserve files
+          };
+        }
+        return { text, files: [] };
+      });
+
+      update.subtitles = merged;
     }
 
     const tpl = await TaskTemplate.findByIdAndUpdate(req.params.id, update, {
@@ -232,9 +214,7 @@ export const updateTaskTemplate = async (req, res) => {
 
     return res.status(200).json({ message: "Template updated.", template: tpl });
   } catch (err) {
-    if (err?.name === "CastError") {
-      return res.status(400).json({ message: "Invalid template id." });
-    }
+    if (err?.name === "CastError") return res.status(400).json({ message: "Invalid template id." });
 
     const dup = handleMongoDuplicateKey(err);
     if (dup) return res.status(409).json(dup);
@@ -258,9 +238,187 @@ export const deleteTaskTemplate = async (req, res) => {
 
     return res.status(200).json({ message: "Template deleted." });
   } catch (err) {
-    if (err?.name === "CastError") {
-      return res.status(400).json({ message: "Invalid template id." });
-    }
+    if (err?.name === "CastError") return res.status(400).json({ message: "Invalid template id." });
     return res.status(500).json({ message: "Server error in deleteTaskTemplate.", error: err.message });
+  }
+};
+
+// ------------------------------------
+// ✅ SUBTITLE FILES CRUD (ADMIN)
+// ------------------------------------
+
+// GET /task-templates/:id/subtitles/:subtitleId/files
+export const listTemplateSubtitleFiles = async (req, res) => {
+  try {
+    const { id, subtitleId } = req.params;
+
+    const tpl = await TaskTemplate.findById(id).select("subtitles").lean();
+    if (!tpl) return res.status(404).json({ message: "Template not found." });
+
+    const sub = (tpl.subtitles || []).find((s) => String(s._id) === String(subtitleId));
+    if (!sub) return res.status(404).json({ message: "Subtitle not found." });
+
+    return res.status(200).json({
+      message: "Subtitle files fetched.",
+      files: sub.files || [],
+      count: (sub.files || []).length,
+    });
+  } catch (err) {
+    if (err?.name === "CastError") return res.status(400).json({ message: "Invalid id." });
+    return res.status(500).json({ message: "Server error in listTemplateSubtitleFiles.", error: err.message });
+  }
+};
+
+// POST /task-templates/:id/subtitles/:subtitleId/files
+export const addTemplateSubtitleFile = async (req, res) => {
+  try {
+    if (!isAdminOrSuperAdmin(req)) {
+      return res.status(403).json({ message: "Only admin/superadmin can add subtitle files." });
+    }
+
+    const { id, subtitleId } = req.params;
+    const { key, url, name, type, size } = req.body;
+
+    if (!key || !url || !name) {
+      return res.status(400).json({ message: "key, url and name are required." });
+    }
+
+    const fileDoc = {
+      key: String(key).trim(),
+      url: String(url).trim(),
+      name: String(name).trim(),
+      type: type ? String(type).trim() : "",
+      size: size !== undefined ? Number(size) : undefined,
+      uploadedAt: new Date(),
+    };
+
+    const updated = await TaskTemplate.findOneAndUpdate(
+      { _id: id, "subtitles._id": subtitleId },
+      { $push: { "subtitles.$.files": fileDoc } },
+      { new: true, runValidators: true }
+    )
+      .select("title subtitles isActive createdAt updatedAt")
+      .lean();
+
+    if (!updated) return res.status(404).json({ message: "Template or subtitle not found." });
+
+    return res.status(201).json({
+      message: "File attached to subtitle.",
+      template: updated,
+    });
+  } catch (err) {
+    if (err?.name === "CastError") return res.status(400).json({ message: "Invalid id." });
+    return res.status(500).json({ message: "Server error in addTemplateSubtitleFile.", error: err.message });
+  }
+};
+
+// PATCH /task-templates/:id/subtitles/:subtitleId/files/:fileId  (rename)
+export const renameTemplateSubtitleFile = async (req, res) => {
+  try {
+    if (!isAdminOrSuperAdmin(req)) {
+      return res.status(403).json({ message: "Only admin/superadmin can rename subtitle files." });
+    }
+
+    const { id, subtitleId, fileId } = req.params;
+    const name = String(req.body.name ?? "").trim();
+    if (!name) return res.status(400).json({ message: "name is required." });
+
+    const updated = await TaskTemplate.findOneAndUpdate(
+      { _id: id },
+      { $set: { "subtitles.$[s].files.$[f].name": name } },
+      {
+        new: true,
+        runValidators: true,
+        arrayFilters: [{ "s._id": subtitleId }, { "f._id": fileId }],
+      }
+    )
+      .select("title subtitles isActive createdAt updatedAt")
+      .lean();
+
+    if (!updated) return res.status(404).json({ message: "Template not found." });
+
+    const sub = (updated.subtitles || []).find((s) => String(s._id) === String(subtitleId));
+    const file = sub?.files?.find((f) => String(f._id) === String(fileId));
+    if (!file) return res.status(404).json({ message: "Subtitle or file not found." });
+
+    return res.status(200).json({ message: "File renamed.", template: updated });
+  } catch (err) {
+    if (err?.name === "CastError") return res.status(400).json({ message: "Invalid id." });
+    return res.status(500).json({ message: "Server error in renameTemplateSubtitleFile.", error: err.message });
+  }
+};
+
+// ✅ NEW: PATCH /task-templates/:id/subtitles/:subtitleId/files/:fileId/replace
+// Replace actual file content (upload new object to S3, then update key/url/metadata in same record)
+export const replaceTemplateSubtitleFile = async (req, res) => {
+  try {
+    if (!isAdminOrSuperAdmin(req)) {
+      return res.status(403).json({ message: "Only admin/superadmin can replace subtitle files." });
+    }
+
+    const { id, subtitleId, fileId } = req.params;
+    const { key, url, name, type, size } = req.body;
+
+    if (!key || !url || !name) {
+      return res.status(400).json({ message: "key, url and name are required." });
+    }
+
+    const updated = await TaskTemplate.findOneAndUpdate(
+      { _id: id },
+      {
+        $set: {
+          "subtitles.$[s].files.$[f].key": String(key).trim(),
+          "subtitles.$[s].files.$[f].url": String(url).trim(),
+          "subtitles.$[s].files.$[f].name": String(name).trim(),
+          "subtitles.$[s].files.$[f].type": type ? String(type).trim() : "",
+          "subtitles.$[s].files.$[f].size": size !== undefined ? Number(size) : undefined,
+          "subtitles.$[s].files.$[f].uploadedAt": new Date(),
+        },
+      },
+      {
+        new: true,
+        runValidators: true,
+        arrayFilters: [{ "s._id": subtitleId }, { "f._id": fileId }],
+      }
+    )
+      .select("title subtitles isActive createdAt updatedAt")
+      .lean();
+
+    if (!updated) return res.status(404).json({ message: "Template not found." });
+
+    const sub = (updated.subtitles || []).find((s) => String(s._id) === String(subtitleId));
+    const file = sub?.files?.find((f) => String(f._id) === String(fileId));
+    if (!file) return res.status(404).json({ message: "Subtitle or file not found." });
+
+    return res.status(200).json({ message: "File replaced.", template: updated });
+  } catch (err) {
+    if (err?.name === "CastError") return res.status(400).json({ message: "Invalid id." });
+    return res.status(500).json({ message: "Server error in replaceTemplateSubtitleFile.", error: err.message });
+  }
+};
+
+// DELETE /task-templates/:id/subtitles/:subtitleId/files/:fileId
+export const deleteTemplateSubtitleFile = async (req, res) => {
+  try {
+    if (!isAdminOrSuperAdmin(req)) {
+      return res.status(403).json({ message: "Only admin/superadmin can delete subtitle files." });
+    }
+
+    const { id, subtitleId, fileId } = req.params;
+
+    const updated = await TaskTemplate.findOneAndUpdate(
+      { _id: id, "subtitles._id": subtitleId },
+      { $pull: { "subtitles.$.files": { _id: fileId } } },
+      { new: true }
+    )
+      .select("title subtitles isActive createdAt updatedAt")
+      .lean();
+
+    if (!updated) return res.status(404).json({ message: "Template or subtitle not found." });
+
+    return res.status(200).json({ message: "File removed from subtitle.", template: updated });
+  } catch (err) {
+    if (err?.name === "CastError") return res.status(400).json({ message: "Invalid id." });
+    return res.status(500).json({ message: "Server error in deleteTemplateSubtitleFile.", error: err.message });
   }
 };

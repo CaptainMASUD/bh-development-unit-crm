@@ -3,6 +3,11 @@ import mongoose from "mongoose";
 import Customer from "../models/customer.model.js";
 import User from "../models/user.model.js";
 import TaskTemplate from "../models/taskTemplate.model.js";
+import ServiceLog from "../models/serviceLog.model.js";
+
+// ✅ OPTIONAL (recommended): delete from S3 when deleting a subtitle file
+import s3 from "../config/s3v3.js";
+import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 const { Types } = mongoose;
 
@@ -41,7 +46,6 @@ const clampInt = (n, min, max, fallback) => {
 };
 
 const ensureEmployeesExistFast = async (ids) => {
-  // ✅ Updated to respect your User model's isActive flag
   const count = await User.countDocuments({
     _id: { $in: ids },
     role: "employee",
@@ -51,10 +55,7 @@ const ensureEmployeesExistFast = async (ids) => {
 };
 
 /**
- * ✅ Accepts:
- * - employeeId (string)
- * - employeeIds (array)
- * - assignedTo (array)
+ * Accepts: employeeId (string) | employeeIds (array) | assignedTo (array)
  */
 const normalizeEmployeeIds = (body) => {
   const { employeeId, employeeIds, assignedTo } = body;
@@ -106,9 +107,7 @@ const customerAccessForEmployee = (customer, userId) => {
 };
 
 /**
- * ✅ NEW: resolve rootJobId (max depth=2)
- * - if job.parentJobId is null => rootJobId = jobId
- * - else rootJobId = parentJobId (must point to a root)
+ * resolve rootJobId (max depth=2)
  */
 const resolveRootJobId = (jobs, jobId) => {
   const idStr = String(jobId);
@@ -127,10 +126,7 @@ const resolveRootJobId = (jobs, jobId) => {
 };
 
 /**
- * ✅ NEW: normalize task subtitles (manual create/update)
- * Keeps existing files/notes by:
- *  - matching _id if provided
- *  - else matching text (case-insensitive) if _id not provided
+ * normalize task subtitles (manual create/update)
  */
 const normalizeManualSubtitlesV2 = (subtitles, existingSubtitles = []) => {
   if (subtitles === undefined || subtitles === null) return { subtitles: [] };
@@ -150,7 +146,6 @@ const normalizeManualSubtitlesV2 = (subtitles, existingSubtitles = []) => {
   const raw = [];
 
   for (const s of subtitles) {
-    // string
     if (typeof s === "string") {
       const t = s.trim();
       if (!t) continue;
@@ -164,7 +159,6 @@ const normalizeManualSubtitlesV2 = (subtitles, existingSubtitles = []) => {
       continue;
     }
 
-    // object
     if (s && typeof s === "object") {
       const t = String(s.text ?? "").trim();
       if (!t) continue;
@@ -180,7 +174,6 @@ const normalizeManualSubtitlesV2 = (subtitles, existingSubtitles = []) => {
     }
   }
 
-  // dedupe by text (case-insensitive) keep order
   const seen = new Set();
   const normalized = [];
 
@@ -200,10 +193,7 @@ const normalizeManualSubtitlesV2 = (subtitles, existingSubtitles = []) => {
 };
 
 /**
- * ✅ NEW: normalize files input (single or multiple)
- * Supports:
- * - single: { key, url, originalName, ... }
- * - multi:  { files: [ { key, url, originalName, ... }, ... ] }
+ * normalize files input (single or multiple)
  */
 const normalizeFilesInput = (body) => {
   const toFile = (f) => {
@@ -223,21 +213,19 @@ const normalizeFilesInput = (body) => {
     };
   };
 
-  // multiple
   if (Array.isArray(body?.files)) {
     const list = body.files.map(toFile).filter(Boolean);
     if (list.length === 0) return { error: "files array is empty or invalid. key + originalName required." };
     return { files: list };
   }
 
-  // single
   const single = toFile(body);
   if (!single) return { error: "Invalid file. key + originalName required." };
   return { files: [single] };
 };
 
 /**
- * ✅ NEW: build subtitle note (optional fileId)
+ * build subtitle note (optional fileId)
  */
 const buildSubtitleNote = (req, text, fileId = null) => {
   const t = String(text ?? "").trim();
@@ -253,8 +241,7 @@ const buildSubtitleNote = (req, text, fileId = null) => {
 };
 
 /**
- * ✅ Template build:
- * - returns task subtitles with files+notes empty
+ * Template build: returns task subtitles with files+notes empty
  */
 const buildTaskFromTemplate = async (templateId, selectedSubtitleIds = undefined) => {
   const tpl = await TaskTemplate.findOne({ _id: templateId, isActive: true })
@@ -289,11 +276,51 @@ const buildTaskFromTemplate = async (templateId, selectedSubtitleIds = undefined
   return { title, subtitles: subtitleDocs, templateId: tpl._id };
 };
 
+/* ------------------ reporting helpers ------------------ */
+
+const safeDate = (d) => {
+  const x = d ? new Date(d) : null;
+  return x && !isNaN(x.getTime()) ? x : null;
+};
+
+const diffMinutes = (a, b) => {
+  if (!a || !b) return 0;
+  const ms = new Date(b).getTime() - new Date(a).getTime();
+  if (!Number.isFinite(ms) || ms <= 0) return 0;
+  return Math.round(ms / 60000);
+};
+
+const writeServiceLogIfDone = async ({ customerId, task }) => {
+  if (!task) return;
+  if (String(task.status) !== "done") return;
+
+  const now = new Date();
+  const startedAt = safeDate(task.startedAt) || safeDate(task.createdAt) || now;
+  const completedAt = safeDate(task.completedAt) || now;
+  const durationMinutes = diffMinutes(startedAt, completedAt);
+
+  try {
+    await ServiceLog.create({
+      customerId,
+      taskId: task._id,
+      serviceId: task.templateId || null,
+      serviceTitleSnapshot: String(task.title || "").trim(),
+      jobId: task.jobId || null,
+      rootJobId: task.rootJobId || null,
+      status: "done",
+      startedAt,
+      completedAt,
+      durationMinutes,
+      assignedTo: task.assignedTo || [],
+      createdBy: task.createdBy || null,
+    });
+  } catch (e) {
+    if (e?.code !== 11000) throw e; // ignore duplicate
+  }
+};
+
 /* =========================================================
-   ✅ TASKS LIST (cursor pagination) + optional job filters
-   GET /customers/:customerId/tasks?limit=20&cursor=<taskId>&jobId=&rootJobId=
-   - Admin: all tasks
-   - Employee: must have customer access AND only assigned tasks
+   TASKS LIST
 ========================================================= */
 export const getCustomerTasks = async (req, res) => {
   try {
@@ -312,7 +339,6 @@ export const getCustomerTasks = async (req, res) => {
     const isAdmin = isAdminOrSuperAdmin(req);
     const uid = toObjectIdSafe(req.user?._id);
 
-    // ✅ ensure employees can’t query tasks for a customer they don’t have access to
     const customer = await Customer.findById(customerId).select("_id createdBy assignedTo").lean();
     if (!customer) return res.status(404).json({ message: "Customer not found." });
 
@@ -324,9 +350,7 @@ export const getCustomerTasks = async (req, res) => {
 
     const matchTask = {};
     if (cursor) matchTask["crmTasks._id"] = { $lt: cursor };
-
     if (!isAdmin && uid) matchTask["crmTasks.assignedTo"] = uid;
-
     if (jobId) matchTask["crmTasks.jobId"] = jobId;
     if (rootJobId) matchTask["crmTasks.rootJobId"] = rootJobId;
 
@@ -341,15 +365,13 @@ export const getCustomerTasks = async (req, res) => {
         $project: {
           _id: 1,
           title: 1,
-
-          // ✅ NEW
           jobId: 1,
           rootJobId: 1,
-
           subtitles: 1,
           templateId: 1,
           description: 1,
           status: 1,
+          startedAt: 1,
           dueAt: 1,
           completedAt: 1,
           createdBy: 1,
@@ -380,9 +402,7 @@ export const getCustomerTasks = async (req, res) => {
 };
 
 /* =========================================================
-   ✅ CREATE TASK (Admin only) + MUST attach to Job/SubJob
-   POST /customers/:customerId/tasks
-   Required: jobId
+   CREATE TASK (Admin only)
 ========================================================= */
 export const addTask = async (req, res) => {
   try {
@@ -395,7 +415,6 @@ export const addTask = async (req, res) => {
 
     const { description, dueAt, status, templateId, selectedSubtitleIds } = req.body;
 
-    // ✅ NEW: jobId required
     const jobId = toObjectIdSafe(req.body?.jobId);
     if (!jobId) return res.status(400).json({ message: "jobId is required and must be valid." });
 
@@ -410,7 +429,6 @@ export const addTask = async (req, res) => {
     const okEmployees = await ensureEmployeesExistFast(ids);
     if (!okEmployees) return res.status(404).json({ message: "One or more employees not found or inactive." });
 
-    // ✅ need assignedTo + jobs for rootJobId resolution
     const customer = await Customer.findById(customerId).select("_id assignedTo jobs").lean();
     if (!customer) return res.status(404).json({ message: "Customer not found." });
 
@@ -422,7 +440,6 @@ export const addTask = async (req, res) => {
       });
     }
 
-    // ✅ compute rootJobId and validate job belongs to customer
     const { rootJobId, error: jobErr } = resolveRootJobId(customer.jobs || [], jobId);
     if (jobErr) return res.status(400).json({ message: jobErr });
 
@@ -451,30 +468,32 @@ export const addTask = async (req, res) => {
 
     const taskId = new Types.ObjectId();
     const now = new Date();
+    const startedAt = finalStatus === "in_progress" || finalStatus === "done" ? now : null;
 
     const taskDoc = {
       _id: taskId,
       title: taskTitle,
-
-      // ✅ NEW
       jobId,
       rootJobId,
-
       subtitles: taskSubtitles,
       templateId: usedTemplateId,
-
       description: description ? String(description).trim() : "",
       status: finalStatus,
+      startedAt,
       dueAt: dueAt ? new Date(dueAt) : null,
       completedAt: finalStatus === "done" ? now : null,
-
       createdBy: req.user._id,
       assignedTo: ids,
       reminders: [],
       createdAt: now,
+      updatedAt: now,
     };
 
     await Customer.updateOne({ _id: customerId }, { $push: { crmTasks: taskDoc } });
+
+    if (finalStatus === "done") {
+      await writeServiceLogIfDone({ customerId, task: taskDoc });
+    }
 
     return res.status(201).json({ message: "Task created.", task: taskDoc });
   } catch (err) {
@@ -483,13 +502,7 @@ export const addTask = async (req, res) => {
 };
 
 /* =========================================================
-   ✅ ADMIN UPDATE TASK
-   PATCH /customers/:customerId/tasks/:taskId
-   Supports updating:
-   - jobId (auto recompute rootJobId)
-   - title/subtitles (manual)
-   - templateId change
-   - dueAt/status/description/assignedTo
+   ADMIN UPDATE TASK
 ========================================================= */
 export const updateTaskByAdmin = async (req, res) => {
   try {
@@ -507,13 +520,8 @@ export const updateTaskByAdmin = async (req, res) => {
       description,
       status,
       dueAt,
-      employeeId,
-      employeeIds,
-      assignedTo,
       templateId,
       selectedSubtitleIds,
-
-      // ✅ NEW
       jobId: nextJobIdRaw,
     } = req.body;
 
@@ -521,7 +529,6 @@ export const updateTaskByAdmin = async (req, res) => {
       return res.status(400).json({ message: "Invalid status value." });
     }
 
-    // need customer.jobs to validate job changes, and customer.assignedTo for assignee validation
     const found = await Customer.findOne(
       { _id: customerId, "crmTasks._id": taskId },
       { assignedTo: 1, jobs: 1, "crmTasks.$": 1 }
@@ -533,11 +540,11 @@ export const updateTaskByAdmin = async (req, res) => {
     if (!existingTask) return res.status(404).json({ message: "Task not found." });
 
     const $set = {};
+    const now = new Date();
 
     if (description !== undefined) $set["crmTasks.$.description"] = String(description || "").trim();
     if (dueAt !== undefined) $set["crmTasks.$.dueAt"] = dueAt ? new Date(dueAt) : null;
 
-    // ✅ NEW: jobId update
     if (nextJobIdRaw !== undefined) {
       const nextJobId = nextJobIdRaw ? toObjectIdSafe(nextJobIdRaw) : null;
       if (!nextJobId) return res.status(400).json({ message: "jobId must be valid." });
@@ -549,29 +556,7 @@ export const updateTaskByAdmin = async (req, res) => {
       $set["crmTasks.$.rootJobId"] = rootJobId;
     }
 
-    // assignments update
-    const wantsAssignmentUpdate =
-      assignedTo !== undefined || employeeId !== undefined || employeeIds !== undefined;
-
-    if (wantsAssignmentUpdate) {
-      const { ids, error } = normalizeEmployeeIds(req.body);
-      if (error) return res.status(400).json({ message: error });
-
-      const okEmployees = await ensureEmployeesExistFast(ids);
-      if (!okEmployees) return res.status(404).json({ message: "One or more employees not found or inactive." });
-
-      const check = ensureAssigneesAssignedToCustomerFast(found.assignedTo, ids);
-      if (!check.ok) {
-        return res.status(400).json({
-          message: "All task assignees must be assigned to this customer first.",
-          notAssigned: check.notAssigned,
-        });
-      }
-
-      $set["crmTasks.$.assignedTo"] = ids;
-    }
-
-    // template change (resets subtitles/files/notes because it's a new snapshot)
+    // template change
     if (templateId !== undefined) {
       if (templateId) {
         const built = await buildTaskFromTemplate(templateId, selectedSubtitleIds);
@@ -581,7 +566,6 @@ export const updateTaskByAdmin = async (req, res) => {
         $set["crmTasks.$.subtitles"] = built.subtitles;
         $set["crmTasks.$.templateId"] = built.templateId;
       } else {
-        // switch to manual
         $set["crmTasks.$.templateId"] = null;
 
         if (title !== undefined) {
@@ -591,16 +575,12 @@ export const updateTaskByAdmin = async (req, res) => {
         }
 
         if (subtitles !== undefined) {
-          const { subtitles: norm, error: subErr } = normalizeManualSubtitlesV2(
-            subtitles,
-            existingTask.subtitles
-          );
+          const { subtitles: norm, error: subErr } = normalizeManualSubtitlesV2(subtitles, existingTask.subtitles);
           if (subErr) return res.status(400).json({ message: subErr });
           $set["crmTasks.$.subtitles"] = norm;
         }
       }
     } else {
-      // manual updates only if already manual
       if (!existingTask.templateId) {
         if (title !== undefined) {
           const t = String(title ?? "").trim();
@@ -609,42 +589,53 @@ export const updateTaskByAdmin = async (req, res) => {
         }
 
         if (subtitles !== undefined) {
-          const { subtitles: norm, error: subErr } = normalizeManualSubtitlesV2(
-            subtitles,
-            existingTask.subtitles
-          );
+          const { subtitles: norm, error: subErr } = normalizeManualSubtitlesV2(subtitles, existingTask.subtitles);
           if (subErr) return res.status(400).json({ message: subErr });
           $set["crmTasks.$.subtitles"] = norm;
         }
       }
     }
 
+    // status rules
     if (status !== undefined) {
       const s = String(status);
       $set["crmTasks.$.status"] = s;
-      $set["crmTasks.$.completedAt"] = s === "done" ? new Date() : null;
+
+      if (s === "in_progress") {
+        if (!existingTask.startedAt) $set["crmTasks.$.startedAt"] = now;
+        $set["crmTasks.$.completedAt"] = null;
+      } else if (s === "done") {
+        const started = safeDate(existingTask.startedAt) || now;
+        $set["crmTasks.$.startedAt"] = started;
+        $set["crmTasks.$.completedAt"] = now;
+      } else {
+        $set["crmTasks.$.completedAt"] = null;
+      }
     }
 
     if (Object.keys($set).length === 0) {
       return res.status(200).json({ message: "No changes.", task: existingTask });
     }
 
+    $set["crmTasks.$.updatedAt"] = now;
+
     await Customer.updateOne({ _id: customerId, "crmTasks._id": taskId }, { $set });
 
-    const updated = await Customer.findOne(
-      { _id: customerId, "crmTasks._id": taskId },
-      { "crmTasks.$": 1 }
-    ).lean();
+    const updated = await Customer.findOne({ _id: customerId, "crmTasks._id": taskId }, { "crmTasks.$": 1 }).lean();
+    const updatedTask = updated?.crmTasks?.[0] ?? null;
 
-    return res.status(200).json({ message: "Task updated.", task: updated?.crmTasks?.[0] ?? null });
+    if (updatedTask && String(updatedTask.status) === "done") {
+      await writeServiceLogIfDone({ customerId, task: updatedTask });
+    }
+
+    return res.status(200).json({ message: "Task updated.", task: updatedTask });
   } catch (err) {
     return res.status(500).json({ message: "Server error in updateTaskByAdmin.", error: err.message });
   }
 };
 
 /* =========================================================
-   ✅ EMPLOYEE STATUS UPDATE (employee/admin allowed)
-   PATCH /customers/:customerId/tasks/:taskId/status
+   EMPLOYEE STATUS UPDATE
 ========================================================= */
 export const updateTaskStatus = async (req, res) => {
   try {
@@ -652,8 +643,8 @@ export const updateTaskStatus = async (req, res) => {
     const taskId = toObjectIdSafe(req.params.taskId);
     if (!customerId || !taskId) return res.status(400).json({ message: "Invalid ids." });
 
-    const { status } = req.body;
-    if (!ALLOWED_STATUSES.includes(String(status))) {
+    const nextStatus = String(req.body?.status ?? "");
+    if (!ALLOWED_STATUSES.includes(nextStatus)) {
       return res.status(400).json({ message: "Invalid status value." });
     }
 
@@ -664,7 +655,6 @@ export const updateTaskStatus = async (req, res) => {
 
     if (!found) return res.status(404).json({ message: "Customer or task not found." });
 
-    // if not admin, must have customer access
     if (!isAdminOrSuperAdmin(req)) {
       if (!customerAccessForEmployee(found, req.user._id)) {
         return res.status(403).json({ message: "No access to this customer." });
@@ -674,37 +664,50 @@ export const updateTaskStatus = async (req, res) => {
     const task = found.crmTasks?.[0];
     if (!task) return res.status(404).json({ message: "Task not found." });
 
-    // employee must be assigned to the task
     if (!isAdminOrSuperAdmin(req) && req.user.role === "employee") {
       if (!isTaskAssignedToUser(task, req.user._id)) {
         return res.status(403).json({ message: "You are not assigned to this task." });
       }
     }
 
-    const s = String(status);
-    await Customer.updateOne(
-      { _id: customerId, "crmTasks._id": taskId },
-      {
-        $set: {
-          "crmTasks.$.status": s,
-          "crmTasks.$.completedAt": s === "done" ? new Date() : null,
-        },
-      }
-    );
+    const now = new Date();
+    const $set = {
+      "crmTasks.$.status": nextStatus,
+      "crmTasks.$.updatedAt": now,
+    };
+
+    if (nextStatus === "in_progress") {
+      if (!task.startedAt) $set["crmTasks.$.startedAt"] = now;
+      $set["crmTasks.$.completedAt"] = null;
+    } else if (nextStatus === "done") {
+      const started = safeDate(task.startedAt) || now;
+      $set["crmTasks.$.startedAt"] = started;
+      $set["crmTasks.$.completedAt"] = now;
+    } else {
+      $set["crmTasks.$.completedAt"] = null;
+    }
+
+    await Customer.updateOne({ _id: customerId, "crmTasks._id": taskId }, { $set });
 
     const updated = await Customer.findOne(
       { _id: customerId, "crmTasks._id": taskId },
       { "crmTasks.$": 1 }
     ).lean();
 
-    return res.status(200).json({ message: "Task status updated.", task: updated?.crmTasks?.[0] ?? null });
+    const updatedTask = updated?.crmTasks?.[0] ?? null;
+
+    if (updatedTask && String(updatedTask.status) === "done") {
+      await writeServiceLogIfDone({ customerId, task: updatedTask });
+    }
+
+    return res.status(200).json({ message: "Task status updated.", task: updatedTask });
   } catch (err) {
     return res.status(500).json({ message: "Server error in updateTaskStatus.", error: err.message });
   }
 };
 
 /* =========================================================
-   ✅ ADD FILE(S) UNDER A SUBTITLE (+ optional note)
+   SUBTITLE FILES - CREATE (already existed)
    POST /customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files
 ========================================================= */
 export const addSubtitleFiles = async (req, res) => {
@@ -724,7 +727,6 @@ export const addSubtitleFiles = async (req, res) => {
 
     if (!found) return res.status(404).json({ message: "Customer or task not found." });
 
-    // if not admin, must have customer access
     if (!isAdminOrSuperAdmin(req)) {
       if (!customerAccessForEmployee(found, req.user._id)) {
         return res.status(403).json({ message: "No access to this customer." });
@@ -734,7 +736,6 @@ export const addSubtitleFiles = async (req, res) => {
     const task = found.crmTasks?.[0];
     if (!task) return res.status(404).json({ message: "Task not found." });
 
-    // employee must be assigned to task
     if (!isAdminOrSuperAdmin(req) && req.user.role === "employee") {
       if (!isTaskAssignedToUser(task, req.user._id)) {
         return res.status(403).json({ message: "You are not assigned to this task." });
@@ -744,11 +745,9 @@ export const addSubtitleFiles = async (req, res) => {
     const subtitle = (task.subtitles || []).find((s) => String(s?._id) === String(subtitleId));
     if (!subtitle) return res.status(404).json({ message: "Subtitle not found." });
 
-    // normalize files
     const { files, error } = normalizeFilesInput(req.body);
     if (error) return res.status(400).json({ message: error });
 
-    // IMPORTANT: since we use updateOne $push, create _id manually for file subdocs
     const readyFiles = files.map((f) => ({
       _id: new Types.ObjectId(),
       ...f,
@@ -756,7 +755,6 @@ export const addSubtitleFiles = async (req, res) => {
       uploadedAt: new Date(),
     }));
 
-    // optional note
     const noteText = String(req.body?.note ?? "").trim();
     const attachNoteTo = String(req.body?.attachNoteTo ?? "subtitle"); // subtitle | file
 
@@ -780,11 +778,9 @@ export const addSubtitleFiles = async (req, res) => {
       update.$push["crmTasks.$[t].subtitles.$[s].notes"] = { $each: notesToPush };
     }
 
-    await Customer.updateOne(
-      { _id: customerId },
-      update,
-      { arrayFilters: [{ "t._id": taskId }, { "s._id": subtitleId }] }
-    );
+    await Customer.updateOne({ _id: customerId }, update, {
+      arrayFilters: [{ "t._id": taskId }, { "s._id": subtitleId }],
+    });
 
     return res.status(201).json({
       message: "Files added under subtitle.",
@@ -797,8 +793,217 @@ export const addSubtitleFiles = async (req, res) => {
 };
 
 /* =========================================================
-   ✅ ADD NOTE UNDER A SUBTITLE (admin + employee)
-   POST /customers/:customerId/tasks/:taskId/subtitles/:subtitleId/notes
+   SUBTITLE FILES - READ (NEW)
+   GET /customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files
+========================================================= */
+export const getSubtitleFiles = async (req, res) => {
+  try {
+    const customerId = toObjectIdSafe(req.params.customerId);
+    const taskId = toObjectIdSafe(req.params.taskId);
+    const subtitleId = toObjectIdSafe(req.params.subtitleId);
+
+    if (!customerId || !taskId || !subtitleId) {
+      return res.status(400).json({ message: "Invalid ids." });
+    }
+
+    const found = await Customer.findOne(
+      { _id: customerId, "crmTasks._id": taskId },
+      { createdBy: 1, assignedTo: 1, "crmTasks.$": 1 }
+    ).lean();
+
+    if (!found) return res.status(404).json({ message: "Customer or task not found." });
+
+    if (!isAdminOrSuperAdmin(req)) {
+      if (!customerAccessForEmployee(found, req.user._id)) {
+        return res.status(403).json({ message: "No access to this customer." });
+      }
+    }
+
+    const task = found.crmTasks?.[0];
+    if (!task) return res.status(404).json({ message: "Task not found." });
+
+    if (!isAdminOrSuperAdmin(req) && req.user.role === "employee") {
+      if (!isTaskAssignedToUser(task, req.user._id)) {
+        return res.status(403).json({ message: "You are not assigned to this task." });
+      }
+    }
+
+    const subtitle = (task.subtitles || []).find((s) => String(s?._id) === String(subtitleId));
+    if (!subtitle) return res.status(404).json({ message: "Subtitle not found." });
+
+    return res.status(200).json({
+      message: "Subtitle files fetched.",
+      files: subtitle.files || [],
+      count: (subtitle.files || []).length,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Server error in getSubtitleFiles.", error: err.message });
+  }
+};
+
+/* =========================================================
+   SUBTITLE FILES - UPDATE (NEW)
+   PATCH /customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files/:fileId
+   Editable: displayName
+========================================================= */
+export const updateSubtitleFile = async (req, res) => {
+  try {
+    const customerId = toObjectIdSafe(req.params.customerId);
+    const taskId = toObjectIdSafe(req.params.taskId);
+    const subtitleId = toObjectIdSafe(req.params.subtitleId);
+    const fileId = toObjectIdSafe(req.params.fileId);
+
+    if (!customerId || !taskId || !subtitleId || !fileId) {
+      return res.status(400).json({ message: "Invalid ids." });
+    }
+
+    const found = await Customer.findOne(
+      { _id: customerId, "crmTasks._id": taskId },
+      { createdBy: 1, assignedTo: 1, "crmTasks.$": 1 }
+    ).lean();
+
+    if (!found) return res.status(404).json({ message: "Customer or task not found." });
+
+    if (!isAdminOrSuperAdmin(req)) {
+      if (!customerAccessForEmployee(found, req.user._id)) {
+        return res.status(403).json({ message: "No access to this customer." });
+      }
+    }
+
+    const task = found.crmTasks?.[0];
+    if (!task) return res.status(404).json({ message: "Task not found." });
+
+    if (!isAdminOrSuperAdmin(req) && req.user.role === "employee") {
+      if (!isTaskAssignedToUser(task, req.user._id)) {
+        return res.status(403).json({ message: "You are not assigned to this task." });
+      }
+    }
+
+    const subtitle = (task.subtitles || []).find((s) => String(s?._id) === String(subtitleId));
+    if (!subtitle) return res.status(404).json({ message: "Subtitle not found." });
+
+    const existing = (subtitle.files || []).find((f) => String(f?._id) === String(fileId));
+    if (!existing) return res.status(404).json({ message: "File not found in this subtitle." });
+
+    const displayName =
+      req.body?.displayName !== undefined ? String(req.body.displayName || "").trim() : undefined;
+
+    const $set = {};
+    if (displayName !== undefined) {
+      $set["crmTasks.$[t].subtitles.$[s].files.$[f].displayName"] = displayName;
+    }
+
+    if (!Object.keys($set).length) {
+      return res.status(400).json({ message: "No valid fields to update. Allowed: displayName" });
+    }
+
+    await Customer.updateOne(
+      { _id: customerId },
+      { $set },
+      { arrayFilters: [{ "t._id": taskId }, { "s._id": subtitleId }, { "f._id": fileId }] }
+    );
+
+    const refreshed = await Customer.findOne(
+      { _id: customerId, "crmTasks._id": taskId },
+      { "crmTasks.$": 1 }
+    ).lean();
+
+    const task2 = refreshed?.crmTasks?.[0];
+    const subtitle2 = (task2?.subtitles || []).find((s) => String(s?._id) === String(subtitleId));
+    const file2 = (subtitle2?.files || []).find((f) => String(f?._id) === String(fileId));
+
+    return res.status(200).json({ message: "File updated.", file: file2 });
+  } catch (err) {
+    return res.status(500).json({ message: "Server error in updateSubtitleFile.", error: err.message });
+  }
+};
+
+/* =========================================================
+   SUBTITLE FILES - DELETE (NEW)
+   DELETE /customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files/:fileId
+   - removes DB file entry
+   - removes notes referencing that fileId
+   - optionally deletes S3 object
+========================================================= */
+export const deleteSubtitleFile = async (req, res) => {
+  try {
+    const customerId = toObjectIdSafe(req.params.customerId);
+    const taskId = toObjectIdSafe(req.params.taskId);
+    const subtitleId = toObjectIdSafe(req.params.subtitleId);
+    const fileId = toObjectIdSafe(req.params.fileId);
+
+    if (!customerId || !taskId || !subtitleId || !fileId) {
+      return res.status(400).json({ message: "Invalid ids." });
+    }
+
+    const found = await Customer.findOne(
+      { _id: customerId, "crmTasks._id": taskId },
+      { createdBy: 1, assignedTo: 1, "crmTasks.$": 1 }
+    ).lean();
+
+    if (!found) return res.status(404).json({ message: "Customer or task not found." });
+
+    if (!isAdminOrSuperAdmin(req)) {
+      if (!customerAccessForEmployee(found, req.user._id)) {
+        return res.status(403).json({ message: "No access to this customer." });
+      }
+    }
+
+    const task = found.crmTasks?.[0];
+    if (!task) return res.status(404).json({ message: "Task not found." });
+
+    if (!isAdminOrSuperAdmin(req) && req.user.role === "employee") {
+      if (!isTaskAssignedToUser(task, req.user._id)) {
+        return res.status(403).json({ message: "You are not assigned to this task." });
+      }
+    }
+
+    const subtitle = (task.subtitles || []).find((s) => String(s?._id) === String(subtitleId));
+    if (!subtitle) return res.status(404).json({ message: "Subtitle not found." });
+
+    const file = (subtitle.files || []).find((f) => String(f?._id) === String(fileId));
+    if (!file) return res.status(404).json({ message: "File not found in this subtitle." });
+
+    // 1) remove from DB + remove notes referencing that fileId
+    await Customer.updateOne(
+      { _id: customerId },
+      {
+        $pull: {
+          "crmTasks.$[t].subtitles.$[s].files": { _id: fileId },
+          "crmTasks.$[t].subtitles.$[s].notes": { fileId: fileId },
+        },
+      },
+      { arrayFilters: [{ "t._id": taskId }, { "s._id": subtitleId }] }
+    );
+
+    // 2) OPTIONAL: delete from S3 (recommended)
+    // If you want to skip S3 delete, comment this block out
+    try {
+      if (file?.key) {
+        await s3.send(
+          new DeleteObjectCommand({
+            Bucket: process.env.AWS_S3_BUCKET,
+            Key: file.key,
+          })
+        );
+      }
+    } catch (e) {
+      // Don't fail DB delete if S3 fails; just report it
+      return res.status(200).json({
+        message: "File deleted from DB. S3 delete failed (check logs).",
+        deletedFileId: String(fileId),
+        s3Error: e?.message || "Unknown S3 error",
+      });
+    }
+
+    return res.status(200).json({ message: "File deleted.", deletedFileId: String(fileId) });
+  } catch (err) {
+    return res.status(500).json({ message: "Server error in deleteSubtitleFile.", error: err.message });
+  }
+};
+
+/* =========================================================
+   ADD NOTE UNDER A SUBTITLE
 ========================================================= */
 export const addSubtitleNote = async (req, res) => {
   try {
@@ -823,7 +1028,6 @@ export const addSubtitleNote = async (req, res) => {
 
     if (!found) return res.status(404).json({ message: "Customer or task not found." });
 
-    // if not admin, must have customer access
     if (!isAdminOrSuperAdmin(req)) {
       if (!customerAccessForEmployee(found, req.user._id)) {
         return res.status(403).json({ message: "No access to this customer." });
@@ -833,7 +1037,6 @@ export const addSubtitleNote = async (req, res) => {
     const task = found.crmTasks?.[0];
     if (!task) return res.status(404).json({ message: "Task not found." });
 
-    // employee must be assigned to task
     if (!isAdminOrSuperAdmin(req) && req.user.role === "employee") {
       if (!isTaskAssignedToUser(task, req.user._id)) {
         return res.status(403).json({ message: "You are not assigned to this task." });
@@ -843,7 +1046,6 @@ export const addSubtitleNote = async (req, res) => {
     const subtitle = (task.subtitles || []).find((s) => String(s?._id) === String(subtitleId));
     if (!subtitle) return res.status(404).json({ message: "Subtitle not found." });
 
-    // if fileId provided, ensure it exists inside this subtitle
     if (fileId) {
       const ok = (subtitle.files || []).some((f) => String(f?._id) === String(fileId));
       if (!ok) return res.status(404).json({ message: "fileId not found inside this subtitle." });
@@ -865,8 +1067,7 @@ export const addSubtitleNote = async (req, res) => {
 };
 
 /* =========================================================
-   ✅ DELETE TASK (admin/superadmin)
-   DELETE /customers/:customerId/tasks/:taskId
+   DELETE TASK (admin/superadmin)
 ========================================================= */
 export const deleteTask = async (req, res) => {
   try {
@@ -888,7 +1089,7 @@ export const deleteTask = async (req, res) => {
 };
 
 /* =========================================================
-   ✅ OLD ROUTE (DEPRECATED)
+   OLD ROUTE (DEPRECATED)
 ========================================================= */
 export const addTaskFile = async (req, res) => {
   return res.status(410).json({
@@ -898,9 +1099,8 @@ export const addTaskFile = async (req, res) => {
 };
 
 /* =========================================================
-   ✅ DEADLINE NOTIFICATIONS (UPDATED to include jobId/rootJobId in response)
+   DEADLINE NOTIFICATIONS
 ========================================================= */
-
 const parseDeadlineQuery = (req) => {
   const now = new Date();
   const windowDays = Math.max(1, Math.min(365, Number(req.query.windowDays ?? 7)));
@@ -953,8 +1153,6 @@ const buildDeadlineItemsAgg = async ({ req, mode }) => {
         status: "$crmTasks.status",
         dueAt: "$crmTasks.dueAt",
         assignedTo: "$crmTasks.assignedTo",
-
-        // ✅ NEW
         jobId: "$crmTasks.jobId",
         rootJobId: "$crmTasks.rootJobId",
       },

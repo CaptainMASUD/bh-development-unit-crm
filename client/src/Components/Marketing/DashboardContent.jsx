@@ -6,7 +6,6 @@ import {
   FiUsers,
   FiDatabase,
   FiRefreshCcw,
-  FiClock,
   FiCheckCircle,
   FiUser,
   FiClipboard,
@@ -260,9 +259,12 @@ const CHART_COLORS = ["#6366F1", "#F59E0B", "#22C55E", "#6B7280", "#EF4444"]
 export default function DashboardContent() {
   const [me, setMe] = useState(null)
 
+  // customers can be blocked for marketing
   const [customers, setCustomers] = useState([])
   const [customersCount, setCustomersCount] = useState(0)
+  const [customersBlocked, setCustomersBlocked] = useState(false)
 
+  // leads API now returns { items, pageInfo }
   const [leads, setLeads] = useState([])
   const [leadsCount, setLeadsCount] = useState(0)
 
@@ -287,47 +289,76 @@ export default function DashboardContent() {
 
     setIsLoading(true)
     setError("")
+    setCustomersBlocked(false)
+
     try {
       const headers = getAuthHeaders()
 
-      const [meRes, customersRes, leadsRes] = await Promise.all([
-        fetch(`${API_BASE}/users/me`, {
-          method: "GET",
-          headers,
-          credentials: "include",
-          signal: controller.signal,
-        }),
-        fetch(`${API_BASE}/customers`, {
-          method: "GET",
-          headers,
-          credentials: "include",
-          signal: controller.signal,
-        }),
-        fetch(`${API_BASE}/leads`, {
-          method: "GET",
-          headers,
-          credentials: "include",
-          signal: controller.signal,
-        }),
-      ])
+      // 1) always load profile first (needed to decide if we can call /customers)
+      const meRes = await fetch(`${API_BASE}/users/me`, {
+        method: "GET",
+        headers,
+        credentials: "include",
+        signal: controller.signal,
+      })
 
       const meData = await meRes.json().catch(() => ({}))
-      const customersData = await customersRes.json().catch(() => ({}))
-      const leadsData = await leadsRes.json().catch(() => ({}))
-
       if (!meRes.ok) throw new Error(meData?.message || "Failed to load profile")
-      if (!customersRes.ok) throw new Error(customersData?.message || "Failed to fetch customers")
+
+      const user = meData?.user || null
+      setMe(user)
+
+      const role = safeLower(user?.role)
+      const isMarketingRole = role === "marketing" || role === "marketing_team"
+      const canFetchCustomers = !isMarketingRole
+
+      // 2) fetch leads always
+      const leadsPromise = fetch(`${API_BASE}/leads`, {
+        method: "GET",
+        headers,
+        credentials: "include",
+        signal: controller.signal,
+      })
+
+      // 3) fetch customers only if allowed
+      const customersPromise = canFetchCustomers
+        ? fetch(`${API_BASE}/customers`, {
+            method: "GET",
+            headers,
+            credentials: "include",
+            signal: controller.signal,
+          })
+        : Promise.resolve(null)
+
+      const [leadsRes, customersRes] = await Promise.all([leadsPromise, customersPromise])
+
+      const leadsData = await leadsRes.json().catch(() => ({}))
       if (!leadsRes.ok) throw new Error(leadsData?.message || "Failed to fetch leads")
 
-      setMe(meData?.user || null)
+      // ✅ NEW: leads shape
+      const leadItems = Array.isArray(leadsData?.items) ? leadsData.items : []
+      setLeads(leadItems)
+      setLeadsCount(leadItems.length) // backend doesn't return count in listLeads
 
-      const custList = Array.isArray(customersData?.customers) ? customersData.customers : []
-      setCustomers(custList)
-      setCustomersCount(Number(customersData?.count ?? custList.length))
+      if (customersRes) {
+        const customersData = await customersRes.json().catch(() => ({}))
 
-      const leadList = Array.isArray(leadsData?.leads) ? leadsData.leads : []
-      setLeads(leadList)
-      setLeadsCount(Number(leadsData?.count ?? leadList.length))
+        // backend may return 403 with message, handle gracefully
+        if (!customersRes.ok) {
+          setCustomers([])
+          setCustomersCount(0)
+          setCustomersBlocked(true)
+        } else {
+          const custList = Array.isArray(customersData?.customers) ? customersData.customers : []
+          setCustomers(custList)
+          setCustomersCount(Number(customersData?.count ?? custList.length))
+        }
+      } else {
+        // marketing: blocked by design
+        setCustomers([])
+        setCustomersCount(0)
+        setCustomersBlocked(true)
+      }
     } catch (e) {
       if (e?.name !== "AbortError") {
         console.error(e)
@@ -345,7 +376,8 @@ export default function DashboardContent() {
   }, [])
 
   /* =========================
-     CUSTOMER STATS (unchanged)
+     CUSTOMER STATS
+     (marketing will see zeros)
   ========================= */
   const customerStats = useMemo(() => {
     const total = customersCount || customers.length
@@ -356,7 +388,6 @@ export default function DashboardContent() {
     const assignedToMe = currentUserId
       ? customers.filter((c) => {
           const a = c?.assignedTo
-          // you used both array and object patterns in backend; handle both
           if (Array.isArray(a)) return a.some((x) => String(x?._id || x) === String(currentUserId))
           return String(a?._id || a || "") === String(currentUserId)
         }).length
@@ -367,6 +398,7 @@ export default function DashboardContent() {
 
   /* =========================
      TASK STATS (from customers.crmTasks)
+     (marketing will see zeros)
   ========================= */
   const taskStats = useMemo(() => {
     const allTasks = customers.flatMap((c) =>
@@ -397,7 +429,7 @@ export default function DashboardContent() {
   }, [taskStats.allTasks])
 
   /* =========================
-     LEAD STATS (NEW)
+     LEAD STATS
   ========================= */
   const leadStats = useMemo(() => {
     const total = leadsCount || leads.length
@@ -435,14 +467,6 @@ export default function DashboardContent() {
     ].filter((x) => x.value > 0)
   }, [customerStats])
 
-  const taskStatusChart = useMemo(() => {
-    return [
-      { name: "Pending", value: taskStats.pending },
-      { name: "In Progress", value: taskStats.inProgress },
-      { name: "Done", value: taskStats.done },
-    ]
-  }, [taskStats.pending, taskStats.inProgress, taskStats.done])
-
   const recentLeads = useMemo(() => {
     const list = [...leads].sort(
       (a, b) => new Date(b?.updatedAt || b?.createdAt || 0) - new Date(a?.updatedAt || a?.createdAt || 0)
@@ -474,6 +498,11 @@ export default function DashboardContent() {
                     "Customers, leads, and task activity at a glance"
                   )}
                 </p>
+                {customersBlocked ? (
+                  <p className="mt-1 text-xs text-amber-700">
+                    Customers module is restricted for your role, so customer/task cards may show 0.
+                  </p>
+                ) : null}
               </div>
             </div>
 
@@ -481,7 +510,7 @@ export default function DashboardContent() {
               <Pill
                 icon={<FiDatabase className="w-4 h-4" />}
                 label="Customers"
-                value={isLoading && customers.length === 0 ? "—" : customerStats.total}
+                value={customersBlocked ? "Restricted" : isLoading && customers.length === 0 ? "—" : customerStats.total}
                 tone="indigo"
               />
               <Pill
@@ -518,13 +547,19 @@ export default function DashboardContent() {
       )}
 
       {/* Top Stats */}
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6"
+      >
         <StatCard
           icon={<FiUsers className="w-5 h-5" />}
           title="Total Customers"
-          value={isLoading && customers.length === 0 ? "—" : customerStats.total}
-          hint="All customers visible to you"
-          tone="indigo"
+          value={
+            customersBlocked ? "Restricted" : isLoading && customers.length === 0 ? "—" : customerStats.total
+          }
+          hint={customersBlocked ? "Not available for your role" : "All customers visible to you"}
+          tone={customersBlocked ? "gray" : "indigo"}
         />
         <StatCard
           icon={<FiTarget className="w-5 h-5" />}
@@ -536,16 +571,20 @@ export default function DashboardContent() {
         <StatCard
           icon={<FiUser className="w-5 h-5" />}
           title="Assigned to You"
-          value={isLoading && customers.length === 0 && leads.length === 0 ? "—" : (customerStats.assignedToMe + leadStats.assignedToMe)}
+          value={
+            isLoading && leads.length === 0 && customers.length === 0
+              ? "—"
+              : (customersBlocked ? 0 : customerStats.assignedToMe) + leadStats.assignedToMe
+          }
           hint="Customers + leads assigned to you"
           tone="gray"
         />
         <StatCard
           icon={<FiCheckCircle className="w-5 h-5" />}
           title="Completed Customers"
-          value={isLoading && customers.length === 0 ? "—" : customerStats.complete}
-          hint="Finished customers"
-          tone="green"
+          value={customersBlocked ? "Restricted" : isLoading && customers.length === 0 ? "—" : customerStats.complete}
+          hint={customersBlocked ? "Not available for your role" : "Finished customers"}
+          tone={customersBlocked ? "gray" : "green"}
         />
       </motion.div>
 
@@ -554,14 +593,25 @@ export default function DashboardContent() {
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="xl:col-span-1">
           <ChartCard title="Customer Status" subtitle="Distribution of customers" icon={<FiUsers className="w-5 h-5" />}>
             <div className="h-64">
-              {isLoading && customers.length === 0 ? (
+              {customersBlocked ? (
+                <div className="h-full flex items-center justify-center text-sm text-gray-500">
+                  Restricted for your role
+                </div>
+              ) : isLoading && customers.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-sm text-gray-500">Loading…</div>
               ) : customerStatusChart.length ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Tooltip />
                     <Legend />
-                    <Pie data={customerStatusChart} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={2}>
+                    <Pie
+                      data={customerStatusChart}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={55}
+                      outerRadius={85}
+                      paddingAngle={2}
+                    >
                       {customerStatusChart.map((_, i) => (
                         <Cell key={`c-${i}`} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                       ))}
@@ -576,7 +626,11 @@ export default function DashboardContent() {
         </motion.div>
 
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="xl:col-span-2">
-          <ChartCard title="Lead Status" subtitle="New vs Contacted vs Pending vs Confirmed vs Lost" icon={<FiLayers className="w-5 h-5" />}>
+          <ChartCard
+            title="Lead Status"
+            subtitle="New vs Contacted vs Pending vs Confirmed vs Lost"
+            icon={<FiLayers className="w-5 h-5" />}
+          >
             <div className="h-64">
               {isLoading && leads.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-sm text-gray-500">Loading…</div>
@@ -604,8 +658,9 @@ export default function DashboardContent() {
 
       {/* Task Overview + In Progress Tasks + Recent Leads */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        {/* Task summary */}
+        {/* Left column */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="xl:col-span-1 space-y-4">
+          {/* Task summary */}
           <div className={`${premiumCard} p-5`}>
             <div className="flex items-center gap-3">
               <IconBadge icon={<FiClipboard className="w-5 h-5" />} tone="indigo" />
@@ -615,20 +670,28 @@ export default function DashboardContent() {
               </div>
             </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <MiniMetric icon={<FiList className="w-4 h-4" />} label="Total" value={isLoading && customers.length === 0 ? "—" : taskStats.total} tone="gray" />
-              <MiniMetric icon={<FiPlayCircle className="w-4 h-4" />} label="In Progress" value={isLoading && customers.length === 0 ? "—" : taskStats.inProgress} tone="yellow" />
-              <MiniMetric icon={<FiPauseCircle className="w-4 h-4" />} label="Pending" value={isLoading && customers.length === 0 ? "—" : taskStats.pending} tone="indigo" />
-              <MiniMetric icon={<FiCheckCircle className="w-4 h-4" />} label="Done" value={isLoading && customers.length === 0 ? "—" : taskStats.done} tone="green" />
-            </div>
+            {customersBlocked ? (
+              <div className="mt-4 text-sm text-gray-600">
+                Tasks are inside customers. Customers module is restricted for your role.
+              </div>
+            ) : (
+              <>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <MiniMetric icon={<FiList className="w-4 h-4" />} label="Total" value={isLoading ? "—" : taskStats.total} tone="gray" />
+                  <MiniMetric icon={<FiPlayCircle className="w-4 h-4" />} label="In Progress" value={isLoading ? "—" : taskStats.inProgress} tone="yellow" />
+                  <MiniMetric icon={<FiPauseCircle className="w-4 h-4" />} label="Pending" value={isLoading ? "—" : taskStats.pending} tone="indigo" />
+                  <MiniMetric icon={<FiCheckCircle className="w-4 h-4" />} label="Done" value={isLoading ? "—" : taskStats.done} tone="green" />
+                </div>
 
-            <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-              <span className="inline-flex items-center gap-2">
-                <span className={`w-2 h-2 rounded-full ${isLoading ? "bg-amber-500" : "bg-green-500"}`} />
-                {isLoading ? "Updating…" : "Up to date"}
-              </span>
-              <span className="font-semibold text-gray-700">{!isLoading ? "Ready" : "—"}</span>
-            </div>
+                <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
+                  <span className="inline-flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${isLoading ? "bg-amber-500" : "bg-green-500"}`} />
+                    {isLoading ? "Updating…" : "Up to date"}
+                  </span>
+                  <span className="font-semibold text-gray-700">{!isLoading ? "Ready" : "—"}</span>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Recent Leads */}
@@ -665,9 +728,7 @@ export default function DashboardContent() {
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
-                        <p className="text-sm font-extrabold text-gray-900 truncate">
-                          {l?.contact?.name || "Unnamed lead"}
-                        </p>
+                        <p className="text-sm font-extrabold text-gray-900 truncate">{l?.contact?.name || "Unnamed lead"}</p>
 
                         <p className="text-xs text-gray-500 mt-1">
                           {l?.contact?.companyName ? (
@@ -681,9 +742,7 @@ export default function DashboardContent() {
 
                         <p className="text-xs text-gray-500 mt-1">
                           Updated{" "}
-                          <span className="font-semibold text-gray-700">
-                            {formatDateTime(l?.updatedAt || l?.createdAt)}
-                          </span>
+                          <span className="font-semibold text-gray-700">{formatDateTime(l?.updatedAt || l?.createdAt)}</span>
                         </p>
                       </div>
 
@@ -695,14 +754,14 @@ export default function DashboardContent() {
                 ))
               ) : (
                 <div className={`${premiumCard} bg-white`}>
-                  <EmptyState title="No leads yet" subtitle="team will see their assigned leads here." />
+                  <EmptyState title="No leads yet" subtitle="Team will see their assigned leads here." />
                 </div>
               )}
             </div>
           </div>
         </motion.div>
 
-        {/* In progress tasks list */}
+        {/* Right column: In progress tasks */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="xl:col-span-2">
           <div className={`${premiumCard} overflow-hidden`}>
             <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-white">
@@ -713,16 +772,30 @@ export default function DashboardContent() {
                   <p className="text-sm text-gray-500">Most recently updated</p>
                 </div>
               </div>
-              <div className="text-sm text-gray-500">
-                <span className="font-semibold text-gray-900">{Math.min(inProgressTasks.length, 10)}</span>{" "}
-                <span className="text-gray-400">/</span>{" "}
-                <span className="font-semibold text-gray-900">{taskStats.inProgress}</span>
-              </div>
+
+              {!customersBlocked ? (
+                <div className="text-sm text-gray-500">
+                  <span className="font-semibold text-gray-900">{Math.min(inProgressTasks.length, 10)}</span>{" "}
+                  <span className="text-gray-400">/</span>{" "}
+                  <span className="font-semibold text-gray-900">{taskStats.inProgress}</span>
+                </div>
+              ) : (
+                <div className="text-sm text-gray-500">
+                  <span className="font-semibold text-gray-900">Restricted</span>
+                </div>
+              )}
             </div>
 
             <div className="p-4 space-y-3 bg-gray-50">
               <AnimatePresence>
-                {isLoading && customers.length === 0 ? (
+                {customersBlocked ? (
+                  <div className={`${premiumCard} bg-white`}>
+                    <EmptyState
+                      title="Tasks hidden"
+                      subtitle="Customers module is restricted for your role, so tasks cannot be loaded."
+                    />
+                  </div>
+                ) : isLoading && customers.length === 0 ? (
                   <>
                     <SkeletonRow />
                     <SkeletonRow />
@@ -751,8 +824,6 @@ export default function DashboardContent() {
 
                           <p className="text-xs text-gray-500 mt-1">
                             Updated <span className="font-semibold text-gray-700">{formatDateTime(t?.updatedAt || t?.createdAt)}</span>
-                            <span className="text-gray-400"> • </span>
-                            Assigned <span className="font-semibold text-gray-700">{t?._assignedToName || "—"}</span>
                           </p>
 
                           {t?.description ? <p className="text-sm text-gray-600 mt-2 line-clamp-2">{t.description}</p> : null}
@@ -760,14 +831,6 @@ export default function DashboardContent() {
 
                         <div className="shrink-0 flex flex-col items-end gap-2">
                           <StatusBadge status={t?.status} variant="task" />
-                          <StatusBadge
-                            status={
-                              t?._customerId
-                                ? customers.find((c) => String(c._id) === String(t._customerId))?.status || "—"
-                                : "—"
-                            }
-                            variant="customer"
-                          />
                         </div>
                       </div>
                     </motion.div>

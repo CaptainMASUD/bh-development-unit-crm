@@ -1,7 +1,8 @@
 // Sidebar.jsx (Employee) — upgraded SAME design system as the previous upgraded sidebar
-// ✅ Keeps your existing options/props/behavior (sections, subcategories, tooltip, notifications, jetsky, theme)
-// ✅ Adds desktop compact/collapsed mode + flyout submenus (mobile stays normal)
-// ✅ Compact mode top shows ONLY bell (fixes your “top items not visible when minimized” problem)
+// ✅ FIXED: logged-in user's profile picture (avatarUrl) now shows after login
+// - Reads avatarUrl from localStorage.user immediately
+// - Fetches /api/users/me to refresh avatar (and updates localStorage)
+// - Fallback icon if no avatar or image fails
 
 "use client"
 
@@ -53,6 +54,19 @@ async function fetchDeadlineNotifications({ windowDays = 7, includeOverdue = tru
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data?.message || "Failed to fetch notifications")
   return Array.isArray(data?.items) ? data.items : []
+}
+
+// ✅ NEW: fetch current user (includes avatarUrl)
+async function fetchMe({ signal } = {}) {
+  const res = await fetch(`${API_BASE}/users/me`, {
+    method: "GET",
+    headers: getAuthHeaders(),
+    credentials: "include",
+    signal,
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || "Failed to fetch profile")
+  return data?.user || null
 }
 
 const usePrefersReducedMotion = () => {
@@ -319,7 +333,11 @@ export default function Sidebar({
   const safeSections = sections || {}
 
   const [expandedSection, setExpandedSection] = useState(null)
+
+  // ✅ FIX: store avatarUrl too + handle broken avatar
   const [user, setUser] = useState(null)
+  const [avatarBroken, setAvatarBroken] = useState(false)
+
   const [searchTerm, setSearchTerm] = useState("")
   const [showJetsky, setShowJetsky] = useState(false)
 
@@ -336,6 +354,9 @@ export default function Sidebar({
 
   // ✅ abort notifications
   const abortNotifRef = useRef(null)
+
+  // ✅ abort /me fetch
+  const abortMeRef = useRef(null)
 
   // ✅ compact mode (desktop)
   const [compact, setCompact] = useState(false)
@@ -461,23 +482,63 @@ export default function Sidebar({
     navigate("/login")
   }, [dispatch, navigate])
 
-  // load user from localStorage
+  // ✅ FIX: load user from localStorage (including avatarUrl), then refresh from /users/me
   useEffect(() => {
+    let parsed = null
     try {
       const stored = localStorage.getItem("user")
-      const loggedInUser = stored ? JSON.parse(stored) : null
-      if (!loggedInUser) {
-        setUser(null)
-        navigate("/login")
-        return
-      }
-      const role = loggedInUser?.role
-      const displayName = loggedInUser?.name || loggedInUser?.email || "User"
-      setUser({ username: displayName, role })
+      parsed = stored ? JSON.parse(stored) : null
     } catch {
+      parsed = null
+    }
+
+    if (!parsed) {
       setUser(null)
       navigate("/login")
+      return
     }
+
+    const role = parsed?.role
+    const displayName = parsed?.name || parsed?.email || "User"
+
+    setAvatarBroken(false)
+    setUser({
+      username: displayName,
+      role,
+      avatarUrl: parsed?.avatarUrl || "",
+      email: parsed?.email || "",
+      id: parsed?._id || parsed?.id || "",
+    })
+
+    // refresh from server to ensure avatar is correct
+    const controller = new AbortController()
+    abortMeRef.current?.abort?.()
+    abortMeRef.current = controller
+
+    ;(async () => {
+      try {
+        const fresh = await fetchMe({ signal: controller.signal })
+        if (!fresh) return
+
+        setAvatarBroken(false)
+        setUser({
+          username: fresh?.name || fresh?.email || displayName,
+          role: fresh?.role || role,
+          avatarUrl: fresh?.avatarUrl || "",
+          email: fresh?.email || parsed?.email || "",
+          id: fresh?._id || parsed?._id || parsed?.id || "",
+        })
+
+        // update localStorage so next load works instantly
+        try {
+          localStorage.setItem("user", JSON.stringify({ ...(parsed || {}), ...(fresh || {}) }))
+        } catch {}
+      } catch {
+        // ignore
+      }
+    })()
+
+    return () => controller.abort()
   }, [navigate])
 
   // notifications refresh
@@ -591,6 +652,9 @@ export default function Sidebar({
   const headerPad = compact ? "p-4" : "p-6"
   const navPad = compact ? "p-3" : "p-4"
 
+  const avatarUrl = (user?.avatarUrl || "").trim()
+  const showAvatar = !!avatarUrl && !avatarBroken
+
   return (
     <>
       <style>{`
@@ -690,7 +754,18 @@ export default function Sidebar({
                 <div className="p-[2px] rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 shadow-[0_12px_34px_-22px_rgba(99,102,241,0.95)]">
                   <div className={`rounded-full p-[2px] ${isDarkMode ? "bg-gray-900" : "bg-white"}`}>
                     <div className="relative w-[46px] h-[46px] rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
-                      <FaUserCircle size={46} className={isDarkMode ? "text-white" : "text-gray-700"} />
+                      {/* ✅ FIX: show avatarUrl if exists */}
+                      {showAvatar ? (
+                        <img
+                          src={avatarUrl}
+                          alt={user?.username ? `${user.username} avatar` : "User avatar"}
+                          className="w-full h-full object-cover"
+                          draggable={false}
+                          onError={() => setAvatarBroken(true)}
+                        />
+                      ) : (
+                        <FaUserCircle size={46} className={isDarkMode ? "text-white" : "text-gray-700"} />
+                      )}
                       <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/10 to-black/10" />
                     </div>
                   </div>
@@ -811,9 +886,9 @@ export default function Sidebar({
           {!compact ? (
             <div className="relative group">
               <FaSearch
-                className={`absolute left-3 top-1/2 -translate-y-1/2 ${
-                  isDarkMode ? "text-gray-400" : "text-gray-500"
-                } group-hover:text-purple-500 ${reducedMotion ? "" : "transition-colors duration-200"}`}
+                className={`absolute left-3 top-1/2 -translate-y-1/2 ${isDarkMode ? "text-gray-400" : "text-gray-500"} group-hover:text-purple-500 ${
+                  reducedMotion ? "" : "transition-colors duration-200"
+                }`}
                 aria-hidden
               />
               <input
@@ -914,9 +989,9 @@ export default function Sidebar({
                   onFocus={(e) => {
                     if (!isMobileViewport && compact && hasSubs) openFlyout(section, e.currentTarget)
                   }}
-                  className={`group w-full flex items-center ${
-                    compact ? "justify-center px-3 py-3" : "justify-between px-4 py-3"
-                  } rounded-2xl ${reducedMotion ? "" : "transition-all duration-200 ease-in-out"} relative overflow-hidden border ${
+                  className={`group w-full flex items-center ${compact ? "justify-center px-3 py-3" : "justify-between px-4 py-3"} rounded-2xl ${
+                    reducedMotion ? "" : "transition-all duration-200 ease-in-out"
+                  } relative overflow-hidden border ${
                     activeSection === section
                       ? isDarkMode
                         ? "bg-white/8 border-white/10 text-white"
@@ -931,28 +1006,18 @@ export default function Sidebar({
                   title={section}
                 >
                   {activeSection === section ? (
-                    <span
-                      className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-8 rounded-r-full bg-gradient-to-b from-indigo-500 via-purple-500 to-pink-500"
-                      aria-hidden="true"
-                    />
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-8 rounded-r-full bg-gradient-to-b from-indigo-500 via-purple-500 to-pink-500" aria-hidden="true" />
                   ) : null}
 
                   <div className={`flex items-center ${compact ? "justify-center" : "gap-3"} relative z-10`}>
-                    <span
-                      className={`text-[18px] ${reducedMotion ? "" : "transition-transform duration-200"} ${
-                        activeSection === section ? "scale-110" : "group-hover:scale-105"
-                      }`}
-                    >
+                    <span className={`text-[18px] ${reducedMotion ? "" : "transition-transform duration-200"} ${activeSection === section ? "scale-110" : "group-hover:scale-105"}`}>
                       {def.icon}
                     </span>
                     {!compact ? <span className="font-medium">{section}</span> : null}
                   </div>
 
                   {hasSubs && !compact ? (
-                    <FaChevronDown
-                      className={`${reducedMotion ? "" : "transition-transform duration-300"} relative z-10 ${isExpanded ? "rotate-180" : ""}`}
-                      aria-hidden
-                    />
+                    <FaChevronDown className={`${reducedMotion ? "" : "transition-transform duration-300"} relative z-10 ${isExpanded ? "rotate-180" : ""}`} aria-hidden />
                   ) : null}
                 </button>
 

@@ -32,7 +32,9 @@ import {
   Line,
 } from "recharts"
 
-const API = `${import.meta.env.VITE_API_URL}`;
+import ReportModal from "./DashboardContentReportModal"
+
+const API = `${import.meta.env.VITE_API_URL}`
 
 const card =
   "rounded-2xl border border-gray-100 bg-white shadow-[0_10px_28px_-16px_rgba(0,0,0,0.22)]"
@@ -146,7 +148,7 @@ function StatCard({ icon, title, value, hint, tone = "indigo" }) {
   )
 }
 
-function ChartCard({ title, subtitle, icon, children }) {
+function ChartCard({ title, subtitle, icon, children, onClickHint }) {
   return (
     <div className={`${soft} overflow-hidden`}>
       <div className="p-5 border-b border-gray-100 bg-white flex items-center justify-between">
@@ -159,6 +161,10 @@ function ChartCard({ title, subtitle, icon, children }) {
             <p className="text-sm text-gray-500">{subtitle}</p>
           </div>
         </div>
+
+        {onClickHint ? (
+          <span className="text-xs font-semibold text-gray-500">{onClickHint}</span>
+        ) : null}
       </div>
       <div className="p-5 bg-white">{children}</div>
     </div>
@@ -204,6 +210,34 @@ function PanelFooter({ loading, disabled, onClick, label }) {
   )
 }
 
+// --- helpers to map chart label -> backend status
+function mapCustomerChartNameToStatus(name) {
+  const n = safeLower(name)
+  if (n.includes("progress")) return "in_progress"
+  if (n.includes("complete")) return "complete"
+  if (n.includes("other")) return "other"
+  return "all"
+}
+function mapTaskChartNameToStatus(name) {
+  const n = safeLower(name)
+  if (n === "pending") return "pending"
+  if (n.includes("progress")) return "in_progress"
+  if (n === "done") return "done"
+  return "all"
+}
+
+function buildTrendKeys(days) {
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  const keys = []
+  for (let i = days - 1; i >= 0; i--) {
+    const dt = new Date(now)
+    dt.setDate(now.getDate() - i)
+    keys.push(dt.toISOString().slice(0, 10)) // YYYY-MM-DD
+  }
+  return keys
+}
+
 export default function Dashboard() {
   const DAYS = 7
   const PAGE_SIZE = 6
@@ -234,20 +268,44 @@ export default function Dashboard() {
   const [recentCustomers, setRecentCustomers] = useState([])
   const [recentTasks, setRecentTasks] = useState([])
 
-  // Cursor-based for customers
+  // Cursor-based for customers (kept from your customers endpoint)
   const [customersCursor, setCustomersCursor] = useState(null)
   const [customersHasMore, setCustomersHasMore] = useState(true)
   const [customersLoadingMore, setCustomersLoadingMore] = useState(false)
 
-  // Cursor-based for tasks (preferred). Fallback supported.
+  // Cursor-based for tasks (UPDATED to use /api/dashboard/reports/tasks)
   const [tasksCursor, setTasksCursor] = useState(null)
   const [tasksHasMore, setTasksHasMore] = useState(true)
   const [tasksLoadingMore, setTasksLoadingMore] = useState(false)
-  const [tasksLimitFallback, setTasksLimitFallback] = useState(PAGE_SIZE) // fallback: increase limit & refetch dashboard
 
   const isSuperAdmin = me?.role === "superadmin"
-
   const abortRef = useRef(null)
+
+  // ---- Report Modal State
+  const [reportOpen, setReportOpen] = useState(false)
+  const [reportType, setReportType] = useState(null) // "customers" | "tasks" | "newCustomers"
+  const [reportTitle, setReportTitle] = useState("")
+  const [reportSubtitle, setReportSubtitle] = useState("")
+  const [reportStatus, setReportStatus] = useState("all")
+  const [reportDate, setReportDate] = useState(null) // YYYY-MM-DD
+
+  const openReport = ({ type, title, subtitle, status = "all", date = null }) => {
+    setReportType(type)
+    setReportTitle(title || "Report")
+    setReportSubtitle(subtitle || "")
+    setReportStatus(status || "all")
+    setReportDate(date || null)
+    setReportOpen(true)
+  }
+
+  const closeReport = () => {
+    setReportOpen(false)
+    setReportType(null)
+    setReportTitle("")
+    setReportSubtitle("")
+    setReportStatus("all")
+    setReportDate(null)
+  }
 
   const showToast = (type, message) => {
     setToast({ type, message })
@@ -291,7 +349,17 @@ export default function Dashboard() {
 
       setCustomerStatusChart(Array.isArray(data?.customerStatusChart) ? data.customerStatusChart : [])
       setTaskStatusChart(Array.isArray(data?.taskStatusChart) ? data.taskStatusChart : [])
-      setCustomersTrend(Array.isArray(data?.newCustomersTrend) ? data.newCustomersTrend : [])
+
+      // Trend needs YYYY-MM-DD to call report endpoint.
+      // Since backend trend only returns labels, we compute keys client-side based on DAYS.
+      const trendKeys = buildTrendKeys(DAYS)
+      const trendRaw = Array.isArray(data?.newCustomersTrend) ? data.newCustomersTrend : []
+      const trendWithKey = trendRaw.map((x, idx) => ({
+        ...x,
+        _key: trendKeys[idx] || null,
+        _index: idx,
+      }))
+      setCustomersTrend(trendWithKey)
 
       const rc = Array.isArray(data?.recentCustomers) ? data.recentCustomers : []
       const rt = Array.isArray(data?.recentTasks) ? data.recentTasks : []
@@ -304,11 +372,16 @@ export default function Dashboard() {
       setCustomersCursor(lastCustomerId || null)
       setCustomersHasMore(Boolean(lastCustomerId))
 
-      // init tasks cursor if backend supports later (optional)
-      const lastTaskId = rt?.length ? rt[rt.length - 1]?._id : null
-      setTasksCursor(lastTaskId || null)
-      setTasksHasMore(Boolean(lastTaskId))
-      setTasksLimitFallback(PAGE_SIZE)
+      // For tasks list pagination, we now use /reports/tasks cursor format returned by backend (ISO|taskId)
+      // But initial dashboard recentTasks doesn't provide cursor format, so we synthesize from last row.
+      // Our report endpoint sorts by updatedAt desc, _id desc, same as dashboard recentTasks.
+      const lastTask = rt?.length ? rt[rt.length - 1] : null
+      const lastUpdated = lastTask?.updatedAt || lastTask?.createdAt
+      const lastTaskId = lastTask?._id
+      const initialTaskCursor =
+        lastUpdated && lastTaskId ? `${new Date(lastUpdated).toISOString()}|${String(lastTaskId)}` : null
+      setTasksCursor(initialTaskCursor)
+      setTasksHasMore(Boolean(initialTaskCursor))
 
       // role-gated counts
       setEmployeesCount(Number(data?.employeesCount ?? 0))
@@ -339,7 +412,7 @@ export default function Dashboard() {
     return { total, pending, inProgress, done }
   }, [taskStatusChart])
 
-  // ✅ Load more customers (cursor-based)
+  // ✅ Load more customers (kept from your /api/customers endpoint)
   const loadMoreCustomers = async () => {
     if (customersLoadingMore || !customersHasMore || !customersCursor) return
     setCustomersLoadingMore(true)
@@ -358,7 +431,6 @@ export default function Dashboard() {
       const items = Array.isArray(data?.customers) ? data.customers : []
       const nextCursor = data?.nextCursor || null
 
-      // append, de-dup by _id
       setRecentCustomers((prev) => {
         const map = new Map(prev.map((x) => [String(x._id), x]))
         items.forEach((x) => map.set(String(x._id), x))
@@ -374,56 +446,90 @@ export default function Dashboard() {
     }
   }
 
-  // ✅ Load more tasks (preferred cursor endpoint, fallback supported)
+  // ✅ Load more tasks (UPDATED: use new backend)
   const loadMoreTasks = async () => {
     if (tasksLoadingMore || !tasksHasMore) return
     setTasksLoadingMore(true)
 
     try {
-      // 1) Preferred: cursor endpoint (you should add this backend route)
-      // GET /api/dashboard/tasks?limit=6&cursor=<lastTaskId>
-      // expected response: { tasks: [...], nextCursor: "..." }
-      const cursorTry =
-        tasksCursor ? `&cursor=${encodeURIComponent(tasksCursor)}` : ""
-
+      const cursorTry = tasksCursor ? `&cursor=${encodeURIComponent(tasksCursor)}` : ""
       const res = await fetch(
-        `${API}/api/dashboard/tasks?limit=${PAGE_SIZE}${cursorTry}`,
+        `${API}/api/dashboard/reports/tasks?status=all&limit=${PAGE_SIZE}${cursorTry}`,
         {
           headers: getAuthHeaders(),
           credentials: "include",
         }
       )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.message || "Failed to load more tasks")
 
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}))
-        const items = Array.isArray(data?.tasks) ? data.tasks : []
-        const nextCursor = data?.nextCursor || null
+      const items = Array.isArray(data?.items) ? data.items : []
+      const nextCursor = data?.nextCursor || null
+      const hasMore = Boolean(data?.hasMore) && Boolean(nextCursor) && items.length > 0
 
-        setRecentTasks((prev) => {
-          const map = new Map(prev.map((x) => [String(x._id), x]))
-          items.forEach((x) => map.set(String(x._id), x))
-          return Array.from(map.values())
-        })
+      // map items to the shape your UI expects (same as dashboard recentTasks)
+      const mapped = items.map((t) => ({
+        _id: t._id,
+        title: t.title,
+        status: t.status,
+        updatedAt: t.updatedAt,
+        createdAt: t.createdAt,
+        _customerName: t.customerName,
+        _companyName: t.companyName,
+        _customerStatus: t.customerStatus,
+      }))
 
-        setTasksCursor(nextCursor)
-        setTasksHasMore(Boolean(nextCursor) && items.length > 0)
-      } else {
-        // 2) Fallback: increase dashboard limit and refetch
-        const nextLimit = tasksLimitFallback + PAGE_SIZE
-        const data = await fetchDashboard(nextLimit)
+      setRecentTasks((prev) => {
+        const map = new Map(prev.map((x) => [String(x._id), x]))
+        mapped.forEach((x) => map.set(String(x._id), x))
+        return Array.from(map.values())
+      })
 
-        const rt = Array.isArray(data?.recentTasks) ? data.recentTasks : []
-        setRecentTasks(rt)
-
-        // “has more” guess: if server returns less than requested, assume end
-        setTasksLimitFallback(nextLimit)
-        setTasksHasMore(rt.length >= nextLimit)
-      }
+      setTasksCursor(nextCursor)
+      setTasksHasMore(hasMore)
     } catch (e) {
       showToast("error", e?.message || "Failed to load more tasks")
     } finally {
       setTasksLoadingMore(false)
     }
+  }
+
+  // ---- Chart click handlers (open modal)
+  const onCustomerPieClick = (slice) => {
+    const label = slice?.name
+    const status = mapCustomerChartNameToStatus(label)
+    openReport({
+      type: "customers",
+      title: "Customer Status Report",
+      subtitle: `Filter: ${label || "All"}`,
+      status,
+    })
+  }
+
+  const onTaskBarClick = (bar) => {
+    const label = bar?.name
+    const status = mapTaskChartNameToStatus(label)
+    openReport({
+      type: "tasks",
+      title: "Task Status Report",
+      subtitle: `Filter: ${label || "All"}`,
+      status,
+    })
+  }
+
+  const onTrendPointClick = (state) => {
+    // recharts passes a click "state" with activePayload etc.
+    const p = state?.activePayload?.[0]?.payload
+    const dateKey = p?._key
+    const label = p?.name
+    if (!dateKey) return
+
+    openReport({
+      type: "newCustomers",
+      title: "New Customers Report",
+      subtitle: `Date: ${label} (${dateKey})`,
+      date: dateKey,
+    })
   }
 
   return (
@@ -438,8 +544,24 @@ export default function Dashboard() {
         )}
       </AnimatePresence>
 
+      {/* Report Modal */}
+      <ReportModal
+        open={reportOpen}
+        onClose={closeReport}
+        apiBase={API}
+        type={reportType}
+        title={reportTitle}
+        subtitle={reportSubtitle}
+        initialStatus={reportStatus}
+        initialDate={reportDate}
+      />
+
       {/* Header */}
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="mb-6"
+      >
         <div className={`${soft} p-6`}>
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div className="flex items-center gap-4">
@@ -538,7 +660,12 @@ export default function Dashboard() {
       {/* Charts */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-6">
         <div className="xl:col-span-1">
-          <ChartCard title="Customer Status" subtitle="In progress vs completed" icon={<FiDatabase className="w-5 h-5" />}>
+          <ChartCard
+            title="Customer Status"
+            subtitle="In progress vs completed"
+            icon={<FiDatabase className="w-5 h-5" />}
+           
+          >
             <div className="h-64">
               {loading ? (
                 <div className="h-full flex items-center justify-center text-sm text-gray-500">Loading…</div>
@@ -547,7 +674,16 @@ export default function Dashboard() {
                   <PieChart>
                     <Tooltip />
                     <Legend />
-                    <Pie data={customerStatusChart} dataKey="value" nameKey="name" innerRadius={55} outerRadius={85} paddingAngle={2}>
+                    <Pie
+                      data={customerStatusChart}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={55}
+                      outerRadius={85}
+                      paddingAngle={2}
+                      onClick={onCustomerPieClick}
+                      className="cursor-pointer"
+                    >
                       {customerStatusChart.map((_, i) => (
                         <Cell key={`c-${i}`} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                       ))}
@@ -562,7 +698,12 @@ export default function Dashboard() {
         </div>
 
         <div className="xl:col-span-1">
-          <ChartCard title="Task Status" subtitle="Pending / In progress / Done" icon={<FiClipboard className="w-5 h-5" />}>
+          <ChartCard
+            title="Task Status"
+            subtitle="Pending / In progress / Done"
+            icon={<FiClipboard className="w-5 h-5" />}
+           
+          >
             <div className="h-64">
               {loading ? (
                 <div className="h-full flex items-center justify-center text-sm text-gray-500">Loading…</div>
@@ -573,7 +714,7 @@ export default function Dashboard() {
                     <XAxis dataKey="name" />
                     <YAxis allowDecimals={false} />
                     <Tooltip />
-                    <Bar dataKey="value" radius={[10, 10, 0, 0]}>
+                    <Bar dataKey="value" radius={[10, 10, 0, 0]} onClick={onTaskBarClick} className="cursor-pointer">
                       {taskStatusChart.map((_, i) => (
                         <Cell key={`b-${i}`} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                       ))}
@@ -586,18 +727,27 @@ export default function Dashboard() {
         </div>
 
         <div className="xl:col-span-1">
-          <ChartCard title="New Customers" subtitle="Last 7 days trend" icon={<FiTrendingUp className="w-5 h-5" />}>
+          <ChartCard
+            title="New Customers"
+            subtitle="Last 7 days trend"
+            icon={<FiTrendingUp className="w-5 h-5" />}
+            
+          >
             <div className="h-64">
               {loading ? (
                 <div className="h-full flex items-center justify-center text-sm text-gray-500">Loading…</div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={customersTrend} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+                  <LineChart
+                    data={customersTrend}
+                    margin={{ top: 8, right: 12, bottom: 0, left: 0 }}
+                    onClick={onTrendPointClick}
+                  >
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
                     <YAxis allowDecimals={false} />
                     <Tooltip />
-                    <Line type="monotone" dataKey="value" stroke="#6366F1" strokeWidth={3} dot={false} />
+                    <Line type="monotone" dataKey="value" stroke="#6366F1" strokeWidth={3} dot />
                   </LineChart>
                 </ResponsiveContainer>
               )}
@@ -606,7 +756,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Lists (fixed height + internal scroll + see more loads inside) */}
+      {/* Lists */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         {/* Recent Customers */}
         <div className={`${soft} overflow-hidden`}>
@@ -704,7 +854,8 @@ export default function Dashboard() {
                               {t?._companyName ? <span>{t._companyName}</span> : null}
                             </p>
                             <p className="text-xs text-gray-500 mt-1">
-                              Updated: <span className="font-semibold text-gray-700">{fmtDate(t?.updatedAt || t?.createdAt)}</span>
+                              Updated:{" "}
+                              <span className="font-semibold text-gray-700">{fmtDate(t?.updatedAt || t?.createdAt)}</span>
                             </p>
                           </div>
 

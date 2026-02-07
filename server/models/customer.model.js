@@ -104,13 +104,11 @@ const subtitleSchema = new mongoose.Schema(
 );
 
 /**
- * ✅ NEW: Customer Job Tree (max depth=2)
+ * ✅ Customer Job Tree (max depth=2)
  * - parentJobId: null => top-level Job
  * - parentJobId: <jobId> => Sub-Job
  *
- * Important: we store ALL job nodes in ONE array (flat),
- * and build tree in controller using parentJobId.
- * This is easier than nested arrays for updates & queries.
+ * We store ALL job nodes in ONE flat array and build tree in controller.
  */
 const jobNodeSchema = new mongoose.Schema(
   {
@@ -137,22 +135,26 @@ const jobNodeSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: "User", index: true }],
 
-    createdAt: { type: Date, default: Date.now, index: true },
-    updatedAt: { type: Date, default: Date.now, index: true },
+    assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: "User", index: true }],
   },
-  { _id: true }
+  { _id: true, timestamps: true } // ✅ use timestamps instead of manual createdAt/updatedAt
 );
 
+/**
+ * ✅ Task schema (service instance)
+ * - Uses timestamps: true => adds createdAt + updatedAt automatically
+ * - Adds startedAt to support "running service" time tracking
+ * - Removes manual createdAt (duplicate with timestamps)
+ */
 const taskSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
 
-    // ✅ NEW: tasks belong to a job node (job or sub-job)
+    // tasks belong to a job node (job or sub-job)
     jobId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
 
-    // ✅ NEW: always store top-level job id for reporting/grouping
+    // always store top-level job id for reporting/grouping
     rootJobId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
 
     subtitles: { type: [subtitleSchema], default: [] },
@@ -173,6 +175,9 @@ const taskSchema = new mongoose.Schema(
       index: true,
     },
 
+    // ✅ NEW: real start time for “running service”
+    startedAt: { type: Date, default: null, index: true },
+
     dueAt: { type: Date, default: null, index: true },
     completedAt: { type: Date, default: null, index: true },
 
@@ -186,8 +191,6 @@ const taskSchema = new mongoose.Schema(
     assignedTo: [{ type: mongoose.Schema.Types.ObjectId, ref: "User", index: true }],
 
     reminders: { type: [reminderSchema], default: [] },
-
-    createdAt: { type: Date, default: Date.now, index: true },
   },
   { timestamps: true }
 );
@@ -305,10 +308,10 @@ const customerSchema = new mongoose.Schema(
 
     engagements: { type: [customerEngagementSchema], default: [] },
 
-    // ✅ NEW: job nodes stored here (flat list, tree via parentJobId)
+    // job nodes stored here (flat list, tree via parentJobId)
     jobs: { type: [jobNodeSchema], default: [] },
 
-    // ✅ UPDATED: tasks belong to a job node now
+    // tasks belong to a job node now
     crmTasks: { type: [taskSchema], default: [] },
   },
   {
@@ -333,6 +336,9 @@ customerSchema.index({ "crmTasks.assignedTo": 1 });
 customerSchema.index({ "crmTasks.templateId": 1 });
 customerSchema.index({ "crmTasks.jobId": 1 });
 customerSchema.index({ "crmTasks.rootJobId": 1 });
+
+// ✅ NEW: running services queries
+customerSchema.index({ "crmTasks.startedAt": 1 });
 
 // subtitle-level indexes (kept)
 customerSchema.index({ "crmTasks.subtitles._id": 1 });
@@ -363,7 +369,7 @@ customerSchema.index({ assignedTo: 1, status: 1, _id: -1 });
 customerSchema.index({ createdBy: 1, status: 1, _id: -1 });
 customerSchema.index({ origin: 1, status: 1, _id: -1 });
 
-// ✅ NEW: job indexes
+// job indexes (kept)
 customerSchema.index({ "jobs.parentJobId": 1, _id: -1 });
 customerSchema.index({ "jobs.status": 1, _id: -1 });
 

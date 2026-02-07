@@ -13,6 +13,10 @@ import {
   FiTrash2,
   FiUpload,
   FiX,
+  FiFilter,
+  FiSearch,
+  FiRotateCcw,
+  FiTag,
 } from "react-icons/fi"
 import {
   HiOutlineArchive,
@@ -27,6 +31,8 @@ const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const TASKS_PAGE_SIZE = 20
 
 /* =================== HELPERS =================== */
+const cn = (...c) => c.filter(Boolean).join(" ")
+
 function getAuthHeaders() {
   const token = localStorage.getItem("token")
   return {
@@ -133,7 +139,10 @@ function fileIcon(mimeType = "", name = "") {
   if (isImage) return <HiOutlinePhotograph className="w-5 h-5" />
 
   const isZip =
-    m.includes("zip") || m.includes("rar") || m.includes("7z") || [".zip", ".rar", ".7z"].some((x) => n.endsWith(x))
+    m.includes("zip") ||
+    m.includes("rar") ||
+    m.includes("7z") ||
+    [".zip", ".rar", ".7z"].some((x) => n.endsWith(x))
   if (isZip) return <HiOutlineArchive className="w-5 h-5" />
 
   return <HiOutlineDocument className="w-5 h-5" />
@@ -186,6 +195,7 @@ async function presignUploadForTask({ file, customerId, taskId, subtitleId }) {
       customerId,
       taskId,
       subtitleId: subtitleId || undefined,
+      scope: "subtitle", // ✅ important for your backend scope routing
     }),
   })
   const data = await res.json().catch(() => ({}))
@@ -221,6 +231,35 @@ async function addSubtitleNoteApi({ customerId, taskId, subtitleId, text }) {
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data?.message || "Failed to save subtitle note")
+  return data
+}
+
+/** ✅ UPDATE subtitle file meta (rename/displayName etc.) */
+async function patchSubtitleFileApi({ customerId, taskId, subtitleId, fileId, body }) {
+  const res = await fetch(
+    `${API_BASE}/customers/${customerId}/tasks/${taskId}/subtitles/${subtitleId}/files/${fileId}`,
+    {
+      method: "PATCH",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(body),
+    }
+  )
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || "Failed to update subtitle file")
+  return data
+}
+
+/** ✅ DELETE subtitle file meta (DB record; optional S3 cleanup handled by backend if you add it) */
+async function deleteSubtitleFileApi({ customerId, taskId, subtitleId, fileId }) {
+  const res = await fetch(
+    `${API_BASE}/customers/${customerId}/tasks/${taskId}/subtitles/${subtitleId}/files/${fileId}`,
+    {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    }
+  )
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || "Failed to delete subtitle file")
   return data
 }
 
@@ -322,6 +361,28 @@ async function deleteJobApi({ customerId, jobId, force = false }) {
 }
 
 /* =================== UI PARTS =================== */
+function Badge({ children, tone = "gray" }) {
+  const tones = {
+    gray: "bg-gray-100 text-gray-700 border-gray-200",
+    indigo: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    amber: "bg-amber-50 text-amber-800 border-amber-200",
+    emerald: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    rose: "bg-rose-50 text-rose-700 border-rose-200",
+    sky: "bg-sky-50 text-sky-700 border-sky-200",
+  }
+  const cls = tones[tone] || tones.gray
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-extrabold tracking-wide border",
+        cls
+      )}
+    >
+      {children}
+    </span>
+  )
+}
+
 function ConfirmDeleteModal({ open, title, description, confirmText = "Delete", loading, onClose, onConfirm }) {
   const closeBtnRef = useRef(null)
 
@@ -517,13 +578,31 @@ function ManualSubtitlesEditor({ value, onChange }) {
 }
 
 /* =================== SUBTITLE PANEL =================== */
-function SubtitleWorkPanel({ task, subtitle, busyKey, noteDraft, setNoteDraft, onUpload, onAddNote, inferActorRole }) {
+function SubtitleWorkPanel({
+  task,
+  subtitle,
+  busyKey,
+  noteDraft,
+  setNoteDraft,
+  onUpload,
+  onAddNote,
+  onRenameFile,
+  onDeleteFile,
+  inferActorRole,
+}) {
   const subtitleId = String(subtitle?._id || "")
   const [open, setOpen] = useState(false)
 
+  // ✅ Rename UI state per panel
+  const [renamingFileId, setRenamingFileId] = useState("")
+  const [renameValue, setRenameValue] = useState("")
+  const [renameErr, setRenameErr] = useState("")
+
   const files = Array.isArray(subtitle?.files) ? subtitle.files : []
   const notes = Array.isArray(subtitle?.notes) ? subtitle.notes : []
-  const busy = busyKey === `${task?._id}:${subtitleId}`
+
+  // ✅ busyKey pattern: `${taskId}:${subtitleId}` for upload/note, or `${taskId}:${subtitleId}:file:${fileId}` for rename/delete
+  const busy = typeof busyKey === "string" && busyKey.startsWith(`${task?._id}:${subtitleId}`)
   const draft = noteDraft?.[subtitleId] || ""
 
   const roleForFile = (f) => inferActorRole?.(String(f?.uploadedBy || ""), task?.assignedTo) || "admin"
@@ -560,8 +639,36 @@ function SubtitleWorkPanel({ task, subtitle, busyKey, noteDraft, setNoteDraft, o
     return tb - ta
   })
 
+  const startRename = (f) => {
+    setRenameErr("")
+    const fid = String(f?._id || "")
+    setRenamingFileId(fid)
+    const current = String((f?.displayName || "").trim() || (f?.originalName || "").trim() || "")
+    setRenameValue(current)
+  }
+
+  const cancelRename = () => {
+    setRenameErr("")
+    setRenamingFileId("")
+    setRenameValue("")
+  }
+
+  const submitRename = async (f) => {
+    setRenameErr("")
+    const fid = String(f?._id || "")
+    const next = String(renameValue || "").trim()
+    if (!fid) return
+    if (!next) {
+      setRenameErr("Display name cannot be empty.")
+      return
+    }
+    await onRenameFile?.(task?._id, subtitleId, fid, next)
+    cancelRename()
+  }
+
   const renderFileRow = (f, idx) => {
     const shown = (f.displayName || "").trim() || f.originalName || f.key
+    const fid = String(f?._id || "")
     const role = roleForFile(f)
     const isEmpFile = String(role).toLowerCase() === "employee"
     const isAdminFile = !isEmpFile
@@ -572,51 +679,117 @@ function SubtitleWorkPanel({ task, subtitle, busyKey, noteDraft, setNoteDraft, o
       ? "bg-indigo-100 border-indigo-200 text-indigo-800"
       : "bg-amber-100 border-amber-200 text-amber-800"
 
+    const isRenaming = renamingFileId && renamingFileId === fid
+
     return (
       <div
         key={`${String(f?._id || f.key)}-${idx}`}
-        className={`relative p-3 rounded-2xl border ${rowClass} flex flex-col md:flex-row md:items-center md:justify-between gap-3 overflow-hidden`}
+        className={`relative p-3 rounded-2xl border ${rowClass} flex flex-col gap-3 overflow-hidden`}
       >
         <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${leftBar}`} />
 
-        <div className="flex items-center gap-3 min-w-0 pl-2">
-          <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center ${iconBox} shrink-0`}>
-            {fileIcon(f.mimeType, f.originalName)}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pl-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl border flex items-center justify-center ${iconBox} shrink-0`}
+            >
+              {fileIcon(f.mimeType, f.originalName)}
+            </div>
+
+            <div className="min-w-0">
+              <p className="text-sm font-extrabold text-gray-900 truncate">
+                {shown}
+                <span
+                  className={[
+                    "ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold tracking-wide border",
+                    roleBadgeClasses(role),
+                  ].join(" ")}
+                >
+                  {roleLabel(role)}
+                </span>
+              </p>
+
+              <p className="text-xs text-gray-600">
+                {f.size ? `${formatBytes(f.size)} • ` : ""}
+                {f.uploadedAt ? new Date(f.uploadedAt).toLocaleString() : "—"}
+              </p>
+            </div>
           </div>
 
-          <div className="min-w-0">
-            <p className="text-sm font-extrabold text-gray-900 truncate">
-              {shown}
-              <span
-                className={[
-                  "ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold tracking-wide border",
-                  roleBadgeClasses(role),
-                ].join(" ")}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto">
+            {f.url ? (
+              <a
+                href={f.url}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex w-full md:w-auto items-center justify-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
               >
-                {roleLabel(role)}
-              </span>
-            </p>
+                <FiExternalLink className="w-4 h-4" />
+                Open
+              </a>
+            ) : (
+              <span className="text-xs text-gray-500 self-center">No direct link</span>
+            )}
 
-            <p className="text-xs text-gray-600">
-              {f.size ? `${formatBytes(f.size)} • ` : ""}
-              {f.uploadedAt ? new Date(f.uploadedAt).toLocaleString() : "—"}
-            </p>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => startRename(f)}
+              className="inline-flex w-full md:w-auto items-center justify-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold disabled:opacity-60"
+              title="Rename"
+            >
+              <FiEdit2 className="w-4 h-4" />
+              Rename
+            </button>
+
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onDeleteFile?.(task?._id, subtitleId, fid, f)}
+              className="inline-flex w-full md:w-auto items-center justify-center gap-2 px-3 py-2 rounded-xl border border-red-200 text-red-600 bg-white hover:bg-red-50 text-sm font-semibold disabled:opacity-60"
+              title="Delete file"
+            >
+              <FiTrash2 className="w-4 h-4" />
+              Delete
+            </button>
           </div>
         </div>
 
-        {f.url ? (
-          <a
-            href={f.url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex w-full md:w-auto items-center justify-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
-          >
-            <FiExternalLink className="w-4 h-4" />
-            Open
-          </a>
-        ) : (
-          <span className="text-xs text-gray-500">No direct link</span>
-        )}
+        {isRenaming ? (
+          <div className="pl-2">
+            <div className="rounded-2xl border border-gray-200 bg-white p-3">
+              <p className="text-xs font-extrabold text-gray-700 mb-2">Rename file display name</p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  disabled={busy}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-sm"
+                  placeholder="Display name"
+                />
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => submitRename(f)}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold disabled:opacity-60"
+                >
+                  <FiSave />
+                  Save
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={cancelRename}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold disabled:opacity-60"
+                >
+                  <FiX />
+                  Cancel
+                </button>
+              </div>
+              {renameErr ? <p className="text-xs text-red-600 mt-2">{renameErr}</p> : null}
+            </div>
+          </div>
+        ) : null}
       </div>
     )
   }
@@ -664,7 +837,11 @@ function SubtitleWorkPanel({ task, subtitle, busyKey, noteDraft, setNoteDraft, o
           </div>
         </div>
 
-        <FiChevronDown className={["w-5 h-5 text-gray-600 transition-transform duration-300 shrink-0", open ? "rotate-180" : ""].join(" ")} />
+        <FiChevronDown
+          className={["w-5 h-5 text-gray-600 transition-transform duration-300 shrink-0", open ? "rotate-180" : ""].join(
+            " "
+          )}
+        />
       </button>
 
       <SmoothCollapse open={open}>
@@ -676,14 +853,18 @@ function SubtitleWorkPanel({ task, subtitle, busyKey, noteDraft, setNoteDraft, o
               </span>
               <span className="text-gray-400">•</span>
               <span className="inline-flex items-center gap-2 text-[10px] font-extrabold">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full ${roleBadgeClasses("admin")}`}>ADMIN</span>
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full ${roleBadgeClasses("employee")}`}>EMPLOYEE</span>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full ${roleBadgeClasses("admin")}`}>
+                  ADMIN
+                </span>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full ${roleBadgeClasses("employee")}`}>
+                  EMPLOYEE
+                </span>
               </span>
             </div>
 
             <label className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer text-sm font-semibold shrink-0">
               <FiUpload />
-              {busy ? "Uploading..." : "Upload files"}
+              {busy ? "Working..." : "Upload files"}
               <input
                 type="file"
                 hidden
@@ -1093,7 +1274,9 @@ function TaskModal({
                   <p className="text-xs font-semibold text-gray-600 mb-1">Title</p>
                   <div className="px-3 py-2 rounded-xl border border-gray-200 bg-gray-50/50">
                     <p className="text-sm font-extrabold text-indigo-700 break-words">{selectedTemplate?.title || "—"}</p>
-                    <p className="text-xs text-gray-500 mt-1">Selected subtitles: {(selectedSubtitleIds || []).length || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Selected subtitles: {(selectedSubtitleIds || []).length || 0}
+                    </p>
                   </div>
                 </div>
               )}
@@ -1256,6 +1439,8 @@ function TaskCard({
   setSubtitleNoteDraft,
   uploadFilesToSubtitle,
   addNoteToSubtitle,
+  renameSubtitleFile,
+  deleteSubtitleFile,
   inferActorRole,
 }) {
   const busy = deletingTaskId === t._id
@@ -1319,9 +1504,7 @@ function TaskCard({
               title={isOpen ? "Hide" : "Show"}
             >
               <FiChevronDown
-                className={["transition-transform duration-300 ease-out", isOpen ? "transform rotate-180" : "transform rotate-0"].join(
-                  " "
-                )}
+                className={["transition-transform duration-300 ease-out", isOpen ? "rotate-180" : "rotate-0"].join(" ")}
               />
             </button>
 
@@ -1401,6 +1584,8 @@ function TaskCard({
                       setNoteDraft={setSubtitleNoteDraft}
                       onUpload={uploadFilesToSubtitle}
                       onAddNote={addNoteToSubtitle}
+                      onRenameFile={renameSubtitleFile}
+                      onDeleteFile={deleteSubtitleFile}
                       inferActorRole={inferActorRole}
                     />
                   ))}
@@ -1418,7 +1603,7 @@ function TaskCard({
   )
 }
 
-/* =================== CRM COMPONENT =================== */
+/* =================== CRM COMPONENT (WITH FILTERS + FILE CRUD) =================== */
 export default function CustomerCRM({
   customerId,
   customer,
@@ -1428,7 +1613,7 @@ export default function CustomerCRM({
   refreshNonce,
   onSoftRefreshCustomer,
   setPageError,
-  showToast, // ✅ expects string message; we will auto-clear by sending "" after delay
+  showToast,
 }) {
   const [nowTick, setNowTick] = useState(Date.now())
   useEffect(() => {
@@ -1436,16 +1621,13 @@ export default function CustomerCRM({
     return () => clearInterval(id)
   }, [])
 
-  /* ✅ AUTO-HIDE TOAST (USED AFTER DELETE TOO) */
+  /* ✅ AUTO-HIDE TOAST */
   const toastTimerRef = useRef(null)
   const pushToast = (msg, ms = 2500) => {
     if (!showToast) return
     showToast(msg)
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    toastTimerRef.current = setTimeout(() => {
-      // parent should hide toast when message is empty
-      showToast("")
-    }, ms)
+    toastTimerRef.current = setTimeout(() => showToast(""), ms)
   }
   useEffect(() => {
     return () => {
@@ -1483,6 +1665,14 @@ export default function CustomerCRM({
   const [tasksLoading, setTasksLoading] = useState(false)
   const [tasksHasMore, setTasksHasMore] = useState(false)
   const [tasksNextCursor, setTasksNextCursor] = useState(null)
+
+  // ✅ FILTERS
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [searchText, setSearchText] = useState("")
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [assigneeFilter, setAssigneeFilter] = useState("all")
+  const [dueFilter, setDueFilter] = useState("all")
+  const [sortBy, setSortBy] = useState("due_asc")
 
   // Create modal
   const [createOpen, setCreateOpen] = useState(false)
@@ -1591,6 +1781,11 @@ export default function CustomerCRM({
     setSubtitleBusyKey("")
     setSelectedJobId("")
     setOpenJobIds(new Set())
+    setSearchText("")
+    setStatusFilter("all")
+    setAssigneeFilter("all")
+    setDueFilter("all")
+    setSortBy("due_asc")
     fetchJobs()
     resetTasks()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1607,26 +1802,6 @@ export default function CustomerCRM({
     for (const j of jobsFlat || []) map.set(String(j?._id), j)
     return map
   }, [jobsFlat])
-
-  const tasksByJobId = useMemo(() => {
-    const m = new Map()
-    for (const t of tasks || []) {
-      const jid = String(t?.jobId || "")
-      if (!jid) continue
-      if (!m.has(jid)) m.set(jid, [])
-      m.get(jid).push(t)
-    }
-    return m
-  }, [tasks])
-
-  const filteredTasks = useMemo(() => {
-    const sid = String(selectedJobId || "")
-    if (!sid) return tasks
-    const job = jobById.get(sid)
-    const isRoot = job && !job?.parentJobId
-    if (isRoot) return (tasks || []).filter((t) => String(t?.rootJobId || "") === sid)
-    return (tasks || []).filter((t) => String(t?.jobId || "") === sid)
-  }, [tasks, selectedJobId, jobById])
 
   const toggleTaskOpen = (id) => {
     const sid = String(id)
@@ -1899,54 +2074,6 @@ export default function CustomerCRM({
     })
   }
 
-  const confirmDelete = async () => {
-    const payload = deleteModal.payload
-    if (!payload) return
-
-    setPageError?.("")
-    setDeleteLoading(true)
-
-    try {
-      if (payload.kind === "task") {
-        if (!payload?.taskId) return
-        setDeletingTaskId(payload.taskId)
-        await deleteTaskApi({ customerId, taskId: payload.taskId })
-        await resetTasks()
-        // ✅ auto-hide toast after a few seconds
-        pushToast("Task deleted", 2500)
-      }
-
-      if (payload.kind === "job") {
-        if (!payload?.jobId) return
-        await deleteJobApi({ customerId, jobId: payload.jobId, force: !!payload.force })
-        await fetchJobs()
-        await resetTasks()
-        // ✅ auto-hide toast after a few seconds
-        pushToast("Job deleted", 2500)
-        if (String(selectedJobId) === String(payload.jobId)) setSelectedJobId("")
-      }
-
-      setDeleteModal((p) => ({ ...p, open: false }))
-    } catch (e) {
-      const msg = String(e?.message || "")
-      // if backend blocks because tasks exist -> offer force delete
-      if (payload.kind === "job" && (msg.includes("409") || msg.toLowerCase().includes("task"))) {
-        setDeleteModal({
-          open: true,
-          title: "Job has tasks",
-          description: `This job still has tasks. Use Force delete to remove job + tasks.`,
-          confirmText: "Force delete",
-          payload: { kind: "job", jobId: payload.jobId, force: true },
-        })
-      } else {
-        setPageError?.(e?.message || "Delete failed.")
-      }
-    } finally {
-      setDeleteLoading(false)
-      setDeletingTaskId("")
-    }
-  }
-
   /* ---------------- SUBTITLE UPLOAD/NOTES ---------------- */
   const uploadFilesToSubtitle = async (taskId, subtitleId, files, optionalNoteText) => {
     if (!taskId || !subtitleId || !files?.length) return
@@ -2021,6 +2148,234 @@ export default function CustomerCRM({
     }
   }
 
+  /* ✅ FILE CRUD: rename */
+  const renameSubtitleFile = async (taskId, subtitleId, fileId, nextDisplayName) => {
+    const name = String(nextDisplayName || "").trim()
+    if (!taskId || !subtitleId || !fileId || !name) return
+    setPageError?.("")
+    const key = `${taskId}:${subtitleId}:file:${fileId}`
+    setSubtitleBusyKey(key)
+    try {
+      await patchSubtitleFileApi({
+        customerId,
+        taskId,
+        subtitleId,
+        fileId,
+        body: { displayName: name },
+      })
+      await resetTasks()
+      pushToast("Renamed")
+    } catch (e) {
+      setPageError?.(e?.message || "Rename failed.")
+    } finally {
+      setSubtitleBusyKey("")
+    }
+  }
+
+  /* ✅ FILE CRUD: delete (confirm modal) */
+  const deleteSubtitleFile = (taskId, subtitleId, fileId, fileObj) => {
+    const shown = String(fileObj?.displayName || "").trim() || fileObj?.originalName || "file"
+    setDeleteModal({
+      open: true,
+      title: "Delete file?",
+      description: `Delete "${shown}" from this work ? This removes the file permanently.`,
+      confirmText: "Delete file",
+      payload: { kind: "subtitle_file", taskId: String(taskId), subtitleId: String(subtitleId), fileId: String(fileId) },
+    })
+  }
+
+  /* ---------------- DELETE CONFIRM HANDLER (tasks/jobs/files) ---------------- */
+  const confirmDelete = async () => {
+    const payload = deleteModal.payload
+    if (!payload) return
+
+    setPageError?.("")
+    setDeleteLoading(true)
+
+    try {
+      if (payload.kind === "task") {
+        if (!payload?.taskId) return
+        setDeletingTaskId(payload.taskId)
+        await deleteTaskApi({ customerId, taskId: payload.taskId })
+        await resetTasks()
+        pushToast("Task deleted", 2500)
+      }
+
+      if (payload.kind === "job") {
+        if (!payload?.jobId) return
+        await deleteJobApi({ customerId, jobId: payload.jobId, force: !!payload.force })
+        await fetchJobs()
+        await resetTasks()
+        pushToast("Job deleted", 2500)
+        if (String(selectedJobId) === String(payload.jobId)) setSelectedJobId("")
+      }
+
+      if (payload.kind === "subtitle_file") {
+        const { taskId, subtitleId, fileId } = payload
+        const key = `${taskId}:${subtitleId}:file:${fileId}`
+        setSubtitleBusyKey(key)
+        await deleteSubtitleFileApi({ customerId, taskId, subtitleId, fileId })
+        await resetTasks()
+        pushToast("File deleted", 2500)
+        setSubtitleBusyKey("")
+      }
+
+      setDeleteModal((p) => ({ ...p, open: false }))
+    } catch (e) {
+      const msg = String(e?.message || "")
+      if (payload.kind === "job" && (msg.includes("409") || msg.toLowerCase().includes("task"))) {
+        setDeleteModal({
+          open: true,
+          title: "Job has tasks",
+          description: `This job still has tasks. Use Force delete to remove job + tasks.`,
+          confirmText: "Force delete",
+          payload: { kind: "job", jobId: payload.jobId, force: true },
+        })
+      } else {
+        setPageError?.(e?.message || "Delete failed.")
+      }
+    } finally {
+      setDeleteLoading(false)
+      setDeletingTaskId("")
+    }
+  }
+
+  /* =================== FILTER LOGIC =================== */
+  const withinDays = (date, days) => {
+    if (!date) return false
+    const d = new Date(date)
+    if (Number.isNaN(d.getTime())) return false
+    const now = new Date(nowTick)
+    const end = new Date(now)
+    end.setDate(end.getDate() + days)
+    return d >= now && d <= end
+  }
+
+  const isToday = (date) => {
+    if (!date) return false
+    const d = new Date(date)
+    if (Number.isNaN(d.getTime())) return false
+    const now = new Date(nowTick)
+    return d.toDateString() === now.toDateString()
+  }
+
+  const isOverdue = (t) => {
+    if (!t?.dueAt) return false
+    if (String(t?.status) === "done") return false
+    const d = new Date(t.dueAt)
+    if (Number.isNaN(d.getTime())) return false
+    return d.getTime() < nowTick
+  }
+
+  const matchesSearch = (t, s) => {
+    const q = String(s || "").trim().toLowerCase()
+    if (!q) return true
+    const title = String(t?.title || "").toLowerCase()
+    const desc = String(t?.description || "").toLowerCase()
+    const jobTitle = String(jobById.get(String(t?.jobId || ""))?.title || "").toLowerCase()
+    const assignees = resolveAssignees(t?.assignedTo, assignedEmployees)
+      .map((a) => String(a?.name || "").toLowerCase())
+      .join(" ")
+    const subtitles = (Array.isArray(t?.subtitles) ? t.subtitles : [])
+      .map((x) => String(x?.text || "").toLowerCase())
+      .join(" ")
+    return [title, desc, jobTitle, assignees, subtitles].some((x) => x.includes(q))
+  }
+
+  const applyAllFiltersToTasks = (list) => {
+    let out = Array.isArray(list) ? list.slice() : []
+
+    // job filter
+    if (String(selectedJobId || "")) {
+      const sid = String(selectedJobId || "")
+      const job = jobById.get(sid)
+      const isRoot = job && !job?.parentJobId
+      out = isRoot ? out.filter((t) => String(t?.rootJobId || "") === sid) : out.filter((t) => String(t?.jobId || "") === sid)
+    }
+
+    // search
+    out = out.filter((t) => matchesSearch(t, searchText))
+
+    // status
+    if (statusFilter !== "all") {
+      if (statusFilter === "overdue") out = out.filter((t) => isOverdue(t))
+      else if (statusFilter === "no_due") out = out.filter((t) => !t?.dueAt)
+      else out = out.filter((t) => String(t?.status || "") === statusFilter)
+    }
+
+    // assignee
+    if (assigneeFilter !== "all") {
+      const aid = String(assigneeFilter)
+      out = out.filter((t) => {
+        const arr = Array.isArray(t?.assignedTo) ? t.assignedTo : []
+        const ids = arr.map((x) => String(x?._id || x)).filter(Boolean)
+        return ids.includes(aid)
+      })
+    }
+
+    // due
+    if (dueFilter !== "all") {
+      if (dueFilter === "none") out = out.filter((t) => !t?.dueAt)
+      if (dueFilter === "overdue") out = out.filter((t) => isOverdue(t))
+      if (dueFilter === "today") out = out.filter((t) => isToday(t?.dueAt))
+      if (dueFilter === "7d") out = out.filter((t) => withinDays(t?.dueAt, 7))
+      if (dueFilter === "30d") out = out.filter((t) => withinDays(t?.dueAt, 30))
+    }
+
+    // sorting
+    const statusRank = (s) => (s === "pending" ? 0 : s === "in_progress" ? 1 : 2)
+    const dueValue = (t) => {
+      if (!t?.dueAt) return Number.POSITIVE_INFINITY
+      const d = new Date(t.dueAt)
+      if (Number.isNaN(d.getTime())) return Number.POSITIVE_INFINITY
+      return d.getTime()
+    }
+
+    if (sortBy === "due_asc") out.sort((a, b) => dueValue(a) - dueValue(b))
+    if (sortBy === "due_desc") out.sort((a, b) => dueValue(b) - dueValue(a))
+    if (sortBy === "created_desc") {
+      const cv = (t) => (t?.createdAt ? new Date(t.createdAt).getTime() : 0)
+      out.sort((a, b) => cv(b) - cv(a))
+    }
+    if (sortBy === "title_asc") out.sort((a, b) => String(a?.title || "").localeCompare(String(b?.title || "")))
+    if (sortBy === "status") out.sort((a, b) => statusRank(String(a?.status || "")) - statusRank(String(b?.status || "")))
+
+    return out
+  }
+
+  const filteredTasksAll = useMemo(() => applyAllFiltersToTasks(tasks), [
+    tasks,
+    selectedJobId,
+    jobById,
+    assignedEmployees,
+    searchText,
+    statusFilter,
+    assigneeFilter,
+    dueFilter,
+    sortBy,
+    nowTick,
+  ])
+
+  const activeFilterCount = useMemo(() => {
+    let n = 0
+    if (String(searchText || "").trim()) n++
+    if (statusFilter !== "all") n++
+    if (assigneeFilter !== "all") n++
+    if (dueFilter !== "all") n++
+    if (sortBy !== "due_asc") n++
+    if (String(selectedJobId || "")) n++
+    return n
+  }, [searchText, statusFilter, assigneeFilter, dueFilter, sortBy, selectedJobId])
+
+  const clearFilters = () => {
+    setSearchText("")
+    setStatusFilter("all")
+    setAssigneeFilter("all")
+    setDueFilter("all")
+    setSortBy("due_asc")
+    setSelectedJobId("")
+  }
+
   /* =================== JOB/TASK UI HELPERS =================== */
   const renderTaskList = (taskList) => {
     if (tasksLoading && (!taskList || taskList.length === 0)) {
@@ -2058,6 +2413,8 @@ export default function CustomerCRM({
               setSubtitleNoteDraft={setSubtitleNoteDraft}
               uploadFilesToSubtitle={uploadFilesToSubtitle}
               addNoteToSubtitle={addNoteToSubtitle}
+              renameSubtitleFile={renameSubtitleFile}
+              deleteSubtitleFile={deleteSubtitleFile}
               inferActorRole={inferActorRole}
             />
           )
@@ -2089,23 +2446,27 @@ export default function CustomerCRM({
       )
     }
 
+    // apply filters per-job
+    const getFilteredByJob = (jobId, isRoot) => {
+      const base = isRoot
+        ? tasks.filter((t) => String(t?.rootJobId || "") === String(jobId))
+        : tasks.filter((t) => String(t?.jobId || "") === String(jobId))
+      return applyAllFiltersToTasks(base)
+    }
+
     return (
       <div className="space-y-3">
         {jobsTree.map((root) => {
           const rootId = String(root?._id || "")
           const rootOpen = openJobIds.has(rootId)
-          const rootTasks = tasksByJobId.get(rootId) || []
           const children = Array.isArray(root?.children) ? root.children : Array.isArray(root?.subJobs) ? root.subJobs : []
+
+          const rootTasksFiltered = getFilteredByJob(rootId, true)
 
           return (
             <div key={rootId} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
               <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => toggleJobOpen(rootId)}
-                  className="flex-1 min-w-0 text-left"
-                  aria-expanded={rootOpen}
-                >
+                <button type="button" onClick={() => toggleJobOpen(rootId)} className="flex-1 min-w-0 text-left" aria-expanded={rootOpen}>
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-indigo-600 text-white shrink-0">
                       <FiFolder className="w-4 h-4" />
@@ -2113,7 +2474,7 @@ export default function CustomerCRM({
                     <div className="min-w-0">
                       <p className="text-sm font-extrabold text-indigo-700 truncate">{root?.title || "Job"}</p>
                       <p className="text-xs text-gray-500 mt-0.5">
-                        {rootTasks.length} task{rootTasks.length === 1 ? "" : "s"}
+                        {rootTasksFiltered.length} task{rootTasksFiltered.length === 1 ? "" : "s"} (filtered)
                         {children.length ? ` • ${children.length} sub-job${children.length === 1 ? "" : "s"}` : ""}
                       </p>
                     </div>
@@ -2173,14 +2534,15 @@ export default function CustomerCRM({
                         Filter
                       </button>
                     </div>
-                    {renderTaskList(rootTasks)}
+                    {renderTaskList(rootTasksFiltered)}
                   </div>
 
                   {children.length ? (
                     <div className="space-y-3">
                       {children.map((sub) => {
                         const subId = String(sub?._id || "")
-                        const subTasks = tasksByJobId.get(subId) || []
+                        const subTasksFiltered = getFilteredByJob(subId, false)
+
                         return (
                           <div key={subId} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
                             <div className="px-4 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -2190,7 +2552,7 @@ export default function CustomerCRM({
                                 </span>
                                 <p className="text-sm font-extrabold text-gray-900 truncate">{sub?.title || "Sub-job"}</p>
                                 <span className="text-xs text-gray-500">
-                                  • {subTasks.length} task{subTasks.length === 1 ? "" : "s"}
+                                  • {subTasksFiltered.length} task{subTasksFiltered.length === 1 ? "" : "s"} (filtered)
                                 </span>
                               </div>
 
@@ -2225,7 +2587,7 @@ export default function CustomerCRM({
                               </div>
                             </div>
 
-                            {renderTaskList(subTasks)}
+                            {renderTaskList(subTasksFiltered)}
                           </div>
                         )
                       })}
@@ -2249,17 +2611,16 @@ export default function CustomerCRM({
 
   return (
     <div className="space-y-4">
-      {isAdmin ? (
-        <ConfirmDeleteModal
-          open={deleteModal.open}
-          title={deleteModal.title}
-          description={deleteModal.description}
-          confirmText={deleteModal.confirmText}
-          loading={deleteLoading}
-          onClose={() => !deleteLoading && setDeleteModal((p) => ({ ...p, open: false }))}
-          onConfirm={confirmDelete}
-        />
-      ) : null}
+      {/* ✅ Allow file delete modal for employees too, not only admin */}
+      <ConfirmDeleteModal
+        open={deleteModal.open}
+        title={deleteModal.title}
+        description={deleteModal.description}
+        confirmText={deleteModal.confirmText}
+        loading={deleteLoading}
+        onClose={() => !deleteLoading && setDeleteModal((p) => ({ ...p, open: false }))}
+        onConfirm={confirmDelete}
+      />
 
       {isAdmin ? (
         <JobModal
@@ -2337,93 +2698,217 @@ export default function CustomerCRM({
       />
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-lg overflow-hidden">
-        <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-sm font-extrabold text-indigo-700">Jobs & Tasks</p>
-            <p className="text-xs text-gray-500 flex flex-wrap gap-x-2 gap-y-1">
-              <span>
-                {tasks.length} loaded{tasksHasMore ? " • more available" : ""}
-              </span>
-              <span className="text-gray-400">•</span>
-              <span>
-                <span className="font-semibold">Pending:</span> {tasksSummary.pending}
-              </span>
-              <span className="text-gray-400">•</span>
-              <span>
-                <span className="font-semibold">In progress:</span> {tasksSummary.in_progress}
-              </span>
-              <span className="text-gray-400">•</span>
-              <span>
-                <span className="font-semibold">Done:</span> {tasksSummary.done}
-              </span>
-            </p>
+        {/* HEADER */}
+        <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex flex-col gap-3">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-extrabold text-indigo-700">Jobs & Tasks</p>
+                {activeFilterCount ? <Badge tone="indigo">{activeFilterCount} FILTERS</Badge> : null}
+              </div>
+
+              <p className="text-xs text-gray-500 flex flex-wrap gap-x-2 gap-y-1 mt-1">
+                <span>
+                  {tasks.length} loaded{tasksHasMore ? " • more available" : ""}
+                </span>
+                <span className="text-gray-400">•</span>
+                <span>
+                  <span className="font-semibold">Pending:</span> {tasksSummary.pending}
+                </span>
+                <span className="text-gray-400">•</span>
+                <span>
+                  <span className="font-semibold">In progress:</span> {tasksSummary.in_progress}
+                </span>
+                <span className="text-gray-400">•</span>
+                <span>
+                  <span className="font-semibold">Done:</span> {tasksSummary.done}
+                </span>
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setFiltersOpen((v) => !v)}
+                className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
+              >
+                <FiFilter />
+                Filters
+              </button>
+
+              {isAdmin ? (
+                <>
+                  <button
+                    onClick={() => openCreateJobModal(null)}
+                    className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
+                  >
+                    <FiPlus />
+                    Add Job
+                  </button>
+                  <button
+                    onClick={() => openCreateModal(selectedJobId || "")}
+                    className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold"
+                  >
+                    <FiPlus />
+                    Add Task
+                  </button>
+                </>
+              ) : null}
+            </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-            <select
-              value={selectedJobId}
-              onChange={(e) => setSelectedJobId(e.target.value)}
-              className="w-full sm:w-auto px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold"
-              title="Filter tasks by job"
-            >
-              <option value="">All jobs</option>
-              {(jobsFlat || []).map((j) => {
-                const isSub = !!j?.parentJobId
-                return (
-                  <option key={String(j?._id)} value={String(j?._id)}>
-                    {isSub ? "↳ " : ""}
-                    {j?.title || "Job"}
-                  </option>
-                )
-              })}
-            </select>
+          {/* FILTER PANEL */}
+          <SmoothCollapse open={filtersOpen}>
+            <div className="mt-2 rounded-2xl border border-gray-100 bg-gray-50/60 p-3 sm:p-4">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+                <div className="lg:col-span-4">
+                  <label className="text-xs font-extrabold text-gray-600 flex items-center gap-2 mb-1">
+                    <FiSearch /> Search
+                  </label>
+                  <input
+                    value={searchText}
+                    onChange={(e) => setSearchText(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-300 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm outline-none"
+                    placeholder="Title / note / subtitle / job / assignee..."
+                  />
+                </div>
 
-            {isAdmin ? (
-              <>
-                <button
-                  onClick={() => openCreateJobModal(null)}
-                  className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
-                >
-                  <FiPlus />
-                  Add Job
-                </button>
-                <button
-                  onClick={() => openCreateModal(selectedJobId || "")}
-                  className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold"
-                >
-                  <FiPlus />
-                  Add Task
-                </button>
-              </>
-            ) : null}
-          </div>
+                <div className="lg:col-span-3">
+                  <label className="text-xs font-extrabold text-gray-600 flex items-center gap-2 mb-1">
+                    <FiFolder /> Job
+                  </label>
+                  <select
+                    value={selectedJobId}
+                    onChange={(e) => setSelectedJobId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold"
+                  >
+                    <option value="">All jobs</option>
+                    {(jobsFlat || []).map((j) => (
+                      <option key={String(j?._id)} value={String(j?._id)}>
+                        {j?.parentJobId ? "↳ " : ""}
+                        {j?.title || "Job"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="lg:col-span-2">
+                  <label className="text-xs font-extrabold text-gray-600 flex items-center gap-2 mb-1">
+                    <FiTag /> Status
+                  </label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold"
+                  >
+                    <option value="all">all</option>
+                    <option value="pending">pending</option>
+                    <option value="in_progress">in_progress</option>
+                    <option value="done">done</option>
+                    <option value="overdue">overdue</option>
+                    <option value="no_due">no_due</option>
+                  </select>
+                </div>
+
+                <div className="lg:col-span-2">
+                  <label className="text-xs font-extrabold text-gray-600 flex items-center gap-2 mb-1">
+                    <FiTag /> Due
+                  </label>
+                  <select
+                    value={dueFilter}
+                    onChange={(e) => setDueFilter(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold"
+                  >
+                    <option value="all">all</option>
+                    <option value="today">today</option>
+                    <option value="7d">next 7 days</option>
+                    <option value="30d">next 30 days</option>
+                    <option value="overdue">overdue</option>
+                    <option value="none">no due</option>
+                  </select>
+                </div>
+
+                <div className="lg:col-span-1">
+                  <label className="text-xs font-extrabold text-gray-600 flex items-center gap-2 mb-1">
+                    <FiTag /> Sort
+                  </label>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold"
+                  >
+                    <option value="due_asc">due ↑</option>
+                    <option value="due_desc">due ↓</option>
+                    <option value="created_desc">newest</option>
+                    <option value="title_asc">title</option>
+                    <option value="status">status</option>
+                  </select>
+                </div>
+
+                <div className="lg:col-span-4">
+                  <label className="text-xs font-extrabold text-gray-600 flex items-center gap-2 mb-1">
+                    <FiTag /> Assignee
+                  </label>
+                  <select
+                    value={assigneeFilter}
+                    onChange={(e) => setAssigneeFilter(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold"
+                  >
+                    <option value="all">all assignees</option>
+                    {(assignedEmployees || []).map((u) => (
+                      <option key={String(u?._id)} value={String(u?._id)}>
+                        {u?.name || u?.email || "Employee"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="lg:col-span-8 flex flex-col sm:flex-row gap-2 items-stretch sm:items-end justify-end">
+                  <button
+                    type="button"
+                    onClick={clearFilters}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
+                    title="Clear filters"
+                  >
+                    <FiRotateCcw />
+                    Clear
+                  </button>
+                </div>
+              </div>
+            </div>
+          </SmoothCollapse>
         </div>
 
+        {/* BODY */}
         <div className="p-4 sm:p-6 bg-gray-50/40">
-          {String(selectedJobId || "") ? (
+          {activeFilterCount ? (
             <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
               <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-sm font-extrabold text-indigo-700 truncate">
-                    {jobById.get(String(selectedJobId))?.title || "Selected Job"}
+                  <p className="text-sm font-extrabold text-indigo-700 truncate">Filtered Results</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Showing {filteredTasksAll.length} task{filteredTasksAll.length === 1 ? "" : "s"}.
                   </p>
-                  <p className="text-xs text-gray-500 mt-1">Filtered tasks for selected job/sub-job.</p>
                 </div>
+
                 <button
-                  onClick={() => setSelectedJobId("")}
+                  onClick={() => setOpenTaskIds(new Set(filteredTasksAll.map((t) => String(t?._id))))}
                   className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
+                  title="Expand all filtered tasks"
                 >
-                  Clear
+                  <FiChevronDown />
+                  Expand
                 </button>
               </div>
 
-              {renderTaskList(filteredTasks)}
+              {renderTaskList(filteredTasksAll)}
             </div>
           ) : (
             renderJobsTreeWithTasks()
           )}
         </div>
 
+        {/* FOOTER */}
         <div className="p-4 border-t border-gray-100 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <p className="text-xs text-gray-500">
             Loaded {tasks.length} • Page size {TASKS_PAGE_SIZE}

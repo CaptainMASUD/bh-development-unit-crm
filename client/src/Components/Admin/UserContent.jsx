@@ -13,8 +13,6 @@ import {
   FiRefreshCcw,
   FiEdit3,
   FiTrash2,
-  FiToggleLeft,
-  FiToggleRight,
   FiAlertCircle,
   FiCheckCircle,
   FiShield,
@@ -121,8 +119,73 @@ function Toast({ type = "success", message, onClose }) {
   )
 }
 
-function ConfirmModal({ open, title, description, confirmText = "Confirm", danger, onClose, onConfirm }) {
+/** ✅ NEW: Proper smooth blue toggle */
+function ToggleSwitch({
+  checked,
+  onChange,
+  disabled,
+  labelOn = "Active",
+  labelOff = "Inactive",
+  className = "",
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => !disabled && onChange?.(!checked)}
+      role="switch"
+      aria-checked={checked}
+      className={`inline-flex items-center gap-2 select-none ${className} ${
+        disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"
+      }`}
+      title={disabled ? "Not allowed." : checked ? labelOn : labelOff}
+    >
+      <span className="text-sm font-semibold text-gray-700">{checked ? labelOn : labelOff}</span>
+
+      <span
+        className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors duration-200 ${
+          checked ? "bg-indigo-600" : "bg-gray-200"
+        }`}
+      >
+        <motion.span
+          layout
+          transition={{ type: "spring", stiffness: 500, damping: 30 }}
+          className="inline-block h-5 w-5 rounded-full bg-white shadow"
+          style={{ marginLeft: checked ? 24 : 4 }}
+        />
+      </span>
+    </button>
+  )
+}
+
+/**
+ * ✅ UPDATED: Delete modal now requires ADMIN/SUPERADMIN password
+ * - Sends password to backend in DELETE body: { password }
+ */
+function DeleteWithPasswordModal({
+  open,
+  title,
+  description,
+  confirmText = "Delete",
+  onClose,
+  onConfirm,
+  isSubmitting,
+}) {
+  const [password, setPassword] = useState("")
+  const [show, setShow] = useState(false)
+  const [err, setErr] = useState("")
+
+  useEffect(() => {
+    if (!open) return
+    setPassword("")
+    setShow(false)
+    setErr("")
+  }, [open])
+
   if (!open) return null
+
+  const canConfirm = String(password || "").length >= 6 && !isSubmitting
+
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-md" onClick={onClose} />
@@ -146,20 +209,81 @@ function ConfirmModal({ open, title, description, confirmText = "Confirm", dange
               <FiX className="w-5 h-5 text-gray-700" />
             </button>
           </div>
-          <div className="p-5 flex flex-col sm:flex-row gap-2 sm:justify-end">
+
+          <div className="p-5">
+            {err ? (
+              <div className="mb-3 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
+                {err}
+              </div>
+            ) : null}
+
+            <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+              <div className="flex items-center gap-2 text-sm font-extrabold text-gray-900">
+                <FiLock className="w-4 h-4 text-indigo-600" />
+                Confirm with your password
+              </div>
+              <p className="mt-1 text-sm text-gray-600">
+                For security, enter your account password to delete.
+              </p>
+
+              <div className="mt-3 relative">
+                <input
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    setErr("")
+                  }}
+                  type={show ? "text" : "password"}
+                  placeholder="Your password (min 6 chars)"
+                  className="w-full px-3 py-2.5 pr-11 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShow((p) => !p)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg hover:bg-gray-100 active:scale-95 transition"
+                  aria-label={show ? "Hide password" : "Show password"}
+                >
+                  {show ? (
+                    <FiEyeOff className="w-4 h-4 text-gray-600" />
+                  ) : (
+                    <FiEye className="w-4 h-4 text-gray-600" />
+                  )}
+                </button>
+              </div>
+
+              <p className="mt-2 text-xs text-gray-500">
+                This action is permanent and cannot be undone.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-5 flex flex-col sm:flex-row gap-2 sm:justify-end border-t border-gray-100 bg-white">
             <button
               onClick={onClose}
               className="px-4 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 active:scale-[0.99] transition"
+              disabled={isSubmitting}
             >
               Cancel
             </button>
             <button
-              onClick={onConfirm}
-              className={`px-4 py-2.5 rounded-xl text-white active:scale-[0.99] transition ${
-                danger ? "bg-rose-600 hover:bg-rose-700" : "bg-indigo-600 hover:bg-indigo-700"
+              onClick={async () => {
+                const pwd = String(password || "")
+                if (pwd.length < 6) {
+                  setErr("Password must be at least 6 characters.")
+                  return
+                }
+                try {
+                  await onConfirm?.(pwd)
+                } catch (e) {
+                  setErr(e?.message || "Delete failed")
+                }
+              }}
+              disabled={!canConfirm}
+              className={`px-4 py-2.5 rounded-xl text-white active:scale-[0.99] transition disabled:opacity-60 ${
+                canConfirm ? "bg-rose-600 hover:bg-rose-700" : "bg-rose-600"
               }`}
             >
-              {confirmText}
+              {isSubmitting ? "Deleting..." : confirmText}
             </button>
           </div>
         </motion.div>
@@ -201,7 +325,14 @@ function Avatar({ url, name }) {
   return (
     <div className="w-11 h-11 rounded-2xl overflow-hidden ring-1 ring-gray-200 bg-gray-100 flex items-center justify-center shrink-0">
       {url ? (
-        <img src={url} alt={name || "avatar"} className="w-full h-full object-cover" />
+        <img
+          src={url}
+          alt={name || "avatar"}
+          className="w-full h-full object-cover"
+          onError={(e) => {
+            e.currentTarget.style.display = "none"
+          }}
+        />
       ) : (
         <span className="text-sm font-extrabold text-gray-700">{letter}</span>
       )}
@@ -330,7 +461,6 @@ function UserModal({ open, mode, role, initial, onClose, onSaved, showToast }) {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.message || "Save failed")
 
-      // ✅ If avatar selected, upload it after create/update succeeds
       const targetId =
         (isEdit && initial?._id) ||
         data?.employee?._id ||
@@ -533,6 +663,7 @@ function UserModal({ open, mode, role, initial, onClose, onSaved, showToast }) {
                   </Field>
                 </div>
 
+                {/* ✅ UPDATED: smooth toggle here */}
                 <div className="md:col-span-2 flex items-center justify-between rounded-2xl border border-gray-100 bg-gray-50 p-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10 flex items-center justify-center">
@@ -544,18 +675,13 @@ function UserModal({ open, mode, role, initial, onClose, onSaved, showToast }) {
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setForm((p) => ({ ...p, isActive: !p.isActive }))}
-                    className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border active:scale-[0.99] transition ${
-                      form.isActive
-                        ? "border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
-                        : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
-                    }`}
-                  >
-                    {form.isActive ? <FiToggleRight className="w-5 h-5" /> : <FiToggleLeft className="w-5 h-5" />}
-                    {form.isActive ? "Active" : "Inactive"}
-                  </button>
+                  <ToggleSwitch
+                    checked={form.isActive}
+                    onChange={(v) => setForm((p) => ({ ...p, isActive: !!v }))}
+                    disabled={isSubmitting}
+                    labelOn="Active"
+                    labelOff="Inactive"
+                  />
                 </div>
               </div>
             </div>
@@ -614,8 +740,7 @@ export default function UsersAdminPanel() {
   const [statusFilter, setStatusFilter] = useState("all") // all | active | inactive
 
   /**
-   * ✅ FIX: A–Z sorting was “not working” because only backend sort existed.
-   * We now support:
+   * ✅ supports:
    * - newest / oldest (server sort)
    * - az / za (client sort for display)
    */
@@ -629,9 +754,12 @@ export default function UsersAdminPanel() {
   const [modalOpen, setModalOpen] = useState(false)
   const [modalMode, setModalMode] = useState("create")
   const [selected, setSelected] = useState(null)
-  const [confirm, setConfirm] = useState({ open: false, item: null })
-  const [toast, setToast] = useState({ type: "success", message: "" })
 
+  // ✅ UPDATED: delete confirm modal needs password
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, item: null })
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false)
+
+  const [toast, setToast] = useState({ type: "success", message: "" })
   const [me, setMe] = useState(null)
 
   const abortRef = useRef(null)
@@ -697,9 +825,7 @@ export default function UsersAdminPanel() {
       qs.set("active", String(statusFilter === "active"))
     }
 
-    // ✅ backend supports newest | oldest
     qs.set("sort", backendSort)
-
     if (cursor) qs.set("cursor", String(cursor))
 
     return `${API_BASE}/users/${endpointBase}?${qs.toString()}`
@@ -760,16 +886,15 @@ export default function UsersAdminPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endpointBase, responseListKey])
 
-  // server-backed filters (note: backendSort, not sortMode)
+  // server-backed filters
   useEffect(() => {
     fetchUsers({ reset: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounced, statusFilter, backendSort])
 
-  // ✅ Client-side sorted view (fix for A–Z / Z–A)
+  // ✅ Client-side sorted view (A–Z / Z–A)
   const displayList = useMemo(() => {
     if (!Array.isArray(list) || list.length === 0) return []
-
     const arr = [...list]
 
     const keyFor = (u) => {
@@ -779,20 +904,14 @@ export default function UsersAdminPanel() {
     }
 
     if (sortMode === "az") {
-      arr.sort((a, b) =>
-        keyFor(a).localeCompare(keyFor(b), undefined, { sensitivity: "base", numeric: true })
-      )
+      arr.sort((a, b) => keyFor(a).localeCompare(keyFor(b), undefined, { sensitivity: "base", numeric: true }))
       return arr
     }
-
     if (sortMode === "za") {
-      arr.sort((a, b) =>
-        keyFor(b).localeCompare(keyFor(a), undefined, { sensitivity: "base", numeric: true })
-      )
+      arr.sort((a, b) => keyFor(b).localeCompare(keyFor(a), undefined, { sensitivity: "base", numeric: true }))
       return arr
     }
 
-    // newest/oldest are already server-sorted
     return arr
   }, [list, sortMode])
 
@@ -814,20 +933,23 @@ export default function UsersAdminPanel() {
     setModalOpen(true)
   }
 
-  const deleteUser = async (u) => {
-    try {
-      const res = await fetch(`${API_BASE}/users/${endpointBase}/${u._id}`, {
-        method: "DELETE",
-        headers: getAuthHeadersJson(),
-        credentials: "include",
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.message || "Delete failed")
-      showToast("success", "Deleted.")
-      fetchUsers({ reset: true })
-    } catch (e) {
-      showToast("error", e?.message || "Delete failed")
-    }
+  /**
+   * ✅ UPDATED: backend requires { password } in DELETE body
+   */
+  const deleteUser = async (u, password) => {
+    const pwd = String(password || "")
+    if (!pwd || pwd.length < 6) throw new Error("Password is required (min 6 chars).")
+
+    const url = `${API_BASE}/users/${endpointBase}/${u._id}`
+    const res = await fetch(url, {
+      method: "DELETE",
+      headers: getAuthHeadersJson(),
+      credentials: "include",
+      body: JSON.stringify({ password: pwd }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data?.message || "Delete failed")
+    return data
   }
 
   return (
@@ -838,19 +960,35 @@ export default function UsersAdminPanel() {
         )}
       </AnimatePresence>
 
+      {/* ✅ UPDATED delete confirm (password required) */}
       <AnimatePresence>
-        {confirm.open && (
-          <ConfirmModal
-            open={confirm.open}
+        {deleteConfirm.open && (
+          <DeleteWithPasswordModal
+            open={deleteConfirm.open}
             title={`Delete ${roleTitle(modalRole)}?`}
-            description={`This will permanently remove ${confirm.item?.name || "this user"}.`}
+            description={`This will permanently remove ${deleteConfirm.item?.name || "this user"}.`}
             confirmText="Delete"
-            danger
-            onClose={() => setConfirm({ open: false, item: null })}
-            onConfirm={() => {
-              const u = confirm.item
-              setConfirm({ open: false, item: null })
-              if (u) deleteUser(u)
+            isSubmitting={deleteSubmitting}
+            onClose={() => {
+              if (deleteSubmitting) return
+              setDeleteConfirm({ open: false, item: null })
+            }}
+            onConfirm={async (password) => {
+              const u = deleteConfirm.item
+              if (!u) return
+
+              setDeleteSubmitting(true)
+              try {
+                await deleteUser(u, password)
+                showToast("success", "Deleted.")
+                setDeleteConfirm({ open: false, item: null })
+                fetchUsers({ reset: true })
+              } catch (e) {
+                showToast("error", e?.message || "Delete failed")
+                throw e
+              } finally {
+                setDeleteSubmitting(false)
+              }
             }}
           />
         )}
@@ -884,7 +1022,7 @@ export default function UsersAdminPanel() {
               <div>
                 <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">User Management</h1>
                 <p className="text-sm text-gray-500">
-                  {isSuperAdmin ? "Super Admins + Admins + Employees + Marketing Team" : "Admins + Employees + Marketing Team"}
+                  {me?.role === "superadmin" ? "Super Admins + Admins + Employees + Marketing Team" : "Admins + Employees + Marketing Team"}
                 </p>
               </div>
             </div>
@@ -919,14 +1057,14 @@ export default function UsersAdminPanel() {
             <SegTab active={tab === "employees"} onClick={() => setTab("employees")} icon={<FiUser className="w-4 h-4" />} label="Employees" />
             <SegTab active={tab === "marketing_team"} onClick={() => setTab("marketing_team")} icon={<FiUsers className="w-4 h-4" />} label="Marketing Team" />
             <SegTab active={tab === "admins"} onClick={() => setTab("admins")} icon={<FiShield className="w-4 h-4" />} label="Admins" />
-            {isSuperAdmin ? (
+            {me?.role === "superadmin" ? (
               <SegTab active={tab === "superadmins"} onClick={() => setTab("superadmins")} icon={<FiShield className="w-4 h-4" />} label="Super Admins" />
             ) : null}
           </div>
         </div>
       </motion.div>
 
-      {/* Filters (server-backed) */}
+      {/* Filters */}
       <div className="mb-5 grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
         {/* Search */}
         <div className="relative">
@@ -978,7 +1116,7 @@ export default function UsersAdminPanel() {
               </>
             ) : null}
             {debounced ? <span className="ml-2 text-gray-400">• search: “{debounced}”</span> : null}
-            {(sortMode === "az" || sortMode === "za") ? <span className="ml-2 text-gray-400">• sorted locally</span> : null}
+            {sortMode === "az" || sortMode === "za" ? <span className="ml-2 text-gray-400">• sorted locally</span> : null}
           </div>
 
           {hasMore ? (
@@ -1066,22 +1204,24 @@ export default function UsersAdminPanel() {
                           </span>
                           <span className="text-gray-300">•</span>
                           <span className="text-xs text-gray-500">
-                            Created{" "}
-                            <span className="font-semibold text-gray-700">{formatDate(u?.createdAt)}</span>
+                            Created <span className="font-semibold text-gray-700">{formatDate(u?.createdAt)}</span>
                           </span>
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap gap-2 justify-start lg:justify-end">
-                      <button
-                        onClick={async () => {
+                    <div className="flex flex-wrap gap-3 justify-start lg:justify-end items-center">
+                      {/* ✅ UPDATED: Proper toggle in row */}
+                      <ToggleSwitch
+                        checked={active}
+                        disabled={disableActions}
+                        onChange={async (next) => {
                           try {
                             const res = await fetch(`${API_BASE}/users/${tabConfig[tab].endpoint}/${u._id}`, {
                               method: "PATCH",
                               headers: getAuthHeadersJson(),
                               credentials: "include",
-                              body: JSON.stringify({ isActive: !u.isActive }),
+                              body: JSON.stringify({ isActive: !!next }),
                             })
                             const data = await res.json().catch(() => ({}))
                             if (!res.ok) throw new Error(data?.message || "Update failed")
@@ -1091,17 +1231,9 @@ export default function UsersAdminPanel() {
                             showToast("error", e?.message || "Update failed")
                           }
                         }}
-                        disabled={disableActions}
-                        title={disableActions ? "Not allowed." : "Toggle active"}
-                        className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border active:scale-[0.99] transition disabled:opacity-60 disabled:cursor-not-allowed ${
-                          active
-                            ? "border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
-                            : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
-                        }`}
-                      >
-                        {active ? <FiToggleRight className="w-5 h-5" /> : <FiToggleLeft className="w-5 h-5" />}
-                        {active ? "Active" : "Inactive"}
-                      </button>
+                        labelOn="Active"
+                        labelOff="Inactive"
+                      />
 
                       <button
                         onClick={() => openEdit(u)}
@@ -1114,7 +1246,7 @@ export default function UsersAdminPanel() {
                       </button>
 
                       <button
-                        onClick={() => setConfirm({ open: true, item: u })}
+                        onClick={() => setDeleteConfirm({ open: true, item: u })}
                         disabled={(tab === "superadmins" && isMe) || disableActions}
                         title={
                           tab === "superadmins" && isMe

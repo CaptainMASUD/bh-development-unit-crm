@@ -1,17 +1,22 @@
-// EmployeeSidebar.jsx (or Sidebar.jsx for employee)
-// ✅ Upgraded design like the previous sidebar:
-// - Desktop: collapsible (compact icon-only) with flyout submenus
-// - Mobile: full sidebar only (no compact to avoid breaking)
-// - Compact mode: top shows ONLY notification bell (no theme/jetsky) ✅
-// - Full mode: theme + bell + jetsky
-// - Search: full mode input; compact mode search button expands then focuses
-// - Subcategories: inline in full mode, flyout in compact mode
+// Sidebar.jsx (EmployeeSidebar.jsx / MarketingSidebar.jsx)
+// ✅ UPDATED: Adds "Profile Settings" section (uses your new MarketingTeamProfileSettings component)
+// ✅ Keeps avatarUrl refresh logic (localStorage + /api/users/me)
+// ✅ Same design + flyout + compact + notifications
 
 "use client"
 
 import { useState, useEffect, useCallback, memo, useRef, useMemo, useId } from "react"
 import { useNavigate } from "react-router-dom"
-import { FaChevronDown, FaSignOutAlt, FaMoon, FaSun, FaSearch, FaTimes, FaAngleDoubleLeft, FaUserCircle } from "react-icons/fa"
+import {
+  FaChevronDown,
+  FaSignOutAlt,
+  FaMoon,
+  FaSun,
+  FaSearch,
+  FaTimes,
+  FaAngleDoubleLeft,
+  FaUserCircle,
+} from "react-icons/fa"
 import { useDispatch } from "react-redux"
 import { signOut } from "../../Redux/UserSlice/UserSlice"
 
@@ -21,6 +26,7 @@ import JetskyModal from "./JetskyModal"
 // ✅ optional (keep if you already have it)
 import NotificationModal from "./NotificationModal"
 import { Bell } from "lucide-react"
+
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const NOTIF_BADGE_COLOR = "#5850EC"
@@ -48,6 +54,18 @@ async function fetchDeadlineNotifications({ windowDays = 7, includeOverdue = tru
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data?.message || "Failed to fetch notifications")
   return Array.isArray(data?.items) ? data.items : []
+}
+
+// ✅ fetch logged-in user profile (including avatarUrl)
+async function fetchMe({ signal } = {}) {
+  const res = await fetch(`${API_BASE}/users/me`, {
+    method: "GET",
+    headers: getAuthHeaders(),
+    signal,
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || "Failed to fetch profile")
+  return data?.user || null
 }
 
 const usePrefersReducedMotion = () => {
@@ -311,10 +329,11 @@ export default function Sidebar({
   toggleSidebar,
   isDarkMode,
   setIsDarkMode,
-  onOpenCustomer, // optional
+  onOpenCustomer,
 }) {
   const [expandedSection, setExpandedSection] = useState(null)
   const [user, setUser] = useState(null)
+  const [avatarBroken, setAvatarBroken] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [showJetsky, setShowJetsky] = useState(false)
 
@@ -328,11 +347,10 @@ export default function Sidebar({
   const [tipPos, setTipPos] = useState({ top: 0, left: 0 })
 
   const abortNotifRef = useRef(null)
+  const abortMeRef = useRef(null)
 
-  // ✅ Desktop compact (collapsed)
   const [compact, setCompact] = useState(false)
 
-  // ✅ Flyout for submenus in compact mode
   const [flyout, setFlyout] = useState({ open: false, section: "", top: 0, left: 0 })
   const openTimerRef = useRef(null)
 
@@ -346,7 +364,6 @@ export default function Sidebar({
   const safeSections = sections || {}
   const { heights: subMenuHeights, getSubmenuRef } = useSubmenuMeasure(safeSections)
 
-  // compact preference
   useEffect(() => {
     try {
       const v = localStorage.getItem("sidebar_compact_employee")
@@ -354,7 +371,6 @@ export default function Sidebar({
     } catch {}
   }, [])
 
-  // never compact on mobile
   useEffect(() => {
     if (isMobileViewport) setCompact(false)
   }, [isMobileViewport])
@@ -417,7 +433,6 @@ export default function Sidebar({
       if (!def) return
       const hasSubs = !!def.subcategories
 
-      // compact + submenu -> flyout
       if (!isMobileViewport && compact && hasSubs) {
         openFlyout(section, anchorEl)
         return
@@ -453,26 +468,70 @@ export default function Sidebar({
     navigate("/login")
   }, [dispatch, navigate])
 
-  // load user from localStorage
+  // ✅ load user from localStorage immediately, then refresh from /users/me
   useEffect(() => {
+    let parsed = null
     try {
       const stored = localStorage.getItem("user")
-      const loggedInUser = stored ? JSON.parse(stored) : null
-      if (!loggedInUser) {
-        setUser(null)
-        navigate("/login")
-        return
-      }
-      const role = loggedInUser?.role
-      const displayName = loggedInUser?.name || loggedInUser?.email || "User"
-      setUser({ username: displayName, role })
+      parsed = stored ? JSON.parse(stored) : null
     } catch {
+      parsed = null
+    }
+
+    if (!parsed) {
       setUser(null)
       navigate("/login")
+      return
     }
+
+    const role = parsed?.role
+    const displayName = parsed?.name || parsed?.email || "User"
+    setAvatarBroken(false)
+    setUser({
+      username: displayName,
+      role,
+      avatarUrl: parsed?.avatarUrl || "",
+      email: parsed?.email || "",
+      id: parsed?._id || parsed?.id || "",
+    })
+
+    const controller = new AbortController()
+    abortMeRef.current?.abort?.()
+    abortMeRef.current = controller
+
+    ;(async () => {
+      try {
+        const fresh = await fetchMe({ signal: controller.signal })
+        if (!fresh) return
+
+        const nextUser = {
+          username: fresh?.name || fresh?.email || displayName,
+          role: fresh?.role || role,
+          avatarUrl: fresh?.avatarUrl || "",
+          email: fresh?.email || parsed?.email || "",
+          id: fresh?._id || parsed?._id || parsed?.id || "",
+        }
+
+        setAvatarBroken(false)
+        setUser(nextUser)
+
+        try {
+          localStorage.setItem(
+            "user",
+            JSON.stringify({
+              ...(parsed || {}),
+              ...fresh,
+            })
+          )
+        } catch {}
+      } catch {
+        // ignore
+      }
+    })()
+
+    return () => controller.abort()
   }, [navigate])
 
-  // notifications refresh
   const refreshNotifCount = useCallback(async () => {
     try {
       if (abortNotifRef.current) abortNotifRef.current.abort()
@@ -507,7 +566,6 @@ export default function Sidebar({
     if (!showNotifications) refreshNotifCount()
   }, [showNotifications, refreshNotifCount])
 
-  // bell tip positioning
   const recomputeTipPos = useCallback(() => {
     const el = bellBtnRef.current
     if (!el) return
@@ -550,7 +608,7 @@ export default function Sidebar({
     if (tipTimerRef.current) clearTimeout(tipTimerRef.current)
   }, [])
 
-  // ordered keys (keep Profile Settings before About if exists)
+  // ✅ keep Profile Settings before About (if both exist)
   const orderedSectionKeys = useMemo(() => {
     const keys = Object.keys(safeSections)
     const hasAbout = keys.includes("About")
@@ -582,6 +640,9 @@ export default function Sidebar({
   const asideWidth = compact ? "w-[96px]" : "w-80"
   const headerPad = compact ? "p-4" : "p-6"
   const navPad = compact ? "p-3" : "p-4"
+
+  const avatarUrl = (user?.avatarUrl || "").trim()
+  const showAvatar = !!avatarUrl && !avatarBroken
 
   return (
     <>
@@ -685,7 +746,17 @@ export default function Sidebar({
                 <div className="p-[2px] rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 shadow-[0_12px_34px_-22px_rgba(99,102,241,0.95)]">
                   <div className={`rounded-full p-[2px] ${isDarkMode ? "bg-gray-900" : "bg-white"}`}>
                     <div className="relative w-[46px] h-[46px] rounded-full overflow-hidden bg-gray-100 flex items-center justify-center">
-                      <FaUserCircle size={46} className={isDarkMode ? "text-white" : "text-gray-700"} />
+                      {showAvatar ? (
+                        <img
+                          src={avatarUrl}
+                          alt={user?.username ? `${user.username} avatar` : "User avatar"}
+                          className="w-full h-full object-cover"
+                          draggable={false}
+                          onError={() => setAvatarBroken(true)}
+                        />
+                      ) : (
+                        <FaUserCircle size={46} className={isDarkMode ? "text-white" : "text-gray-700"} />
+                      )}
                       <div className="absolute inset-0 pointer-events-none bg-gradient-to-b from-white/10 to-black/10" />
                     </div>
                   </div>
@@ -704,7 +775,7 @@ export default function Sidebar({
                 <div className="flex-1 min-w-0">
                   <h2 className="text-lg font-semibold tracking-tight truncate">{user?.username || "Guest"}</h2>
                   <p className={`text-sm truncate ${isDarkMode ? "text-gray-400" : "text-gray-600"}`}>
-                    {user?.role || "Employee"}
+                    {user?.role || "Marketing Team"}
                   </p>
                 </div>
               ) : null}
@@ -716,19 +787,22 @@ export default function Sidebar({
                 onClick={toggleCompact}
                 type="button"
                 className={`hidden md:flex items-center justify-center h-9 w-9 rounded-xl border ${
-                  isDarkMode ? "border-white/10 bg-white/5 hover:bg-white/10 text-gray-200" : "border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-800"
+                  isDarkMode
+                    ? "border-white/10 bg-white/5 hover:bg-white/10 text-gray-200"
+                    : "border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-800"
                 } ${reducedMotion ? "" : "transition-all duration-200"} focus:outline-none focus:ring-2 focus:ring-purple-500/60`}
                 aria-label={compact ? "Expand sidebar" : "Collapse sidebar"}
                 title={compact ? "Expand" : "Collapse"}
               >
-                <FaAngleDoubleLeft className={`${compact ? "rotate-180" : ""} ${reducedMotion ? "" : "transition-transform duration-200"}`} />
+                <FaAngleDoubleLeft
+                  className={`${compact ? "rotate-180" : ""} ${reducedMotion ? "" : "transition-transform duration-200"}`}
+                />
               </button>
             ) : null}
           </div>
 
           {/* ACTIONS ROW */}
           <div className={`mt-5 flex ${compact ? "justify-center" : "justify-between"} items-center`}>
-            {/* full mode theme button */}
             {!compact ? (
               <button
                 onClick={toggleTheme}
@@ -744,7 +818,6 @@ export default function Sidebar({
             ) : null}
 
             <div className={`flex items-center ${compact ? "justify-center" : "gap-2"}`}>
-              {/* bell (always visible) */}
               <button
                 ref={bellBtnRef}
                 onClick={() => {
@@ -777,7 +850,6 @@ export default function Sidebar({
                 {notifLoading ? <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-purple-400" /> : null}
               </button>
 
-              {/* jetsky ONLY in full mode (compact shows only bell) */}
               {!compact ? (
                 <button
                   onClick={() => setShowJetsky(true)}
@@ -858,7 +930,9 @@ export default function Sidebar({
                   }, 0)
                 }}
                 className={`h-11 w-11 rounded-2xl flex items-center justify-center border ${
-                  isDarkMode ? "border-white/10 bg-white/5 hover:bg-white/10 text-gray-200" : "border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-800"
+                  isDarkMode
+                    ? "border-white/10 bg-white/5 hover:bg-white/10 text-gray-200"
+                    : "border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-800"
                 } ${reducedMotion ? "" : "transition-all duration-200"} focus:outline-none focus:ring-2 focus:ring-purple-500/60`}
                 aria-label="Search"
                 title="Search"
@@ -929,7 +1003,11 @@ export default function Sidebar({
                   ) : null}
 
                   <div className={`flex items-center ${compact ? "justify-center" : "gap-3"} relative z-10`}>
-                    <span className={`text-[18px] ${reducedMotion ? "" : "transition-transform duration-200"} ${activeSection === section ? "scale-110" : "group-hover:scale-105"}`}>
+                    <span
+                      className={`text-[18px] ${reducedMotion ? "" : "transition-transform duration-200"} ${
+                        activeSection === section ? "scale-110" : "group-hover:scale-105"
+                      }`}
+                    >
                       {def.icon}
                     </span>
                     {!compact ? <span className="font-medium">{section}</span> : null}
@@ -937,7 +1015,9 @@ export default function Sidebar({
 
                   {hasSubs && !compact ? (
                     <FaChevronDown
-                      className={`${reducedMotion ? "" : "transition-transform duration-300"} relative z-10 ${isExpanded ? "rotate-180" : ""}`}
+                      className={`${reducedMotion ? "" : "transition-transform duration-300"} relative z-10 ${
+                        isExpanded ? "rotate-180" : ""
+                      }`}
                       aria-hidden
                     />
                   ) : null}
@@ -974,7 +1054,9 @@ export default function Sidebar({
           title="Logout"
           type="button"
         >
-          <FaSignOutAlt className={`text-lg ${reducedMotion ? "" : "transition-transform duration-200"} group-hover:-translate-x-1 relative z-10`} />
+          <FaSignOutAlt
+            className={`text-lg ${reducedMotion ? "" : "transition-transform duration-200"} group-hover:-translate-x-1 relative z-10`}
+          />
           {!compact ? <span className="font-medium relative z-10">Logout</span> : null}
         </button>
       </aside>
@@ -983,3 +1065,4 @@ export default function Sidebar({
     </>
   )
 }
+

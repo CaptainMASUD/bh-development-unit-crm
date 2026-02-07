@@ -1,9 +1,8 @@
-// sections.js (or whatever your sections config file is named)
+// sections.js
 import React from "react"
 import { FaUsers, FaCog, FaInfoCircle, FaChartBar, FaUserFriends } from "react-icons/fa"
 import { LuLayoutDashboard } from "react-icons/lu"
-import { FiLayers } from "react-icons/fi"
-import { FiTarget } from "react-icons/fi"
+import { FiLayers, FiTarget } from "react-icons/fi"
 
 import Dashboard from "./DashboardContent"
 import Customers from "./CustomersPage"
@@ -14,10 +13,11 @@ import About from "./About"
 
 import TitlesAdd from "./TittlesAdd"
 import EngagementTemplatePage from "./EngagementTemplatePage"
+import PurchaseTypePage from "./PurchaseTypePage"
 
-// ✅ Employee Report page/component
-import EmployeeReportPage from "./EmployeeReportPage"
 import CustomerCRMInner from "./CustomerCRMInner"
+import ClientReport from "./ClientReport"
+import AdminEmployeeReportPage from "./EmployeeReportPage"
 
 
 
@@ -27,13 +27,10 @@ const sections = {
     component: <Dashboard />,
   },
 
-  // ✅ NEW: Clients dropdown (replaces old Customers + Client Task Add)
   Clients: {
     icon: <FaUserFriends className="w-5 h-5" />,
     subcategories: {
-      // ✅ renamed: Customers -> Clients
       Clients: <Customers />,
-      // ✅ renamed: Client Task Add -> Client Tasks
       "Client Tasks": <CustomerCRMInner />,
     },
   },
@@ -48,13 +45,16 @@ const sections = {
     subcategories: {
       "Task Titles": <TitlesAdd />,
       "Engagement Types": <EngagementTemplatePage />,
+      "Purchase Types": <PurchaseTypePage />,
     },
   },
 
   Report: {
     icon: <FaChartBar className="w-5 h-5" />,
     subcategories: {
-      "Employee Report": <EmployeeReportPage />,
+      "Client Report": <ClientReport />,
+      // ✅ NEW sub option
+      "Employee Report": <AdminEmployeeReportPage />,
     },
   },
 

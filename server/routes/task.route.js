@@ -9,8 +9,13 @@ import {
   deleteTask,
   updateTaskStatus,
 
-  // ✅ subtitle features
-  addSubtitleFiles,
+  // ✅ subtitle files CRUD
+  addSubtitleFiles,      
+  getSubtitleFiles,      // R   ✅ NEW
+  updateSubtitleFile,    // U   ✅ NEW
+  deleteSubtitleFile,    // D   ✅ NEW
+
+  // ✅ subtitle notes
   addSubtitleNote,
 
   // ⚠️ deprecated (kept for old UI)
@@ -27,34 +32,44 @@ router.use(protect);
 
 /* =========================
    ✅ TASKS
-   Base: /api (or wherever mounted)
+========================= */
+router.get("/customers/:customerId/tasks", getCustomerTasks);
+router.post("/customers/:customerId/tasks", addTask);
+router.patch("/customers/:customerId/tasks/:taskId", updateTaskByAdmin);
+router.patch("/customers/:customerId/tasks/:taskId/status", updateTaskStatus);
+router.delete("/customers/:customerId/tasks/:taskId", deleteTask);
+
+/* =========================
+   ✅ SUBTITLE FILES (FULL CRUD)
 ========================= */
 
-// list (cursor pagination)
-// GET /customers/:customerId/tasks?limit=20&cursor=<taskId>&jobId=&rootJobId=
-router.get("/customers/:customerId/tasks", getCustomerTasks);
-
-// create task (admin/superadmin)
-// POST /customers/:customerId/tasks
-router.post("/customers/:customerId/tasks", addTask);
-
-// admin update full task
-// PATCH /customers/:customerId/tasks/:taskId
-router.patch("/customers/:customerId/tasks/:taskId", updateTaskByAdmin);
-
-// employee/admin update status
-// PATCH /customers/:customerId/tasks/:taskId/status
-router.patch("/customers/:customerId/tasks/:taskId/status", updateTaskStatus);
-
-// ✅ upload file(s) under a subtitle (+ optional note)
-// POST /customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files
+// C: add file(s)
 router.post(
   "/customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files",
   addSubtitleFiles
 );
 
-// ✅ add note under a subtitle (or under a specific file via fileId)
-// POST /customers/:customerId/tasks/:taskId/subtitles/:subtitleId/notes
+// R: list files
+router.get(
+  "/customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files",
+  getSubtitleFiles
+);
+
+// U: update file metadata (displayName)
+router.patch(
+  "/customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files/:fileId",
+  updateSubtitleFile
+);
+
+// D: delete file (DB + optional S3 delete)
+router.delete(
+  "/customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files/:fileId",
+  deleteSubtitleFile
+);
+
+/* =========================
+   ✅ SUBTITLE NOTES
+========================= */
 router.post(
   "/customers/:customerId/tasks/:taskId/subtitles/:subtitleId/notes",
   addSubtitleNote
@@ -63,18 +78,11 @@ router.post(
 // ⚠️ OLD: task-level files (deprecated)
 router.post("/customers/:customerId/tasks/:taskId/files", addTaskFile);
 
-// delete task (admin/superadmin)
-// DELETE /customers/:customerId/tasks/:taskId
-router.delete("/customers/:customerId/tasks/:taskId", deleteTask);
-
 /* =========================
    ✅ NOTIFICATIONS
 ========================= */
-
 router.get("/notifications/deadlines/admin", getDeadlineNotificationsAdmin);
 router.get("/notifications/deadlines/employee", getDeadlineNotificationsEmployee);
-
-// fallback: auto-pick route based on role
 router.get("/notifications/deadlines", getDeadlineNotificationsAuto);
 
 export default router;

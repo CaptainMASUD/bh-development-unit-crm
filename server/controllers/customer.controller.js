@@ -14,6 +14,9 @@ const isAdminOrSuperAdmin = (userOrReq) => {
   return role === "admin" || role === "superadmin";
 };
 
+const isEmployee = (req) => req?.user?.role === "employee";
+const isMarketing = (req) => req?.user?.role === "marketing";
+
 const invalidateDashboardCache = () => {
   try {
     const keys = dashboardCache.keys?.() || [];
@@ -211,14 +214,25 @@ const buildEngagementElemMatch = (req) => {
   return { elemMatch: elem, error: null };
 };
 
+/**
+ * ✅ UPDATED ACCESS RULES (per your requirement)
+ * - admin/superadmin: see all customers
+ * - employee: sees customers they created OR assigned to
+ * - marketing: ONLY sees customers if explicitly assigned (no createdBy access)
+ */
 const buildCustomerListMatch = (req) => {
   const visibilityMatch = buildVisibilityMatch(req);
 
   const match = isAdminOrSuperAdmin(req)
     ? { ...visibilityMatch }
-    : {
+    : isEmployee(req)
+    ? {
         ...visibilityMatch,
         $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
+      }
+    : {
+        ...visibilityMatch,
+        assignedTo: req.user._id,
       };
 
   if (req.query.status !== undefined) {
@@ -260,17 +274,6 @@ const buildCustomerListMatch = (req) => {
 };
 
 /* ------------------ access helpers ------------------ */
-
-const customerAccessForEmployee = (customer, userId) => {
-  if (!customer) return false;
-  const uid = String(userId);
-
-  const createdBy = String(customer.createdBy?._id ?? customer.createdBy ?? "");
-  const assigned = Array.isArray(customer.assignedTo) ? customer.assignedTo : [];
-  const assignedIds = assigned.map((x) => String(x?._id ?? x));
-
-  return createdBy === uid || assignedIds.includes(uid);
-};
 
 const ensureEmployeesExistActive = async (ids) => {
   if (!Array.isArray(ids) || ids.length === 0) return true;
@@ -588,6 +591,20 @@ export const getCustomers = async (req, res) => {
       { $sort: { _id: -1 } },
       { $limit: limit + 1 },
 
+      // ✅ compute latest engagement (by year desc)
+      {
+        $addFields: {
+          engagementsSorted: {
+            $sortArray: {
+              input: { $ifNull: ["$engagements", []] },
+              sortBy: { year: -1 },
+            },
+          },
+        },
+      },
+      { $addFields: { latestEngagement: { $arrayElemAt: ["$engagementsSorted", 0] } } },
+
+      // base projection + computed engagement fields
       {
         $project: {
           name: 1,
@@ -607,12 +624,37 @@ export const getCustomers = async (req, res) => {
           createdAt: 1,
           updatedAt: 1,
 
-          // optional quick counts (cheap fields)
+          // counts
           jobsCount: { $size: { $ifNull: ["$jobs", []] } },
           tasksCount: { $size: { $ifNull: ["$crmTasks", []] } },
+
+          // ✅ engagement summary columns
+          engagementLatestYear: "$latestEngagement.year",
+          engagementLatestTemplateId: "$latestEngagement.engagementTemplateId",
+          engagementLatestSubEngagementIds: "$latestEngagement.subEngagementIds",
         },
       },
 
+      // ✅ template title for latest engagement
+      {
+        $lookup: {
+          from: "engagementtemplates",
+          localField: "engagementLatestTemplateId",
+          foreignField: "_id",
+          as: "engagementLatestTemplateDoc",
+          pipeline: [{ $project: { title: 1 } }],
+        },
+      },
+      {
+        $addFields: {
+          engagementLatestTemplateTitle: {
+            $arrayElemAt: ["$engagementLatestTemplateDoc.title", 0],
+          },
+        },
+      },
+      { $project: { engagementLatestTemplateDoc: 0 } },
+
+      // existing assignedTo lookup
       {
         $lookup: {
           from: "users",
@@ -622,6 +664,8 @@ export const getCustomers = async (req, res) => {
           pipeline: [{ $project: { name: 1, email: 1, role: 1 } }],
         },
       },
+
+      // existing createdBy lookup
       {
         $lookup: {
           from: "users",
@@ -631,6 +675,7 @@ export const getCustomers = async (req, res) => {
           pipeline: [{ $project: { name: 1, email: 1, role: 1 } }],
         },
       },
+
       {
         $addFields: {
           assignedTo: "$assignedToUsers",
@@ -655,6 +700,7 @@ export const getCustomers = async (req, res) => {
   }
 };
 
+
 /**
  * GET SINGLE CUSTOMER
  * GET /customers/:id
@@ -669,10 +715,16 @@ export const getCustomerById = async (req, res) => {
 
     const baseMatch = isAdminOrSuperAdmin(req)
       ? { _id: customerId, ...visibilityMatch }
-      : {
+      : isEmployee(req)
+      ? {
           _id: customerId,
           ...visibilityMatch,
           $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
+        }
+      : {
+          _id: customerId,
+          ...visibilityMatch,
+          assignedTo: req.user._id,
         };
 
     const pipeline = [
@@ -838,17 +890,22 @@ export const getCustomerTasks = async (req, res) => {
     if (req.query.jobId && !jobId) return res.status(400).json({ message: "Invalid jobId filter." });
 
     const rootJobId = req.query.rootJobId ? toObjectIdOrNull(req.query.rootJobId) : null;
-    if (req.query.rootJobId && !rootJobId)
-      return res.status(400).json({ message: "Invalid rootJobId filter." });
+    if (req.query.rootJobId && !rootJobId) return res.status(400).json({ message: "Invalid rootJobId filter." });
 
     const visibilityMatch = buildVisibilityMatch(req);
 
     const customerMatch = isAdminOrSuperAdmin(req)
       ? { _id: customerId, ...visibilityMatch }
-      : {
+      : isEmployee(req)
+      ? {
           _id: customerId,
           ...visibilityMatch,
           $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
+        }
+      : {
+          _id: customerId,
+          ...visibilityMatch,
+          assignedTo: req.user._id,
         };
 
     const meId = new mongoose.Types.ObjectId(req.user._id);
@@ -870,11 +927,8 @@ export const getCustomerTasks = async (req, res) => {
       {
         $project: {
           title: 1,
-
-          // ✅ NEW
           jobId: 1,
           rootJobId: 1,
-
           subtitles: 1,
           templateId: 1,
           description: 1,
@@ -999,7 +1053,6 @@ export const updateCustomer = async (req, res) => {
     }
 
     await customer.save();
-
     invalidateDashboardCache();
 
     return res.status(200).json({ message: "Customer updated.", customer });
@@ -1193,10 +1246,16 @@ export const getCustomerJobs = async (req, res) => {
 
     const customerMatch = isAdminOrSuperAdmin(req)
       ? { _id: customerId, ...visibilityMatch }
-      : {
+      : isEmployee(req)
+      ? {
           _id: customerId,
           ...visibilityMatch,
           $or: [{ assignedTo: req.user._id }, { createdBy: req.user._id }],
+        }
+      : {
+          _id: customerId,
+          ...visibilityMatch,
+          assignedTo: req.user._id,
         };
 
     const customer = await Customer.findOne(customerMatch).select("_id jobs").lean();
@@ -1410,8 +1469,6 @@ export const deleteCustomerJob = async (req, res) => {
 
     if (force) {
       update.$pull.crmTasks = { jobId: { $in: idsArr } };
-      // tasks under sub-job still have jobId=sub-job, so this is enough.
-      // (rootJobId also matches, but jobId is the strict pointer)
     }
 
     await Customer.updateOne({ _id: customerId }, update);

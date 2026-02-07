@@ -28,7 +28,18 @@ import workloadRoutes from "./routes/workload.route.js";
 import activityRoutes from "./routes/activity.routes.js";
 import viewPreferenceRoutes from "./routes/viewPreference.routes.js";
 import purchaseTypeRoutes from "./routes/purchaseType.routes.js";
+import serviceReportRoutes from "./routes/serviceReport.route.js";
+import customerViewPreferenceRoutes from "./routes/customerViewPreference.routes.js";
+import employeeReportRoutes from "./routes/employeeReport.route.js";
+import employeeReportViewPreferenceRoutes from "./routes/employeeReportViewPreference.route.js";
 
+app.use("/api/view-preferences/employee-report", employeeReportViewPreferenceRoutes);
+app.use("/api/employeeReport", employeeReportRoutes);
+
+app.use("/api/customer-view-preferences", customerViewPreferenceRoutes);
+
+// service reports
+app.use("/api/reports", serviceReportRoutes);
 app.use("/api/activity", activityRoutes);
 
 

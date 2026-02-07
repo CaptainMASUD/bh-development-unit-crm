@@ -1,5 +1,5 @@
 // ===============================
-// models/user.model.js
+// ✅ models/user.model.js (FULL UPDATED)
 // ===============================
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
@@ -43,13 +43,11 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* ✅ Performance indexes (kept) */
+/* ✅ Performance indexes */
 userSchema.index({ role: 1, createdAt: -1, _id: -1 });
 userSchema.index({ role: 1, isActive: 1, createdAt: -1, _id: -1 });
 
-/* ✅ NEW: fast autocomplete index
-   Supports: role+isActive filtering + prefix match on nameLower + stable ordering
-*/
+/* ✅ Fast autocomplete index */
 userSchema.index({ role: 1, isActive: 1, nameLower: 1, _id: -1 });
 
 /* 🔐 Protect superadmin role */
@@ -72,7 +70,7 @@ userSchema.pre("save", function (next) {
   next();
 });
 
-/* ✅ Also normalize nameLower on findOneAndUpdate */
+/* ✅ Normalize nameLower on findOneAndUpdate */
 userSchema.pre("findOneAndUpdate", function (next) {
   const update = this.getUpdate() || {};
   const $set = update.$set || {};
@@ -81,7 +79,7 @@ userSchema.pre("findOneAndUpdate", function (next) {
   if (nextName !== undefined) {
     const nl = String(nextName || "").trim().toLowerCase();
     update.$set = { ...(update.$set || {}), nameLower: nl };
-    delete update.name; // ensure consistency
+    delete update.name;
     this.setUpdate(update);
   }
 

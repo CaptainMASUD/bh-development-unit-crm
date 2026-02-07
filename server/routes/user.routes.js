@@ -1,6 +1,5 @@
-// ===============================
-// ✅ 5) routes/user.route.js  (UPDATED)
-// ===============================
+// routes/user.route.js
+
 import express from "express";
 import { login, register } from "../controllers/auth.controller.js";
 import upload from "../middleware/multer.js";
@@ -38,6 +37,9 @@ import {
   getSuperAdminById,
   updateSuperAdmin,
   deleteSuperAdmin,
+
+  // (optional) search endpoint if you use it in frontend
+  searchMarketingUsers,
 } from "../controllers/user.controller.js";
 
 import {
@@ -75,6 +77,14 @@ router.delete(
   adminDeleteUserAvatar
 );
 
+/* ✅ OPTIONAL: marketing user search */
+router.get(
+  "/marketing-team/search",
+  protect,
+  isAdminOrSuperAdmin,
+  searchMarketingUsers
+);
+
 /* EMPLOYEES */
 router.post("/employees", protect, isAdminOrSuperAdmin, createEmployee);
 router.get("/employees", protect, isAdminOrSuperAdmin, getEmployees);
@@ -85,9 +95,24 @@ router.delete("/employees/:id", protect, isAdminOrSuperAdmin, deleteEmployee);
 /* MARKETING TEAM */
 router.post("/marketing-team", protect, isAdminOrSuperAdmin, createMarketingTeam);
 router.get("/marketing-team", protect, isAdminOrSuperAdmin, getMarketingTeam);
-router.get("/marketing-team/:id", protect, isAdminOrSuperAdmin, getMarketingTeamById);
-router.patch("/marketing-team/:id", protect, isAdminOrSuperAdmin, updateMarketingTeam);
-router.delete("/marketing-team/:id", protect, isAdminOrSuperAdmin, deleteMarketingTeam);
+router.get(
+  "/marketing-team/:id",
+  protect,
+  isAdminOrSuperAdmin,
+  getMarketingTeamById
+);
+router.patch(
+  "/marketing-team/:id",
+  protect,
+  isAdminOrSuperAdmin,
+  updateMarketingTeam
+);
+router.delete(
+  "/marketing-team/:id",
+  protect,
+  isAdminOrSuperAdmin,
+  deleteMarketingTeam
+);
 
 /* ADMINS */
 router.post("/admins", protect, isAdminOrSuperAdmin, createAdmin);
@@ -104,4 +129,3 @@ router.patch("/superadmins/:id", protect, isSuperAdmin, updateSuperAdmin);
 router.delete("/superadmins/:id", protect, isSuperAdmin, deleteSuperAdmin);
 
 export default router;
-

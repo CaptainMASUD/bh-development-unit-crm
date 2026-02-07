@@ -1,3 +1,4 @@
+// models/lead.model.js
 import mongoose from "mongoose";
 
 const leadContactSchema = new mongoose.Schema(
@@ -39,7 +40,6 @@ const leadSchema = new mongoose.Schema(
       index: true,
     },
 
-    // ✅ NEW: priority
     priority: {
       type: String,
       enum: ["low", "medium", "high"],
@@ -47,9 +47,7 @@ const leadSchema = new mongoose.Schema(
       index: true,
     },
 
-    // ✅ NEW: purchase type (kept flexible, can be enum later)
     purchaseType: { type: String, trim: true, default: "", index: true },
-
     source: { type: String, trim: true, default: "", index: true },
 
     company: {
@@ -61,6 +59,8 @@ const leadSchema = new mongoose.Schema(
     tags: { type: [String], default: [], index: true },
 
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
+
+    // ✅ keep required (your system expects it)
     assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
 
     notes: { type: [leadNoteSchema], default: [] },
@@ -71,6 +71,15 @@ const leadSchema = new mongoose.Schema(
     customerId: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", default: null, index: true },
     convertedCustomer: { type: mongoose.Schema.Types.ObjectId, ref: "Customer", default: null },
     convertedAt: { type: Date, default: null, index: true },
+
+    /* ======================
+       ✅ ACCESS CONTROL (NEW)
+       ====================== */
+    // if true => creator is NOT automatically allowed anymore (admin can revoke)
+    ownerLocked: { type: Boolean, default: false, index: true },
+
+    // explicit allowlist (admin grants permission)
+    allowedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User", index: true }],
   },
   {
     timestamps: true,
@@ -86,10 +95,13 @@ leadSchema.index({ assignedTo: 1, nextFollowUpAt: 1, _id: -1 });
 leadSchema.index({ createdBy: 1, status: 1 });
 leadSchema.index({ pipelineStage: 1, assignedTo: 1, _id: -1 });
 
-// ✅ NEW: supports quick priority filters at scale
 leadSchema.index({ assignedTo: 1, priority: 1, _id: -1 });
 leadSchema.index({ priority: 1, _id: -1 });
 leadSchema.index({ purchaseType: 1, _id: -1 });
+
+// ✅ NEW access indexes
+leadSchema.index({ allowedUsers: 1, _id: -1 });
+leadSchema.index({ createdBy: 1, ownerLocked: 1, _id: -1 });
 
 /* ✅ TEXT SEARCH */
 leadSchema.index(

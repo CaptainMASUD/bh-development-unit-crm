@@ -12,7 +12,6 @@ import JetskyModal from "./JetskyModal"
 import NotificationModal from "./NotificationModal"
 import { Bell } from "lucide-react"
 
-/** ✅ LOCAL API */
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const NOTIF_BADGE_COLOR = "#5850EC"
 
@@ -24,10 +23,6 @@ function getAuthHeaders() {
   }
 }
 
-/**
- * ✅ GET /api/notifications/deadlines
- * returns: { items: [...] }
- */
 async function fetchDeadlineNotifications({ windowDays = 7, includeOverdue = true, limit = 500, signal }) {
   const qs = new URLSearchParams({
     windowDays: String(windowDays),
@@ -239,7 +234,6 @@ const SubMenuInline = memo(function SubMenuInline({
   )
 })
 
-/** ✅ Flyout submenu (for collapsed/icon sidebar) */
 const FlyoutSubmenu = memo(function FlyoutSubmenu({
   open,
   top,
@@ -357,10 +351,8 @@ export default function Sidebar({
 
   const abortNotifRef = useRef(null)
 
-  // ✅ Desktop compact/collapsed mode
   const [compact, setCompact] = useState(false)
 
-  // ✅ Flyout (for subcategories in compact)
   const [flyout, setFlyout] = useState({ open: false, section: "", top: 0, left: 0 })
   const openTimerRef = useRef(null)
 
@@ -374,7 +366,6 @@ export default function Sidebar({
   const safeSections = sections || {}
   const { heights: subMenuHeights, getSubmenuRef } = useSubmenuMeasure(safeSections)
 
-  // load compact preference
   useEffect(() => {
     try {
       const v = localStorage.getItem("sidebar_compact")
@@ -382,7 +373,6 @@ export default function Sidebar({
     } catch {}
   }, [])
 
-  // never compact on mobile
   useEffect(() => {
     if (isMobileViewport) setCompact(false)
   }, [isMobileViewport])
@@ -496,9 +486,7 @@ export default function Sidebar({
           const prev = stored ? JSON.parse(stored) : {}
           localStorage.setItem("user", JSON.stringify({ ...prev, ...me }))
         } catch {}
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
 
     setFromLocal()
@@ -524,7 +512,6 @@ export default function Sidebar({
       })
       setNotifCount7d(Array.isArray(items) ? items.length : 0)
     } catch {
-      // ignore
     } finally {
       setNotifLoading(false)
     }
@@ -613,7 +600,6 @@ export default function Sidebar({
   const shouldRingBell = !reducedMotion && notifCount7d > 0 && showBellTip && !isMobileViewport
   const initials = getInitials(user?.username)
 
-  // ✅ slightly wider so bell badge never clips
   const asideWidth = compact ? "w-[96px]" : "w-80"
   const headerPad = compact ? "p-4" : "p-6"
   const navPad = compact ? "p-3" : "p-4"
@@ -643,7 +629,6 @@ export default function Sidebar({
 
       const hasSubs = !!def.subcategories
 
-      // ✅ compact mode: flyout for subcategories
       if (!isMobileViewport && compact && hasSubs) {
         openFlyout(section, anchorEl)
         return
@@ -723,7 +708,6 @@ export default function Sidebar({
         }
       `}</style>
 
-      {/* Desktop bell tip */}
       {!isMobileViewport && showBellTip && notifCount7d > 0 ? (
         <div
           className="fixed z-[999999] pointer-events-auto"
@@ -754,7 +738,6 @@ export default function Sidebar({
         </div>
       ) : null}
 
-      {/* Mobile overlay */}
       {isMobile && isOpen && (
         <button
           type="button"
@@ -766,7 +749,6 @@ export default function Sidebar({
 
       <NotificationModal open={showNotifications} onClose={() => setShowNotifications(false)} isDarkMode={isDarkMode} />
 
-      {/* ✅ Flyout submenu for collapsed mode */}
       <FlyoutSubmenu
         open={!isMobileViewport && compact && flyout.open && !!safeSections?.[flyout.section]?.subcategories}
         top={flyout.top}
@@ -790,9 +772,7 @@ export default function Sidebar({
         } border-r ${isDarkMode ? "shadow-2xl shadow-purple-500/10" : "shadow-xl shadow-gray-200/70"} backdrop-blur-lg`}
         aria-label="Sidebar Navigation"
       >
-        {/* Header */}
         <div className={`relative ${headerPad} border-b ${isDarkMode ? "border-white/10" : "border-gray-200"}`}>
-          {/* top row: profile + collapse */}
           <div className={`flex items-center ${compact ? "justify-center" : "justify-between"} gap-3`}>
             <div className={`flex items-center gap-4 ${compact ? "justify-center" : ""}`}>
               <div className="relative">
@@ -840,7 +820,6 @@ export default function Sidebar({
               ) : null}
             </div>
 
-            {/* collapse button (desktop only) */}
             {!isMobileViewport ? (
               <button
                 onClick={toggleCompact}
@@ -856,7 +835,6 @@ export default function Sidebar({
             ) : null}
           </div>
 
-          {/* ✅ ACTIONS ROW */}
           <div className={`mt-5 flex ${compact ? "justify-center" : "justify-between"} items-center`}>
             {!compact ? (
               <button
@@ -934,7 +912,6 @@ export default function Sidebar({
           />
         </div>
 
-        {/* Search */}
         <div className={`${navPad} pb-2`}>
           <div className={`relative ${compact ? "flex justify-center" : ""}`}>
             {!compact ? (
@@ -996,7 +973,6 @@ export default function Sidebar({
           </div>
         </div>
 
-        {/* Nav */}
         <nav
           aria-label="Primary"
           className={`flex-1 overflow-y-auto ${navPad} pt-2 space-y-2 scrollbar-thin ${
@@ -1094,7 +1070,6 @@ export default function Sidebar({
           })}
         </nav>
 
-        {/* Logout */}
         <button
           onClick={handleLogout}
           className={`group ${navPad} py-4 flex items-center ${compact ? "justify-center" : "justify-center gap-3"} ${

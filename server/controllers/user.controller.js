@@ -1,6 +1,9 @@
 // ===============================
-// ✅ 4) controllers/user.controller.js  (FULL UPDATED)
-// (Your existing code + Avatar endpoints added)
+// ✅ controllers/user.controller.js  (FULL UPDATED)
+// ✅ Your existing code + Avatar endpoints
+// ✅ NEW: Admin/Superadmin must confirm THEIR OWN password before deleting ANY user
+//     (employee / marketing_team / admin / superadmin)
+//     Body: { password: "YOUR_PASSWORD" }
 // ===============================
 import User from "../models/user.model.js";
 import { uploadCloudinary, deleteCloudinary } from "../utils/cloudinary.js";
@@ -23,9 +26,43 @@ const denyIfTargetIsSuperAdmin = (targetUser, req, res) => {
 };
 
 /* =========================
+   ✅ PASSWORD CONFIRMATION (NEW)
+   Admin/Superadmin must confirm their own password for deletes.
+   Works with: DELETE requests that include JSON body: { password }
+========================= */
+const requireRequesterPassword = async (req, res) => {
+  try {
+    const password = String(req.body?.password || "");
+    if (!password) {
+      res.status(400).json({ message: "Password is required to delete this user." });
+      return false;
+    }
+
+    const requester = await User.findById(req.user?._id).select("+password");
+    if (!requester) {
+      res.status(401).json({ message: "Unauthorized." });
+      return false;
+    }
+
+    const ok = await requester.comparePassword(password);
+    if (!ok) {
+      res.status(401).json({ message: "Password is incorrect." });
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    res.status(500).json({
+      message: "Password verification failed.",
+      error: err.message,
+    });
+    return false;
+  }
+};
+
+/* =========================
    OPTIMIZATION HELPERS
 ========================= */
-
 const LIST_PROJECTION =
   "_id name email role isActive avatarUrl createdAt updatedAt";
 const DEFAULT_LIMIT = 20;
@@ -45,7 +82,8 @@ const handleMongoDuplicateKey = (err) => {
   return null;
 };
 
-const escapeRegex = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegex = (str) =>
+  String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const buildSearchFilter = (qRaw) => {
   const q = String(qRaw || "").trim();
@@ -61,7 +99,10 @@ const buildSearchFilter = (qRaw) => {
 // cursor = base64url(JSON.stringify({ ts: createdAtISO, id: _id }))
 const encodeCursor = (doc) => {
   if (!doc?._id || !doc?.createdAt) return null;
-  const payload = { ts: new Date(doc.createdAt).toISOString(), id: String(doc._id) };
+  const payload = {
+    ts: new Date(doc.createdAt).toISOString(),
+    id: String(doc._id),
+  };
   return Buffer.from(JSON.stringify(payload)).toString("base64url");
 };
 
@@ -89,17 +130,24 @@ const buildCursorFilter = ({ cursorObj, sort }) => {
   // newest: createdAt desc, _id desc
   if (sort === "newest") {
     return {
-      $or: [{ createdAt: { $lt: ts } }, { createdAt: ts, _id: { $lt: id } }],
+      $or: [
+        { createdAt: { $lt: ts } },
+        { createdAt: ts, _id: { $lt: id } },
+      ],
     };
   }
 
   // oldest: createdAt asc, _id asc
   return {
-    $or: [{ createdAt: { $gt: ts } }, { createdAt: ts, _id: { $gt: id } }],
+    $or: [
+      { createdAt: { $gt: ts } },
+      { createdAt: ts, _id: { $gt: id } },
+    ],
   };
 };
 
-const parseSort = (v) => (String(v || "newest") === "oldest" ? "oldest" : "newest");
+const parseSort = (v) =>
+  String(v || "newest") === "oldest" ? "oldest" : "newest";
 
 /**
  * Generic list builder:
@@ -124,7 +172,9 @@ const listUsersByRole = async (req, res, role, responseKey) => {
     if (cursorFilter) Object.assign(filter, cursorFilter);
 
     const sortSpec =
-      sort === "newest" ? { createdAt: -1, _id: -1 } : { createdAt: 1, _id: 1 };
+      sort === "newest"
+        ? { createdAt: -1, _id: -1 }
+        : { createdAt: 1, _id: 1 };
 
     const rows = await User.find(filter)
       .select(LIST_PROJECTION)
@@ -156,7 +206,9 @@ const listUsersByRole = async (req, res, role, responseKey) => {
 ========================= */
 const requireImageFile = (req, res) => {
   if (!req.file?.buffer) {
-    res.status(400).json({ message: "Avatar image file is required (field: avatar)." });
+    res
+      .status(400)
+      .json({ message: "Avatar image file is required (field: avatar)." });
     return false;
   }
   if (!req.file.mimetype?.startsWith("image/")) {
@@ -188,16 +240,18 @@ const uploadAvatarAndReplace = async (userDoc, fileBuffer) => {
 /* =========================
    ADMIN: EMPLOYEES
 ========================= */
-
 export const createEmployee = async (req, res) => {
   try {
     const name = String(req.body.name ?? "").trim();
     const email = String(req.body.email ?? "").trim().toLowerCase();
     const password = String(req.body.password ?? "");
-    const isActive = typeof req.body.isActive === "boolean" ? req.body.isActive : true;
+    const isActive =
+      typeof req.body.isActive === "boolean" ? req.body.isActive : true;
 
     if (!name || !email || !password) {
-      return res.status(400).json({ message: "Name, email, password are required." });
+      return res
+        .status(400)
+        .json({ message: "Name, email, password are required." });
     }
 
     const employee = await User.create({
@@ -208,7 +262,9 @@ export const createEmployee = async (req, res) => {
       isActive,
     });
 
-    const safe = await User.findById(employee._id).select(LIST_PROJECTION).lean();
+    const safe = await User.findById(employee._id)
+      .select(LIST_PROJECTION)
+      .lean();
     return res.status(201).json({ message: "Employee created.", employee: safe });
   } catch (err) {
     const dup = handleMongoDuplicateKey(err);
@@ -227,7 +283,10 @@ export const getEmployees = async (req, res) => {
 
 export const getEmployeeById = async (req, res) => {
   try {
-    const employee = await User.findOne({ _id: req.params.id, role: "employee" })
+    const employee = await User.findOne({
+      _id: req.params.id,
+      role: "employee",
+    })
       .select(LIST_PROJECTION)
       .lean();
     if (!employee) return res.status(404).json({ message: "Employee not found." });
@@ -248,7 +307,9 @@ export const updateEmployee = async (req, res) => {
     const wantsPassword = password !== undefined && String(password).length > 0;
 
     const employee = wantsPassword
-      ? await User.findOne({ _id: req.params.id, role: "employee" }).select("+password")
+      ? await User.findOne({ _id: req.params.id, role: "employee" }).select(
+          "+password"
+        )
       : await User.findOne({ _id: req.params.id, role: "employee" });
 
     if (!employee) return res.status(404).json({ message: "Employee not found." });
@@ -270,7 +331,9 @@ export const updateEmployee = async (req, res) => {
 
     await employee.save();
 
-    const safe = await User.findById(employee._id).select(LIST_PROJECTION).lean();
+    const safe = await User.findById(employee._id)
+      .select(LIST_PROJECTION)
+      .lean();
     return res.status(200).json({ message: "Employee updated.", employee: safe });
   } catch (err) {
     const dup = handleMongoDuplicateKey(err);
@@ -285,12 +348,14 @@ export const updateEmployee = async (req, res) => {
 
 export const deleteEmployee = async (req, res) => {
   try {
+    // ✅ require admin/superadmin password confirmation
+    const ok = await requireRequesterPassword(req, res);
+    if (!ok) return;
+
     const employee = await User.findOne({ _id: req.params.id, role: "employee" });
     if (!employee) return res.status(404).json({ message: "Employee not found." });
 
-    // ✅ delete avatar from Cloudinary too
     if (employee.avatarPublicId) await deleteCloudinary(employee.avatarPublicId);
-
     await employee.deleteOne();
 
     return res.status(200).json({ message: "Employee deleted." });
@@ -305,16 +370,18 @@ export const deleteEmployee = async (req, res) => {
 /* =========================
    ADMIN: MARKETING TEAM
 ========================= */
-
 export const createMarketingTeam = async (req, res) => {
   try {
     const name = String(req.body.name ?? "").trim();
     const email = String(req.body.email ?? "").trim().toLowerCase();
     const password = String(req.body.password ?? "");
-    const isActive = typeof req.body.isActive === "boolean" ? req.body.isActive : true;
+    const isActive =
+      typeof req.body.isActive === "boolean" ? req.body.isActive : true;
 
     if (!name || !email || !password) {
-      return res.status(400).json({ message: "Name, email, password are required." });
+      return res
+        .status(400)
+        .json({ message: "Name, email, password are required." });
     }
 
     const marketing = await User.create({
@@ -325,8 +392,12 @@ export const createMarketingTeam = async (req, res) => {
       isActive,
     });
 
-    const safe = await User.findById(marketing._id).select(LIST_PROJECTION).lean();
-    return res.status(201).json({ message: "Marketing team user created.", marketing: safe });
+    const safe = await User.findById(marketing._id)
+      .select(LIST_PROJECTION)
+      .lean();
+    return res
+      .status(201)
+      .json({ message: "Marketing team user created.", marketing: safe });
   } catch (err) {
     const dup = handleMongoDuplicateKey(err);
     if (dup) return res.status(409).json(dup);
@@ -344,12 +415,17 @@ export const getMarketingTeam = async (req, res) => {
 
 export const getMarketingTeamById = async (req, res) => {
   try {
-    const marketing = await User.findOne({ _id: req.params.id, role: "marketing_team" })
+    const marketing = await User.findOne({
+      _id: req.params.id,
+      role: "marketing_team",
+    })
       .select(LIST_PROJECTION)
       .lean();
 
     if (!marketing) {
-      return res.status(404).json({ message: "Marketing team user not found." });
+      return res
+        .status(404)
+        .json({ message: "Marketing team user not found." });
     }
 
     return res.status(200).json({ marketing });
@@ -368,11 +444,19 @@ export const updateMarketingTeam = async (req, res) => {
     const wantsPassword = password !== undefined && String(password).length > 0;
 
     const marketing = wantsPassword
-      ? await User.findOne({ _id: req.params.id, role: "marketing_team" }).select("+password")
-      : await User.findOne({ _id: req.params.id, role: "marketing_team" });
+      ? await User.findOne({
+          _id: req.params.id,
+          role: "marketing_team",
+        }).select("+password")
+      : await User.findOne({
+          _id: req.params.id,
+          role: "marketing_team",
+        });
 
     if (!marketing) {
-      return res.status(404).json({ message: "Marketing team user not found." });
+      return res
+        .status(404)
+        .json({ message: "Marketing team user not found." });
     }
 
     if (email !== undefined) {
@@ -392,8 +476,12 @@ export const updateMarketingTeam = async (req, res) => {
 
     await marketing.save();
 
-    const safe = await User.findById(marketing._id).select(LIST_PROJECTION).lean();
-    return res.status(200).json({ message: "Marketing team user updated.", marketing: safe });
+    const safe = await User.findById(marketing._id)
+      .select(LIST_PROJECTION)
+      .lean();
+    return res
+      .status(200)
+      .json({ message: "Marketing team user updated.", marketing: safe });
   } catch (err) {
     const dup = handleMongoDuplicateKey(err);
     if (dup) return res.status(409).json(dup);
@@ -407,14 +495,21 @@ export const updateMarketingTeam = async (req, res) => {
 
 export const deleteMarketingTeam = async (req, res) => {
   try {
-    const marketing = await User.findOne({ _id: req.params.id, role: "marketing_team" });
+    // ✅ require admin/superadmin password confirmation
+    const ok = await requireRequesterPassword(req, res);
+    if (!ok) return;
+
+    const marketing = await User.findOne({
+      _id: req.params.id,
+      role: "marketing_team",
+    });
     if (!marketing) {
-      return res.status(404).json({ message: "Marketing team user not found." });
+      return res
+        .status(404)
+        .json({ message: "Marketing team user not found." });
     }
 
-    // ✅ delete avatar
     if (marketing.avatarPublicId) await deleteCloudinary(marketing.avatarPublicId);
-
     await marketing.deleteOne();
 
     return res.status(200).json({ message: "Marketing team user deleted." });
@@ -429,16 +524,18 @@ export const deleteMarketingTeam = async (req, res) => {
 /* =========================
    ADMIN: ADMINS
 ========================= */
-
 export const createAdmin = async (req, res) => {
   try {
     const name = String(req.body.name ?? "").trim();
     const email = String(req.body.email ?? "").trim().toLowerCase();
     const password = String(req.body.password ?? "");
-    const isActive = typeof req.body.isActive === "boolean" ? req.body.isActive : true;
+    const isActive =
+      typeof req.body.isActive === "boolean" ? req.body.isActive : true;
 
     if (!name || !email || !password) {
-      return res.status(400).json({ message: "Name, email, password are required." });
+      return res
+        .status(400)
+        .json({ message: "Name, email, password are required." });
     }
 
     const admin = await User.create({
@@ -449,7 +546,9 @@ export const createAdmin = async (req, res) => {
       isActive,
     });
 
-    const safe = await User.findById(admin._id).select(LIST_PROJECTION).lean();
+    const safe = await User.findById(admin._id)
+      .select(LIST_PROJECTION)
+      .lean();
     return res.status(201).json({ message: "Admin created.", admin: safe });
   } catch (err) {
     const dup = handleMongoDuplicateKey(err);
@@ -500,7 +599,9 @@ export const updateAdmin = async (req, res) => {
     if (denyIfTargetIsSuperAdmin(target, req, res)) return;
 
     if (target.role !== "admin") {
-      return res.status(400).json({ message: "This endpoint can update only admin accounts." });
+      return res
+        .status(400)
+        .json({ message: "This endpoint can update only admin accounts." });
     }
 
     if (email !== undefined) {
@@ -520,7 +621,9 @@ export const updateAdmin = async (req, res) => {
 
     await target.save();
 
-    const safe = await User.findById(target._id).select(LIST_PROJECTION).lean();
+    const safe = await User.findById(target._id)
+      .select(LIST_PROJECTION)
+      .lean();
     return res.status(200).json({ message: "Admin updated.", admin: safe });
   } catch (err) {
     const dup = handleMongoDuplicateKey(err);
@@ -539,6 +642,10 @@ export const deleteAdmin = async (req, res) => {
       return res.status(403).json({ message: "Not authorized." });
     }
 
+    // ✅ require password confirmation
+    const ok = await requireRequesterPassword(req, res);
+    if (!ok) return;
+
     if (String(req.user?._id) === String(req.params.id)) {
       return res.status(400).json({ message: "You cannot delete your own account." });
     }
@@ -549,11 +656,12 @@ export const deleteAdmin = async (req, res) => {
     if (denyIfTargetIsSuperAdmin(target, req, res)) return;
 
     if (target.role !== "admin") {
-      return res.status(400).json({ message: "This endpoint can delete only admin accounts." });
+      return res
+        .status(400)
+        .json({ message: "This endpoint can delete only admin accounts." });
     }
 
     if (target.avatarPublicId) await deleteCloudinary(target.avatarPublicId);
-
     await target.deleteOne();
 
     return res.status(200).json({ message: "Admin deleted." });
@@ -568,20 +676,24 @@ export const deleteAdmin = async (req, res) => {
 /* =========================
    SUPERADMIN: SUPERADMINS
 ========================= */
-
 export const createSuperAdmin = async (req, res) => {
   try {
     if (!isSuperAdmin(req)) {
-      return res.status(403).json({ message: "Only super admin can create super admins." });
+      return res
+        .status(403)
+        .json({ message: "Only super admin can create super admins." });
     }
 
     const name = String(req.body.name ?? "").trim();
     const email = String(req.body.email ?? "").trim().toLowerCase();
     const password = String(req.body.password ?? "");
-    const isActive = typeof req.body.isActive === "boolean" ? req.body.isActive : true;
+    const isActive =
+      typeof req.body.isActive === "boolean" ? req.body.isActive : true;
 
     if (!name || !email || !password) {
-      return res.status(400).json({ message: "Name, email, password are required." });
+      return res
+        .status(400)
+        .json({ message: "Name, email, password are required." });
     }
 
     const superadmin = await User.create({
@@ -592,8 +704,12 @@ export const createSuperAdmin = async (req, res) => {
       isActive,
     });
 
-    const safe = await User.findById(superadmin._id).select(LIST_PROJECTION).lean();
-    return res.status(201).json({ message: "Super admin created.", superadmin: safe });
+    const safe = await User.findById(superadmin._id)
+      .select(LIST_PROJECTION)
+      .lean();
+    return res
+      .status(201)
+      .json({ message: "Super admin created.", superadmin: safe });
   } catch (err) {
     const dup = handleMongoDuplicateKey(err);
     if (dup) return res.status(409).json(dup);
@@ -608,7 +724,9 @@ export const createSuperAdmin = async (req, res) => {
 export const getSuperAdmins = async (req, res) => {
   try {
     if (!isSuperAdmin(req)) {
-      return res.status(403).json({ message: "Only super admin can view super admins." });
+      return res
+        .status(403)
+        .json({ message: "Only super admin can view super admins." });
     }
     return listUsersByRole(req, res, "superadmin", "superadmins");
   } catch (err) {
@@ -622,14 +740,20 @@ export const getSuperAdmins = async (req, res) => {
 export const getSuperAdminById = async (req, res) => {
   try {
     if (!isSuperAdmin(req)) {
-      return res.status(403).json({ message: "Only super admin can view super admins." });
+      return res
+        .status(403)
+        .json({ message: "Only super admin can view super admins." });
     }
 
-    const superadmin = await User.findOne({ _id: req.params.id, role: "superadmin" })
+    const superadmin = await User.findOne({
+      _id: req.params.id,
+      role: "superadmin",
+    })
       .select(LIST_PROJECTION)
       .lean();
 
-    if (!superadmin) return res.status(404).json({ message: "Super admin not found." });
+    if (!superadmin)
+      return res.status(404).json({ message: "Super admin not found." });
 
     return res.status(200).json({ superadmin });
   } catch (err) {
@@ -643,17 +767,26 @@ export const getSuperAdminById = async (req, res) => {
 export const updateSuperAdmin = async (req, res) => {
   try {
     if (!isSuperAdmin(req)) {
-      return res.status(403).json({ message: "Only super admin can update super admins." });
+      return res
+        .status(403)
+        .json({ message: "Only super admin can update super admins." });
     }
 
     const { name, email, password, isActive } = req.body;
     const wantsPassword = password !== undefined && String(password).length > 0;
 
     const superadmin = wantsPassword
-      ? await User.findOne({ _id: req.params.id, role: "superadmin" }).select("+password")
-      : await User.findOne({ _id: req.params.id, role: "superadmin" });
+      ? await User.findOne({
+          _id: req.params.id,
+          role: "superadmin",
+        }).select("+password")
+      : await User.findOne({
+          _id: req.params.id,
+          role: "superadmin",
+        });
 
-    if (!superadmin) return res.status(404).json({ message: "Super admin not found." });
+    if (!superadmin)
+      return res.status(404).json({ message: "Super admin not found." });
 
     if (email !== undefined) {
       const e = String(email ?? "").trim().toLowerCase();
@@ -672,8 +805,12 @@ export const updateSuperAdmin = async (req, res) => {
 
     await superadmin.save();
 
-    const safe = await User.findById(superadmin._id).select(LIST_PROJECTION).lean();
-    return res.status(200).json({ message: "Super admin updated.", superadmin: safe });
+    const safe = await User.findById(superadmin._id)
+      .select(LIST_PROJECTION)
+      .lean();
+    return res
+      .status(200)
+      .json({ message: "Super admin updated.", superadmin: safe });
   } catch (err) {
     const dup = handleMongoDuplicateKey(err);
     if (dup) return res.status(409).json(dup);
@@ -688,17 +825,30 @@ export const updateSuperAdmin = async (req, res) => {
 export const deleteSuperAdmin = async (req, res) => {
   try {
     if (!isSuperAdmin(req)) {
-      return res.status(403).json({ message: "Only super admin can delete super admins." });
+      return res
+        .status(403)
+        .json({ message: "Only super admin can delete super admins." });
     }
+
+    // ✅ require password confirmation
+    const ok = await requireRequesterPassword(req, res);
+    if (!ok) return;
 
     if (String(req.user?._id) === String(req.params.id)) {
-      return res.status(400).json({ message: "You cannot delete your own super admin account." });
+      return res
+        .status(400)
+        .json({ message: "You cannot delete your own super admin account." });
     }
 
-    const superadmin = await User.findOne({ _id: req.params.id, role: "superadmin" });
-    if (!superadmin) return res.status(404).json({ message: "Super admin not found." });
+    const superadmin = await User.findOne({
+      _id: req.params.id,
+      role: "superadmin",
+    });
+    if (!superadmin)
+      return res.status(404).json({ message: "Super admin not found." });
 
-    if (superadmin.avatarPublicId) await deleteCloudinary(superadmin.avatarPublicId);
+    if (superadmin.avatarPublicId)
+      await deleteCloudinary(superadmin.avatarPublicId);
 
     await superadmin.deleteOne();
     return res.status(200).json({ message: "Super admin deleted." });
@@ -713,10 +863,11 @@ export const deleteSuperAdmin = async (req, res) => {
 /* =========================
    GET ME / UPDATE ME
 ========================= */
-
 export const getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select(LIST_PROJECTION).lean();
+    const user = await User.findById(req.user._id)
+      .select(LIST_PROJECTION)
+      .lean();
     if (!user) return res.status(404).json({ message: "User not found." });
     return res.status(200).json({ user });
   } catch (err) {
@@ -746,7 +897,8 @@ export const updateMe = async (req, res) => {
       user.email = e;
     }
 
-    const wantsPasswordChange = newPassword !== undefined && String(newPassword).length > 0;
+    const wantsPasswordChange =
+      newPassword !== undefined && String(newPassword).length > 0;
 
     if (wantsPasswordChange) {
       if (!currentPassword) {
@@ -756,10 +908,13 @@ export const updateMe = async (req, res) => {
       }
 
       const ok = await user.comparePassword(String(currentPassword));
-      if (!ok) return res.status(401).json({ message: "Current password is incorrect." });
+      if (!ok)
+        return res.status(401).json({ message: "Current password is incorrect." });
 
       if (String(newPassword).length < 6) {
-        return res.status(400).json({ message: "New password must be at least 6 characters." });
+        return res
+          .status(400)
+          .json({ message: "New password must be at least 6 characters." });
       }
 
       user.password = String(newPassword);
@@ -767,7 +922,9 @@ export const updateMe = async (req, res) => {
 
     await user.save();
 
-    const safe = await User.findById(user._id).select(LIST_PROJECTION).lean();
+    const safe = await User.findById(user._id)
+      .select(LIST_PROJECTION)
+      .lean();
     return res.status(200).json({ message: "Profile updated.", user: safe });
   } catch (err) {
     const dup = handleMongoDuplicateKey(err);
@@ -783,7 +940,6 @@ export const updateMe = async (req, res) => {
 /* =========================
    ✅ AVATAR ENDPOINTS
 ========================= */
-
 // PATCH /api/users/me/avatar (form-data: avatar)
 export const updateMyAvatar = async (req, res) => {
   try {
@@ -793,7 +949,8 @@ export const updateMyAvatar = async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found." });
 
     const uploaded = await uploadAvatarAndReplace(user, req.file.buffer);
-    if (!uploaded) return res.status(500).json({ message: "Failed to upload avatar." });
+    if (!uploaded)
+      return res.status(500).json({ message: "Failed to upload avatar." });
 
     const safe = await User.findById(user._id).select(LIST_PROJECTION).lean();
     return res.status(200).json({ message: "Avatar updated.", user: safe });
@@ -841,7 +998,8 @@ export const adminUpdateUserAvatar = async (req, res) => {
     if (denyIfTargetIsSuperAdmin(target, req, res)) return;
 
     const uploaded = await uploadAvatarAndReplace(target, req.file.buffer);
-    if (!uploaded) return res.status(500).json({ message: "Failed to upload avatar." });
+    if (!uploaded)
+      return res.status(500).json({ message: "Failed to upload avatar." });
 
     const safe = await User.findById(target._id).select(LIST_PROJECTION).lean();
     return res.status(200).json({ message: "Avatar updated.", user: safe });
@@ -889,7 +1047,9 @@ export const searchMarketingUsers = async (req, res) => {
     const filter = { isActive: true, role: "marketing_team" };
 
     if (q) {
-      filter.nameLower = { $regex: `^${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}` };
+      filter.nameLower = {
+        $regex: `^${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
+      };
     }
 
     const users = await User.find(filter)

@@ -34,6 +34,49 @@ function buildTrend(days) {
   return arr;
 }
 
+// --------- Cursor helpers (simple + safe) ---------
+
+/**
+ * For customers sorted by createdAt desc, _id desc
+ * Cursor is last item's { createdAt, _id } encoded as "ISO|id"
+ */
+function encodeCustomerCursor(doc) {
+  if (!doc?._id || !doc?.createdAt) return null;
+  return `${new Date(doc.createdAt).toISOString()}|${String(doc._id)}`;
+}
+
+function decodeCustomerCursor(cursor) {
+  if (!cursor) return null;
+  const [iso, id] = String(cursor).split("|");
+  const dt = new Date(iso);
+  if (!id || Number.isNaN(dt.getTime())) return null;
+  return { dt, id: String(id) };
+}
+
+/**
+ * For tasks sorted by crmTasks.updatedAt desc, crmTasks._id desc
+ * Cursor is last item's { updatedAt, taskId } encoded as "ISO|taskId"
+ */
+function encodeTaskCursor(taskRow) {
+  if (!taskRow?._id || !taskRow?.updatedAt) return null;
+  return `${new Date(taskRow.updatedAt).toISOString()}|${String(taskRow._id)}`;
+}
+
+function decodeTaskCursor(cursor) {
+  if (!cursor) return null;
+  const [iso, id] = String(cursor).split("|");
+  const dt = new Date(iso);
+  if (!id || Number.isNaN(dt.getTime())) return null;
+  return { dt, id: String(id) };
+}
+
+function escapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// =======================
+// 1) OVERVIEW DASHBOARD
+// =======================
 export const getDashboard = async (req, res, next) => {
   try {
     const user = req.user; // from protect middleware
@@ -43,14 +86,10 @@ export const getDashboard = async (req, res, next) => {
     const days = Math.min(30, Math.max(1, toInt(req.query.days, 7)));
     const limit = Math.min(12, Math.max(1, toInt(req.query.limit, 6)));
 
-    // ✅ include visibility scope in cache key (important)
-    // If your accessMatch depends on more than role/userId (ex: assignedTo),
-    // this key is still safe because we invalidate cache on writes.
     const cacheKey = `dashboard:v1:${userId}:${user.role}:${days}:${limit}`;
     const cached = dashboardCache.get(cacheKey);
     if (cached) return res.json(cached);
 
-    // ✅ access filter for this user
     const match = customerAccessMatch(user);
 
     // Trend start date (last N days)
@@ -58,9 +97,8 @@ export const getDashboard = async (req, res, next) => {
     start.setDate(start.getDate() - (days - 1));
     start.setHours(0, 0, 0, 0);
 
-    // ✅ ONE DB CALL: Aggregation with $facet
     const [agg] = await Customer.aggregate([
-      { $match: match }, // ✅ EARLY MATCH (huge perf gain)
+      { $match: match },
       {
         $facet: {
           customersTotal: [{ $count: "count" }],
@@ -70,7 +108,6 @@ export const getDashboard = async (req, res, next) => {
             { $project: { _id: 0, key: "$_id", value: 1 } },
           ],
 
-          // ✅ dashboard "Recent Customers"
           recentCustomers: [
             { $sort: { createdAt: -1, _id: -1 } },
             { $limit: limit },
@@ -93,7 +130,6 @@ export const getDashboard = async (req, res, next) => {
             { $project: { _id: 0, key: "$_id", value: 1 } },
           ],
 
-          // ✅ dashboard "Recent Tasks"
           recentTasks: [
             { $unwind: { path: "$crmTasks", preserveNullAndEmptyArrays: false } },
             {
@@ -118,7 +154,6 @@ export const getDashboard = async (req, res, next) => {
             },
           ],
 
-          // ✅ last N days trend (created customers)
           trend: [
             { $match: { createdAt: { $gte: start } } },
             {
@@ -136,7 +171,6 @@ export const getDashboard = async (req, res, next) => {
 
     const customersCount = agg?.customersTotal?.[0]?.count ?? 0;
 
-    // Normalize customer stats (matches frontend)
     const cMap = new Map((agg?.customerStatus || []).map((x) => [x.key, x.value]));
     const customerStats = {
       total: customersCount,
@@ -160,7 +194,6 @@ export const getDashboard = async (req, res, next) => {
     };
     const tasksCount = taskStats.pending + taskStats.inProgress + taskStats.done;
 
-    // Build stable trend array (fill missing days with 0)
     const baseTrend = buildTrend(days);
     const trendMap = new Map((agg?.trend || []).map((x) => [x.key, x.value]));
     const newCustomersTrend = baseTrend.map((d) => ({
@@ -168,7 +201,6 @@ export const getDashboard = async (req, res, next) => {
       value: trendMap.get(d.key) || 0,
     }));
 
-    // Role-gated user counts (extra DB ops)
     let employeesCount = 0;
     let adminsCount = 0;
     let superAdminsCount = 0;
@@ -221,6 +253,328 @@ export const getDashboard = async (req, res, next) => {
 
     dashboardCache.set(cacheKey, payload);
     return res.json(payload);
+  } catch (err) {
+    return next(err);
+  }
+};
+
+// ==================================
+// 2) REPORT: CUSTOMERS (DRILL-DOWN)
+// GET /api/dashboard/reports/customers
+// ==================================
+export const getDashboardCustomersReport = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const match = customerAccessMatch(user);
+
+    const limit = Math.min(50, Math.max(1, toInt(req.query.limit, 20)));
+    const cursor = decodeCustomerCursor(req.query.cursor);
+
+    // status values expected: pending | in_progress | complete | other | all
+    const status = String(req.query.status || "all").trim();
+
+    const q = String(req.query.q || "").trim();
+    const sort = String(req.query.sort || "createdAt_desc").trim();
+
+    // Build filter
+    const pipelineMatch = { ...match };
+
+    if (status && status !== "all") {
+      if (status === "other") {
+        pipelineMatch.status = { $nin: ["pending", "in_progress", "complete"] };
+      } else {
+        pipelineMatch.status = status;
+      }
+    }
+
+    if (q) {
+      const rx = new RegExp(escapeRegex(q), "i");
+      pipelineMatch.$or = [
+        { name: rx },
+        { companyName: rx },
+        { email: rx },
+        { phone: rx },
+      ];
+    }
+
+    // Sorting (default: createdAt desc, _id desc)
+    const sortStage =
+      sort === "createdAt_asc"
+        ? { createdAt: 1, _id: 1 }
+        : { createdAt: -1, _id: -1 };
+
+    // Cursor condition compatible with sort
+    const cursorMatch = cursor
+      ? sort === "createdAt_asc"
+        ? {
+            $or: [
+              { createdAt: { $gt: cursor.dt } },
+              { createdAt: cursor.dt, _id: { $gt: cursor.id } },
+            ],
+          }
+        : {
+            $or: [
+              { createdAt: { $lt: cursor.dt } },
+              { createdAt: cursor.dt, _id: { $lt: cursor.id } },
+            ],
+          }
+      : null;
+
+    const pipeline = [
+      { $match: pipelineMatch },
+      ...(cursorMatch ? [{ $match: cursorMatch }] : []),
+      { $sort: sortStage },
+      {
+        $facet: {
+          items: [
+            { $limit: limit + 1 }, // fetch one extra to know if has more
+            {
+              $project: {
+                _id: 1,
+                name: 1,
+                companyName: 1,
+                email: 1,
+                phone: 1,
+                status: 1,
+                createdAt: 1,
+                updatedAt: 1,
+              },
+            },
+          ],
+          total: [{ $count: "count" }],
+        },
+      },
+    ];
+
+    const [result] = await Customer.aggregate(pipeline).allowDiskUse(true);
+    const itemsRaw = result?.items || [];
+    const total = result?.total?.[0]?.count ?? 0;
+
+    const hasMore = itemsRaw.length > limit;
+    const items = hasMore ? itemsRaw.slice(0, limit) : itemsRaw;
+
+    const nextCursor = hasMore ? encodeCustomerCursor(items[items.length - 1]) : null;
+
+    return res.json({
+      items,
+      nextCursor,
+      hasMore,
+      total,
+    });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+// ================================
+// 3) REPORT: TASKS (DRILL-DOWN)
+// GET /api/dashboard/reports/tasks
+// ================================
+export const getDashboardTasksReport = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const match = customerAccessMatch(user);
+
+    const limit = Math.min(50, Math.max(1, toInt(req.query.limit, 20)));
+    const cursor = decodeTaskCursor(req.query.cursor);
+
+    // status: pending | in_progress | done | all
+    const status = String(req.query.status || "all").trim();
+    const q = String(req.query.q || "").trim();
+
+    // Optional date filters (ISO or YYYY-MM-DD)
+    const from = req.query.from ? new Date(req.query.from) : null;
+    const to = req.query.to ? new Date(req.query.to) : null;
+
+    const taskMatch = {};
+    if (status && status !== "all") taskMatch["crmTasks.status"] = status;
+
+    if (q) {
+      const rx = new RegExp(escapeRegex(q), "i");
+      taskMatch["crmTasks.title"] = rx;
+    }
+
+    if (from && !Number.isNaN(from.getTime())) {
+      taskMatch["crmTasks.updatedAt"] = taskMatch["crmTasks.updatedAt"] || {};
+      taskMatch["crmTasks.updatedAt"].$gte = from;
+    }
+    if (to && !Number.isNaN(to.getTime())) {
+      taskMatch["crmTasks.updatedAt"] = taskMatch["crmTasks.updatedAt"] || {};
+      taskMatch["crmTasks.updatedAt"].$lte = to;
+    }
+
+    // Cursor paging on (updatedAt desc, taskId desc)
+    const cursorMatch = cursor
+      ? {
+          $or: [
+            { "crmTasks.updatedAt": { $lt: cursor.dt } },
+            {
+              "crmTasks.updatedAt": cursor.dt,
+              "crmTasks._id": { $lt: cursor.id },
+            },
+          ],
+        }
+      : null;
+
+    const pipeline = [
+      { $match: match },
+      { $unwind: { path: "$crmTasks", preserveNullAndEmptyArrays: false } },
+      ...(Object.keys(taskMatch).length ? [{ $match: taskMatch }] : []),
+      ...(cursorMatch ? [{ $match: cursorMatch }] : []),
+      {
+        $sort: {
+          "crmTasks.updatedAt": -1,
+          "crmTasks._id": -1,
+        },
+      },
+      {
+        $facet: {
+          items: [
+            { $limit: limit + 1 },
+            {
+              $project: {
+                _id: "$crmTasks._id",
+                title: "$crmTasks.title",
+                status: "$crmTasks.status",
+                updatedAt: "$crmTasks.updatedAt",
+                createdAt: "$crmTasks.createdAt",
+                customerId: "$_id",
+                customerName: "$name",
+                companyName: "$companyName",
+                customerStatus: "$status",
+              },
+            },
+          ],
+          total: [{ $count: "count" }],
+        },
+      },
+    ];
+
+    const [result] = await Customer.aggregate(pipeline).allowDiskUse(true);
+
+    const itemsRaw = result?.items || [];
+    const total = result?.total?.[0]?.count ?? 0;
+
+    const hasMore = itemsRaw.length > limit;
+    const items = hasMore ? itemsRaw.slice(0, limit) : itemsRaw;
+
+    const nextCursor = hasMore ? encodeTaskCursor(items[items.length - 1]) : null;
+
+    return res.json({
+      items,
+      nextCursor,
+      hasMore,
+      total,
+    });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+// ========================================
+// 4) REPORT: NEW CUSTOMERS (DRILL-DOWN)
+// GET /api/dashboard/reports/new-customers
+// ========================================
+export const getDashboardNewCustomersReport = async (req, res, next) => {
+  try {
+    const user = req.user;
+    const match = customerAccessMatch(user);
+
+    const limit = Math.min(50, Math.max(1, toInt(req.query.limit, 20)));
+    const cursor = decodeCustomerCursor(req.query.cursor);
+
+    // Accept either:
+    // - date=YYYY-MM-DD (single day)
+    // or
+    // - from=ISO/YYYY-MM-DD & to=ISO/YYYY-MM-DD (range)
+    const dateStr = String(req.query.date || "").trim();
+    const fromStr = String(req.query.from || "").trim();
+    const toStr = String(req.query.to || "").trim();
+
+    let from = null;
+    let to = null;
+
+    if (dateStr) {
+      // Single day range
+      from = new Date(dateStr);
+      if (Number.isNaN(from.getTime())) from = null;
+      if (from) {
+        from.setHours(0, 0, 0, 0);
+        to = new Date(from);
+        to.setDate(to.getDate() + 1); // next day
+      }
+    } else {
+      if (fromStr) {
+        from = new Date(fromStr);
+        if (Number.isNaN(from.getTime())) from = null;
+      }
+      if (toStr) {
+        to = new Date(toStr);
+        if (Number.isNaN(to.getTime())) to = null;
+      }
+    }
+
+    const pipelineMatch = { ...match };
+    if (from || to) {
+      pipelineMatch.createdAt = {};
+      if (from) pipelineMatch.createdAt.$gte = from;
+      if (to) pipelineMatch.createdAt.$lt = to;
+    }
+
+    // Cursor for createdAt desc, _id desc
+    const cursorMatch = cursor
+      ? {
+          $or: [
+            { createdAt: { $lt: cursor.dt } },
+            { createdAt: cursor.dt, _id: { $lt: cursor.id } },
+          ],
+        }
+      : null;
+
+    const pipeline = [
+      { $match: pipelineMatch },
+      ...(cursorMatch ? [{ $match: cursorMatch }] : []),
+      { $sort: { createdAt: -1, _id: -1 } },
+      {
+        $facet: {
+          items: [
+            { $limit: limit + 1 },
+            {
+              $project: {
+                _id: 1,
+                name: 1,
+                companyName: 1,
+                email: 1,
+                phone: 1,
+                status: 1,
+                createdAt: 1,
+              },
+            },
+          ],
+          total: [{ $count: "count" }],
+        },
+      },
+    ];
+
+    const [result] = await Customer.aggregate(pipeline).allowDiskUse(true);
+    const itemsRaw = result?.items || [];
+    const total = result?.total?.[0]?.count ?? 0;
+
+    const hasMore = itemsRaw.length > limit;
+    const items = hasMore ? itemsRaw.slice(0, limit) : itemsRaw;
+
+    const nextCursor = hasMore ? encodeCustomerCursor(items[items.length - 1]) : null;
+
+    return res.json({
+      items,
+      nextCursor,
+      hasMore,
+      total,
+      range: {
+        from: from ? from.toISOString() : null,
+        to: to ? to.toISOString() : null,
+      },
+    });
   } catch (err) {
     return next(err);
   }

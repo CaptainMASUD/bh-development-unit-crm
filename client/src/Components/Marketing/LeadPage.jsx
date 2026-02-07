@@ -422,6 +422,38 @@ async function apiConvertLead(id) {
 }
 
 /* =========================
+   PURCHASE TYPES (NEW) - backend: /api/purchase-types
+========================= */
+async function apiListPurchaseTypes({ q = "", active = "true", limit = 100, cursor = null, signal } = {}) {
+  const qs = new URLSearchParams()
+  if (q) qs.set("q", q)
+  if (active) qs.set("active", active) // "true" | "false" | "all"
+  qs.set("limit", String(limit))
+  if (cursor) qs.set("cursor", String(cursor))
+
+  const res = await fetch(`${API_BASE}/purchase-types?${qs.toString()}`, {
+    headers: getAuthHeaders(),
+    credentials: "include",
+    signal,
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || "Failed to load purchase types")
+  return data
+}
+
+async function apiCreatePurchaseType({ name, key }) {
+  const res = await fetch(`${API_BASE}/purchase-types`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    credentials: "include",
+    body: JSON.stringify({ name, key }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || "Failed to create purchase type")
+  return data
+}
+
+/* =========================
    COLUMNS (ONLY YOUR LIST) + FRIENDLY LABELS + EXPORT VALUES
 ========================= */
 const COLUMNS_STORAGE_KEY = "marketingLeads.columns.onlySpecified.v5"
@@ -625,6 +657,153 @@ function deriveFieldsParam(visibleColumns) {
   return Array.from(set).join(",")
 }
 
+/* =========================
+   PURCHASE TYPE SELECT (NEW)
+   - dropdown from /api/purchase-types
+   - add new option inline
+========================= */
+function PurchaseTypePicker({
+  label = "Purchase type",
+  value,
+  onChange,
+  options,
+  loading,
+  error,
+  onCreate,
+  createBusy,
+  placeholder = "Select purchase type",
+  allowEmpty = true,
+  hint,
+}) {
+  const [mode, setMode] = useState("select") // "select" | "add"
+  const [newName, setNewName] = useState("")
+  const [localErr, setLocalErr] = useState("")
+
+  useEffect(() => {
+    // If current value isn't in options (legacy data), keep in select mode but show it as custom.
+    if (!value) return
+    const has = (options || []).some((o) => String(o?.name || "") === String(value))
+    if (!has) {
+      // keep it; user may change it
+    }
+  }, [value, options])
+
+  const startAdd = () => {
+    setLocalErr("")
+    setNewName("")
+    setMode("add")
+  }
+
+  const cancelAdd = () => {
+    setLocalErr("")
+    setNewName("")
+    setMode("select")
+  }
+
+  const submitAdd = async () => {
+    setLocalErr("")
+    const name = String(newName || "").trim()
+    if (!name) return setLocalErr("Enter a purchase type name.")
+    try {
+      const createdName = await onCreate?.(name)
+      // createdName should be the final display name
+      onChange?.(createdName || name)
+      setMode("select")
+      setNewName("")
+    } catch (e) {
+      setLocalErr(e?.message || "Failed to add purchase type")
+    }
+  }
+
+  const val = String(value || "")
+
+  return (
+    <Field label={label} hint={hint}>
+      <div className="space-y-2">
+        {mode === "select" ? (
+          <>
+            <div className="flex items-center gap-2">
+              <select
+                value={val}
+                onChange={(e) => {
+                  const v = e.target.value
+                  if (v === "__add__") return startAdd()
+                  onChange?.(v)
+                }}
+                className={input}
+                disabled={loading}
+              >
+                {allowEmpty ? <option value="">{placeholder}</option> : null}
+
+                {/* If current value is legacy/custom and not in options, show it */}
+                {val &&
+                !(options || []).some((o) => String(o?.name || "") === val) &&
+                val !== "__add__" ? (
+                  <option value={val}>{val} (custom)</option>
+                ) : null}
+
+                {(options || []).map((o) => (
+                  <option key={o?._id || o?.key || o?.name} value={o?.name || ""}>
+                    {o?.name || "—"}
+                  </option>
+                ))}
+
+                <option value="__add__">+ Add new…</option>
+              </select>
+
+              <button type="button" onClick={startAdd} className={cn(btn, btnGhost, "px-3 py-2 text-sm")} disabled={loading}>
+                <FiPlus className="w-4 h-4" />
+                Add
+              </button>
+            </div>
+
+            {loading ? (
+              <p className="text-xs text-gray-500 flex items-center gap-2">
+                <FiLoader className="w-3.5 h-3.5 animate-spin" /> Loading purchase types…
+              </p>
+            ) : null}
+
+            {error ? <p className="text-xs text-rose-700">{error}</p> : null}
+          </>
+        ) : (
+          <div className={cn(card, "p-3")}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-gray-900">Add purchase type</p>
+                <p className="text-xs text-gray-500">This will be saved and available in the dropdown.</p>
+              </div>
+              <button type="button" className={cn(iconBtn, "p-2")} onClick={cancelAdd} disabled={createBusy} title="Close">
+                <FiX className="w-4 h-4 text-gray-700" />
+              </button>
+            </div>
+
+            <div className="mt-3 flex flex-col sm:flex-row gap-2">
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                className={input}
+                placeholder="e.g., Retail, Corporate, Wholesale…"
+              />
+              <button type="button" onClick={submitAdd} disabled={createBusy} className={cn(btn, btnPrimary, "disabled:opacity-60")}>
+                {createBusy ? <FiLoader className="w-4 h-4 animate-spin" /> : <FiCheck className="w-4 h-4" />}
+                Save
+              </button>
+              <button type="button" onClick={cancelAdd} disabled={createBusy} className={cn(btn, btnGhost, "px-4")}>
+                Cancel
+              </button>
+            </div>
+
+            {localErr ? <p className="mt-2 text-xs text-rose-700">{localErr}</p> : null}
+          </div>
+        )}
+      </div>
+    </Field>
+  )
+}
+
+/* =========================
+   COLUMNS MODAL
+========================= */
 function ColumnsModal({ open, onClose, visibleColumns, setVisibleColumns }) {
   const [draft, setDraft] = useState(visibleColumns || DEFAULT_VISIBLE_COLUMNS)
 
@@ -764,7 +943,10 @@ function ColumnsModal({ open, onClose, visibleColumns, setVisibleColumns }) {
 /* =========================
    MODALS (UPSERT / NOTE / FOLLOWUP / FILTERS)
 ========================= */
-function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
+function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved, purchaseTypesState }) {
+  const { items: purchaseTypes, loading: ptLoading, error: ptError, create: createPurchaseType, creating } =
+    purchaseTypesState || {}
+
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -776,7 +958,6 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
     priority: "medium",
     purchaseType: "",
     tags: "",
-    // ✅ added missing fields:
     website: "",
     industry: "",
     address: "",
@@ -801,7 +982,6 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
       priority: c?.priority || "medium",
       purchaseType: c?.purchaseType || "",
       tags: Array.isArray(c?.tags) ? c.tags.join(", ") : "",
-      // ✅ prefill from company + assignedTo:
       website: c?.company?.website || "",
       industry: c?.company?.industry || "",
       address: c?.company?.address || "",
@@ -832,13 +1012,11 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean),
-      // ✅ added company object:
       company: {
         website: form.website.trim() || "",
         industry: form.industry.trim() || "",
         address: form.address.trim() || "",
       },
-      // ✅ optional assignedTo:
       ...(form.assignedTo.trim() ? { assignedTo: form.assignedTo.trim() } : {}),
     }
 
@@ -921,9 +1099,22 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
           </select>
         </Field>
 
-        <Field label="Purchase type">
-          <input value={form.purchaseType} onChange={update("purchaseType")} className={input} placeholder="Retail / Corporate / ..." />
-        </Field>
+        {/* ✅ Purchase type now uses backend options + add new */}
+        <div className="md:col-span-1">
+          <PurchaseTypePicker
+            label="Purchase type"
+            value={form.purchaseType}
+            onChange={(v) => setForm((p) => ({ ...p, purchaseType: v }))}
+            options={purchaseTypes || []}
+            loading={!!ptLoading}
+            error={ptError || ""}
+            onCreate={createPurchaseType}
+            createBusy={!!creating}
+            placeholder="Select purchase type"
+            allowEmpty={true}
+            hint="Choose from saved types or add a new one."
+          />
+        </div>
 
         <Field label="Source">
           <input value={form.source} onChange={update("source")} className={input} placeholder="Facebook / referral / walk-in..." />
@@ -1076,7 +1267,10 @@ function FollowUpModal({ open, onClose, lead, onSaved }) {
   )
 }
 
-function FiltersModal({ open, onClose, draft, setDraft, onApply, onClearDraft }) {
+function FiltersModal({ open, onClose, draft, setDraft, onApply, onClearDraft, purchaseTypesState }) {
+  const { items: purchaseTypes, loading: ptLoading, error: ptError, create: createPurchaseType, creating } =
+    purchaseTypesState || {}
+
   const hasAnyDraft = useMemo(() => Object.values(draft || {}).some((v) => String(v || "").trim()), [draft])
 
   return (
@@ -1144,9 +1338,24 @@ function FiltersModal({ open, onClose, draft, setDraft, onApply, onClearDraft })
               </select>
             </Field>
 
-            <Field label="Purchase type">
-              <input value={draft.purchaseType || ""} onChange={(e) => setDraft((p) => ({ ...p, purchaseType: e.target.value }))} className={input} placeholder="Retail / Corporate / ..." />
-            </Field>
+            {/* ✅ Purchase type filter now dropdown + add */}
+            <PurchaseTypePicker
+              label="Purchase type"
+              value={draft.purchaseType || ""}
+              onChange={(v) => setDraft((p) => ({ ...p, purchaseType: v }))}
+              options={purchaseTypes || []}
+              loading={!!ptLoading}
+              error={ptError || ""}
+              onCreate={async (name) => {
+                const createdName = await createPurchaseType?.(name)
+                // when created, also set filter to that new value
+                setDraft((p) => ({ ...p, purchaseType: createdName || name }))
+                return createdName || name
+              }}
+              createBusy={!!creating}
+              placeholder="All purchase types"
+              allowEmpty={true}
+            />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1343,9 +1552,6 @@ function LeadDetails({ leadId, refreshTick, onBack, onEdit, onAddNote, onSetFoll
 
   return (
     <div className={cn(shell, "p-4 sm:p-6 lg:p-8")}>
-      {/* ... unchanged (same as your file) ... */}
-      {/* (Keeping LeadDetails UI as-is; create/update now sends company + assignedTo so backend stores it.) */}
-
       <div className="mb-6">
         <div className={cn(card, "p-5 sm:p-6")}>
           <div className="flex flex-col gap-4">
@@ -1454,7 +1660,6 @@ function LeadDetails({ leadId, refreshTick, onBack, onEdit, onAddNote, onSetFoll
         </div>
       </div>
 
-      {/* Rest of LeadDetails kept same */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-7 space-y-6">
           <div className={cn(card, "p-5")}>
@@ -1693,6 +1898,98 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
   }
 
   const abortRef = useRef(null)
+
+  /* =========================
+     PURCHASE TYPES STATE (NEW)
+  ========================= */
+  const [purchaseTypes, setPurchaseTypes] = useState([])
+  const [ptLoading, setPtLoading] = useState(false)
+  const [ptError, setPtError] = useState("")
+  const [ptCreating, setPtCreating] = useState(false)
+
+  const loadPurchaseTypes = async ({ silent = false } = {}) => {
+    if (!silent) {
+      setPtLoading(true)
+      setPtError("")
+    }
+    try {
+      // load all pages up to 1000 (practically enough)
+      const all = []
+      let cursor = null
+      let hasNext = true
+      const controller = new AbortController()
+
+      while (hasNext && all.length < 1000) {
+        const data = await apiListPurchaseTypes({ active: "true", limit: 100, cursor, signal: controller.signal })
+        const items = Array.isArray(data?.items) ? data.items : []
+        all.push(...items)
+        const page = data?.pageInfo || {}
+        cursor = page?.nextCursor || null
+        hasNext = !!page?.hasNextPage && !!cursor
+        if (!!page?.hasNextPage && !cursor) hasNext = false
+      }
+
+      // unique by name (in case)
+      const map = new Map()
+      for (const it of all) {
+        const name = String(it?.name || "").trim()
+        if (!name) continue
+        if (!map.has(name)) map.set(name, it)
+      }
+
+      // sort by name
+      const sorted = Array.from(map.values()).sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || "")))
+      setPurchaseTypes(sorted)
+    } catch (e) {
+      setPtError(e?.message || "Failed to load purchase types")
+    } finally {
+      if (!silent) setPtLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadPurchaseTypes()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const createPurchaseType = async (name) => {
+    const clean = String(name || "").trim()
+    if (!clean) throw new Error("Name is required")
+    setPtCreating(true)
+    try {
+      const data = await apiCreatePurchaseType({ name: clean })
+      const created =
+        data?.purchaseType?.name || data?.purchaseType?.key || data?.name || clean
+
+      // Refresh list
+      await loadPurchaseTypes({ silent: true })
+      showToast("success", "Purchase type added.")
+      return created
+    } catch (e) {
+      // 409: already exists -> just return name and refresh list
+      const msg = e?.message || "Failed to add purchase type"
+      if (String(msg).toLowerCase().includes("already")) {
+        await loadPurchaseTypes({ silent: true })
+        showToast("success", "Purchase type already exists (selected).")
+        return clean
+      }
+      throw e
+    } finally {
+      setPtCreating(false)
+    }
+  }
+
+  const purchaseTypesState = useMemo(
+    () => ({
+      items: purchaseTypes,
+      loading: ptLoading,
+      error: ptError,
+      creating: ptCreating,
+      reload: loadPurchaseTypes,
+      create: createPurchaseType,
+    }),
+    [purchaseTypes, ptLoading, ptError, ptCreating]
+  )
 
   const activeFilterCount = useMemo(
     () => Object.values(filters || {}).filter((v) => String(v || "").trim()).length,
@@ -1945,6 +2242,7 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
             setDraft={setDraft}
             onApply={applyDraft}
             onClearDraft={clearDraft}
+            purchaseTypesState={purchaseTypesState}
           />
         ) : null}
       </AnimatePresence>
@@ -1956,12 +2254,27 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
       </AnimatePresence>
 
       <AnimatePresence>
-        {showCreate ? <LeadUpsertModal open={showCreate} mode="create" onClose={() => setShowCreate(false)} onSaved={afterMutate} /> : null}
+        {showCreate ? (
+          <LeadUpsertModal
+            open={showCreate}
+            mode="create"
+            onClose={() => setShowCreate(false)}
+            onSaved={afterMutate}
+            purchaseTypesState={purchaseTypesState}
+          />
+        ) : null}
       </AnimatePresence>
 
       <AnimatePresence>
         {!!editLead ? (
-          <LeadUpsertModal open={!!editLead} mode="edit" initial={editLead} onClose={() => setEditLead(null)} onSaved={afterMutate} />
+          <LeadUpsertModal
+            open={!!editLead}
+            mode="edit"
+            initial={editLead}
+            onClose={() => setEditLead(null)}
+            onSaved={afterMutate}
+            purchaseTypesState={purchaseTypesState}
+          />
         ) : null}
       </AnimatePresence>
 
@@ -1976,7 +2289,7 @@ export default function MarketingLeadsPage({ onConvertedToCustomer }) {
       {selectedLeadId ? (
         <LeadDetails
           leadId={selectedLeadId}
-          refreshTick={0}
+          refreshTick={detailsRefreshTick}
           onBack={() => {
             setSelectedLeadId(null)
             fetchLeadsPage({ reset: true })

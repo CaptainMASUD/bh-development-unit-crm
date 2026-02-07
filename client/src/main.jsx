@@ -14,6 +14,7 @@ import EmployeeDashboard from './Components/Employee/Dashboard';
 import RegisterForm from './Components/Register/Register';
 import MarketingDashboard from './Components/Marketing/Dashboard';
 import EcommerceHomePage from './Components/test/Admin';
+import CustomerServiceReport from './Components/Admin/ServiceReport';
 
 
 
@@ -31,6 +32,7 @@ const router = createBrowserRouter([
       { path: 'marketing', element: <MarketingDashboard /> },
       { path: 'crm', element: <RegisterForm /> },
       { path: 't', element: <EcommerceHomePage /> },
+      { path: 'n', element: <CustomerServiceReport /> },
       
     ],
   },

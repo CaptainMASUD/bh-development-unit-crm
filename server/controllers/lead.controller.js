@@ -2,7 +2,7 @@
 import mongoose from "mongoose";
 import Lead from "../models/lead.model.js";
 import Customer from "../models/customer.model.js";
-import PurchaseType from "../models/purchaseType.model.js"; // ✅ NEW (master list)
+import PurchaseType from "../models/purchaseType.model.js";
 import { dashboardCache } from "../utils/cache.js";
 import { getReqMeta, writeAudit, writeActivity, writeConversionLog } from "../utils/audit.js";
 
@@ -37,6 +37,56 @@ const applyCursor = (filter, cursor) => {
   if (c) filter._id = { ...(filter._id || {}), $lt: c };
 };
 
+const isAdminOrSuperAdmin = (req) => {
+  const role = req?.user?.role;
+  return role === "admin" || role === "superadmin";
+};
+
+// ✅ central access rule:
+// - Admin/Superadmin => always allowed
+// - Otherwise allowed if:
+//    A) (createdBy==me AND ownerLocked=false)
+//    B) assignedTo==me
+//    C) allowedUsers includes me
+const buildLeadAccessMatch = (req) => {
+  if (isAdminOrSuperAdmin(req)) return {};
+
+  const me = new mongoose.Types.ObjectId(req.user._id);
+  return {
+    $or: [
+      { assignedTo: me },
+      { allowedUsers: me },
+      { createdBy: me, ownerLocked: false },
+    ],
+  };
+};
+
+const assertLeadAccessOrThrow = async ({ req, leadId, session = null }) => {
+  if (isAdminOrSuperAdmin(req)) return true;
+
+  const me = new mongoose.Types.ObjectId(req.user._id);
+  const q = {
+    _id: leadId,
+    $or: [
+      { assignedTo: me },
+      { allowedUsers: me },
+      { createdBy: me, ownerLocked: false },
+    ],
+  };
+
+  const exists = session
+    ? await Lead.exists(q).session(session)
+    : await Lead.exists(q);
+
+  if (!exists) {
+    const err = new Error("Not authorized to access this lead");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  return true;
+};
+
 /**
  * ✅ Allowed fields for server-side projection (dynamic columns)
  */
@@ -50,7 +100,7 @@ const ALLOWED_LIST_FIELDS = new Set([
   "status",
   "pipelineStage",
   "priority",
-  "purchaseType", // ✅ keep string field in Lead
+  "purchaseType",
   "source",
   "tags",
   "assignedTo",
@@ -98,10 +148,9 @@ const parseFieldsProjection = (fieldsRaw) => {
   return { ...proj, ...ALWAYS_INCLUDE_FOR_LIST };
 };
 
-// ✅ helper: validate purchase type against master list (accepts key or name)
 const validatePurchaseTypeOrThrow = async (purchaseType) => {
   const pt = String(purchaseType || "").trim();
-  if (!pt) return ""; // allow empty
+  if (!pt) return "";
 
   const exists = await PurchaseType.exists({
     isActive: true,
@@ -118,7 +167,7 @@ const validatePurchaseTypeOrThrow = async (purchaseType) => {
 };
 
 /* =======================
-   CREATE LEAD (UPDATED)
+   CREATE LEAD
 ======================= */
 export const createLead = async (req, res) => {
   try {
@@ -129,13 +178,12 @@ export const createLead = async (req, res) => {
       return res.status(400).json({ message: "contact.name and contact.companyName are required." });
     }
 
-    // ✅ validate priority (optional)
     const pr = priority ? String(priority).toLowerCase().trim() : "medium";
     const safePriority = ["low", "medium", "high"].includes(pr) ? pr : "medium";
 
-    // ✅ validate purchaseType (must exist in PurchaseType master list if provided)
     const safePurchaseType = await validatePurchaseTypeOrThrow(purchaseType);
 
+    // ✅ keep your behavior: allow passed assignedTo else default me
     const assignedUserId = toObjectId(assignedTo) || req.user._id;
 
     const doc = await Lead.create({
@@ -152,13 +200,15 @@ export const createLead = async (req, res) => {
         industry: String(company?.industry || "").trim(),
         address: String(company?.address || "").trim(),
       },
-
-      // ✅ new fields
       priority: safePriority,
       purchaseType: safePurchaseType,
 
       createdBy: req.user._id,
       assignedTo: assignedUserId,
+
+      // ✅ access defaults: only creator sees (unless assignedTo is someone else)
+      ownerLocked: false,
+      allowedUsers: [],
     });
 
     await writeAudit({
@@ -183,12 +233,15 @@ export const createLead = async (req, res) => {
     return res.status(201).json({ message: "Lead created", lead: doc });
   } catch (err) {
     const code = err.statusCode || 500;
-    return res.status(code).json({ message: err.statusCode ? err.message : "Failed to create lead", error: err.message });
+    return res.status(code).json({
+      message: err.statusCode ? err.message : "Failed to create lead",
+      error: err.message,
+    });
   }
 };
 
 /* =======================
-   LIST LEADS (optimized)
+   LIST LEADS (WITH ACCESS)
 ======================= */
 export const listLeads = async (req, res) => {
   try {
@@ -212,7 +265,9 @@ export const listLeads = async (req, res) => {
     } = req.query;
 
     const pageSize = clamp(parseInt(limit || "20", 10), 1, 100);
-    const filter = {};
+
+    // ✅ base filter + access filter
+    const filter = { ...buildLeadAccessMatch(req) };
 
     if (status) filter.status = status;
     if (pipelineStage) filter.pipelineStage = pipelineStage;
@@ -225,6 +280,9 @@ export const listLeads = async (req, res) => {
 
     if (purchaseType) filter.purchaseType = String(purchaseType).trim();
 
+    // IMPORTANT:
+    // Let admin use assignedTo/createdBy filters freely.
+    // Non-admin: still apply, BUT must intersect with access filter.
     const assignedId = toObjectId(assignedTo);
     if (assignedId) filter.assignedTo = assignedId;
 
@@ -300,23 +358,28 @@ export const getLeadById = async (req, res) => {
     const id = toObjectId(req.params.id);
     if (!id) return res.status(400).json({ message: "Invalid lead id" });
 
+    await assertLeadAccessOrThrow({ req, leadId: id });
+
     const lead = await Lead.findById(id).lean();
     if (!lead) return res.status(404).json({ message: "Lead not found" });
 
     return res.json({ lead });
   } catch (err) {
-    return res.status(500).json({ message: "Failed to get lead", error: err.message });
+    const code = err.statusCode || 500;
+    return res.status(code).json({ message: err.statusCode ? err.message : "Failed to get lead", error: err.message });
   }
 };
 
 /* =======================
-   UPDATE LEAD + AUDIT (UPDATED)
+   UPDATE LEAD + AUDIT
 ======================= */
 export const updateLead = async (req, res) => {
   try {
     const meta = getReqMeta(req);
     const id = toObjectId(req.params.id);
     if (!id) return res.status(400).json({ message: "Invalid lead id" });
+
+    await assertLeadAccessOrThrow({ req, leadId: id });
 
     const before = await Lead.findById(id).lean();
     if (!before) return res.status(404).json({ message: "Lead not found" });
@@ -330,7 +393,7 @@ export const updateLead = async (req, res) => {
       "lastContactedAt",
       "nextFollowUpAt",
       "priority",
-      "purchaseType", // ✅ NEW
+      "purchaseType",
     ];
 
     const allowedContact = ["name", "email", "phone", "companyName"];
@@ -348,7 +411,6 @@ export const updateLead = async (req, res) => {
       payload.priority = pr;
     }
 
-    // ✅ validate purchaseType if provided (must exist in master list)
     if (payload.purchaseType !== undefined) {
       payload.purchaseType = await validatePurchaseTypeOrThrow(payload.purchaseType);
     }
@@ -418,7 +480,10 @@ export const updateLead = async (req, res) => {
     return res.json({ message: "Lead updated", lead });
   } catch (err) {
     const code = err.statusCode || 500;
-    return res.status(code).json({ message: err.statusCode ? err.message : "Failed to update lead", error: err.message });
+    return res.status(code).json({
+      message: err.statusCode ? err.message : "Failed to update lead",
+      error: err.message,
+    });
   }
 };
 
@@ -427,6 +492,8 @@ export const addLeadNote = async (req, res) => {
     const meta = getReqMeta(req);
     const id = toObjectId(req.params.id);
     if (!id) return res.status(400).json({ message: "Invalid lead id" });
+
+    await assertLeadAccessOrThrow({ req, leadId: id });
 
     const { note } = req.body || {};
     if (!note || !String(note).trim()) return res.status(400).json({ message: "note is required" });
@@ -469,7 +536,8 @@ export const addLeadNote = async (req, res) => {
 
     return res.json({ message: "Note added", lead });
   } catch (err) {
-    return res.status(500).json({ message: "Failed to add note", error: err.message });
+    const code = err.statusCode || 500;
+    return res.status(code).json({ message: err.statusCode ? err.message : "Failed to add note", error: err.message });
   }
 };
 
@@ -478,6 +546,8 @@ export const markContacted = async (req, res) => {
     const meta = getReqMeta(req);
     const id = toObjectId(req.params.id);
     if (!id) return res.status(400).json({ message: "Invalid lead id" });
+
+    await assertLeadAccessOrThrow({ req, leadId: id });
 
     const before = await Lead.findById(id).lean();
     if (!before) return res.status(404).json({ message: "Lead not found" });
@@ -509,7 +579,8 @@ export const markContacted = async (req, res) => {
 
     return res.json({ message: "Lead marked as contacted", lead });
   } catch (err) {
-    return res.status(500).json({ message: "Failed to mark contacted", error: err.message });
+    const code = err.statusCode || 500;
+    return res.status(code).json({ message: err.statusCode ? err.message : "Failed to mark contacted", error: err.message });
   }
 };
 
@@ -518,6 +589,8 @@ export const setFollowUp = async (req, res) => {
     const meta = getReqMeta(req);
     const id = toObjectId(req.params.id);
     if (!id) return res.status(400).json({ message: "Invalid lead id" });
+
+    await assertLeadAccessOrThrow({ req, leadId: id });
 
     const { nextFollowUpAt } = req.body || {};
     if (!nextFollowUpAt) return res.status(400).json({ message: "nextFollowUpAt is required" });
@@ -552,12 +625,13 @@ export const setFollowUp = async (req, res) => {
 
     return res.json({ message: "Follow-up updated", lead });
   } catch (err) {
-    return res.status(500).json({ message: "Failed to set follow-up", error: err.message });
+    const code = err.statusCode || 500;
+    return res.status(code).json({ message: err.statusCode ? err.message : "Failed to set follow-up", error: err.message });
   }
 };
 
 /* =======================
-   CONVERT (best practice)
+   CONVERT (customer assignedTo EMPTY)
 ======================= */
 export const convertLeadToCustomer = async (req, res) => {
   const session = await mongoose.startSession();
@@ -565,6 +639,9 @@ export const convertLeadToCustomer = async (req, res) => {
     const meta = getReqMeta(req);
     const leadId = toObjectId(req.params.id);
     if (!leadId) return res.status(400).json({ message: "Invalid lead id" });
+
+    // ✅ must have access to convert
+    await assertLeadAccessOrThrow({ req, leadId, session });
 
     session.startTransaction();
 
@@ -579,7 +656,10 @@ export const convertLeadToCustomer = async (req, res) => {
       return res.status(409).json({ message: "Lead already converted", customerId: lead.convertedCustomer });
     }
 
-    const existingCustomer = await Customer.findOne({ leadId: lead._id }).session(session).select("_id status");
+    const existingCustomer = await Customer.findOne({ leadId: lead._id })
+      .session(session)
+      .select("_id status");
+
     if (existingCustomer?._id) {
       lead.convertedCustomer = existingCustomer._id;
       lead.customerId = existingCustomer._id;
@@ -623,11 +703,14 @@ export const convertLeadToCustomer = async (req, res) => {
       leadId: lead._id,
 
       createdBy: req.user._id,
-      assignedTo: [lead.assignedTo],
+
+      // ✅ FIX: DO NOT assign marketing user into customer
+      assignedTo: [],
 
       customerFiles: [],
       engagements: [],
       crmTasks: [],
+      jobs: [],
     };
 
     const [customer] = await Customer.create([customerPayload], { session });
@@ -697,9 +780,83 @@ export const convertLeadToCustomer = async (req, res) => {
     try {
       await session.abortTransaction();
     } catch {}
-    return res.status(500).json({ message: "Failed to convert lead", error: err.message });
+    const code = err.statusCode || 500;
+    return res.status(code).json({ message: err.statusCode ? err.message : "Failed to convert lead", error: err.message });
   } finally {
     session.endSession();
+  }
+};
+
+/* =======================
+   ✅ ADMIN ACCESS CONTROL (NEW)
+   PATCH /leads/:id/access
+   body:
+    {
+      addUserIds?: ["..."],
+      removeUserIds?: ["..."],
+      lockOwner?: true|false
+    }
+======================= */
+export const updateLeadAccess = async (req, res) => {
+  try {
+    if (!isAdminOrSuperAdmin(req)) {
+      return res.status(403).json({ message: "Only admin/superadmin can manage lead access." });
+    }
+
+    const id = toObjectId(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid lead id" });
+
+    const lead = await Lead.findById(id);
+    if (!lead) return res.status(404).json({ message: "Lead not found" });
+
+    const addUserIds = Array.isArray(req.body?.addUserIds) ? req.body.addUserIds : [];
+    const removeUserIds = Array.isArray(req.body?.removeUserIds) ? req.body.removeUserIds : [];
+    const lockOwner = req.body?.lockOwner;
+
+    const normalizeIds = (arr) => {
+      const out = [];
+      const seen = new Set();
+      for (const v of arr) {
+        const s = String(v ?? "").trim();
+        if (!s) continue;
+        if (!mongoose.isValidObjectId(s)) continue;
+        if (seen.has(s)) continue;
+        seen.add(s);
+        out.push(new mongoose.Types.ObjectId(s));
+      }
+      return out;
+    };
+
+    const addIds = normalizeIds(addUserIds);
+    const remIds = normalizeIds(removeUserIds);
+
+    const set = new Set((lead.allowedUsers || []).map((x) => String(x)));
+
+    for (const a of addIds) set.add(String(a));
+    for (const r of remIds) set.delete(String(r));
+
+    lead.allowedUsers = Array.from(set).map((s) => new mongoose.Types.ObjectId(s));
+
+    if (lockOwner !== undefined) {
+      const b = String(lockOwner).toLowerCase();
+      if (!["true", "false"].includes(b)) {
+        return res.status(400).json({ message: "lockOwner must be boolean." });
+      }
+      lead.ownerLocked = b === "true";
+    }
+
+    await lead.save();
+
+    return res.json({
+      message: "Lead access updated",
+      lead: {
+        _id: lead._id,
+        ownerLocked: lead.ownerLocked,
+        allowedUsers: lead.allowedUsers,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to update lead access", error: err.message });
   }
 };
 
@@ -708,6 +865,11 @@ export const deleteLead = async (req, res) => {
     const meta = getReqMeta(req);
     const id = toObjectId(req.params.id);
     if (!id) return res.status(400).json({ message: "Invalid lead id" });
+
+    // admin already enforced in routes, but safe:
+    if (!isAdminOrSuperAdmin(req)) {
+      return res.status(403).json({ message: "Only admin/superadmin can delete leads." });
+    }
 
     const before = await Lead.findById(id).lean();
     if (!before) return res.status(404).json({ message: "Lead not found" });

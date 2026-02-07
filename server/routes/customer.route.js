@@ -12,7 +12,7 @@ import {
   searchEmployeesForCustomerAssign,
   updateCustomerStatus,
 
-  // ✅ NEW: jobs
+  // ✅ jobs
   getCustomerJobs,
   addCustomerJob,
   updateCustomerJob,
@@ -22,17 +22,24 @@ import {
 import { protect, isAdminOrSuperAdmin } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
-
 router.use(protect);
 
-const blockMarketingCreateCustomer = (req, res, next) => {
-  if (req.user?.role === "marketing_team") {
-    return res
-      .status(403)
-      .json({ message: "Marketing team cannot create customers directly." });
+/**
+ * ✅ Decide customer-module access at route level.
+ * Option A (recommended): Only employee/admin/superadmin can use /customers at all.
+ * - If you DO want marketing (assigned) to view customers, remove the marketing check below.
+ */
+const blockMarketingAccessCustomers = (req, res, next) => {
+  const role = String(req.user?.role || "").toLowerCase();
+
+  // support both naming styles used in your codebase
+  if (role === "marketing" || role === "marketing_team") {
+    return res.status(403).json({ message: "Marketing team cannot access customers module." });
   }
-  next();
+  return next();
 };
+
+router.use(blockMarketingAccessCustomers);
 
 /* =========================
    ✅ EMPLOYEES (assign helper)
@@ -43,7 +50,9 @@ router.get("/employees/search", isAdminOrSuperAdmin, searchEmployeesForCustomerA
    ✅ CUSTOMERS
 ========================= */
 router.get("/", getCustomers);
-router.post("/", blockMarketingCreateCustomer, createCustomer);
+
+// employee can create direct customer; marketing blocked by middleware above
+router.post("/", createCustomer);
 
 // ✅ admin-only onboarding status update
 router.patch("/:id/status", isAdminOrSuperAdmin, updateCustomerStatus);
@@ -52,28 +61,20 @@ router.patch("/:id/status", isAdminOrSuperAdmin, updateCustomerStatus);
    ✅ JOBS (Customer -> Job -> SubJob)
    Max depth = 2
 ========================= */
-// get jobs tree + flat list
 router.get("/:id/jobs", getCustomerJobs);
-
-// create job (root) or sub-job (send parentJobId)
 router.post("/:id/jobs", isAdminOrSuperAdmin, addCustomerJob);
-
-// update job/sub-job
 router.patch("/:id/jobs/:jobId", isAdminOrSuperAdmin, updateCustomerJob);
-
-// delete job/sub-job (optional force=true deletes tasks for those jobs too)
 router.delete("/:id/jobs/:jobId", isAdminOrSuperAdmin, deleteCustomerJob);
 
 /* =========================
    ✅ CUSTOMER TASKS / ENGAGEMENTS
-   (You can keep these OR remove tasks route here
-    since task.route.js already serves /customers/:customerId/tasks)
 ========================= */
 router.get("/:id/tasks", getCustomerTasks);
 router.patch("/:id/engagements", upsertCustomerEngagement);
 
 router.patch("/:id", updateCustomer);
 
+// ✅ assignment + delete are admin-only
 router.patch("/:id/assign", isAdminOrSuperAdmin, assignCustomer);
 router.delete("/:id", isAdminOrSuperAdmin, deleteCustomer);
 

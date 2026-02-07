@@ -1,5 +1,17 @@
 "use client"
 
+/**
+ * AdminLeadsPage.jsx (UPDATED)
+ * - Robust "converted" detection (supports multiple backend response shapes)
+ * - Safer convert handler return parsing
+ * - Optional role-based convert gating (kept soft: backend is source of truth)
+ * - No UI/Design changes — same premium design, just wired to backend changes
+ *
+ * NOTE:
+ * - If you're using Vite: keep import.meta.env
+ * - If you're using Next.js: replace API_BASE line with NEXT_PUBLIC_API_URL
+ */
+
 import { useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import LeadDetailsPage from "./LeadDetailsPage"
@@ -23,8 +35,13 @@ import {
   FiAlertTriangle,
   FiColumns,
 } from "react-icons/fi"
+import { SiMicrosoftexcel } from "react-icons/si"
+import * as XLSX from "xlsx"
 
+// ✅ Vite:
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
+// ✅ Next.js alternative:
+// const API_BASE = `${process.env.NEXT_PUBLIC_API_URL}/api`
 
 /* =========================
    UI TOKENS (PREMIUM)
@@ -48,8 +65,8 @@ const chip = "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs fo
 const searchWrap =
   [
     "w-full rounded-2xl border border-gray-200 bg-white",
-    "px-3 py-1 sm:px-3.5 sm:py-1", // tighter padding
-    "min-h-[40px] sm:min-h-[42px]", // standard compact height
+    "px-3 py-1 sm:px-3.5 sm:py-1",
+    "min-h-[40px] sm:min-h-[42px]",
     "flex items-center gap-2 flex-wrap",
     "transition shadow-none",
     "focus-within:border-indigo-300",
@@ -61,7 +78,7 @@ const searchInput =
     "flex-1 min-w-[10rem] bg-transparent",
     "text-sm text-gray-900 placeholder:text-gray-400",
     "border-0 outline-none ring-0 shadow-none appearance-none",
-    "h-8 sm:h-9", // smaller input height
+    "h-8 sm:h-9",
     "focus:outline-none focus:ring-0 focus:shadow-none",
   ].join(" ")
 
@@ -91,6 +108,24 @@ function initials(name = "") {
   const a = parts[0]?.[0] || ""
   const b = parts.length > 1 ? parts[parts.length - 1]?.[0] || "" : ""
   return (a + b).toUpperCase()
+}
+
+/**
+ * ✅ UPDATED: robust "converted" detection
+ * Supports multiple backend response shapes:
+ * - lead.isConverted / lead.converted
+ * - lead.convertedCustomerId / lead.customerId
+ * - lead.convertedCustomer object
+ */
+const isConvertedLead = (lead) => {
+  return Boolean(
+    lead?.isConverted ||
+      lead?.converted === true ||
+      lead?.convertedCustomerId ||
+      lead?.customerId ||
+      lead?.convertedCustomer?._id ||
+      lead?.convertedCustomer
+  )
 }
 
 /* =========================
@@ -162,7 +197,7 @@ function PriorityBadge({ priority }) {
 }
 
 /* =========================
-   FILTER CHIP (smaller for compact search bar)
+   FILTER CHIP
 ========================= */
 function FilterChip({ label, value, onRemove }) {
   return (
@@ -285,7 +320,9 @@ function ModalShell({ open, onClose, title, subtitle, icon, children, footer, ma
 
             <div className="p-4 sm:p-5 bg-white max-h-[calc(100vh-14rem)] overflow-y-auto">{children}</div>
 
-            {footer ? <div className="p-4 sm:p-5 border-t border-gray-100 bg-white sticky bottom-0 z-20">{footer}</div> : null}
+            {footer ? (
+              <div className="p-4 sm:p-5 border-t border-gray-100 bg-white sticky bottom-0 z-20">{footer}</div>
+            ) : null}
           </motion.div>
         </div>
       </div>
@@ -600,7 +637,9 @@ function ColumnPickerModal({ open, onClose, allowed = [], selected = [], onSave 
         </div>
       }
     >
-      {err ? <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{err}</div> : null}
+      {err ? (
+        <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{err}</div>
+      ) : null}
 
       <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between mb-4">
         <div className="w-full sm:max-w-md">
@@ -615,7 +654,9 @@ function ColumnPickerModal({ open, onClose, allowed = [], selected = [], onSave 
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Filter columns..."
-              className={cn("flex-1 bg-transparent text-sm text-gray-900 placeholder:text-gray-400 border-0 outline-none")}
+              className={cn(
+                "flex-1 bg-transparent text-sm text-gray-900 placeholder:text-gray-400 border-0 outline-none"
+              )}
             />
           </div>
         </div>
@@ -697,7 +738,9 @@ function AddPurchaseTypeModal({ open, onClose, onCreated }) {
         </div>
       }
     >
-      {err ? <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{err}</div> : null}
+      {err ? (
+        <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{err}</div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4">
         <Field label="Name *" hint='Example: "Retail", "Wholesale", "Service"'>
@@ -870,7 +913,9 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
           </div>
         }
       >
-        {error ? <div className="mb-5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div> : null}
+        {error ? (
+          <div className="mb-5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>
+        ) : null}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="Contact Name *">
@@ -950,7 +995,12 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
           </Field>
 
           <Field label="Source">
-            <input value={form.source} onChange={update("source")} className={input} placeholder="Facebook / referral / etc." />
+            <input
+              value={form.source}
+              onChange={update("source")}
+              className={input}
+              placeholder="Facebook / referral / etc."
+            />
           </Field>
 
           <Field label="Tags (comma separated)">
@@ -969,7 +1019,12 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
                 </Field>
                 <div className="md:col-span-2">
                   <Field label="Address">
-                    <input value={form.address} onChange={update("address")} className={input} placeholder="Street, area, city" />
+                    <input
+                      value={form.address}
+                      onChange={update("address")}
+                      className={input}
+                      placeholder="Street, area, city"
+                    />
                   </Field>
                 </div>
               </div>
@@ -978,14 +1033,21 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
 
           <div className="md:col-span-2">
             <Field label="Assigned To (optional User ID)">
-              <input value={form.assignedTo} onChange={update("assignedTo")} className={input} placeholder="UserId (optional)" />
+              <input
+                value={form.assignedTo}
+                onChange={update("assignedTo")}
+                className={input}
+                placeholder="UserId (optional)"
+              />
             </Field>
           </div>
         </div>
       </ModalShell>
 
       <AnimatePresence>
-        {addPtOpen ? <AddPurchaseTypeModal open={addPtOpen} onClose={() => setAddPtOpen(false)} onCreated={onPurchaseTypeCreated} /> : null}
+        {addPtOpen ? (
+          <AddPurchaseTypeModal open={addPtOpen} onClose={() => setAddPtOpen(false)} onCreated={onPurchaseTypeCreated} />
+        ) : null}
       </AnimatePresence>
     </>
   )
@@ -1037,7 +1099,9 @@ function NoteModal({ open, onClose, lead, onAdded }) {
         </div>
       }
     >
-      {error ? <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div> : null}
+      {error ? (
+        <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>
+      ) : null}
       <textarea value={note} onChange={(e) => setNote(e.target.value)} className={cn(input, "min-h-[140px]")} />
     </ModalShell>
   )
@@ -1095,7 +1159,9 @@ function FollowUpModal({ open, onClose, lead, onSaved }) {
         </div>
       }
     >
-      {error ? <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div> : null}
+      {error ? (
+        <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>
+      ) : null}
 
       <Field label="Next Follow-up Date & Time">
         <input type="datetime-local" value={dt} onChange={(e) => setDt(e.target.value)} className={input} />
@@ -1301,11 +1367,12 @@ function RowActionsMenu({
   onDelete,
   busy,
   converting,
+  canConvert = true,
 }) {
   const [open, setOpen] = useState(false)
   const menuRef = useRef(null)
 
-  const converted = !!lead?.convertedCustomer || !!lead?.convertedCustomerId || !!lead?.customerId || !!lead?.convertedCustomer?._id
+  const converted = isConvertedLead(lead)
 
   useEffect(() => {
     if (!open) return
@@ -1384,20 +1451,29 @@ function RowActionsMenu({
                 onMarkContacted?.(lead?._id)
               }}
             >
-              {busy ? <FiLoader className="w-4 h-4 text-gray-500 animate-spin" /> : <FiPhoneCall className="w-4 h-4 text-gray-500" />}
+              {busy ? (
+                <FiLoader className="w-4 h-4 text-gray-500 animate-spin" />
+              ) : (
+                <FiPhoneCall className="w-4 h-4 text-gray-500" />
+              )}
               Mark contacted
             </button>
 
             <button
-              disabled={converting || converted}
-              className={cn(item, converting || converted ? "opacity-60 cursor-not-allowed" : "")}
+              disabled={!canConvert || converting || converted}
+              className={cn(item, !canConvert || converting || converted ? "opacity-60 cursor-not-allowed" : "")}
               onClick={() => {
-                if (converted) return
+                if (!canConvert || converted) return
                 setOpen(false)
                 onConvert?.(lead?._id)
               }}
+              title={!canConvert ? "Not allowed" : converted ? "Already converted" : "Convert"}
             >
-              {converting ? <FiLoader className="w-4 h-4 text-indigo-600 animate-spin" /> : <FiUserPlus className="w-4 h-4 text-indigo-600" />}
+              {converting ? (
+                <FiLoader className="w-4 h-4 text-indigo-600 animate-spin" />
+              ) : (
+                <FiUserPlus className="w-4 h-4 text-indigo-600" />
+              )}
               {converted ? "Already converted" : "Convert to customer"}
             </button>
 
@@ -1496,6 +1572,13 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
   const [selectedCols, setSelectedCols] = useState([])
   const prefAbortRef = useRef(null)
 
+  // Optional: basic role gating. Backend still enforces.
+  const canConvert = useMemo(() => {
+    const role = String(localStorage.getItem("role") || "").toLowerCase()
+    if (!role) return true
+    return role !== "marketing_team"
+  }, [])
+
   const activeFilterCount = useMemo(
     () =>
       Object.entries(filters || {})
@@ -1573,7 +1656,9 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
         "createdAt",
         "updatedAt",
       ])
-      setSelectedCols((prev) => (prev.length ? prev : ["leadNumber", "status", "pipelineStage", "priority", "nextFollowUpAt"]))
+      setSelectedCols((prev) =>
+        prev.length ? prev : ["leadNumber", "status", "pipelineStage", "priority", "nextFollowUpAt"]
+      )
     }
   }
 
@@ -1682,8 +1767,6 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
     })
   }
 
-  const clearDraft = () => setDraft(EMPTY_DRAFT)
-
   const applyDraft = () => {
     setFilters((p) => ({ ...p, ...draft }))
     setFiltersOpen(false)
@@ -1697,11 +1780,6 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
       leadId: lead?._id || "",
       leadName: lead?.contact?.name || "this lead",
     })
-  }
-
-  const closeDelete = () => {
-    if (deleteLoading) return
-    setDeleteModal((p) => ({ ...p, open: false }))
   }
 
   const confirmDelete = async () => {
@@ -1738,13 +1816,24 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
 
   const doConvert = async (leadId) => {
     if (!leadId) return
+    if (!canConvert) {
+      showToast("error", "You are not allowed to convert leads.")
+      return
+    }
+
     setConvertLoadingId(leadId)
     try {
       const data = await apiConvertLead(leadId)
+
+      // ✅ UPDATED: safer extraction of customer id
+      const customerId =
+        data?.customerId || data?.customer?._id || data?.convertedCustomerId || data?.convertedCustomer?._id || null
+
       showToast("success", "Converted successfully.")
       await fetchLeadsPage({ reset: true })
       bumpDetailsRefresh()
-      onConvertedToCustomer?.(data?.customerId || data?.customer?._id)
+
+      if (customerId) onConvertedToCustomer?.(customerId)
     } catch (e) {
       showToast("error", e?.message || "Convert failed")
     } finally {
@@ -1759,6 +1848,82 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
     bumpDetailsRefresh()
   }
 
+  /* =========================
+     ✅ EXCEL EXPORT (selected columns only)
+========================= */
+  const exportToExcel = () => {
+    try {
+      if (!Array.isArray(leads) || leads.length === 0) {
+        showToast("error", "No data to export.")
+        return
+      }
+
+      const colsToExport =
+        Array.isArray(selectedCols) && selectedCols.length
+          ? selectedCols
+          : ["leadNumber", "status", "pipelineStage", "priority", "nextFollowUpAt"]
+
+      const headerMap = {
+        leadNumber: "Lead No",
+        "contact.name": "Contact Name",
+        "contact.companyName": "Company",
+        "contact.phone": "Phone",
+        "contact.email": "Email",
+        status: "Status",
+        pipelineStage: "Stage",
+        priority: "Priority",
+        purchaseType: "Purchase Type",
+        nextFollowUpAt: "Next Follow-up",
+        lastContactedAt: "Last Contacted",
+        source: "Source",
+        createdAt: "Created",
+        updatedAt: "Updated",
+        tags: "Tags",
+      }
+
+      const getByPath = (obj, path) => {
+        if (!obj || !path) return ""
+        if (!String(path).includes(".")) return obj?.[path]
+        return String(path)
+          .split(".")
+          .reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), obj)
+      }
+
+      const normalizeValue = (key, val) => {
+        if (val === undefined || val === null) return ""
+        if (key === "tags") {
+          const arr = Array.isArray(val) ? val : []
+          return arr.join(", ")
+        }
+        if (key === "nextFollowUpAt" || key === "lastContactedAt" || key === "createdAt" || key === "updatedAt") {
+          return val ? formatDate(val) : ""
+        }
+        if (typeof val === "object") return JSON.stringify(val)
+        return String(val)
+      }
+
+      const rows = leads.map((l) => {
+        const out = {}
+        colsToExport.forEach((key) => {
+          const raw = getByPath(l, key)
+          out[headerMap[key] || key] = normalizeValue(key, raw)
+        })
+        return out
+      })
+
+      const ws = XLSX.utils.json_to_sheet(rows)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, "Deals")
+
+      const fileName = `deals_export_${new Date().toISOString().slice(0, 10)}.xlsx`
+      XLSX.writeFile(wb, fileName)
+
+      showToast("success", "Excel exported.")
+    } catch (e) {
+      showToast("error", e?.message || "Export failed")
+    }
+  }
+
   /* ===== Dynamic table columns mapping ===== */
   const columnDefs = useMemo(() => {
     return {
@@ -1768,8 +1933,8 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
           const no = l?.leadNumber || "—"
           const name = l?.contact?.name || "Unnamed"
           const company = l?.contact?.companyName || "—"
-          const converted =
-            !!l?.convertedCustomer || !!l?.convertedCustomerId || !!l?.customerId || !!l?.convertedCustomer?._id
+          const converted = isConvertedLead(l)
+
           return (
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
@@ -1801,8 +1966,8 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
           const name = l?.contact?.name || "Unnamed"
           const company = l?.contact?.companyName || "—"
           const source = l?.source || ""
-          const converted =
-            !!l?.convertedCustomer || !!l?.convertedCustomerId || !!l?.customerId || !!l?.convertedCustomer?._id
+          const converted = isConvertedLead(l)
+
           return (
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
@@ -1913,7 +2078,10 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
         description={`This will permanently delete "${deleteModal.leadName}". This cannot be undone.`}
         confirmText="Delete"
         loading={deleteLoading}
-        onClose={closeDelete}
+        onClose={() => {
+          if (deleteLoading) return
+          setDeleteModal((p) => ({ ...p, open: false }))
+        }}
         onConfirm={confirmDelete}
       />
 
@@ -1925,7 +2093,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
             draft={draft}
             setDraft={setDraft}
             onApply={applyDraft}
-            onClearDraft={clearDraft}
+            onClearDraft={() => setDraft(EMPTY_DRAFT)}
             activeSummary={
               <div className="text-sm text-gray-700">
                 <p className="font-bold text-gray-900">Selected filters</p>
@@ -1973,7 +2141,13 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
 
       <AnimatePresence>
         {!!editLead ? (
-          <LeadUpsertModal open={!!editLead} mode="edit" initial={editLead} onClose={() => setEditLead(null)} onSaved={afterMutate} />
+          <LeadUpsertModal
+            open={!!editLead}
+            mode="edit"
+            initial={editLead}
+            onClose={() => setEditLead(null)}
+            onSaved={afterMutate}
+          />
         ) : null}
       </AnimatePresence>
 
@@ -1983,11 +2157,15 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
 
       <AnimatePresence>
         {!!followupLead ? (
-          <FollowUpModal open={!!followupLead} lead={followupLead} onClose={() => setFollowupLead(null)} onSaved={afterMutate} />
+          <FollowUpModal
+            open={!!followupLead}
+            lead={followupLead}
+            onClose={() => setFollowupLead(null)}
+            onSaved={afterMutate}
+          />
         ) : null}
       </AnimatePresence>
 
-      {/* ✅ DETAILS PAGE (separate component) */}
       {selectedLeadId ? (
         <LeadDetailsPage
           leadId={selectedLeadId}
@@ -2032,6 +2210,23 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
                       Columns
                     </button>
 
+                    {/* ✅ EXCEL EXPORT BUTTON */}
+                    <button
+                      onClick={exportToExcel}
+                      disabled={isLoading || leads.length === 0}
+                      className={cn(
+                        btn,
+                        "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm disabled:opacity-60",
+                        "focus-visible:ring-2 focus-visible:ring-emerald-500/40"
+                      )}
+                      title="Export Excel"
+                    >
+                      <span className="w-4 h-4 rounded-xl bg-white/15 flex items-center justify-center">
+                        <SiMicrosoftexcel className="w-5 h-5 text-white" />
+                      </span>
+                      Export
+                    </button>
+
                     <button onClick={() => fetchLeadsPage({ reset: true })} className={cn(btn, btnGhost)} title="Refresh">
                       <FiRefreshCcw className={cn("w-4 h-4", isLoading ? "animate-spin" : "")} />
                       Refresh
@@ -2044,7 +2239,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
                   </div>
                 </div>
 
-                {/* ✅ SEARCH BAR (COMPACT) */}
+                {/* SEARCH BAR */}
                 <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
                   <div className="w-full lg:w-2/3">
                     <div className={searchWrap}>
@@ -2177,6 +2372,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
                                 lead={l}
                                 busy={busy}
                                 converting={converting}
+                                canConvert={canConvert}
                                 onView={() => setSelectedLeadId(l._id)}
                                 onEdit={(lead) => setEditLead(lead)}
                                 onAddNote={(lead) => setNoteLead(lead)}

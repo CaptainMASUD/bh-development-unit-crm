@@ -1,85 +1,280 @@
 "use client"
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useLayoutEffect,
-  useId,
-  useCallback,
-} from "react"
-import { createPortal } from "react-dom"
+import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import {
-  FiUsers,
   FiSearch,
   FiX,
   FiFilter,
-  FiChevronDown,
   FiRefreshCcw,
+  FiLoader,
   FiAlertCircle,
   FiCheck,
+  FiEye,
+  FiChevronDown,
+  FiTrendingUp,
   FiClock,
-  FiCalendar,
-  FiInfo,
-  FiBriefcase,
+  FiList,
+  FiActivity,
+  FiAward,
+  FiChevronUp,
+  FiClipboard,
+  FiColumns,
+  FiArrowUp,
+  FiArrowDown,
 } from "react-icons/fi"
-import { Loader2 } from "lucide-react"
+import { SiMicrosoftexcel } from "react-icons/si"
+import { FaFilePdf } from "react-icons/fa"
+import * as XLSX from "xlsx"
+import jsPDF from "jspdf"
+import autoTable from "jspdf-autotable"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
-const ENDPOINTS = {
-  LIST_CUSTOMER_WORKLOAD: `${API_BASE}/workload/customers`, // ✅ new
-}
-
-/* =========================
-   STYLES
-========================= */
-const pageBg = "bg-gradient-to-b from-gray-50 via-gray-50 to-white"
-const card =
-  "rounded-2xl border border-gray-100 bg-white shadow-[0_18px_55px_-40px_rgba(0,0,0,0.55)]"
+const shell = "min-h-screen bg-gradient-to-b from-gray-50 to-white"
+const card = "rounded-2xl border border-gray-100 bg-white shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]"
 const subtleHover = "transition-colors hover:bg-gray-50/70"
-
 const btn =
-  "inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl active:scale-[0.99] transition focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-const btnPrimary =
-  "bg-indigo-600 text-white hover:bg-indigo-700 shadow-[0_12px_30px_-18px_rgba(79,70,229,0.65)]"
+  "inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl active:scale-[0.99] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+const btnPrimary = "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
 const btnGhost = "border border-gray-200 bg-white hover:bg-gray-50"
-
 const input =
-  "w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+  "w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-white outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 focus-visible:border-transparent"
+const chip = "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ring-1"
 
-const chip =
-  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-extrabold ring-1 select-none"
-const chipSoft = "bg-white/70 text-gray-800 ring-gray-200"
-const chipIndigo = "bg-indigo-50 text-indigo-700 ring-indigo-600/10"
-const chipAmber = "bg-amber-50 text-amber-800 ring-amber-600/10"
-const chipEmerald = "bg-emerald-50 text-emerald-700 ring-emerald-600/10"
-const chipRose = "bg-rose-50 text-rose-700 ring-rose-600/10"
-const chipGray = "bg-gray-50 text-gray-800 ring-gray-200"
+// tighter table paddings
+const thCls = "px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider"
+const thClsR = "px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider"
+const tdCls = "px-6 py-3 align-middle"
+const tdNum = "px-6 py-3 align-middle text-right text-sm text-gray-700"
+const tdNumBold = "px-6 py-3 align-middle text-right text-sm font-extrabold text-gray-900"
+
+const searchWrap =
+  [
+    "rounded-2xl border border-gray-200 bg-white",
+    "px-3 py-1 sm:px-3.5 sm:py-1",
+    "min-h-[40px] sm:min-h-[42px]",
+    "flex items-center gap-2 flex-wrap",
+    "transition shadow-none",
+    "focus-within:border-indigo-300",
+    "focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.14)]",
+  ].join(" ")
+
+const searchInput =
+  [
+    "flex-1 min-w-[10rem] bg-transparent",
+    "text-sm text-gray-900 placeholder:text-gray-400",
+    "border-0 outline-none ring-0 shadow-none appearance-none",
+    "h-8 sm:h-9",
+    "focus:outline-none focus:ring-0 focus:shadow-none",
+  ].join(" ")
 
 function cn(...classes) {
   return classes.filter(Boolean).join(" ")
 }
 
-function getAuthHeaders() {
+function getAuthHeaders(extra = {}) {
   const token = localStorage.getItem("token")
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...extra,
   }
 }
 
-/* =========================
-   TOAST
-========================= */
+function formatDate(dt) {
+  if (!dt) return "—"
+  const d = new Date(dt)
+  if (Number.isNaN(d.getTime())) return "—"
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" })
+}
+
+function safeNum(v) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
+}
+
+function minsToHours(mins) {
+  const m = safeNum(mins)
+  const h = m / 60
+  return Math.round(h * 10) / 10
+}
+
+function initials(name = "") {
+  const parts = String(name).trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return "?"
+  const a = parts[0]?.[0] || ""
+  const b = parts.length > 1 ? parts[parts.length - 1]?.[0] || "" : ""
+  return (a + b).toUpperCase()
+}
+
+function ratingTone(label = "") {
+  const v = String(label || "").toLowerCase()
+  if (v === "outstanding") return "green"
+  if (v === "better") return "indigo"
+  if (v === "good") return "amber"
+  return "gray"
+}
+
+function ratingLabelPretty(label = "") {
+  const v = String(label || "").toLowerCase()
+  if (!v) return "—"
+  return v.charAt(0).toUpperCase() + v.slice(1)
+}
+
+function statusTone(status = "") {
+  const s = String(status || "").toLowerCase()
+  if (s === "done") return "green"
+  if (s === "in_progress") return "indigo"
+  if (s === "pending") return "amber"
+  return "gray"
+}
+
+function statusPretty(status = "") {
+  const s = String(status || "").toLowerCase()
+  if (s === "in_progress") return "In progress"
+  if (s === "pending") return "Pending"
+  if (s === "done") return "Done"
+  return "—"
+}
+
+function rangeLabelPretty(range = "") {
+  const r = String(range || "")
+  if (r === "this_month") return "This month"
+  if (r === "last_month") return "Last month"
+  if (r === "this_week") return "This week"
+  if (r === "last_6_months") return "Last 6 months"
+  if (r === "last_1_year") return "Last 1 year"
+  return "—"
+}
+
+function activeLabelPretty(v = "all") {
+  if (String(v) === "true") return "Active only"
+  if (String(v) === "false") return "Inactive only"
+  return "All"
+}
+
+function sortLabelPretty(v = "newest") {
+  if (String(v) === "oldest") return "Oldest"
+  return "Newest"
+}
+
+/* ---------------------- Columns (updated backend) ---------------------- */
+const EMP_VIEW_KEY = "employeeReport.list"
+
+// ✅ labels for ALL backend columns
+const COLUMN_LABELS = {
+  employee: "Employee",
+  active: "Active",
+  assigned: "Assigned",
+  pending: "Pending",
+  in_progress: "In prog",
+  done: "Done",
+  range_done: "Range done",
+  hours: "Hours",
+  avg_min: "Avg min",
+  rating: "Rating",
+  actions: "Actions", // backend may include; UI still has fixed actions button
+}
+
+// alignment per column
+const COLUMN_META = {
+  employee: { align: "left" },
+  active: { align: "left" },
+  assigned: { align: "right" },
+  pending: { align: "right" },
+  in_progress: { align: "right" },
+  done: { align: "right" },
+  range_done: { align: "right" },
+  hours: { align: "right" },
+  avg_min: { align: "right" },
+  rating: { align: "right" },
+  actions: { align: "right" },
+}
+
+function prettyColLabel(key) {
+  return COLUMN_LABELS[key] || String(key || "")
+}
+
+function normalizeCols(cols = [], allowed = []) {
+  const allowedSet = new Set(allowed || [])
+  const out = []
+  for (const c of cols || []) {
+    const v = String(c || "").trim()
+    if (!v) continue
+    if (!allowedSet.has(v)) continue
+    out.push(v)
+  }
+  return [...new Set(out)]
+}
+
+async function apiGetEmployeeReportViewPreference({ key, etag } = {}) {
+  const headers = getAuthHeaders()
+  if (etag) headers["If-None-Match"] = etag
+
+  const res = await fetch(`${API_BASE}/view-preferences/employee-report/${encodeURIComponent(key)}`, {
+    headers,
+    credentials: "include",
+  })
+
+  if (res.status === 304) return { notModified: true }
+
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || "Failed to load view preference")
+  return { ...data, etag: res.headers.get("ETag") || null }
+}
+
+async function apiSaveEmployeeReportViewPreference({ key, columns } = {}) {
+  const res = await fetch(`${API_BASE}/view-preferences/employee-report/${encodeURIComponent(key)}`, {
+    method: "PUT",
+    headers: getAuthHeaders(),
+    credentials: "include",
+    body: JSON.stringify({ columns }),
+  })
+
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || "Failed to save view preference")
+  return { ...data, etag: res.headers.get("ETag") || null }
+}
+
+/* ---------------------- UI helpers ---------------------- */
+function SkeletonRow({ cols = 6 }) {
+  return (
+    <tr className="animate-pulse">
+      {Array.from({ length: cols }).map((_, i) => (
+        <td key={i} className={tdCls}>
+          <div className={cn("h-4 rounded bg-gray-200", i === 0 ? "w-56" : "w-16 ml-auto")} />
+          {i === 0 ? <div className="h-3 w-32 bg-gray-200 rounded mt-2" /> : null}
+        </td>
+      ))}
+    </tr>
+  )
+}
+
+function TableLoadingOverlay({ show }) {
+  return (
+    <AnimatePresence>
+      {show ? (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="absolute inset-0 z-20 bg-white/55 backdrop-blur-[2px] flex items-center justify-center"
+        >
+          <div className="rounded-2xl border border-gray-100 bg-white shadow-sm px-4 py-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <FiLoader className="w-4 h-4 animate-spin" />
+            Loading employees…
+          </div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  )
+}
+
 function Toast({ open, type = "success", message, onClose }) {
   if (!open) return null
   const styles =
-    type === "error"
-      ? "bg-rose-50 border-rose-200 text-rose-700"
-      : "bg-emerald-50 border-emerald-200 text-emerald-700"
+    type === "error" ? "bg-rose-50 border-rose-200 text-rose-700" : "bg-green-50 border-green-200 text-green-700"
   const Icon = type === "error" ? FiAlertCircle : FiCheck
 
   return (
@@ -95,8 +290,8 @@ function Toast({ open, type = "success", message, onClose }) {
           <p className="text-sm font-semibold flex-1">{message}</p>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg hover:bg-black/5 focus:outline-none"
-            aria-label="Close toast"
+            className="p-1 rounded-lg hover:bg-black/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-black/10"
+            aria-label="Close"
           >
             <FiX className="w-4 h-4" />
           </button>
@@ -106,27 +301,20 @@ function Toast({ open, type = "success", message, onClose }) {
   )
 }
 
-/* =========================
-   MODAL SHELL
-========================= */
-function ModalShell({
-  open,
-  onClose,
-  title,
-  subtitle,
-  icon,
-  children,
-  footer,
-  maxWidthClass = "max-w-3xl",
-}) {
+function ModalShell({ open, onClose, title, subtitle, icon, children, footer, maxWidthClass = "max-w-5xl" }) {
   useEffect(() => {
     if (!open) return
     const prev = document.body.style.overflow
     document.body.style.overflow = "hidden"
-    return () => {
-      document.body.style.overflow = prev
-    }
+    return () => (document.body.style.overflow = prev)
   }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e) => e.key === "Escape" && onClose?.()
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [open, onClose])
 
   if (!open) return null
 
@@ -151,41 +339,30 @@ function ModalShell({
               maxWidthClass
             )}
           >
-            <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-10">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+            <div className="p-4 sm:p-5 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-20">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm shrink-0">
                   {icon}
                 </div>
-                <div>
-                  <h2 className="text-base font-extrabold text-gray-900">{title}</h2>
-                  {subtitle ? (
-                    <p className="text-xs text-gray-500 font-semibold mt-0.5">
-                      {subtitle}
-                    </p>
-                  ) : (
-                    <p className="text-xs text-gray-500 font-semibold mt-0.5">
-                      Adjust what you want to see in the report
-                    </p>
-                  )}
+                <div className="min-w-0">
+                  <h2 className="text-base sm:text-lg font-bold text-gray-900 truncate">{title}</h2>
+                  {subtitle ? <p className="text-sm text-gray-600 truncate">{subtitle}</p> : null}
                 </div>
               </div>
+
               <button
                 onClick={onClose}
-                className="p-2 rounded-xl hover:bg-gray-100 active:scale-95 transition focus:outline-none"
+                className="p-2 rounded-xl hover:bg-gray-100 active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                 aria-label="Close"
               >
                 <FiX className="w-5 h-5 text-gray-700" />
               </button>
             </div>
 
-            <div className="p-5 bg-white max-h-[calc(100vh-14rem)] overflow-y-auto">
-              {children}
-            </div>
+            <div className="p-4 sm:p-5 bg-white max-h-[calc(100vh-14rem)] overflow-y-auto">{children}</div>
 
             {footer ? (
-              <div className="p-5 border-t border-gray-100 bg-white sticky bottom-0">
-                {footer}
-              </div>
+              <div className="p-4 sm:p-5 border-t border-gray-100 bg-white sticky bottom-0 z-20">{footer}</div>
             ) : null}
           </motion.div>
         </div>
@@ -194,678 +371,907 @@ function ModalShell({
   )
 }
 
-function Field({ label, hint, children }) {
-  return (
-    <div>
-      <label className="block text-sm font-extrabold text-gray-900 mb-1.5">
-        {label}
-      </label>
-      {hint ? (
-        <div className="text-xs text-gray-500 font-semibold mb-2 flex items-start gap-2">
-          <FiInfo className="w-3.5 h-3.5 mt-0.5 text-gray-400" />
-          <span>{hint}</span>
-        </div>
-      ) : null}
-      {children}
-    </div>
-  )
-}
-
-/* =========================
-   PREMIUM SWITCH
-========================= */
-function ToggleSwitch({ checked, onChange, labelOn = "Show", labelOff = "Hide" }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange?.(!checked)}
-      className={cn(
-        "inline-flex items-center justify-between gap-3",
-        "px-3 py-2 rounded-2xl border",
-        checked ? "border-indigo-200 bg-indigo-50" : "border-gray-200 bg-white hover:bg-gray-50",
-        "transition focus:outline-none focus:ring-2 focus:ring-indigo-500"
-      )}
-      aria-pressed={checked}
-    >
-      <div className="flex items-center gap-2">
-        <span
-          className={cn(
-            "relative inline-flex h-6 w-11 items-center rounded-full transition",
-            checked ? "bg-indigo-600" : "bg-gray-300"
-          )}
-          aria-hidden="true"
-        >
-          <span
-            className={cn(
-              "inline-block h-5 w-5 transform rounded-full bg-white transition",
-              checked ? "translate-x-5" : "translate-x-1"
-            )}
-          />
-        </span>
-        <span className="text-sm font-extrabold text-gray-900">
-          {checked ? labelOn : labelOff}
-        </span>
-      </div>
-    </button>
-  )
-}
-
-/* =========================
-   MULTISELECT (Portal + never offscreen)
-========================= */
-function MultiSelectDropdown({ options = [], value = [], onChange, placeholder = "Select..." }) {
-  const [open, setOpen] = useState(false)
-  const btnRef = useRef(null)
-  const reactId = useId()
-  const menuId = `msd-menu-${reactId}`
-
-  const selectedSet = useMemo(() => new Set((value || []).map(String)), [value])
-  const selectedCount = selectedSet.size
-
-  const toggle = (id) => {
-    const sid = String(id)
-    const next = new Set(selectedSet)
-    if (next.has(sid)) next.delete(sid)
-    else next.add(sid)
-    onChange?.(Array.from(next))
-  }
-
-  const selectedLabels = useMemo(() => {
-    if (!options.length) return ""
-    const map = new Map(options.map((o) => [String(o.value), o.label]))
-    return Array.from(selectedSet)
-      .map((id) => map.get(String(id)))
-      .filter(Boolean)
-      .join(", ")
-  }, [options, selectedSet])
-
-  const [menuPos, setMenuPos] = useState({
-    left: 0,
-    width: 0,
-    openUp: false,
-    top: 0,
-    bottom: 0,
-    maxHeight: 260,
-  })
-
-  const recomputeMenuPos = () => {
-    const el = btnRef.current
-    if (!el) return
-    const r = el.getBoundingClientRect()
-
-    const GAP = 8
-    const MAX = 420
-    const MIN = 180
-
-    const spaceBelow = window.innerHeight - r.bottom - GAP
-    const spaceAbove = r.top - GAP
-    const openUp = spaceBelow < 260 && spaceAbove > spaceBelow
-
-    const available = Math.max(0, openUp ? spaceAbove : spaceBelow)
-    const capped = Math.min(MAX, available)
-    const maxHeight = Math.max(MIN, capped)
-
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - 8 - r.width))
-
-    setMenuPos({
-      left,
-      width: r.width,
-      openUp,
-      top: r.bottom + GAP,
-      bottom: window.innerHeight - r.top + GAP,
-      maxHeight,
-    })
-  }
-
-  useLayoutEffect(() => {
-    if (!open) return
-    recomputeMenuPos()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, selectedCount, options.length])
-
-  useEffect(() => {
-    if (!open) return
-    const onResize = () => recomputeMenuPos()
-    const onScroll = () => recomputeMenuPos()
-    window.addEventListener("resize", onResize)
-    window.addEventListener("scroll", onScroll, true)
-    return () => {
-      window.removeEventListener("resize", onResize)
-      window.removeEventListener("scroll", onScroll, true)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
-
-  useEffect(() => {
-    const onDoc = (e) => {
-      if (!open) return
-      const btnEl = btnRef.current
-      const menuEl = document.getElementById(menuId)
-      if (btnEl?.contains(e.target)) return
-      if (menuEl?.contains(e.target)) return
-      setOpen(false)
-    }
-    document.addEventListener("mousedown", onDoc)
-    return () => document.removeEventListener("mousedown", onDoc)
-  }, [open, menuId])
-
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e) => {
-      if (e.key === "Escape") setOpen(false)
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [open])
-
-  const menu = (
-    <AnimatePresence>
-      {open ? (
-        <motion.div
-          id={menuId}
-          initial={{ opacity: 0, y: menuPos.openUp ? -6 : 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: menuPos.openUp ? -6 : 6 }}
-          transition={{ type: "spring", stiffness: 260, damping: 24 }}
-          style={{
-            position: "fixed",
-            left: menuPos.left,
-            width: menuPos.width,
-            top: menuPos.openUp ? undefined : menuPos.top,
-            bottom: menuPos.openUp ? menuPos.bottom : undefined,
-          }}
-          className="z-[9999] rounded-2xl border border-gray-100 bg-white shadow-2xl overflow-hidden"
-          role="listbox"
-          aria-multiselectable="true"
-        >
-          <div className="overflow-y-auto p-2" style={{ maxHeight: menuPos.maxHeight }}>
-            {options.length === 0 ? (
-              <div className="p-3 text-sm text-gray-600">No options.</div>
-            ) : (
-              <ul className="space-y-1">
-                {options.map((o) => {
-                  const checked = selectedSet.has(String(o.value))
-                  return (
-                    <li key={String(o.value)}>
-                      <button
-                        type="button"
-                        onClick={() => toggle(o.value)}
-                        className={cn(
-                          "w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl border transition text-left focus:outline-none",
-                          checked
-                            ? "bg-indigo-50 border-indigo-200"
-                            : "bg-white border-transparent hover:bg-gray-50"
-                        )}
-                      >
-                        <span className="text-sm font-semibold text-gray-800">{o.label}</span>
-                        <span
-                          className={cn(
-                            "w-6 h-6 rounded-lg border flex items-center justify-center",
-                            checked
-                              ? "bg-indigo-600 border-indigo-600 text-white"
-                              : "bg-white border-gray-200 text-transparent"
-                          )}
-                          aria-hidden="true"
-                        >
-                          <FiCheck className="w-4 h-4" />
-                        </span>
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </div>
-
-          <div className="p-2 border-t border-gray-100 bg-white flex items-center justify-between">
-            <button
-              type="button"
-              className={cn(btn, btnGhost, "px-3 py-2 text-sm disabled:opacity-60")}
-              onClick={() => onChange?.([])}
-              disabled={!selectedCount}
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              className={cn(btn, btnPrimary, "px-3 py-2 text-sm")}
-              onClick={() => setOpen(false)}
-            >
-              Done
-            </button>
-          </div>
-        </motion.div>
-      ) : null}
-    </AnimatePresence>
-  )
+function RangeSelect({ value, onChange }) {
+  const items = [
+    { key: "this_month", label: "This month" },
+    { key: "last_month", label: "Last month" },
+    { key: "this_week", label: "This week" },
+    { key: "last_6_months", label: "Last 6 months" },
+    { key: "last_1_year", label: "Last 1 year" },
+  ]
 
   return (
     <div className="relative">
-      <button
-        ref={btnRef}
-        type="button"
-        onClick={() => setOpen((p) => !p)}
-        className={cn(input, "text-left flex items-center justify-between gap-3 focus:outline-none")}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-      >
-        <span className={cn("min-w-0 truncate", selectedCount ? "text-gray-900" : "text-gray-500")}>
-          {selectedCount ? selectedLabels : placeholder}
-        </span>
-        <span className="flex items-center gap-2 shrink-0">
-          {selectedCount ? <span className={cn(chip, chipIndigo)}>{selectedCount}</span> : null}
-          <FiChevronDown className={cn("w-4 h-4 text-gray-500 transition", open ? "rotate-180" : "")} />
-        </span>
-      </button>
-
-      {typeof document !== "undefined" ? createPortal(menu, document.body) : null}
+      <select value={value} onChange={(e) => onChange?.(e.target.value)} className={cn(input, "pr-10")}>
+        {items.map((x) => (
+          <option key={x.key} value={x.key}>
+            {x.label}
+          </option>
+        ))}
+      </select>
+      <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
     </div>
   )
 }
 
-/* =========================
-   SKELETONS
-========================= */
-function SkeletonBar({ className = "" }) {
-  return <div className={cn("animate-pulse rounded-xl bg-gray-200/80", className)} />
+/* ---------------------- API ---------------------- */
+async function apiListEmployees({ limit = 25, cursor, q, active = "all", sort = "newest", signal } = {}) {
+  const qs = new URLSearchParams()
+  qs.set("limit", String(limit))
+  qs.set("sort", String(sort || "newest"))
+  if (cursor) qs.set("cursor", String(cursor))
+  if (q) qs.set("q", String(q))
+  if (active) qs.set("active", String(active))
+
+  const res = await fetch(`${API_BASE}/users/employees?${qs.toString()}`, {
+    headers: getAuthHeaders(),
+    credentials: "include",
+    signal,
+  })
+
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || "Failed to load employees")
+
+  const items = Array.isArray(data?.employees) ? data.employees : Array.isArray(data?.items) ? data.items : []
+  return { items, hasMore: Boolean(data?.hasMore), nextCursor: data?.nextCursor ?? null }
 }
 
-function CustomerRowSkeleton() {
+async function apiGetEmployeePerformance({
+  employeeId,
+  range,
+  from,
+  to,
+  includeInProgressList = false,
+  includeTasks = false,
+  tasksLimit = 60,
+  signal,
+} = {}) {
+  const qs = new URLSearchParams()
+  if (range) qs.set("range", String(range))
+  if (from && to) {
+    qs.set("from", String(from))
+    qs.set("to", String(to))
+  }
+  if (includeInProgressList) qs.set("includeInProgressList", "true")
+  if (includeTasks) qs.set("includeTasks", "true")
+  if (includeTasks && tasksLimit) qs.set("tasksLimit", String(tasksLimit))
+
+  const res = await fetch(`${API_BASE}/employeeReport/${encodeURIComponent(employeeId)}/performance?${qs.toString()}`, {
+    headers: getAuthHeaders(),
+    credentials: "include",
+    signal,
+  })
+
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || "Failed to load performance")
+  return data
+}
+
+/* ---------------------- UI pieces ---------------------- */
+function StatCard({ label, value, sub, icon }) {
   return (
-    <div className="p-4 sm:p-5">
-      <div className="rounded-2xl border border-gray-100 bg-white px-4 py-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 w-full">
-            <div className="flex items-center gap-3">
-              <SkeletonBar className="w-11 h-11 rounded-2xl" />
-              <div className="min-w-0 flex-1">
-                <SkeletonBar className="h-4 w-56" />
-                <SkeletonBar className="h-3 w-72 mt-2" />
-              </div>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <SkeletonBar className="h-7 w-20 rounded-full" />
-              <SkeletonBar className="h-7 w-28 rounded-full" />
-              <SkeletonBar className="h-7 w-24 rounded-full" />
-              <SkeletonBar className="h-7 w-32 rounded-full" />
-            </div>
-          </div>
-          <div className="shrink-0 flex items-center gap-2 flex-wrap justify-end">
-            <SkeletonBar className="h-8 w-14 rounded-full" />
-            <SkeletonBar className="h-8 w-16 rounded-full" />
-            <SkeletonBar className="h-8 w-12 rounded-full" />
-            <SkeletonBar className="h-8 w-14 rounded-full" />
-            <SkeletonBar className="h-8 w-12 rounded-full" />
-          </div>
-        </div>
+    <div className={cn("rounded-2xl border border-gray-100 bg-gray-50/60 p-4")}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">{label}</p>
+        {icon ? <span className="text-gray-500">{icon}</span> : null}
       </div>
+      <p className="mt-2 text-2xl font-extrabold text-gray-900">{value}</p>
+      {sub ? <p className="mt-1 text-xs text-gray-600">{sub}</p> : null}
     </div>
   )
 }
 
-function CustomerListSkeleton({ rows = 7 }) {
+function Badge({ tone = "gray", children }) {
+  const cls =
+    tone === "green"
+      ? "bg-green-50 text-green-700 ring-green-600/10"
+      : tone === "indigo"
+      ? "bg-indigo-50 text-indigo-700 ring-indigo-600/10"
+      : tone === "amber"
+      ? "bg-amber-50 text-amber-800 ring-amber-600/10"
+      : tone === "rose"
+      ? "bg-rose-50 text-rose-700 ring-rose-600/10"
+      : "bg-gray-50 text-gray-700 ring-gray-200"
+  return <span className={cn(chip, cls)}>{children}</span>
+}
+
+function MiniKpi({ label, value, tone = "gray" }) {
   return (
-    <div className="divide-y divide-gray-100">
-      {[...Array(rows)].map((_, i) => (
-        <CustomerRowSkeleton key={i} />
-      ))}
+    <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-2xl border border-gray-100 bg-gray-50/60">
+      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">{label}</span>
+      <Badge tone={tone}>{value}</Badge>
     </div>
   )
 }
 
-/* =========================
-   UTIL
-========================= */
-function formatDateTime(value) {
-  if (!value) return "—"
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return "—"
-  return d.toLocaleString()
-}
-
-function statusPill(status) {
-  const s = String(status || "pending")
-  if (s === "done") return chipEmerald
-  if (s === "in_progress") return chipIndigo
-  if (s === "pending") return chipAmber
-  return chipGray
-}
-
-function statusLabel(status) {
-  const s = String(status || "pending")
-  if (s === "done") return "Done"
-  if (s === "in_progress") return "In progress"
-  if (s === "pending") return "Pending"
-  return "Unknown"
-}
-
-function statusDot(status) {
-  const s = String(status || "pending")
-  if (s === "done") return "bg-emerald-500"
-  if (s === "in_progress") return "bg-indigo-500"
-  if (s === "pending") return "bg-amber-500"
-  return "bg-gray-400"
-}
-
-function toISOFromDatetimeLocal(v) {
-  if (!v) return ""
-  const d = new Date(v)
-  if (Number.isNaN(d.getTime())) return ""
-  return d.toISOString()
-}
-
-function isOverdueTask(task) {
-  if (!task?.dueAt) return false
-  if (String(task?.status) === "done") return false
-  const due = new Date(task.dueAt).getTime()
-  if (!Number.isFinite(due)) return false
-  return due < Date.now()
-}
-
-function isDueSoonTask(task, days = 3) {
-  if (!task?.dueAt) return false
-  if (String(task?.status) === "done") return false
-  const due = new Date(task.dueAt).getTime()
-  if (!Number.isFinite(due)) return false
-  const now = Date.now()
-  return due >= now && due <= now + days * 24 * 60 * 60 * 1000
-}
-
-function initials(nameOrEmail) {
-  const s = String(nameOrEmail || "").trim()
-  if (!s) return "?"
-  const parts = s.split(/\s+/).filter(Boolean)
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
-  const one = parts[0]
-  if (one.includes("@")) return one.slice(0, 2).toUpperCase()
-  return one.slice(0, 2).toUpperCase()
-}
-
-function ShortCountBadge({ code, value, title, className }) {
+function FilterChip({ label, onRemove, tone = "indigo" }) {
   return (
     <span
-      title={title}
       className={cn(
-        "inline-flex items-center justify-center gap-1 rounded-full px-2.5 py-1.5 text-xs font-extrabold ring-1 select-none whitespace-nowrap",
-        className
+        chip,
+        tone === "indigo" ? "bg-indigo-50 text-indigo-700 ring-indigo-600/10" : "bg-gray-50 text-gray-700 ring-gray-200"
       )}
     >
-      <span className="opacity-80">{code}</span>
-      <span className="text-gray-900">{Number(value || 0)}</span>
+      <span className="truncate max-w-[11rem]">{label}</span>
+      {onRemove ? (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="p-0.5 rounded-lg hover:bg-black/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-black/10"
+          aria-label="Remove filter"
+          title="Remove"
+        >
+          <FiX className="w-3.5 h-3.5" />
+        </button>
+      ) : null}
     </span>
   )
 }
 
-function Avatar({ url, label, className = "" }) {
-  const fallback = initials(label)
+function TasksToggle({ open, onClick }) {
   return (
-    <div
+    <button
+      type="button"
+      onClick={onClick}
       className={cn(
-        "w-11 h-11 rounded-2xl overflow-hidden ring-1 ring-indigo-600/10 bg-indigo-50 shrink-0",
-        className
+        "inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition",
+        "text-xs font-bold text-gray-800",
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
       )}
+      title={open ? "Hide tasks" : "View tasks"}
+      aria-label={open ? "Hide tasks" : "View tasks"}
     >
-      {url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={url} alt={label || "Avatar"} className="w-full h-full object-cover" />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center text-indigo-700 font-extrabold">
-          {fallback}
-        </div>
-      )}
-    </div>
+      <FiClipboard className="w-3.5 h-3.5 text-gray-600" />
+      {open ? "Hide" : "Tasks"}
+      {open ? <FiChevronUp className="w-3.5 h-3.5" /> : <FiChevronDown className="w-3.5 h-3.5" />}
+    </button>
   )
 }
 
-/* =========================
-   FILTER MODAL (Customer-first)
-========================= */
-function FiltersModal({
-  open,
-  onClose,
+/* ---------------------- Export respects selected columns ---------------------- */
+function colValueForExport(colKey, r) {
+  if (colKey === "employee") return r.employeeName || ""
+  if (colKey === "active") return r.isActive ? "Active" : "Inactive"
+  if (colKey === "assigned") return safeNum(r?.taskSummary?.totalAssigned)
+  if (colKey === "pending") return safeNum(r?.taskSummary?.pending)
+  if (colKey === "in_progress") return safeNum(r?.taskSummary?.in_progress)
+  if (colKey === "done") return safeNum(r?.taskSummary?.done)
+  if (colKey === "range_done") return safeNum(r?.totals?.tasksDone)
+  if (colKey === "hours") return minsToHours(r?.totals?.totalMinutes)
+  if (colKey === "avg_min") return safeNum(r?.totals?.avgMinutes)
+  if (colKey === "rating") return r?.performance?.label ? ratingLabelPretty(r.performance.label) : ""
+  return ""
+}
 
-  taskStatus,
-  setTaskStatus,
+function exportEmployeesToExcel(rows, rangeLabel, visibleCols = []) {
+  const cols =
+    Array.isArray(visibleCols) && visibleCols.length
+      ? visibleCols
+      : ["employee", "assigned", "pending", "in_progress", "done", "rating"]
+  const exportCols = cols.filter((c) => c !== "actions") // ignore "actions" in file
 
-  includeEmptyEmployees,
-  setIncludeEmptyEmployees,
+  const data = rows.map((r) => {
+    const out = {}
+    for (const c of exportCols) out[prettyColLabel(c)] = colValueForExport(c, r)
+    return out
+  })
 
-  windowDays,
-  setWindowDays,
+  const ws = XLSX.utils.json_to_sheet(data)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, "Employee Report")
+  const fileName = `employee_report_${rangeLabel}_${new Date().toISOString().slice(0, 10)}.xlsx`
+  XLSX.writeFile(wb, fileName)
+}
 
-  completedFrom,
-  setCompletedFrom,
-  completedTo,
-  setCompletedTo,
+function exportEmployeesToPdf(rows, rangeLabel, visibleCols = []) {
+  const cols =
+    Array.isArray(visibleCols) && visibleCols.length
+      ? visibleCols
+      : ["employee", "assigned", "pending", "in_progress", "done", "rating"]
+  const exportCols = cols.filter((c) => c !== "actions")
 
-  selectedEmployeeIds,
-  setSelectedEmployeeIds,
-  employeeOptions,
+  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" })
+  const title = "Employee Performance Report"
+  const subtitle = `Range: ${rangeLabelPretty(rangeLabel)} • Generated: ${new Date().toLocaleString()}`
 
-  includeTasks,
-  setIncludeTasks,
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(14)
+  doc.text(title, 40, 36)
 
-  taskLimit,
-  setTaskLimit,
+  doc.setFont("helvetica", "normal")
+  doc.setFontSize(10)
+  doc.text(subtitle, 40, 54)
 
-  onClear,
-  onApply,
-}) {
-  const activeCount =
-    (selectedEmployeeIds?.length || 0) +
-    (taskStatus !== "all" ? 1 : 0) +
-    (includeEmptyEmployees === false ? 1 : 0) +
-    (String(windowDays || "").trim() ? 1 : 0) +
-    (String(completedFrom || "").trim() ? 1 : 0) +
-    (String(completedTo || "").trim() ? 1 : 0) +
-    (includeTasks ? 1 : 0)
+  const head = [exportCols.map((c) => prettyColLabel(c))]
+  const body = rows.map((r) => exportCols.map((c) => String(colValueForExport(c, r) ?? "")))
+
+  autoTable(doc, {
+    head,
+    body,
+    startY: 70,
+    margin: { left: 40, right: 40 },
+    styles: { font: "helvetica", fontSize: 8.5, cellPadding: 4, overflow: "linebreak", valign: "middle" },
+    headStyles: { fontStyle: "bold" },
+  })
+
+  const fileName = `employee_report_${rangeLabel}_${new Date().toISOString().slice(0, 10)}.pdf`
+  doc.save(fileName)
+}
+
+/* ---------------------- Tasks dropdown under row ---------------------- */
+function EmployeeTaskDropdown({ employeeId, range, open, cacheKey, getCachedTasks, setCachedTasks, colSpan = 6 }) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [tasks, setTasks] = useState([])
+  const abortRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) {
+      abortRef.current?.abort?.()
+      abortRef.current = null
+      setLoading(false)
+      setError("")
+      return
+    }
+
+    const cached = getCachedTasks?.(cacheKey)
+    if (Array.isArray(cached)) {
+      setTasks(cached)
+      setLoading(false)
+      setError("")
+      return
+    }
+
+    if (abortRef.current) abortRef.current.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    setLoading(true)
+    setError("")
+
+    ;(async () => {
+      try {
+        const d = await apiGetEmployeePerformance({
+          employeeId,
+          range,
+          includeTasks: true,
+          tasksLimit: 80,
+          includeInProgressList: false,
+          signal: controller.signal,
+        })
+        const list = Array.isArray(d?.tasks) ? d.tasks : []
+        setTasks(list)
+        setCachedTasks?.(cacheKey, list)
+      } catch (e) {
+        if (e?.name !== "AbortError") setError(e?.message || "Failed to load tasks.")
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
+      }
+    })()
+
+    return () => controller.abort()
+  }, [open, employeeId, range, cacheKey, getCachedTasks, setCachedTasks])
+
+  return (
+    <AnimatePresence initial={false}>
+      {open ? (
+        <motion.tr
+          key={`drop-${cacheKey}`}
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.2 }}
+          className="bg-gray-50/40"
+        >
+          <td colSpan={colSpan} className="px-6 pb-4 pt-2">
+            <motion.div
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.16 }}
+              className="rounded-2xl border border-gray-100 bg-white shadow-[0_10px_25px_-22px_rgba(0,0,0,0.35)] overflow-hidden"
+            >
+              <div className="px-4 py-2.5 border-b border-gray-100 bg-white flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FiClipboard className="w-4 h-4 text-gray-500" />
+                  <p className="text-sm font-extrabold text-gray-900">Tasks</p>
+                </div>
+                <Badge tone="indigo">{tasks.length}</Badge>
+              </div>
+
+              {error ? (
+                <div className="p-3 text-sm text-rose-700 bg-rose-50 border-t border-rose-200 flex items-start gap-2">
+                  <FiAlertCircle className="w-5 h-5 mt-0.5" />
+                  <span className="font-semibold">{error}</span>
+                </div>
+              ) : null}
+
+              {loading ? (
+                <div className="p-5 flex items-center justify-center text-gray-600">
+                  <FiLoader className="w-5 h-5 animate-spin mr-2" /> Loading tasks...
+                </div>
+              ) : tasks.length ? (
+                <div className="divide-y divide-gray-100">
+                  {tasks.map((t, idx) => {
+                    const tone = statusTone(t.status)
+                    const subtitles = Array.isArray(t.subtitles) ? t.subtitles : []
+                    const customer = t.companyName || t.customerName || "—"
+                    return (
+                      <div key={`${t.title || "task"}-${idx}`} className="px-4 py-3 hover:bg-gray-50/70 transition">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span
+                                className={cn(
+                                  "w-2 h-2 rounded-full",
+                                  tone === "green"
+                                    ? "bg-green-500"
+                                    : tone === "indigo"
+                                    ? "bg-indigo-500"
+                                    : tone === "amber"
+                                    ? "bg-amber-500"
+                                    : "bg-gray-400"
+                                )}
+                              />
+                              <p className="text-sm font-extrabold text-gray-900 truncate">{t.title || "—"}</p>
+                              <Badge tone={tone}>{statusPretty(t.status)}</Badge>
+                              {t.dueAt ? <Badge tone="gray">Due {formatDate(t.dueAt)}</Badge> : null}
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1 truncate">{customer}</p>
+                          </div>
+
+                          <div className="flex items-center gap-2 justify-end">
+                            <Badge tone="indigo">{subtitles.length} subtitles</Badge>
+                            <Badge tone="gray">{formatDate(t.updatedAt || t.createdAt)}</Badge>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+                          {subtitles.slice(0, 10).map((s, sidx) => (
+                            <div
+                              key={`${s.text}-${sidx}`}
+                              className="rounded-2xl border border-gray-100 bg-gray-50/60 px-3 py-2"
+                            >
+                              <p className="text-sm font-semibold text-gray-900">{s.text || "—"}</p>
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                                <span className="text-xs text-gray-600">Files: {safeNum(s.filesCount)}</span>
+                                <span className="text-xs text-gray-600">Notes: {safeNum(s.notesCount)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="p-5 text-center text-gray-600">No tasks assigned.</div>
+              )}
+            </motion.div>
+          </td>
+        </motion.tr>
+      ) : null}
+    </AnimatePresence>
+  )
+}
+
+/* ---------------------- Details modal (range lives here) ---------------------- */
+function EmployeeDetailsModal({ open, onClose, employee, range, onRangeChange }) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [data, setData] = useState(null)
+  const [tasksOpen, setTasksOpen] = useState(true)
+  const abortRef = useRef(null)
+
+  const employeeId = employee?.employeeId
+
+  const fetchDetails = async () => {
+    if (!employeeId) return
+    if (abortRef.current) abortRef.current.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    setLoading(true)
+    setError("")
+    try {
+      const d = await apiGetEmployeePerformance({
+        employeeId,
+        range,
+        includeInProgressList: true,
+        includeTasks: true,
+        tasksLimit: 120,
+        signal: controller.signal,
+      })
+      setData(d)
+    } catch (e) {
+      if (e?.name !== "AbortError") setError(e?.message || "Failed to load details")
+    } finally {
+      if (!controller.signal.aborted) setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!open) return
+    setTasksOpen(true)
+    setError("")
+    fetchDetails()
+    return () => abortRef.current?.abort?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, employeeId, range])
+
+  const totals = data?.totals || {}
+  const taskCounts = data?.taskCounts || {}
+  const perf = data?.performance || {}
+  const tone = ratingTone(perf?.label)
+  const tasks = Array.isArray(data?.tasks) ? data.tasks : []
 
   return (
     <ModalShell
       open={open}
       onClose={onClose}
-      title="Filters"
-      subtitle="Customer-first workload filters"
-      icon={<FiFilter className="w-5 h-5" />}
-      maxWidthClass="max-w-4xl"
+      title={employee?.employeeName || "Employee Report"}
+      subtitle={employee?.email || ""}
+      icon={<FiEye className="w-5 h-5" />}
+      maxWidthClass="max-w-6xl"
       footer={
-        <div className="flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={onClear}
-            disabled={!activeCount}
-            className={cn(btn, btnGhost, "px-3 py-2 text-sm disabled:opacity-60")}
-          >
-            Clear all
-          </button>
-          <div className="flex items-center gap-2">
-            <button onClick={onClose} className={cn(btn, btnGhost)}>
-              Cancel
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="w-full sm:w-72">
+            <RangeSelect value={range} onChange={onRangeChange} />
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <button onClick={fetchDetails} className={cn(btn, btnGhost)} disabled={loading}>
+              <FiRefreshCcw className={cn("w-4 h-4", loading ? "animate-spin" : "")} />
+              Refresh
             </button>
-            <button onClick={onApply} className={cn(btn, btnPrimary)}>
-              Apply filters
+            <button onClick={onClose} className={cn(btn, btnPrimary)}>
+              Close
             </button>
           </div>
         </div>
       }
     >
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        <div className="lg:col-span-7 space-y-5">
-          <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4">
-            <Field label="Employees" hint="Choose one or more employees. Leave empty to include everyone.">
-              <MultiSelectDropdown
-                options={employeeOptions}
-                value={selectedEmployeeIds}
-                onChange={setSelectedEmployeeIds}
-                placeholder="All employees"
-              />
-              <p className="mt-2 text-[11px] text-gray-500 font-semibold">
-                Note: backend can filter only 1 employeeId directly. If you select multiple, we filter in UI.
-              </p>
-            </Field>
+      {error ? (
+        <div className="mb-4 p-3 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm flex items-start gap-2">
+          <FiAlertCircle className="w-5 h-5 mt-0.5" />
+          <span className="font-semibold">{error}</span>
+        </div>
+      ) : null}
+
+      {loading && !data ? (
+        <div className="py-10 flex items-center justify-center text-gray-600">
+          <FiLoader className="w-5 h-5 animate-spin mr-2" /> Loading...
+        </div>
+      ) : null}
+
+      {data ? (
+        <div className="space-y-6">
+          {loading ? (
+            <div className="flex items-center gap-2 text-xs font-bold text-gray-500">
+              <FiLoader className="w-4 h-4 animate-spin" /> Updating…
+            </div>
+          ) : null}
+
+          <div className={cn(card, "p-4 sm:p-5")}>
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div
+                  className={cn(
+                    "w-12 h-12 rounded-2xl flex items-center justify-center border",
+                    "bg-gray-50 border-gray-100"
+                  )}
+                >
+                  <FiAward className="w-6 h-6 text-gray-700" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-base sm:text-lg font-extrabold text-gray-900 truncate">
+                      Performance: {perf?.label ? ratingLabelPretty(perf.label) : "—"}
+                    </p>
+                    {perf?.label ? <Badge tone={tone}>{safeNum(perf.score)}/100</Badge> : <Badge>—</Badge>}
+                  </div>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Date range: <span className="font-semibold text-gray-800">{formatDate(data?.range?.from)}</span> →{" "}
+                    <span className="font-semibold text-gray-800">{formatDate(data?.range?.to)}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full lg:w-auto">
+                <MiniKpi label="Assigned" value={safeNum(taskCounts.totalAssigned)} tone="indigo" />
+                <MiniKpi label="Pending" value={safeNum(taskCounts.pending)} tone="amber" />
+                <MiniKpi label="In progress" value={safeNum(taskCounts.inProgress)} tone="indigo" />
+                <MiniKpi label="Done" value={safeNum(taskCounts.done)} tone="green" />
+              </div>
+            </div>
           </div>
 
-          <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4">
-            <Field label="Task status" hint="Filter tasks by their current status.">
-              <select
-                value={taskStatus}
-                onChange={(e) => setTaskStatus(e.target.value)}
-                className={input}
-              >
-                <option value="all">All</option>
-                <option value="pending">Pending</option>
-                <option value="in_progress">In progress</option>
-                <option value="done">Done</option>
-              </select>
-            </Field>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <StatCard
+              label="Tasks done"
+              value={safeNum(totals.tasksDone)}
+              sub="Completed in selected range"
+              icon={<FiTrendingUp className="w-4 h-4" />}
+            />
+            <StatCard
+              label="Total hours"
+              value={minsToHours(totals.totalMinutes)}
+              sub={`${safeNum(totals.totalMinutes)} minutes`}
+              icon={<FiClock className="w-4 h-4" />}
+            />
+            <StatCard
+              label="Avg minutes/task"
+              value={safeNum(totals.avgMinutes)}
+              sub="Average effort"
+              icon={<FiActivity className="w-4 h-4" />}
+            />
+            <StatCard
+              label="Last completed"
+              value={totals.lastCompletedAt ? formatDate(totals.lastCompletedAt) : "—"}
+              sub="Latest finished task"
+              icon={<FiList className="w-4 h-4" />}
+            />
           </div>
 
-          <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4 space-y-4">
-            <Field
-              label="Time window (due soon window)"
-              hint="Used for dueSoon calculations. If blank, default stays 7."
+          <div className={cn(card, "overflow-hidden")}>
+            <button
+              type="button"
+              onClick={() => setTasksOpen((v) => !v)}
+              className="w-full px-4 py-3 border-b border-gray-100 bg-gray-50/70 flex items-center justify-between text-left"
             >
-              <input
-                type="number"
-                min={1}
-                max={365}
-                value={windowDays}
-                onChange={(e) => setWindowDays(e.target.value)}
-                className={input}
-                placeholder="e.g. 7"
-              />
-            </Field>
+              <div className="flex items-center gap-2">
+                <FiClipboard className="w-4 h-4 text-gray-600" />
+                <p className="text-sm font-bold text-gray-900">Assigned tasks</p>
+                <Badge tone="indigo">{tasks.length}</Badge>
+              </div>
+              {tasksOpen ? (
+                <FiChevronUp className="w-4 h-4 text-gray-500" />
+              ) : (
+                <FiChevronDown className="w-4 h-4 text-gray-500" />
+              )}
+            </button>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Completed from" hint="Optional start date/time for completed tasks.">
-                <div className="relative">
-                  <FiCalendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="datetime-local"
-                    value={completedFrom}
-                    onChange={(e) => setCompletedFrom(e.target.value)}
-                    className={cn(input, "pl-9")}
-                  />
-                </div>
-              </Field>
+            <AnimatePresence initial={false}>
+              {tasksOpen ? (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.22 }}
+                  className="overflow-hidden"
+                >
+                  {tasks.length ? (
+                    <div className="divide-y divide-gray-100">
+                      {tasks.map((t, idx) => {
+                        const tone = statusTone(t.status)
+                        const subtitles = Array.isArray(t.subtitles) ? t.subtitles : []
+                        return (
+                          <div key={`${t.title || "task"}-${idx}`} className="px-4 py-3 hover:bg-gray-50/70 transition">
+                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span
+                                    className={cn(
+                                      "w-2 h-2 rounded-full",
+                                      tone === "green"
+                                        ? "bg-green-500"
+                                        : tone === "indigo"
+                                        ? "bg-indigo-500"
+                                        : tone === "amber"
+                                        ? "bg-amber-500"
+                                        : "bg-gray-400"
+                                    )}
+                                  />
+                                  <p className="text-sm font-extrabold text-gray-900 truncate">{t.title || "—"}</p>
+                                  <Badge tone={tone}>{statusPretty(t.status)}</Badge>
+                                  {t.dueAt ? <Badge tone="gray">Due {formatDate(t.dueAt)}</Badge> : null}
+                                </div>
+                                <p className="text-xs text-gray-500 mt-1 truncate">{t.companyName || t.customerName || "—"}</p>
+                              </div>
 
-              <Field label="Completed to" hint="Optional end date/time for completed tasks.">
-                <div className="relative">
-                  <FiCalendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="datetime-local"
-                    value={completedTo}
-                    onChange={(e) => setCompletedTo(e.target.value)}
-                    className={cn(input, "pl-9")}
-                  />
-                </div>
-              </Field>
+                              <div className="flex items-center gap-2 justify-end">
+                                <Badge tone="indigo">{subtitles.length} subtitles</Badge>
+                                <Badge tone="gray">{formatDate(t.updatedAt || t.createdAt)}</Badge>
+                              </div>
+                            </div>
+
+                            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+                              {subtitles.slice(0, 10).map((s, sidx) => (
+                                <div
+                                  key={`${s.text}-${sidx}`}
+                                  className="rounded-2xl border border-gray-100 bg-gray-50/60 px-3 py-2"
+                                >
+                                  <p className="text-sm font-semibold text-gray-900">{s.text || "—"}</p>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                                    <span className="text-xs text-gray-600">Files: {safeNum(s.filesCount)}</span>
+                                    <span className="text-xs text-gray-600">Notes: {safeNum(s.notesCount)}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="px-4 py-10 text-center text-gray-500">No tasks assigned.</div>
+                  )}
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          </div>
+
+          <div className={cn(card, "overflow-hidden")}>
+            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/70 flex items-center justify-between">
+              <p className="text-sm font-bold text-gray-900">In progress now</p>
+              <Badge tone="amber">{safeNum(data?.inProgressNow?.count)}</Badge>
+            </div>
+            <div className="max-h-[280px] overflow-y-auto">
+              <table className="w-full">
+                <thead className="sticky top-0 bg-white/90 backdrop-blur border-b border-gray-100">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Task</th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      Customer
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      Started
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Due</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {(data?.inProgressNow?.tasks || []).map((t, idx) => (
+                    <tr key={`${t.title || "t"}-${idx}`} className={subtleHover}>
+                      <td className="px-4 py-3">
+                        <p className="text-sm font-semibold text-gray-900">{t.title || "—"}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="text-sm font-semibold text-gray-900">{t.companyName || t.customerName || "—"}</p>
+                        <p className="text-xs text-gray-500">
+                          {t.customerName && t.companyName ? t.customerName : ""}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{t.startedAt ? formatDate(t.startedAt) : "—"}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{t.dueAt ? formatDate(t.dueAt) : "—"}</td>
+                    </tr>
+                  ))}
+                  {(data?.inProgressNow?.tasks || []).length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-10 text-center text-gray-500">
+                        No in-progress tasks right now.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
+      ) : null}
+    </ModalShell>
+  )
+}
 
-        <div className="lg:col-span-5 space-y-5">
-          <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-extrabold text-gray-900">
-                  Show employees with 0 tasks
-                </p>
-                <p className="text-xs text-gray-500 font-semibold mt-1">
-                  Turn this off if you only want employees that currently have tasks.
-                </p>
-              </div>
-              <ToggleSwitch
-                checked={includeEmptyEmployees}
-                onChange={(v) => setIncludeEmptyEmployees(!!v)}
-                labelOn="Show"
-                labelOff="Hide"
-              />
-            </div>
-          </div>
+/* ---------------------- Columns modal (uses allowedColumns + defaultColumns from backend) ---------------------- */
+function ColumnsModal({
+  open,
+  onClose,
+  allowedColumns = [],
+  defaultColumns = [],
+  selectedColumns = [],
+  onApply,
+  onResetDefault,
+  onShowAll,
+  saving = false,
+}) {
+  const [draft, setDraft] = useState([])
+  const [search, setSearch] = useState("")
 
-          <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-extrabold text-gray-900">
-                  Include tasks in response
-                </p>
-                <p className="text-xs text-gray-500 font-semibold mt-1">
-                  Turn off for lighter payload (counts only). Turn on to show task lists in UI.
-                </p>
-              </div>
-              <ToggleSwitch
-                checked={includeTasks}
-                onChange={(v) => setIncludeTasks(!!v)}
-                labelOn="On"
-                labelOff="Off"
-              />
-            </div>
+  useEffect(() => {
+    if (!open) return
+    setDraft(Array.isArray(selectedColumns) ? selectedColumns : [])
+    setSearch("")
+  }, [open, selectedColumns])
 
-            <div className="mt-4">
-              <Field label="Task limit per employee" hint="Only applies if include tasks is on.">
+  const allowed = useMemo(() => [...new Set(Array.isArray(allowedColumns) ? allowedColumns : [])], [allowedColumns])
+
+  const normalizedDraft = useMemo(() => normalizeCols(draft, allowed), [draft, allowed])
+  const selectedSet = useMemo(() => new Set(normalizedDraft), [normalizedDraft])
+
+  const filteredAvailable = useMemo(() => {
+    const q = String(search || "").trim().toLowerCase()
+    const items = allowed
+    if (!q) return items
+    return items.filter((c) => prettyColLabel(c).toLowerCase().includes(q) || String(c).toLowerCase().includes(q))
+  }, [allowed, search])
+
+  const toggle = (key) => {
+    setDraft((prev) => {
+      const cur = Array.isArray(prev) ? prev : []
+      const set = new Set(cur)
+      if (set.has(key)) return cur.filter((x) => x !== key)
+      return [...cur, key]
+    })
+  }
+
+  const move = (idx, dir) => {
+    setDraft((prev) => {
+      const cur = Array.isArray(prev) ? [...prev] : []
+      const next = idx + dir
+      if (idx < 0 || idx >= cur.length) return cur
+      if (next < 0 || next >= cur.length) return cur
+      const t = cur[idx]
+      cur[idx] = cur[next]
+      cur[next] = t
+      return cur
+    })
+  }
+
+  const remove = (idx) => setDraft((prev) => (Array.isArray(prev) ? prev.filter((_, i) => i !== idx) : []))
+
+  const footer = (
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => onResetDefault?.()}
+          className={cn(btn, btnGhost, "px-4 py-2")}
+        >
+          Default
+        </button>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => onShowAll?.()}
+          className={cn(btn, btnGhost, "px-4 py-2")}
+        >
+          Show all
+        </button>
+      </div>
+
+      <div className="flex items-center justify-end gap-2">
+        <button type="button" disabled={saving} onClick={onClose} className={cn(btn, btnGhost, "px-4 py-2")}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => onApply?.(normalizedDraft)}
+          className={cn(btn, btnPrimary, "px-5 py-2 disabled:opacity-60")}
+        >
+          {saving ? <FiLoader className="w-4 h-4 animate-spin" /> : null}
+          Apply
+        </button>
+      </div>
+    </div>
+  )
+
+  return (
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      title="Choose columns"
+      subtitle="Select what you want to see in the table"
+      icon={<FiColumns className="w-5 h-5" />}
+      maxWidthClass="max-w-5xl"
+      footer={footer}
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="rounded-2xl border border-gray-100 bg-white p-4">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <p className="text-sm font-extrabold text-gray-900">Available columns</p>
+            <div className="w-56">
+              <div className={cn("flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 py-2")}>
+                <FiSearch className="w-4 h-4 text-gray-400" />
                 <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={taskLimit}
-                  onChange={(e) => setTaskLimit(e.target.value)}
-                  className={input}
-                  placeholder="e.g. 10"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search…"
+                  className="w-full bg-transparent outline-none text-sm text-gray-800 placeholder:text-gray-400"
                 />
-              </Field>
+              </div>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4">
-            <p className="text-sm font-extrabold text-gray-900 mb-3">Preview</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {filteredAvailable.map((c) => {
+              const checked = selectedSet.has(c)
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => toggle(c)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition",
+                    checked ? "border-indigo-200 bg-indigo-50/40" : "border-gray-200 bg-white hover:bg-gray-50"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "w-5 h-5 rounded-md border flex items-center justify-center shrink-0",
+                      checked ? "bg-indigo-600 border-indigo-600" : "bg-white border-gray-300"
+                    )}
+                  >
+                    {checked ? <FiCheck className="w-3.5 h-3.5 text-white" /> : null}
+                  </span>
+                  <span className="text-sm font-bold text-gray-900">{prettyColLabel(c)}</span>
+                </button>
+              )
+            })}
+          </div>
 
-            <div className="flex flex-wrap gap-2">
-              <span className={cn(chip, chipSoft)}>
-                Status:{" "}
-                <b className="text-gray-900">
-                  {taskStatus === "all" ? "All" : statusLabel(taskStatus)}
-                </b>
-              </span>
+          <div className="mt-3 text-xs text-gray-500">
+            Selected: <span className="font-bold text-gray-800">{normalizedDraft.length}</span> / {allowed.length}
+          </div>
+        </div>
 
-              <span className={cn(chip, chipSoft)}>
-                Empty employees:{" "}
-                <b className="text-gray-900">{includeEmptyEmployees ? "Shown" : "Hidden"}</b>
-              </span>
+        <div className="rounded-2xl border border-gray-100 bg-white p-4">
+          <div className="mb-3">
+            <p className="text-sm font-extrabold text-gray-900">Selected order</p>
+            <p className="text-xs text-gray-500 mt-1">Use arrows to reorder.</p>
+          </div>
 
-              <span className={cn(chip, chipSoft)}>
-                Window:{" "}
-                <b className="text-gray-900">
-                  {String(windowDays || "").trim() ? `${windowDays} days` : "Default"}
-                </b>
-              </span>
+          <div className="space-y-2">
+            {normalizedDraft.length ? (
+              normalizedDraft.map((c, idx) => (
+                <div
+                  key={`${c}-${idx}`}
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-white px-3 py-2.5"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="w-8 h-8 rounded-2xl border border-gray-200 bg-gray-50 flex items-center justify-center text-xs font-extrabold text-gray-700 shrink-0">
+                      {idx + 1}
+                    </span>
+                    <p className="text-sm font-bold text-gray-900 truncate">{prettyColLabel(c)}</p>
+                  </div>
 
-              <span className={cn(chip, chipSoft)}>
-                Tasks payload: <b className="text-gray-900">{includeTasks ? "Included" : "Off"}</b>
-              </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => move(idx, -1)}
+                      className="w-10 h-10 rounded-2xl border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center"
+                      title="Move up"
+                      aria-label="Move up"
+                      disabled={idx === 0}
+                    >
+                      <FiArrowUp className={cn("w-4 h-4", idx === 0 ? "text-gray-300" : "text-gray-700")} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => move(idx, 1)}
+                      className="w-10 h-10 rounded-2xl border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center"
+                      title="Move down"
+                      aria-label="Move down"
+                      disabled={idx === normalizedDraft.length - 1}
+                    >
+                      <FiArrowDown
+                        className={cn("w-4 h-4", idx === normalizedDraft.length - 1 ? "text-gray-300" : "text-gray-700")}
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => remove(idx)}
+                      className="w-10 h-10 rounded-2xl border border-gray-200 bg-white hover:bg-gray-50 flex items-center justify-center"
+                      title="Remove"
+                      aria-label="Remove"
+                    >
+                      <FiX className="w-4 h-4 text-gray-700" />
+                    </button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-gray-200 bg-gray-50/60 p-6 text-center text-sm text-gray-600">
+                No columns selected. Pick from the left.
+              </div>
+            )}
+          </div>
 
-              {selectedEmployeeIds?.length ? (
-                <span className={cn(chip, chipIndigo)}>
-                  Employees selected:{" "}
-                  <b className="text-gray-900">{selectedEmployeeIds.length}</b>
-                </span>
-              ) : (
-                <span className={cn(chip, chipSoft)}>
-                  Employees: <b className="text-gray-900">All</b>
-                </span>
-              )}
-
-              {completedFrom ? (
-                <span className={cn(chip, chipSoft)}>
-                  Completed from: <b className="text-gray-900">Set</b>
-                </span>
-              ) : null}
-              {completedTo ? (
-                <span className={cn(chip, chipSoft)}>
-                  Completed to: <b className="text-gray-900">Set</b>
-                </span>
-              ) : null}
-            </div>
+          <div className="mt-3 text-xs text-gray-500">
+            Default:{" "}
+            <span className="font-semibold text-gray-700">
+              {(defaultColumns || []).map((c) => prettyColLabel(c)).join(", ") || "—"}
+            </span>
           </div>
         </div>
       </div>
@@ -873,1032 +1279,749 @@ function FiltersModal({
   )
 }
 
-/* =========================
-   API (Customer-first + cursor pagination)
-========================= */
-async function fetchCustomerWorkloadPage({
-  cursor,
-  limit = 20,
-  sort = "newest",
-  q,
+/* ---------------------- Filters modal (UPDATED: removed Search input) ---------------------- */
+function FiltersModal({ open, onClose, draftRange, setDraftRange, draftFilters, setDraftFilters, onApply }) {
+  return (
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      title="Filters"
+      subtitle="Narrow down your employee list"
+      icon={<FiFilter className="w-5 h-5" />}
+      maxWidthClass="max-w-4xl"
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <button onClick={onClose} className={cn(btn, btnGhost)}>
+            Cancel
+          </button>
+          <button onClick={onApply} className={cn(btn, btnPrimary)}>
+            Apply
+          </button>
+        </div>
+      }
+    >
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Range</p>
+          <RangeSelect value={draftRange} onChange={setDraftRange} />
+        </div>
 
-  employeeId,
-  taskStatus = "all",
-  includeEmptyEmployees = true,
-  windowDays,
-  completedFrom,
-  completedTo,
+        <div>
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Active</p>
+          <div className="relative">
+            <select
+              value={draftFilters.active}
+              onChange={(e) => setDraftFilters((p) => ({ ...p, active: e.target.value }))}
+              className={cn(input, "pr-10")}
+            >
+              <option value="all">All</option>
+              <option value="true">Active only</option>
+              <option value="false">Inactive only</option>
+            </select>
+            <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          </div>
+        </div>
 
-  includeTasks = true,
-  taskLimit = 10,
-
-  signal,
-}) {
-  const qs = new URLSearchParams()
-
-  qs.set("limit", String(limit))
-  qs.set("sort", String(sort || "newest"))
-
-  if (cursor) qs.set("cursor", String(cursor))
-  if (q) qs.set("q", String(q))
-
-  qs.set("taskStatus", String(taskStatus || "all"))
-  qs.set("includeEmptyEmployees", includeEmptyEmployees ? "true" : "false")
-
-  const wd = String(windowDays || "").trim()
-  if (wd) qs.set("windowDays", wd)
-
-  if (employeeId) qs.set("employeeId", String(employeeId))
-
-  if (completedFrom) {
-    const iso = toISOFromDatetimeLocal(completedFrom)
-    if (iso) qs.set("completedFrom", iso)
-  }
-  if (completedTo) {
-    const iso = toISOFromDatetimeLocal(completedTo)
-    if (iso) qs.set("completedTo", iso)
-  }
-
-  qs.set("includeTasks", includeTasks ? "true" : "false")
-  if (includeTasks) qs.set("taskLimit", String(taskLimit || 10))
-
-  const res = await fetch(`${ENDPOINTS.LIST_CUSTOMER_WORKLOAD}?${qs.toString()}`, {
-    headers: getAuthHeaders(),
-    credentials: "include",
-    signal,
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Failed to load workload")
-
-  return {
-    customers: Array.isArray(data?.customers) ? data.customers : [],
-    hasMore: !!data?.hasMore,
-    nextCursor: data?.nextCursor || null,
-  }
+        <div className="md:col-span-2">
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Sort</p>
+          <div className="relative">
+            <select
+              value={draftFilters.sort}
+              onChange={(e) => setDraftFilters((p) => ({ ...p, sort: e.target.value }))}
+              className={cn(input, "pr-10")}
+            >
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+            </select>
+            <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          </div>
+        </div>
+      </div>
+    </ModalShell>
+  )
 }
 
-/* =========================
-   MAIN — Customer-first Workload Report
-========================= */
-export default function EmployeeWorkloadReportPage() {
-  const [toast, setToast] = useState({ open: false, type: "success", message: "" })
-  const showToast = useCallback((type, message) => {
-    setToast({ open: true, type, message })
-    window.clearTimeout(showToast._t)
-    showToast._t = window.setTimeout(
-      () => setToast({ open: false, type: "success", message: "" }),
-      2200
-    )
-  }, [])
-  const closeToast = () => setToast({ open: false, type: "success", message: "" })
+/* ---------------------- Page ---------------------- */
+export default function AdminEmployeeReportPage() {
+  const PAGE_SIZE = 25
 
-  // search (customer search -> backend q)
-  const [searchTerm, setSearchTerm] = useState("")
-  const [debounced, setDebounced] = useState("")
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(searchTerm.trim()), 280)
-    return () => clearTimeout(t)
-  }, [searchTerm])
+  const [range, setRange] = useState("this_month")
+  const [filters, setFilters] = useState({ q: "", active: "all", sort: "newest" })
 
-  // applied filters
-  const [taskStatus, setTaskStatus] = useState("all")
-  const [includeEmptyEmployees, setIncludeEmptyEmployees] = useState(true)
-  const [windowDays, setWindowDays] = useState("7")
-  const [completedFrom, setCompletedFrom] = useState("")
-  const [completedTo, setCompletedTo] = useState("")
-  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([])
+  const [draftOpen, setDraftOpen] = useState(false)
+  const [draftRange, setDraftRange] = useState("this_month")
+  const [draftFilters, setDraftFilters] = useState({ q: "", active: "all", sort: "newest" })
 
-  const [includeTasks, setIncludeTasks] = useState(true)
-  const [taskLimit, setTaskLimit] = useState("10")
-
-  // pagination
-  const [sort, setSort] = useState("newest")
-  const [limit, setLimit] = useState(20)
-  const [cursor, setCursor] = useState(null)
-  const [hasMore, setHasMore] = useState(false)
-
-  // modal draft
-  const [filtersOpen, setFiltersOpen] = useState(false)
-  const [dTaskStatus, setDTaskStatus] = useState("all")
-  const [dIncludeEmpty, setDIncludeEmpty] = useState(true)
-  const [dWindowDays, setDWindowDays] = useState("7")
-  const [dFrom, setDFrom] = useState("")
-  const [dTo, setDTo] = useState("")
-  const [dEmpIds, setDEmpIds] = useState([])
-  const [dIncludeTasks, setDIncludeTasks] = useState(true)
-  const [dTaskLimit, setDTaskLimit] = useState("10")
-
-  const openFilters = () => {
-    setDTaskStatus(taskStatus)
-    setDIncludeEmpty(includeEmptyEmployees)
-    setDWindowDays(String(windowDays || ""))
-    setDFrom(String(completedFrom || ""))
-    setDTo(String(completedTo || ""))
-    setDEmpIds(Array.isArray(selectedEmployeeIds) ? selectedEmployeeIds.slice() : [])
-    setDIncludeTasks(!!includeTasks)
-    setDTaskLimit(String(taskLimit || "10"))
-    setFiltersOpen(true)
-  }
-
-  const clearDraft = () => {
-    setDTaskStatus("all")
-    setDIncludeEmpty(true)
-    setDWindowDays("7")
-    setDFrom("")
-    setDTo("")
-    setDEmpIds([])
-    setDIncludeTasks(true)
-    setDTaskLimit("10")
-  }
-
-  const applyDraft = () => {
-    setTaskStatus(dTaskStatus)
-    setIncludeEmptyEmployees(!!dIncludeEmpty)
-    setWindowDays(String(dWindowDays || "7"))
-    setCompletedFrom(String(dFrom || ""))
-    setCompletedTo(String(dTo || ""))
-    setSelectedEmployeeIds(Array.isArray(dEmpIds) ? dEmpIds.slice() : [])
-    setIncludeTasks(!!dIncludeTasks)
-    setTaskLimit(String(dTaskLimit || "10"))
-    setFiltersOpen(false)
-  }
-
-  const clearApplied = () => {
-    setTaskStatus("all")
-    setIncludeEmptyEmployees(true)
-    setWindowDays("7")
-    setCompletedFrom("")
-    setCompletedTo("")
-    setSelectedEmployeeIds([])
-    setIncludeTasks(true)
-    setTaskLimit("10")
-  }
-
-  const activeFilterCount = useMemo(() => {
-    let n = 0
-    if (taskStatus !== "all") n += 1
-    if (includeEmptyEmployees === false) n += 1
-    if (String(windowDays || "").trim() && String(windowDays || "").trim() !== "7") n += 1
-    if (completedFrom) n += 1
-    if (completedTo) n += 1
-    if ((selectedEmployeeIds?.length || 0) > 0) n += 1
-    if (!includeTasks) n += 1
-    return n
-  }, [taskStatus, includeEmptyEmployees, windowDays, completedFrom, completedTo, selectedEmployeeIds, includeTasks])
-
-  const hasAppliedFilters = activeFilterCount > 0
-
-  // data
-  const [rows, setRows] = useState([]) // customers rows
+  const [rows, setRows] = useState([])
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState("")
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
+  const [nextCursor, setNextCursor] = useState(null)
+  const [hasMore, setHasMore] = useState(false)
+
+  const [toast, setToast] = useState({ open: false, type: "success", message: "" })
+  const showToast = (type, message) => {
+    setToast({ open: true, type, message })
+    window.clearTimeout(showToast._t)
+    showToast._t = window.setTimeout(() => setToast({ open: false, type: "success", message: "" }), 2200)
+  }
 
   const abortRef = useRef(null)
+  const [selected, setSelected] = useState(null)
+  const [openRowId, setOpenRowId] = useState(null)
 
-  // expand states
-  const [openCustomerIds, setOpenCustomerIds] = useState(() => new Set())
-  const [openEmployeeKeys, setOpenEmployeeKeys] = useState(() => new Set()) // `${customerId}:${employeeId}`
+  const tasksCacheRef = useRef(new Map())
+  const cacheKeyFor = (employeeId, r) => `${String(employeeId || "")}::${String(r || "")}`
+  const getCachedTasks = (key) => tasksCacheRef.current.get(key)
+  const setCachedTasks = (key, tasks) => tasksCacheRef.current.set(key, tasks)
 
-  const toggleCustomer = (customerId) => {
-    const id = String(customerId)
-    setOpenCustomerIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
+  const [exportOpen, setExportOpen] = useState(false)
+  const exportWrapRef = useRef(null)
 
-  const toggleEmployee = (customerId, employeeId) => {
-    const key = `${String(customerId)}:${String(employeeId)}`
-    setOpenEmployeeKeys((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
+  // columns preference (updated backend)
+  const [columnsOpen, setColumnsOpen] = useState(false)
+  const [columnsSaving, setColumnsSaving] = useState(false)
+  const [colPrefEtag, setColPrefEtag] = useState(null)
+  const [allowedColumns, setAllowedColumns] = useState([])
+  const [defaultColumns, setDefaultColumns] = useState([])
+  const [selectedColumns, setSelectedColumns] = useState([])
 
-  const resetAndLoad = async () => {
-    if (abortRef.current) abortRef.current.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
+  const visibleCols = useMemo(() => {
+    // backend may include "actions"; UI already has a fixed Actions column button,
+    // so we exclude it from the selectable list to avoid duplication.
+    const allowedNoActions = (allowedColumns || []).filter((c) => c !== "actions")
+    const clean = normalizeCols(selectedColumns, allowedNoActions)
 
-    setIsLoading(true)
-    setError("")
+    // make sure employee is always visible
+    const withEmployee = clean.includes("employee") ? clean : ["employee", ...clean]
+    return [...new Set(withEmployee)]
+  }, [allowedColumns, selectedColumns])
+
+  const tableColSpan = useMemo(() => visibleCols.length + 1, [visibleCols.length]) // + fixed Actions column
+
+  const loadColumnsPref = async () => {
     try {
-      // backend supports only one employeeId filter at a time
-      const backendEmployeeId =
-        selectedEmployeeIds.length === 1 ? selectedEmployeeIds[0] : null
+      const res = await apiGetEmployeeReportViewPreference({ key: EMP_VIEW_KEY, etag: colPrefEtag })
+      if (res?.notModified) return
+      if (res?.etag) setColPrefEtag(res.etag)
 
-      const first = await fetchCustomerWorkloadPage({
-        cursor: null,
-        limit,
-        sort,
-        q: debounced || "",
+      const allowed = Array.isArray(res?.allowedColumns) ? res.allowedColumns : []
+      const defaults = Array.isArray(res?.defaultColumns) ? res.defaultColumns : []
+      const cols = Array.isArray(res?.columns) ? res.columns : []
 
-        employeeId: backendEmployeeId,
-        taskStatus,
-        includeEmptyEmployees,
-        windowDays,
-        completedFrom: completedFrom || "",
-        completedTo: completedTo || "",
-
-        includeTasks,
-        taskLimit: Number(taskLimit || 10),
-
-        signal: controller.signal,
-      })
-
-      setRows(first.customers || [])
-      setHasMore(!!first.hasMore)
-      setCursor(first.nextCursor || null)
-
-      setOpenCustomerIds(new Set())
-      setOpenEmployeeKeys(new Set())
+      setAllowedColumns(allowed)
+      setDefaultColumns(defaults)
+      setSelectedColumns(cols)
     } catch (e) {
-      if (e?.name !== "AbortError") setError(e?.message || "Failed to load report.")
-    } finally {
-      setIsLoading(false)
-      setHasLoadedOnce(true)
-    }
-  }
-
-  const loadMore = async () => {
-    if (!hasMore || !cursor || isLoading || isLoadingMore) return
-    if (abortRef.current) abortRef.current.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
-
-    setIsLoadingMore(true)
-    setError("")
-    try {
-      const backendEmployeeId =
-        selectedEmployeeIds.length === 1 ? selectedEmployeeIds[0] : null
-
-      const next = await fetchCustomerWorkloadPage({
-        cursor,
-        limit,
-        sort,
-        q: debounced || "",
-
-        employeeId: backendEmployeeId,
-        taskStatus,
-        includeEmptyEmployees,
-        windowDays,
-        completedFrom: completedFrom || "",
-        completedTo: completedTo || "",
-
-        includeTasks,
-        taskLimit: Number(taskLimit || 10),
-
-        signal: controller.signal,
-      })
-
-      setRows((prev) => {
-        const seen = new Set(prev.map((x) => String(x?.customer?.customerId)))
-        const add = (next.customers || []).filter((x) => !seen.has(String(x?.customer?.customerId)))
-        return prev.concat(add)
-      })
-
-      setHasMore(!!next.hasMore)
-      setCursor(next.nextCursor || null)
-    } catch (e) {
-      if (e?.name !== "AbortError") setError(e?.message || "Failed to load more.")
-    } finally {
-      setIsLoadingMore(false)
-      setHasLoadedOnce(true)
+      showToast("error", e?.message || "Failed to load column settings.")
     }
   }
 
   useEffect(() => {
-    resetAndLoad()
+    loadColumnsPref()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const onDoc = (e) => {
+      if (!exportOpen) return
+      if (!exportWrapRef.current) return
+      if (!exportWrapRef.current.contains(e.target)) setExportOpen(false)
+    }
+    document.addEventListener("mousedown", onDoc)
+    return () => document.removeEventListener("mousedown", onDoc)
+  }, [exportOpen])
+
+  const saveColumns = async (cols) => {
+    setColumnsSaving(true)
+    try {
+      const res = await apiSaveEmployeeReportViewPreference({ key: EMP_VIEW_KEY, columns: cols })
+      if (res?.etag) setColPrefEtag(res.etag)
+      setAllowedColumns(Array.isArray(res?.allowedColumns) ? res.allowedColumns : allowedColumns)
+      setDefaultColumns(Array.isArray(res?.defaultColumns) ? res.defaultColumns : defaultColumns)
+      setSelectedColumns(Array.isArray(res?.columns) ? res.columns : cols)
+      showToast("success", "Columns updated.")
+      setColumnsOpen(false)
+    } catch (e) {
+      showToast("error", e?.message || "Failed to save columns.")
+    } finally {
+      setColumnsSaving(false)
+    }
+  }
+
+  const resetColumnsToDefault = async () => {
+    // backend: empty array means reset
+    await saveColumns([])
+  }
+
+  const showAllColumns = async () => {
+    // show everything the backend allows (except actions, because UI already has Actions)
+    const allowedNoActions = (allowedColumns || []).filter((c) => c !== "actions")
+    await saveColumns(allowedNoActions)
+  }
+
+  const appliedFilterCount = useMemo(() => {
+    return Object.entries({ range, ...filters } || {})
+      .filter(([k, v]) => {
+        if (k === "q") return false
+        if (k === "range") return String(v) !== "this_month"
+        if (k === "active") return String(v) !== "all"
+        if (k === "sort") return String(v) !== "newest"
+        return String(v || "").trim() && String(v) !== "all" && String(v) !== ""
+      })
+      .length
+  }, [filters, range])
+
+  const appliedChips = useMemo(() => {
+    const chips = []
+    if (String(range) !== "this_month") chips.push({ key: "range", label: `Range: ${rangeLabelPretty(range)}` })
+    if (String(filters.active) !== "all")
+      chips.push({ key: "active", label: `Active: ${activeLabelPretty(filters.active)}` })
+    if (String(filters.sort) !== "newest") chips.push({ key: "sort", label: `Sort: ${sortLabelPretty(filters.sort)}` })
+    return chips
+  }, [filters.active, filters.sort, range])
+
+  const fetchPage = async ({ reset = false, soft = false } = {}) => {
+    if (abortRef.current) abortRef.current.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    setError("")
+    if (reset) {
+      setOpenRowId(null)
+      if (soft && rows.length) {
+        setIsRefreshing(true)
+      } else {
+        setIsLoading(true)
+        setRows([])
+      }
+      setNextCursor(null)
+      setHasMore(false)
+    } else {
+      setIsLoadingMore(true)
+    }
+
+    try {
+      const list = await apiListEmployees({
+        limit: PAGE_SIZE,
+        cursor: reset ? null : nextCursor,
+        q: filters.q,
+        active: filters.active,
+        sort: filters.sort,
+        signal: controller.signal,
+      })
+
+      const employees = list.items || []
+
+      const perfResults = await Promise.all(
+        employees.map(async (emp) => {
+          try {
+            const perf = await apiGetEmployeePerformance({
+              employeeId: emp._id,
+              range,
+              includeInProgressList: false,
+              includeTasks: false,
+              signal: controller.signal,
+            })
+
+            return {
+              employeeId: emp._id,
+              employeeName: emp.name || "—",
+              email: emp.email || "",
+              isActive: Boolean(emp.isActive),
+              avatarUrl: emp.avatarUrl || "",
+              totals: perf?.totals || { tasksDone: 0, totalMinutes: 0, avgMinutes: 0, lastCompletedAt: null },
+              taskSummary: perf?.taskCounts
+                ? {
+                    totalAssigned: perf.taskCounts.totalAssigned ?? 0,
+                    pending: perf.taskCounts.pending ?? 0,
+                    in_progress: perf.taskCounts.inProgress ?? 0,
+                    done: perf.taskCounts.done ?? 0,
+                  }
+                : { totalAssigned: 0, pending: 0, in_progress: 0, done: 0 },
+              performance: perf?.performance || null,
+              range: perf?.range || null,
+            }
+          } catch {
+            return {
+              employeeId: emp._id,
+              employeeName: emp.name || "—",
+              email: emp.email || "",
+              isActive: Boolean(emp.isActive),
+              avatarUrl: emp.avatarUrl || "",
+              totals: { tasksDone: 0, totalMinutes: 0, avgMinutes: 0, lastCompletedAt: null },
+              taskSummary: { totalAssigned: 0, pending: 0, in_progress: 0, done: 0 },
+              performance: null,
+              range: null,
+            }
+          }
+        })
+      )
+
+      setRows((prev) => (reset ? perfResults : [...prev, ...perfResults]))
+      setNextCursor(list.nextCursor)
+      setHasMore(Boolean(list.hasMore))
+    } catch (e) {
+      if (e?.name !== "AbortError") setError(e?.message || "Failed to load employee report.")
+    } finally {
+      setIsLoading(false)
+      setIsLoadingMore(false)
+      setIsRefreshing(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchPage({ reset: true, soft: false })
     return () => abortRef.current?.abort?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // reload when filters/search change
   useEffect(() => {
-    resetAndLoad()
+    fetchPage({ reset: true, soft: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    debounced,
-    sort,
-    limit,
-    taskStatus,
-    includeEmptyEmployees,
-    windowDays,
-    completedFrom,
-    completedTo,
-    includeTasks,
-    taskLimit,
-    JSON.stringify(selectedEmployeeIds),
-  ])
+  }, [range, JSON.stringify(filters)])
 
-  const refreshAll = async () => {
-    await resetAndLoad()
-    showToast("success", "Refreshed.")
+  const disableLoadMore = isLoadingMore || isLoading || isRefreshing || !hasMore
+
+  const exportExcel = () => {
+    if (!rows.length) return showToast("error", "No data to export.")
+    try {
+      exportEmployeesToExcel(rows, range, visibleCols)
+      showToast("success", "Excel exported.")
+    } catch (e) {
+      showToast("error", e?.message || "Export failed.")
+    }
   }
 
-  // Build employeeOptions from loaded rows (best effort)
-  const employeeOptions = useMemo(() => {
-    const list = []
-    for (const r of rows || []) {
-      const employees = Array.isArray(r?.employees) ? r.employees : []
-      for (const eEntry of employees) {
-        const e = eEntry?.employee
-        if (!e?._id) continue
-        list.push({
-          value: String(e._id),
-          label: `${e.name || "—"}${e.email ? ` (${e.email})` : ""}`,
-        })
-      }
+  const exportPdf = () => {
+    if (!rows.length) return showToast("error", "No data to export.")
+    try {
+      exportEmployeesToPdf(rows, range, visibleCols)
+      showToast("success", "PDF exported.")
+    } catch (e) {
+      showToast("error", e?.message || "PDF export failed.")
     }
-    const seen = new Set()
-    const out = []
-    for (const o of list) {
-      if (seen.has(o.value)) continue
-      seen.add(o.value)
-      out.push(o)
-    }
-    return out
-  }, [rows])
+  }
 
-  // If user selects multiple employees, filter in UI
-  const filteredRows = useMemo(() => {
-    let list = Array.isArray(rows) ? rows.slice() : []
+  const openFilters = () => {
+    setDraftRange(range)
+    // keep q in draft (so Apply keeps search state), but UI input removed from modal
+    setDraftFilters(filters)
+    setDraftOpen(true)
+  }
 
-    if (selectedEmployeeIds.length > 1) {
-      const set = new Set(selectedEmployeeIds.map(String))
-      list = list
-        .map((row) => {
-          const employees = Array.isArray(row?.employees) ? row.employees : []
-          const filteredEmployees = employees.filter((x) => set.has(String(x?.employee?._id)))
-          return { ...row, employees: filteredEmployees }
-        })
-        .filter((row) => (row?.employees?.length || 0) > 0)
-    }
+  const applyFilters = () => {
+    setOpenRowId(null)
+    setRange(draftRange)
+    setFilters(draftFilters)
+    setDraftOpen(false)
+  }
 
-    return list
-  }, [rows, selectedEmployeeIds])
+  const removeChip = (key) => {
+    setOpenRowId(null)
+    if (key === "range") return setRange("this_month")
+    if (key === "active") return setFilters((p) => ({ ...p, active: "all" }))
+    if (key === "sort") return setFilters((p) => ({ ...p, sort: "newest" }))
+  }
 
-  const computedSummary = useMemo(() => {
-    const customersCount = filteredRows.length
-    let pending = 0
-    let in_progress = 0
-    let done = 0
-    let overdue = 0
+  const toggleRow = (employeeId) => {
+    setOpenRowId((cur) => (String(cur || "") === String(employeeId || "") ? null : employeeId))
+  }
 
-    for (const r of filteredRows) {
-      const t = r?.totals || {}
-      pending += Number(t.pending || 0)
-      in_progress += Number(t.in_progress || 0)
-      done += Number(t.done || 0)
-      overdue += Number(t.overdue || 0)
-    }
+  const renderCell = (colKey, r, perfTone) => {
+    if (colKey === "employee") {
+      const isOpen = String(openRowId || "") === String(r.employeeId || "")
+      return (
+        <td className={tdCls}>
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => toggleRow(r.employeeId)}
+              className={cn(
+                "flex items-center gap-3 min-w-0 text-left",
+                "rounded-xl hover:bg-gray-50/70 transition px-2 py-1 -mx-2"
+              )}
+              title="Toggle tasks"
+            >
+              <div className="h-9 w-9 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center overflow-hidden shrink-0">
+                {r.avatarUrl ? (
+                  <img src={r.avatarUrl} alt={r.employeeName} className="h-full w-full object-cover" />
+                ) : (
+                  <span className="text-xs font-extrabold text-indigo-700">{initials(r.employeeName)}</span>
+                )}
+              </div>
 
-    return { customersCount, pending, in_progress, done, overdue }
-  }, [filteredRows])
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <p className="text-sm font-extrabold text-gray-900 truncate">{r.employeeName}</p>
+                </div>
+                <p className="text-xs text-gray-500 truncate">{r.email}</p>
+              </div>
+            </button>
 
-  const appliedChips = useMemo(() => {
-    const chips = []
-
-    if (taskStatus !== "all") {
-      chips.push({
-        key: "status",
-        label: `Status: ${statusLabel(taskStatus)}`,
-        onRemove: () => setTaskStatus("all"),
-      })
-    }
-
-    if (includeEmptyEmployees === false) {
-      chips.push({
-        key: "emptyEmp",
-        label: "Hide employees with 0 tasks",
-        onRemove: () => setIncludeEmptyEmployees(true),
-      })
+            <TasksToggle open={isOpen} onClick={() => toggleRow(r.employeeId)} />
+          </div>
+        </td>
+      )
     }
 
-    if (String(windowDays || "").trim() && String(windowDays || "").trim() !== "7") {
-      chips.push({
-        key: "window",
-        label: `Window ${windowDays}d`,
-        onRemove: () => setWindowDays("7"),
-      })
+    if (colKey === "active") {
+      return <td className={tdCls}>{r.isActive ? <Badge tone="green">Active</Badge> : <Badge>Inactive</Badge>}</td>
     }
 
-    if (completedFrom)
-      chips.push({
-        key: "from",
-        label: "Completed: from set",
-        onRemove: () => setCompletedFrom(""),
-      })
-    if (completedTo)
-      chips.push({
-        key: "to",
-        label: "Completed: to set",
-        onRemove: () => setCompletedTo(""),
-      })
+    if (colKey === "assigned") return <td className={tdNumBold}>{safeNum(r?.taskSummary?.totalAssigned)}</td>
+    if (colKey === "pending") return <td className={tdNum}>{safeNum(r?.taskSummary?.pending)}</td>
+    if (colKey === "in_progress") return <td className={tdNum}>{safeNum(r?.taskSummary?.in_progress)}</td>
+    if (colKey === "done") return <td className={tdNum}>{safeNum(r?.taskSummary?.done)}</td>
 
-    if ((selectedEmployeeIds?.length || 0) > 0) {
-      chips.push({
-        key: "emp",
-        label:
-          selectedEmployeeIds.length === 1
-            ? "1 employee selected"
-            : `${selectedEmployeeIds.length} employees selected`,
-        onRemove: () => setSelectedEmployeeIds([]),
-      })
+    if (colKey === "range_done") return <td className={tdNumBold}>{safeNum(r?.totals?.tasksDone)}</td>
+    if (colKey === "hours") return <td className={tdNum}>{minsToHours(r?.totals?.totalMinutes)}</td>
+    if (colKey === "avg_min") return <td className={tdNum}>{safeNum(r?.totals?.avgMinutes)}</td>
+
+    if (colKey === "rating") {
+      const perf = r?.performance || {}
+      return (
+        <td className={cn(tdCls, "text-right")}>
+          {perf?.label ? (
+            <div className="inline-flex items-center justify-end gap-2">
+              <Badge tone={perfTone}>{ratingLabelPretty(perf.label)}</Badge>
+              <span className="text-xs font-bold text-gray-600">{safeNum(perf.score)}</span>
+            </div>
+          ) : (
+            <span className="text-sm text-gray-500">—</span>
+          )}
+        </td>
+      )
     }
 
-    if (!includeTasks) {
-      chips.push({
-        key: "noTasks",
-        label: "Tasks payload off",
-        onRemove: () => setIncludeTasks(true),
-      })
-    }
-
-    return chips
-  }, [
-    taskStatus,
-    includeEmptyEmployees,
-    windowDays,
-    completedFrom,
-    completedTo,
-    selectedEmployeeIds,
-    includeTasks,
-  ])
-
-  const showSkeleton = isLoading || !hasLoadedOnce
+    return <td className={tdCls}>—</td>
+  }
 
   return (
-    <div className={cn("min-h-screen p-4 sm:p-6 lg:p-8", pageBg)}>
+    <div className={shell}>
       <AnimatePresence>
         <Toast
           open={toast.open}
           type={toast.type}
           message={toast.message}
-          onClose={closeToast}
+          onClose={() => setToast({ open: false, type: "success", message: "" })}
         />
       </AnimatePresence>
 
       <AnimatePresence>
-        {filtersOpen ? (
-          <FiltersModal
-            open={filtersOpen}
-            onClose={() => setFiltersOpen(false)}
-            taskStatus={dTaskStatus}
-            setTaskStatus={setDTaskStatus}
-            includeEmptyEmployees={dIncludeEmpty}
-            setIncludeEmptyEmployees={setDIncludeEmpty}
-            windowDays={dWindowDays}
-            setWindowDays={setDWindowDays}
-            completedFrom={dFrom}
-            setCompletedFrom={setDFrom}
-            completedTo={dTo}
-            setCompletedTo={setDTo}
-            selectedEmployeeIds={dEmpIds}
-            setSelectedEmployeeIds={setDEmpIds}
-            employeeOptions={employeeOptions}
-            includeTasks={dIncludeTasks}
-            setIncludeTasks={setDIncludeTasks}
-            taskLimit={dTaskLimit}
-            setTaskLimit={setDTaskLimit}
-            onClear={clearDraft}
-            onApply={applyDraft}
+        {!!selected ? (
+          <EmployeeDetailsModal
+            open={!!selected}
+            employee={selected}
+            range={range}
+            onRangeChange={(v) => setRange(v)}
+            onClose={() => setSelected(null)}
           />
         ) : null}
       </AnimatePresence>
 
-      {/* HEADER */}
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
-        <div className={cn(card, "p-6")}>
+      <FiltersModal
+        open={draftOpen}
+        onClose={() => setDraftOpen(false)}
+        draftRange={draftRange}
+        setDraftRange={setDraftRange}
+        draftFilters={draftFilters}
+        setDraftFilters={setDraftFilters}
+        onApply={applyFilters}
+      />
+
+      <ColumnsModal
+        open={columnsOpen}
+        onClose={() => setColumnsOpen(false)}
+        allowedColumns={(allowedColumns || []).filter((c) => c !== "actions")}
+        defaultColumns={(defaultColumns || []).filter((c) => c !== "actions")}
+        selectedColumns={(selectedColumns || []).filter((c) => c !== "actions")}
+        saving={columnsSaving}
+        onApply={(cols) => saveColumns(cols)}
+        onResetDefault={resetColumnsToDefault}
+        onShowAll={showAllColumns}
+      />
+
+      <div className="p-4 sm:p-6 lg:p-8 print:hidden">
+        <div className={cn(card, "p-5 sm:p-6 mb-6")}>
           <div className="flex flex-col gap-4">
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
               <div className="flex items-center gap-4">
-                <div className="relative">
-                  <div className="absolute inset-0 bg-indigo-500/20 rounded-2xl blur-lg" />
-                  <div className="relative bg-indigo-600 w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-sm">
-                    <FiBriefcase className="w-6 h-6" />
-                  </div>
+                <div className="bg-indigo-600 w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-sm">
+                  <FiFilter className="w-6 h-6" />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
-                    Workload Report
-                  </h1>
-                  <p className="text-sm text-gray-500 font-semibold">
-                    Customer-first view • employees with avatars • optimized paging
-                  </p>
+                  <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Employee Report</h1>
+                  <p className="text-sm text-gray-500">Tasks, hours, and performance</p>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
                 <button
-                  onClick={refreshAll}
+                  type="button"
+                  onClick={() => setColumnsOpen(true)}
                   className={cn(btn, btnGhost)}
-                  title="Refresh"
-                  disabled={isLoading}
+                  title="Choose columns"
                 >
-                  <FiRefreshCcw className={cn("w-4 h-4", isLoading ? "animate-spin" : "")} />
-                  Refresh
+                  <FiColumns className="w-4 h-4" />
+                  Columns
                 </button>
 
-                <div className="rounded-2xl border border-gray-100 bg-white px-3 py-2 shadow-sm flex items-center gap-2">
-                  <span className="text-xs text-gray-500 font-extrabold">Sort</span>
-                  <select
-                    value={sort}
-                    onChange={(e) => setSort(e.target.value)}
-                    className="text-sm font-extrabold text-gray-900 bg-transparent outline-none"
+                <div className="relative" ref={exportWrapRef}>
+                  <button
+                    type="button"
+                    onClick={() => setExportOpen((v) => !v)}
+                    disabled={isLoading || isRefreshing || rows.length === 0}
+                    className={cn(btn, btnPrimary, "disabled:opacity-60")}
+                    title="Export"
                   >
-                    <option value="newest">Newest</option>
-                    <option value="oldest">Oldest</option>
-                  </select>
+                    Export
+                    <FiChevronDown className={cn("w-4 h-4", exportOpen ? "rotate-180 transition" : "transition")} />
+                  </button>
+
+                  <AnimatePresence>
+                    {exportOpen ? (
+                      <motion.div
+                        initial={{ opacity: 0, y: -6, scale: 0.99 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -6, scale: 0.99 }}
+                        transition={{ duration: 0.14 }}
+                        className="absolute right-0 mt-2 w-56 rounded-2xl border border-gray-100 bg-white shadow-[0_20px_45px_-25px_rgba(0,0,0,0.55)] overflow-hidden z-30"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExportOpen(false)
+                            exportPdf()
+                          }}
+                          className="w-full px-3.5 py-3 flex items-center justify-between hover:bg-gray-50 transition"
+                        >
+                          <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                            <FaFilePdf className="w-4 h-4 text-rose-600" />
+                            Export PDF
+                          </span>
+                          <span className="text-xs text-gray-500">.pdf</span>
+                        </button>
+
+                        <div className="h-px bg-gray-100" />
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExportOpen(false)
+                            exportExcel()
+                          }}
+                          className="w-full px-3.5 py-3 flex items-center justify-between hover:bg-gray-50 transition"
+                        >
+                          <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                            <SiMicrosoftexcel className="w-4 h-4 text-emerald-600" />
+                            Export Excel
+                          </span>
+                          <span className="text-xs text-gray-500">.xlsx</span>
+                        </button>
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
                 </div>
+
+                <button
+                  onClick={() => fetchPage({ reset: true, soft: true })}
+                  className={cn(btn, btnGhost)}
+                  title="Refresh"
+                  disabled={isLoading || isRefreshing}
+                >
+                  <FiRefreshCcw className={cn("w-4 h-4", isLoading || isRefreshing ? "animate-spin" : "")} />
+                  Refresh
+                </button>
               </div>
             </div>
 
-            {/* SEARCH BAR */}
             <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-              <div className="w-full lg:w-1/2">
-                <div
-                  className={cn(
-                    "w-full h-12 rounded-2xl border border-gray-200 bg-white",
-                    "px-3 flex items-center gap-2",
-                    "focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-transparent"
-                  )}
-                >
+              <div className="w-full lg:max-w-xl">
+                <div className={searchWrap}>
                   <FiSearch className="w-4 h-4 text-gray-400 shrink-0" />
 
-                  <div
-                    className={cn(
-                      "flex-1 min-w-0 flex items-center gap-2",
-                      "overflow-x-auto",
-                      "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                    )}
-                    onClick={() => document.getElementById("workload-search")?.focus?.()}
-                  >
-                    {appliedChips.map((c) => (
-                      <span
-                        key={c.key}
-                        className={cn(
-                          "shrink-0 inline-flex items-center gap-2",
-                          "px-2.5 py-1 rounded-full border",
-                          "bg-indigo-50 border-indigo-100 text-indigo-700",
-                          "text-xs font-extrabold"
-                        )}
-                      >
-                        <span className="truncate max-w-[220px]">{c.label}</span>
-                        <button
-                          type="button"
-                          className="p-0.5 rounded-full hover:bg-indigo-100/80 focus:outline-none"
-                          title="Remove"
-                          aria-label="Remove filter"
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            c.onRemove?.()
-                          }}
-                        >
-                          <FiX className="w-3.5 h-3.5" />
-                        </button>
-                      </span>
-                    ))}
+                  {appliedChips.map((c) => (
+                    <FilterChip key={c.key} label={c.label} onRemove={() => removeChip(c.key)} />
+                  ))}
 
-                    <input
-                      id="workload-search"
-                      type="search"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder={appliedChips.length ? "Search customer…" : "Search customer name, company, email…"}
-                      className={cn(
-                        "flex-1 min-w-[10rem] bg-transparent",
-                        "text-sm text-gray-900 placeholder:text-gray-400",
-                        "border-0 outline-none ring-0 shadow-none",
-                        "focus:outline-none focus:ring-0 focus:shadow-none focus:border-0",
-                        "appearance-none"
-                      )}
-                    />
-                  </div>
+                  <input
+                    type="search"
+                    value={filters.q}
+                    onChange={(e) => setFilters((p) => ({ ...p, q: e.target.value }))}
+                    placeholder="Search by name or email…"
+                    className={searchInput}
+                  />
 
                   <button
                     type="button"
                     onClick={openFilters}
                     className={cn(
-                      "relative shrink-0",
-                      "h-9 w-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition",
-                      "flex items-center justify-center focus:outline-none"
+                      "relative shrink-0 h-8 w-8 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition",
+                      "flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                     )}
                     aria-label="Open filters"
                     title="Filters"
                   >
                     <FiFilter className="w-4 h-4 text-gray-700" />
-                    {activeFilterCount ? (
-                      <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-indigo-600 text-white text-[10px] font-extrabold flex items-center justify-center">
-                        {activeFilterCount}
+                    {appliedFilterCount ? (
+                      <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center">
+                        {appliedFilterCount}
                       </span>
                     ) : null}
                   </button>
 
-                  {hasAppliedFilters ? (
+                  {(filters.q || appliedFilterCount) ? (
                     <button
                       type="button"
-                      onClick={clearApplied}
+                      onClick={() => {
+                        setOpenRowId(null)
+                        setFilters({ q: "", active: "all", sort: "newest" })
+                        setRange("this_month")
+                      }}
                       className={cn(
-                        "shrink-0 h-9 w-9 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition",
-                        "flex items-center justify-center focus:outline-none"
+                        "shrink-0 h-8 w-8 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition",
+                        "flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                       )}
-                      aria-label="Clear applied filters"
-                      title="Clear filters"
+                      aria-label="Clear"
+                      title="Clear"
                     >
                       <FiX className="w-4 h-4 text-gray-700" />
                     </button>
                   ) : null}
                 </div>
 
-                <div className="mt-2 flex items-center gap-2">
-                  <p className="text-xs text-gray-500 font-semibold">
-                    Search is backend-powered (q) — pagination stays stable.
-                  </p>
-                </div>
+                <p className="mt-2 text-xs text-gray-500">Tip: Click an employee to open tasks. Use “View” for full details.</p>
               </div>
 
-              <div className="w-full lg:w-auto">
-                <div className="rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm">
-                  <div className="flex flex-wrap gap-2">
-                    <span className={cn(chip, chipAmber)}>
-                      Pending <b>{computedSummary.pending}</b>
-                    </span>
-                    <span className={cn(chip, chipIndigo)}>
-                      In progress <b>{computedSummary.in_progress}</b>
-                    </span>
-                    <span className={cn(chip, chipEmerald)}>
-                      Done <b>{computedSummary.done}</b>
-                    </span>
-                    <span className={cn(chip, chipRose)}>
-                      Overdue <b>{computedSummary.overdue}</b>
-                    </span>
-                    <span className={cn(chip, chipGray)}>
-                      Customers <b>{computedSummary.customersCount}</b>
-                    </span>
-                  </div>
-                </div>
+              <div className="text-sm text-gray-600">
+                Showing <span className="font-bold text-gray-900">{rows.length}</span> employee(s)
               </div>
             </div>
-
-            {error ? (
-              <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 flex items-start gap-2">
-                <FiAlertCircle className="w-5 h-5 mt-0.5" />
-                <span className="text-sm font-semibold">{error}</span>
-              </div>
-            ) : null}
           </div>
         </div>
-      </motion.div>
 
-      {/* LIST */}
-      <div className={cn(card, "overflow-hidden")}>
-        <div className="max-h-[72vh] overflow-y-auto">
-          {showSkeleton ? (
-            <CustomerListSkeleton rows={7} />
-          ) : (
-            <div className="divide-y divide-gray-100">
-              <AnimatePresence>
-                {filteredRows.length ? (
-                  filteredRows.map((row) => {
-                    const customer = row?.customer || {}
-                    const cid = String(customer?.customerId || "")
-                    const isOpen = openCustomerIds.has(cid)
+        {error ? (
+          <div className="mb-6 p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 flex items-start gap-2">
+            <FiAlertCircle className="w-5 h-5 mt-0.5" />
+            <span className="text-sm font-semibold">{error}</span>
+          </div>
+        ) : null}
 
-                    const totals = row?.totals || {}
-                    const pending = Number(totals.pending ?? 0)
-                    const in_progress = Number(totals.in_progress ?? 0)
-                    const done = Number(totals.done ?? 0)
-                    const overdue = Number(totals.overdue ?? 0)
-                    const dueSoon = Number(totals.dueSoon ?? 0)
-                    const totalTasks = Number(totals.total ?? 0)
+        <div className={cn(card, "overflow-hidden")}>
+          <div className="relative">
+            <TableLoadingOverlay show={isRefreshing} />
 
-                    const employees = Array.isArray(row?.employees) ? row.employees : []
-                    const employeesCount = employees.length
+            <div className="max-h-[65vh] overflow-y-auto">
+              <table className="w-full">
+                <thead className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-gray-100">
+                  <tr>
+                    <th className={thCls}>No.</th>
+                    {visibleCols.map((c) => {
+                      const meta = COLUMN_META[c] || {}
+                      const isRight = meta.align === "right"
+                      return (
+                        <th key={c} className={isRight ? thClsR : thCls}>
+                          {prettyColLabel(c)}
+                        </th>
+                      )
+                    })}
+                    <th className={thClsR}>Actions</th>
+                  </tr>
+                </thead>
 
-                    const lastTouch = (() => {
-                      if (!includeTasks) return null
-                      let max = 0
-                      for (const eEntry of employees) {
-                        const tasks = Array.isArray(eEntry?.tasks) ? eEntry.tasks : []
-                        for (const t of tasks) {
-                          const a = t?.completedAt ? new Date(t.completedAt).getTime() : NaN
-                          const b = t?.createdAt ? new Date(t.createdAt).getTime() : NaN
-                          const c = t?.dueAt ? new Date(t.dueAt).getTime() : NaN
-                          const m = Math.max(
-                            Number.isFinite(a) ? a : 0,
-                            Number.isFinite(b) ? b : 0,
-                            Number.isFinite(c) ? c : 0
-                          )
-                          if (m > max) max = m
-                        }
-                      }
-                      return max ? new Date(max).toISOString() : null
-                    })()
+                <tbody className="divide-y divide-gray-100">
+                  <AnimatePresence>
+                    {isLoading && rows.length === 0 ? (
+                      <>
+                        {Array.from({ length: 8 }).map((_, idx) => (
+                          <SkeletonRow key={`sk-${idx}`} cols={tableColSpan + 1 /* +No */} />
+                        ))}
+                      </>
+                    ) : rows.length > 0 ? (
+                      rows.map((r, index) => {
+                        const perf = r?.performance || {}
+                        const perfTone = ratingTone(perf?.label)
+                        const isOpen = String(openRowId || "") === String(r.employeeId || "")
+                        const ck = cacheKeyFor(r.employeeId, range)
 
-                    return (
-                      <motion.div
-                        key={cid}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className={cn("p-4 sm:p-5", subtleHover)}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => toggleCustomer(cid)}
-                          className={cn(
-                            "w-full text-left rounded-2xl border border-gray-100 bg-white",
-                            "px-4 py-4",
-                            "hover:bg-gray-50/70 transition",
-                            "focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                          )}
-                          aria-expanded={isOpen}
-                        >
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-3">
-                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10 flex items-center justify-center font-extrabold shrink-0">
-                                  {initials(customer?.companyName || customer?.name)}
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-base font-extrabold text-gray-900 truncate">
-                                    {customer?.name || "Customer"}
-                                    {customer?.companyName ? (
-                                      <span className="text-gray-500"> • {customer.companyName}</span>
-                                    ) : null}
-                                  </p>
-                                  <p className="text-xs text-gray-500 truncate">
-                                    {customer?.email || "—"}
-                                    {customer?.phone ? ` • ${customer.phone}` : ""}
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                <span className={cn(chip, chipGray)}>
-                                  <FiUsers className="w-3.5 h-3.5" /> Employees <b>{employeesCount}</b>
-                                </span>
-                                <span className={cn(chip, chipGray)}>
-                                  Tasks <b>{totalTasks}</b>
-                                </span>
-                                {lastTouch ? (
-                                  <span className={cn(chip, chipGray)}>
-                                    <FiClock className="w-3.5 h-3.5" />
-                                    {formatDateTime(lastTouch)}
-                                  </span>
-                                ) : null}
-                              </div>
-                            </div>
-
-                            <div className="shrink-0 flex items-center gap-2 flex-wrap justify-end">
-                              <ShortCountBadge code="P" value={pending} title="Pending" className={cn(chipAmber)} />
-                              <ShortCountBadge code="IP" value={in_progress} title="In progress" className={cn(chipIndigo)} />
-                              <ShortCountBadge code="D" value={done} title="Done" className={cn(chipEmerald)} />
-                              <ShortCountBadge code="OD" value={overdue} title="Overdue" className={cn(chipRose)} />
-                              <ShortCountBadge code="S" value={dueSoon} title="Due soon" className={cn(chipGray)} />
-                              <FiChevronDown className={cn("w-5 h-5 text-gray-500 transition", isOpen ? "rotate-180" : "")} />
-                            </div>
-                          </div>
-                        </button>
-
-                        <AnimatePresence>
-                          {isOpen ? (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: "auto", opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.22 }}
-                              className="overflow-hidden"
+                        return (
+                          <Fragment key={`frag-${r.employeeId}`}>
+                            <motion.tr
+                              key={`row-${r.employeeId}`}
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              exit={{ opacity: 0 }}
+                              className={cn(subtleHover, isOpen ? "bg-indigo-50/30" : "")}
                             >
-                              <div className="mt-4 rounded-2xl border border-gray-100 bg-gray-50/60 p-3 sm:p-4">
-                                {(employees || []).length ? (
-                                  <div className="space-y-3">
-                                    {employees.map((eEntry) => {
-                                      const emp = eEntry?.employee || {}
-                                      const empId = String(emp?._id || "")
-                                      const eKey = `${cid}:${empId}`
-                                      const eOpen = openEmployeeKeys.has(eKey)
+                              <td className={cn(tdCls, "text-sm text-gray-500")}>{index + 1}</td>
 
-                                      const counts = eEntry?.counts || {}
-                                      const p = Number(counts.pending || 0)
-                                      const ip = Number(counts.in_progress || 0)
-                                      const d = Number(counts.done || 0)
-                                      const od = Number(counts.overdue || 0)
-                                      const ds = Number(counts.dueSoon || 0)
-                                      const total = Number(counts.total || 0)
+                              {visibleCols.map((c) => (
+                                <Fragment key={`${r.employeeId}-${c}`}>{renderCell(c, r, perfTone)}</Fragment>
+                              ))}
 
-                                      const tasks = includeTasks && Array.isArray(eEntry?.tasks) ? eEntry.tasks : []
+                              <td className={cn(tdCls, "text-right")}>
+                                <button
+                                  onClick={() => setSelected(r)}
+                                  className={cn(btn, btnPrimary, "px-3 py-2")}
+                                  title="View details"
+                                >
+                                  <FiEye className="w-4 h-4" />
+                                  View
+                                </button>
+                              </td>
+                            </motion.tr>
 
-                                      return (
-                                        <div
-                                          key={eKey}
-                                          className="rounded-2xl overflow-hidden border border-gray-200 bg-white shadow-[0_16px_40px_-30px_rgba(0,0,0,0.55)]"
-                                        >
-                                          <button
-                                            type="button"
-                                            onClick={() => toggleEmployee(cid, empId)}
-                                            className={cn(
-                                              "w-full text-left",
-                                              "px-4 py-4",
-                                              "flex items-start justify-between gap-3",
-                                              "hover:bg-gray-50/70 transition focus:outline-none"
-                                            )}
-                                            aria-expanded={eOpen}
-                                          >
-                                            <div className="flex items-start gap-3 min-w-0">
-                                              <div className="w-1.5 self-stretch rounded-full bg-indigo-600/80" aria-hidden="true" />
-                                              <Avatar url={emp?.avatarUrl} label={emp?.name || emp?.email} />
-
-                                              <div className="min-w-0">
-                                                <p className="text-sm sm:text-base font-extrabold text-gray-900 truncate">
-                                                  {emp?.name || "—"}
-                                                  {emp?.isActive === false ? (
-                                                    <span className="ml-2 text-[11px] font-extrabold text-rose-600 bg-rose-50 border border-rose-100 px-2 py-0.5 rounded-full">
-                                                      Inactive
-                                                    </span>
-                                                  ) : null}
-                                                </p>
-                                                <p className="text-xs sm:text-sm text-gray-500 truncate mt-0.5">
-                                                  {emp?.email || "—"}
-                                                </p>
-                                                <p className="mt-1 text-[11px] text-gray-400 font-semibold truncate">
-                                                  P=Pending • IP=In progress • D=Done • OD=Overdue • S=Due soon • T=Total
-                                                </p>
-                                              </div>
-                                            </div>
-
-                                            <div className="shrink-0 flex items-center gap-2 flex-wrap justify-end">
-                                              <ShortCountBadge code="P" value={p} title="Pending" className={cn(chipAmber)} />
-                                              <ShortCountBadge code="IP" value={ip} title="In progress" className={cn(chipIndigo)} />
-                                              <ShortCountBadge code="D" value={d} title="Done" className={cn(chipEmerald)} />
-                                              <ShortCountBadge code="OD" value={od} title="Overdue" className={cn(chipRose)} />
-                                              <ShortCountBadge code="S" value={ds} title="Due soon" className={cn(chipGray)} />
-                                              <ShortCountBadge code="T" value={total} title="Total tasks" className={cn(chipGray)} />
-                                              <FiChevronDown className={cn("w-4 h-4 text-gray-500 transition", eOpen ? "rotate-180" : "")} />
-                                            </div>
-                                          </button>
-
-                                          <AnimatePresence>
-                                            {eOpen ? (
-                                              <motion.div
-                                                initial={{ height: 0, opacity: 0 }}
-                                                animate={{ height: "auto", opacity: 1 }}
-                                                exit={{ height: 0, opacity: 0 }}
-                                                transition={{ duration: 0.2 }}
-                                                className="overflow-hidden"
-                                              >
-                                                <div className="px-4 pb-4">
-                                                  {!includeTasks ? (
-                                                    <div className="mt-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-600 text-center font-semibold">
-                                                      Tasks payload is disabled. Turn it on in Filters to view task lists.
-                                                    </div>
-                                                  ) : tasks.length ? (
-                                                    <div className="mt-2 space-y-2">
-                                                      {tasks.map((t) => {
-                                                        const overdueNow = isOverdueTask(t)
-                                                        const dueSoonNow = isDueSoonTask(t, 3)
-                                                        const doneNow = String(t?.status) === "done"
-
-                                                        return (
-                                                          <div
-                                                            key={String(t?._id)}
-                                                            className={cn(
-                                                              "rounded-2xl border bg-white p-3 sm:p-4",
-                                                              overdueNow ? "border-rose-200 ring-1 ring-rose-600/10" : "border-gray-100",
-                                                              "shadow-[0_10px_30px_-24px_rgba(0,0,0,0.5)]"
-                                                            )}
-                                                          >
-                                                            <div className="flex items-start gap-3">
-                                                              <span className={cn("mt-1.5 w-2.5 h-2.5 rounded-full shrink-0", statusDot(t?.status))} />
-                                                              <div className="min-w-0 flex-1">
-                                                                <div className="flex items-center gap-2 flex-wrap">
-                                                                  <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-extrabold bg-indigo-600 text-white">
-                                                                    Task
-                                                                  </span>
-                                                                  <p className="text-sm sm:text-[15px] font-extrabold text-gray-900 truncate">
-                                                                    {t?.title || "Task"}
-                                                                  </p>
-                                                                </div>
-
-                                                                <div className="mt-2 flex flex-wrap gap-2">
-                                                                  <span className={cn(chip, statusPill(t?.status))}>
-                                                                    {statusLabel(t?.status)}
-                                                                  </span>
-
-                                                                  {t?.dueAt ? (
-                                                                    <span className={cn(chip, chipGray)}>
-                                                                      <FiCalendar className="w-3.5 h-3.5" />
-                                                                      {formatDateTime(t?.dueAt)}
-                                                                    </span>
-                                                                  ) : (
-                                                                    <span className={cn(chip, chipGray)} title="No due date">
-                                                                      <FiCalendar className="w-3.5 h-3.5" />
-                                                                      No due date
-                                                                    </span>
-                                                                  )}
-
-                                                                  {!doneNow && overdueNow ? (
-                                                                    <span className={cn(chip, chipRose)} title="This task is overdue">
-                                                                      Overdue
-                                                                    </span>
-                                                                  ) : null}
-
-                                                                  {!doneNow && !overdueNow && dueSoonNow ? (
-                                                                    <span className={cn(chip, chipAmber)} title="Due soon (within 3 days)">
-                                                                      Due soon
-                                                                    </span>
-                                                                  ) : null}
-
-                                                                  {t?.completedAt ? (
-                                                                    <span className={cn(chip, chipEmerald)}>
-                                                                      Completed {formatDateTime(t.completedAt)}
-                                                                    </span>
-                                                                  ) : null}
-                                                                </div>
-                                                              </div>
-                                                            </div>
-                                                          </div>
-                                                        )
-                                                      })}
-                                                    </div>
-                                                  ) : (
-                                                    <div className="mt-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-500 text-center font-semibold">
-                                                      No tasks for this employee (with current filters)
-                                                    </div>
-                                                  )}
-                                                </div>
-                                              </motion.div>
-                                            ) : null}
-                                          </AnimatePresence>
-                                        </div>
-                                      )
-                                    })}
-                                  </div>
-                                ) : (
-                                  <div className="rounded-2xl border border-gray-100 bg-white p-4 text-sm text-gray-500 text-center font-semibold">
-                                    No assigned employees for this customer
-                                  </div>
-                                )}
-                              </div>
-                            </motion.div>
-                          ) : null}
-                        </AnimatePresence>
-                      </motion.div>
-                    )
-                  })
-                ) : (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-10 text-center">
-                    <p className="text-sm font-extrabold text-gray-900">No customers found</p>
-                    <p className="text-xs text-gray-500 font-semibold mt-1">
-                      Try clearing filters or changing search.
-                    </p>
-                    {hasAppliedFilters ? (
-                      <button onClick={clearApplied} className={cn(btn, btnGhost, "mt-4")}>
-                        Clear filters
-                      </button>
-                    ) : null}
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                            <EmployeeTaskDropdown
+                              employeeId={r.employeeId}
+                              range={range}
+                              open={isOpen}
+                              cacheKey={ck}
+                              getCachedTasks={getCachedTasks}
+                              setCachedTasks={setCachedTasks}
+                              colSpan={tableColSpan + 1 /* +No */}
+                            />
+                          </Fragment>
+                        )
+                      })
+                    ) : (
+                      <tr key="empty">
+                        <td colSpan={tableColSpan + 1} className="px-6 py-12 text-center text-gray-500">
+                          No employees found.
+                        </td>
+                      </tr>
+                    )}
+                  </AnimatePresence>
+                </tbody>
+              </table>
             </div>
-          )}
-        </div>
+          </div>
 
-        {/* FOOTER */}
-        <div className="p-4 border-t border-gray-100 bg-white flex items-center justify-between gap-3 flex-wrap">
-          <span className="text-sm text-gray-600">
-            Showing <b className="text-gray-900">{filteredRows.length}</b> customers
-            {hasMore ? <span className="text-gray-400"> • more available</span> : null}
-          </span>
+          <div className="flex flex-col sm:flex-row gap-3 justify-between items-center p-4 text-sm text-gray-600 border-t border-gray-100 bg-white">
+            <span>
+              Loaded: <span className="font-bold text-gray-900">{rows.length}</span>
+            </span>
 
-          <div className="flex items-center gap-2">
-            {hasMore ? (
+            <div className="flex items-center gap-2">
               <button
-                onClick={loadMore}
+                onClick={() => fetchPage({ reset: true, soft: true })}
                 className={cn(btn, btnGhost, "px-4 py-2")}
-                disabled={isLoadingMore || isLoading}
+                disabled={isLoading || isRefreshing}
               >
-                {isLoadingMore ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                Load more
+                Refresh list
               </button>
-            ) : null}
 
-            <button
-              onClick={refreshAll}
-              className={cn(btn, btnPrimary, "px-4 py-2")}
-              disabled={isLoading}
-            >
-              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-              Refresh
-            </button>
+              <button
+                onClick={() => fetchPage({ reset: false })}
+                disabled={disableLoadMore}
+                className={cn(btn, btnPrimary, "px-4 py-2 disabled:opacity-60")}
+                title={hasMore ? "Load next page" : "No more employees"}
+              >
+                {isLoadingMore ? <FiLoader className="w-4 h-4 animate-spin" /> : null}
+                {hasMore ? "Load more" : "No more"}
+              </button>
+            </div>
           </div>
         </div>
       </div>

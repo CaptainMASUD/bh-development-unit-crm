@@ -1,8 +1,8 @@
 "use client"
 
-import React, { useEffect, useMemo, useRef, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { FiRefreshCw, FiSearch, FiChevronLeft, FiChevronRight, FiUsers } from "react-icons/fi"
-import CustomerCRM from "./CustomerCRM" // <-- adjust path if needed
+import CustomerCRM from "./CustomerCRM"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -32,10 +32,33 @@ function getRoleFromLocal() {
   try {
     const u = JSON.parse(localStorage.getItem("user") || "null")
     if (u?.role) return String(u.role).toLowerCase()
-  } catch {
-    // ignore
-  }
+  } catch {}
   return "admin"
+}
+
+/** normalize any employee shape into: { _id, name, email } */
+function normalizeEmployees(input) {
+  const arr = Array.isArray(input) ? input : []
+  return arr
+    .map((u) => {
+      if (!u) return null
+      if (typeof u === "string") return { _id: u, name: u, email: "" }
+      const id = u._id || u.id
+      if (!id) return null
+      return {
+        _id: String(id),
+        name: u.name || u.fullName || u.email || "Employee",
+        email: u.email || "",
+      }
+    })
+    .filter(Boolean)
+}
+
+/** normalize assigned list that might be string IDs or objects */
+function normalizeAssignedToArray(assignedTo) {
+  if (!assignedTo) return []
+  if (Array.isArray(assignedTo)) return assignedTo
+  return [assignedTo]
 }
 
 /* =================== API =================== */
@@ -45,7 +68,9 @@ async function fetchCustomersApi({ q = "" } = {}) {
 
   const res = await fetch(`${API_BASE}/customers?${qs.toString()}`, {
     headers: getAuthHeaders(),
+    credentials: "include", // ✅ IMPORTANT
   })
+
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data?.message || "Failed to load clients")
 
@@ -60,26 +85,52 @@ async function fetchCustomersApi({ q = "" } = {}) {
   return list
 }
 
-async function fetchCustomerApi(customerId) {
+async function fetchCustomerApi(customerId, signal) {
   if (!customerId) return null
   const res = await fetch(`${API_BASE}/customers/${customerId}`, {
     headers: getAuthHeaders(),
+    credentials: "include", // ✅ IMPORTANT
+    signal,
   })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data?.message || "Failed to load client")
   return data?.customer || data || null
 }
 
-async function fetchAssignedEmployeesApi(customerId, customerObj = null) {
-  const embedded =
-    customerObj && Array.isArray(customerObj?.assignedEmployees) ? customerObj.assignedEmployees : null
-  if (embedded) return embedded
+/**
+ * ✅ FIXED: Pull assigned employees from:
+ *  - customer.assignedTo (your other component uses this)
+ *  - customer.assignedEmployees (if exists)
+ *  - endpoint /assigned-employees (fallback)
+ */
+async function fetchAssignedEmployeesApi(customerId, customerObj = null, signal) {
+  // 1) strongest fallback: customer.assignedTo (the one you already use elsewhere)
+  const assignedTo = normalizeAssignedToArray(customerObj?.assignedTo)
+  if (assignedTo.length) {
+    // assignedTo may contain objects or IDs
+    const objs = assignedTo
+      .map((x) => (typeof x === "object" ? x : { _id: x, name: String(x) }))
+      .filter(Boolean)
+    return objs
+  }
 
+  // 2) some APIs store embedded list here
+  if (Array.isArray(customerObj?.assignedEmployees) && customerObj.assignedEmployees.length) {
+    return customerObj.assignedEmployees
+  }
+
+  // 3) fallback endpoint
   const res = await fetch(`${API_BASE}/customers/${customerId}/assigned-employees`, {
     headers: getAuthHeaders(),
+    credentials: "include", // ✅ IMPORTANT
+    signal,
   })
+
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) return []
+  if (!res.ok) {
+    // don’t silently hide — still return []
+    return []
+  }
 
   return Array.isArray(data?.employees)
     ? data.employees
@@ -120,7 +171,6 @@ function ClientRow({ active, customer, onClick }) {
           : "bg-white border-gray-100 hover:bg-slate-50",
       ].join(" ")}
     >
-      {/* ✅ left soft stripe */}
       <span
         className={[
           "absolute left-0 top-2 bottom-2 w-1.5 rounded-r-2xl transition",
@@ -134,12 +184,7 @@ function ClientRow({ active, customer, onClick }) {
           <p className="text-xs text-gray-500 truncate">{sub || "—"}</p>
         </div>
 
-        <span
-          className={[
-            "shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-full border",
-            statusPill(status),
-          ].join(" ")}
-        >
+        <span className={["shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-full border", statusPill(status)].join(" ")}>
           {String(status)}
         </span>
       </div>
@@ -149,7 +194,6 @@ function ClientRow({ active, customer, onClick }) {
 
 /* =================== HEADER BADGE =================== */
 function RoleHint({ isEmployee }) {
-  // ✅ user-friendly, not "programming" text
   return (
     <div
       className={[
@@ -158,7 +202,6 @@ function RoleHint({ isEmployee }) {
           ? "bg-amber-50 text-amber-800 border-amber-200"
           : "bg-indigo-50 text-indigo-700 border-indigo-200",
       ].join(" ")}
-      title={isEmployee ? "You can update task status." : "You can manage jobs and tasks."}
     >
       <span className={["inline-block w-2 h-2 rounded-full", isEmployee ? "bg-amber-500" : "bg-indigo-600"].join(" ")} />
       {isEmployee ? "Status update mode" : "Management mode"}
@@ -171,21 +214,16 @@ export default function CustomerCRMInner() {
   const [pageError, setPageError] = useState("")
   const [toast, setToast] = useState("")
 
-  // Clients list
   const [customers, setCustomers] = useState([])
   const [customersLoading, setCustomersLoading] = useState(false)
   const [query, setQuery] = useState("")
   const [selectedCustomerId, setSelectedCustomerId] = useState("")
 
-  // Selected client data
   const [customerLoading, setCustomerLoading] = useState(false)
   const [customer, setCustomer] = useState(null)
   const [assignedEmployees, setAssignedEmployees] = useState([])
 
-  // Refresh nonce triggers CustomerCRM to refetch jobs/tasks
   const [refreshNonce, setRefreshNonce] = useState(0)
-
-  // ✅ Clients panel collapse
   const [customersCollapsed, setCustomersCollapsed] = useState(false)
 
   const role = useMemo(() => getRoleFromLocal(), [])
@@ -200,28 +238,33 @@ export default function CustomerCRMInner() {
     }
   }, [])
 
-  const showToast = (msg) => setToast(String(msg || ""))
+  const customerAbortRef = useRef(null)
 
-  const loadCustomers = async ({ q = query } = {}) => {
-    setPageError("")
-    setCustomersLoading(true)
-    try {
-      const list = await fetchCustomersApi({ q })
-      if (!mountedRef.current) return
-      setCustomers(Array.isArray(list) ? list : [])
-      if (!selectedCustomerId && list?.length) {
-        setSelectedCustomerId(String(list[0]?._id || list[0]?.id || ""))
+  const showToast = useCallback((msg) => setToast(String(msg || "")), [])
+
+  const loadCustomers = useCallback(
+    async ({ q = query } = {}) => {
+      setPageError("")
+      setCustomersLoading(true)
+      try {
+        const list = await fetchCustomersApi({ q })
+        if (!mountedRef.current) return
+        setCustomers(Array.isArray(list) ? list : [])
+        if (!selectedCustomerId && list?.length) {
+          setSelectedCustomerId(String(list[0]?._id || list[0]?.id || ""))
+        }
+      } catch (e) {
+        if (!mountedRef.current) return
+        setCustomers([])
+        setPageError(e?.message || "Failed to load clients.")
+      } finally {
+        if (mountedRef.current) setCustomersLoading(false)
       }
-    } catch (e) {
-      if (!mountedRef.current) return
-      setCustomers([])
-      setPageError(e?.message || "Failed to load clients.")
-    } finally {
-      if (mountedRef.current) setCustomersLoading(false)
-    }
-  }
+    },
+    [query, selectedCustomerId]
+  )
 
-  const loadSelectedCustomer = async (cid) => {
+  const loadSelectedCustomer = useCallback(async (cid) => {
     const id = String(cid || "")
     if (!id) {
       setCustomer(null)
@@ -229,25 +272,34 @@ export default function CustomerCRMInner() {
       return
     }
 
+    setCustomer(null)
+    setAssignedEmployees([])
     setPageError("")
     setCustomerLoading(true)
+
+    if (customerAbortRef.current) customerAbortRef.current.abort()
+    const controller = new AbortController()
+    customerAbortRef.current = controller
+
     try {
-      const c = await fetchCustomerApi(id)
+      const c = await fetchCustomerApi(id, controller.signal)
       if (!mountedRef.current) return
       setCustomer(c)
 
-      const employees = await fetchAssignedEmployeesApi(id, c)
+      const employeesRaw = await fetchAssignedEmployeesApi(id, c, controller.signal)
       if (!mountedRef.current) return
-      setAssignedEmployees(Array.isArray(employees) ? employees : [])
+
+      setAssignedEmployees(normalizeEmployees(employeesRaw))
     } catch (e) {
       if (!mountedRef.current) return
+      if (e?.name === "AbortError") return
       setCustomer(null)
       setAssignedEmployees([])
       setPageError(e?.message || "Failed to load client.")
     } finally {
       if (mountedRef.current) setCustomerLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     loadCustomers({ q: "" })
@@ -256,8 +308,7 @@ export default function CustomerCRMInner() {
 
   useEffect(() => {
     loadSelectedCustomer(selectedCustomerId)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCustomerId])
+  }, [selectedCustomerId, loadSelectedCustomer])
 
   const onSoftRefreshCustomer = async () => {
     await loadSelectedCustomer(selectedCustomerId)
@@ -291,7 +342,7 @@ export default function CustomerCRMInner() {
       <Toast message={toast} />
 
       <div className="flex gap-4">
-        {/* LEFT: Clients panel (premium + smooth minimize) */}
+        {/* LEFT */}
         <div
           className={[
             "transition-[width,opacity,transform] duration-300 ease-in-out overflow-hidden shrink-0",
@@ -306,13 +357,10 @@ export default function CustomerCRMInner() {
                 </span>
                 <div className="min-w-0">
                   <p className="text-sm font-extrabold text-gray-900">Clients</p>
-                  <p className="text-[11px] text-gray-500 mt-0.5 truncate">
-                    Choose a client to view jobs & tasks
-                  </p>
+                  <p className="text-[11px] text-gray-500 mt-0.5 truncate">Choose a client to view jobs & tasks</p>
                 </div>
               </div>
 
-              {/* minimize */}
               <button
                 type="button"
                 onClick={() => setCustomersCollapsed(true)}
@@ -325,7 +373,6 @@ export default function CustomerCRMInner() {
             </div>
 
             <div className="px-4 pb-4 pt-4">
-              {/* ✅ Soft search look, no inner black outline */}
               <div className="relative">
                 <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
@@ -361,7 +408,7 @@ export default function CustomerCRMInner() {
           </div>
         </div>
 
-        {/* RIGHT: Jobs & Tasks */}
+        {/* RIGHT */}
         <div className="flex-1 min-w-0">
           <div className="bg-white rounded-3xl border border-gray-100 shadow-xl overflow-hidden">
             <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-gradient-to-b from-slate-50/70 to-white">
@@ -378,7 +425,6 @@ export default function CustomerCRMInner() {
               </div>
 
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                {/* ✅ When minimized: show Clients button with bg color */}
                 {customersCollapsed ? (
                   <button
                     type="button"
@@ -436,7 +482,6 @@ export default function CustomerCRMInner() {
             </div>
           </div>
 
-          {/* subtle hint row when minimized */}
           {customersCollapsed ? (
             <div className="mt-3 text-xs text-gray-500 flex items-center gap-2">
               <span className="inline-flex items-center px-2.5 py-1 rounded-full border border-gray-200 bg-white shadow-sm">
