@@ -20,7 +20,7 @@ export default function AdminDashboard() {
     return savedTheme ? savedTheme === "dark" : true
   })
 
-  // ✅ bridge for "open details inside Customers page"
+  // ✅ bridge: used to open CustomerCRMInner directly
   const [openCustomerId, setOpenCustomerId] = useState(null)
 
   // ✅ allow admin + superadmin
@@ -41,12 +41,18 @@ export default function AdminDashboard() {
 
   const toggleSidebar = () => setIsSidebarOpen((s) => !s)
 
-  // ✅ open customer details
+  /**
+   * ✅ IMPORTANT:
+   * Clicking customer/task anywhere should open:
+   * Clients -> Client Tasks (CustomerCRMInner)
+   */
   const openCustomerDetails = (customerId) => {
     if (!customerId) return
-    setActiveSection("Customers")
-    setActiveSubcategory("")
-    setOpenCustomerId(customerId)
+
+    setActiveSection("Clients")
+    setActiveSubcategory("Client Tasks") // ✅ open CustomerCRMInner
+    setOpenCustomerId(String(customerId))
+
     if (isMobile) setIsSidebarOpen(false)
   }
 
@@ -60,6 +66,7 @@ export default function AdminDashboard() {
     if (!section) return null
 
     if (section.subcategories) {
+      // choose first subcategory by default (optional)
       if (!activeSubcategory) {
         return (
           <div className="p-6 text-sm text-gray-500">
@@ -76,8 +83,10 @@ export default function AdminDashboard() {
   const content = useMemo(() => {
     if (!activeView) return null
 
+    // ✅ inject props into all pages (dashboard can call openCustomerDetails)
+    // ✅ inject openCustomerId only to Client Tasks page (CustomerCRMInner)
     const injectedProps =
-      activeSection === "Customers"
+      activeSection === "Clients" && activeSubcategory === "Client Tasks"
         ? {
             openCustomerId,
             onCustomerOpened: () => setOpenCustomerId(null),
@@ -85,19 +94,17 @@ export default function AdminDashboard() {
           }
         : { openCustomerDetails }
 
-    // if stored as <Component />
     if (React.isValidElement(activeView)) {
       return React.cloneElement(activeView, injectedProps)
     }
 
-    // if stored as Component function/type
     if (typeof activeView === "function") {
       const Comp = activeView
       return <Comp {...injectedProps} />
     }
 
     return null
-  }, [activeView, activeSection, openCustomerId, isMobile])
+  }, [activeView, activeSection, activeSubcategory, openCustomerId])
 
   return (
     <div className="flex h-screen w-full overflow-hidden relative">
@@ -113,7 +120,7 @@ export default function AdminDashboard() {
         isDarkMode={isDarkMode}
         setIsDarkMode={setIsDarkMode}
         openCustomerDetails={openCustomerDetails}
-        onOpenCustomer={openCustomerDetails} // safe for your bell modal usage
+        onOpenCustomer={openCustomerDetails}
       />
 
       <main className="flex-1 h-screen overflow-auto p-5 transition-colors">{content}</main>

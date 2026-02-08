@@ -17,15 +17,21 @@ import {
   FiX,
   FiFilter,
   FiChevronDown,
-  FiRefreshCcw,
   FiAlertCircle,
   FiCheck,
   FiClock,
   FiCalendar,
-  FiInfo,
   FiBriefcase,
+  FiRefreshCcw,
+  FiFileText,
 } from "react-icons/fi"
 import { Loader2 } from "lucide-react"
+
+import * as XLSX from "xlsx"
+import jsPDF from "jspdf"
+import autoTable from "jspdf-autotable"
+import { SiMicrosoftexcel } from "react-icons/si"
+import { FaFilePdf } from "react-icons/fa"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -192,27 +198,22 @@ function ModalShell({
   )
 }
 
-function Field({ label, hint, children }) {
+/* =========================
+   CLEAN FIELD (no hint blocks)
+========================= */
+function Field({ label, children }) {
   return (
     <div>
-      <label className="block text-sm font-extrabold text-gray-900 mb-1.5">
-        {label}
-      </label>
-      {hint ? (
-        <div className="text-xs text-gray-500 font-semibold mb-2 flex items-start gap-2">
-          <FiInfo className="w-3.5 h-3.5 mt-0.5 text-gray-400" />
-          <span>{hint}</span>
-        </div>
-      ) : null}
+      <label className="block text-sm font-extrabold text-gray-900 mb-2">{label}</label>
       {children}
     </div>
   )
 }
 
 /* =========================
-   TOGGLE
+   TOGGLE (short premium text)
 ========================= */
-function ToggleSwitch({ checked, onChange, labelOn = "Show", labelOff = "Hide" }) {
+function ToggleSwitch({ checked, onChange, labelOn = "On", labelOff = "Off" }) {
   return (
     <button
       type="button"
@@ -468,45 +469,36 @@ function SkeletonBar({ className = "" }) {
   return <div className={cn("animate-pulse rounded-xl bg-gray-200/80", className)} />
 }
 
-function CustomerRowSkeleton() {
+function TableSkeleton({ rows = 8 }) {
   return (
-    <div className="p-4 sm:p-5">
-      <div className="rounded-2xl border border-gray-100 bg-white px-4 py-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 w-full">
-            <div className="flex items-center gap-3">
-              <SkeletonBar className="w-11 h-11 rounded-2xl" />
-              <div className="min-w-0 flex-1">
-                <SkeletonBar className="h-4 w-56" />
-                <SkeletonBar className="h-3 w-72 mt-2" />
+    <div className="p-4">
+      <div className="rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="bg-gray-50/70 p-3 border-b border-gray-100">
+          <SkeletonBar className="h-4 w-60" />
+        </div>
+        <div className="divide-y divide-gray-100">
+          {[...Array(rows)].map((_, i) => (
+            <div key={i} className="p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <SkeletonBar className="w-11 h-11 rounded-2xl" />
+                  <div className="min-w-0">
+                    <SkeletonBar className="h-4 w-56" />
+                    <SkeletonBar className="h-3 w-72 mt-2" />
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <SkeletonBar className="h-7 w-12 rounded-full" />
+                  <SkeletonBar className="h-7 w-12 rounded-full" />
+                  <SkeletonBar className="h-7 w-12 rounded-full" />
+                  <SkeletonBar className="h-7 w-12 rounded-full" />
+                  <SkeletonBar className="h-7 w-12 rounded-full" />
+                </div>
               </div>
             </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <SkeletonBar className="h-7 w-20 rounded-full" />
-              <SkeletonBar className="h-7 w-28 rounded-full" />
-              <SkeletonBar className="h-7 w-24 rounded-full" />
-              <SkeletonBar className="h-7 w-32 rounded-full" />
-            </div>
-          </div>
-          <div className="shrink-0 flex items-center gap-2 flex-wrap justify-end">
-            <SkeletonBar className="h-8 w-14 rounded-full" />
-            <SkeletonBar className="h-8 w-16 rounded-full" />
-            <SkeletonBar className="h-8 w-12 rounded-full" />
-            <SkeletonBar className="h-8 w-14 rounded-full" />
-            <SkeletonBar className="h-8 w-12 rounded-full" />
-          </div>
+          ))}
         </div>
       </div>
-    </div>
-  )
-}
-
-function CustomerListSkeleton({ rows = 7 }) {
-  return (
-    <div className="divide-y divide-gray-100">
-      {[...Array(rows)].map((_, i) => (
-        <CustomerRowSkeleton key={i} />
-      ))}
     </div>
   )
 }
@@ -514,7 +506,19 @@ function CustomerListSkeleton({ rows = 7 }) {
 /* =========================
    UTIL
 ========================= */
-function formatDateTime(value) {
+function formatDate(value) {
+  if (!value) return "—"
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return "—"
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" })
+}
+function formatTime(value) {
+  if (!value) return ""
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ""
+  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+}
+function formatDateTimeFull(value) {
   if (!value) return "—"
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return "—"
@@ -599,7 +603,7 @@ function Avatar({ url, label, className = "" }) {
   return (
     <div
       className={cn(
-        "w-11 h-11 rounded-2xl overflow-hidden ring-1 ring-indigo-600/10 bg-indigo-50 shrink-0",
+        "w-10 h-10 rounded-2xl overflow-hidden ring-1 ring-indigo-600/10 bg-indigo-50 shrink-0",
         className
       )}
     >
@@ -663,7 +667,7 @@ function FiltersModal({
       open={open}
       onClose={onClose}
       title="Filters"
-      subtitle="Adjust what shows in the report"
+      subtitle="Quick settings"
       icon={<FiFilter className="w-5 h-5" />}
       maxWidthClass="max-w-4xl"
       footer={
@@ -674,7 +678,7 @@ function FiltersModal({
             disabled={!activeCount}
             className={cn(btn, btnGhost, "px-3 py-2 text-sm disabled:opacity-60")}
           >
-            Clear all
+            Reset
           </button>
           <div className="flex items-center gap-2">
             <button onClick={onClose} className={cn(btn, btnGhost)}>
@@ -690,10 +694,7 @@ function FiltersModal({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <div className="lg:col-span-7 space-y-5">
           <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4">
-            <Field
-              label="Employees"
-              hint="Pick one or more employees to view their tasks. Leave empty to include everyone."
-            >
+            <Field label="Employees">
               <MultiSelectDropdown
                 options={employeeOptions}
                 value={selectedEmployeeIds}
@@ -704,7 +705,7 @@ function FiltersModal({
           </div>
 
           <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4">
-            <Field label="Task status" hint="Show tasks by current status.">
+            <Field label="Status">
               <select
                 value={taskStatus}
                 onChange={(e) => setTaskStatus(e.target.value)}
@@ -719,10 +720,7 @@ function FiltersModal({
           </div>
 
           <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4 space-y-4">
-            <Field
-              label="Due soon window (days)"
-              hint="Used for the “Due soon” count. Default is 7 days."
-            >
+            <Field label="Due soon (days)">
               <input
                 type="number"
                 min={1}
@@ -730,12 +728,12 @@ function FiltersModal({
                 value={windowDays}
                 onChange={(e) => setWindowDays(e.target.value)}
                 className={input}
-                placeholder="e.g. 7"
+                placeholder="7"
               />
             </Field>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Field label="Completed from" hint="Optional: show only tasks completed after this time.">
+              <Field label="Completed from">
                 <div className="relative">
                   <FiCalendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
@@ -747,7 +745,7 @@ function FiltersModal({
                 </div>
               </Field>
 
-              <Field label="Completed to" hint="Optional: show only tasks completed before this time.">
+              <Field label="Completed to">
                 <div className="relative">
                   <FiCalendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
@@ -764,13 +762,8 @@ function FiltersModal({
 
         <div className="lg:col-span-5 space-y-5">
           <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-extrabold text-gray-900">Show employees with no tasks</p>
-                <p className="text-xs text-gray-500 font-semibold mt-1">
-                  Turn this off to focus only on employees who currently have tasks.
-                </p>
-              </div>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-extrabold text-gray-900">Empty employees</p>
               <ToggleSwitch
                 checked={includeEmptyEmployees}
                 onChange={(v) => setIncludeEmptyEmployees(!!v)}
@@ -781,13 +774,8 @@ function FiltersModal({
           </div>
 
           <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-extrabold text-gray-900">Show task details</p>
-                <p className="text-xs text-gray-500 font-semibold mt-1">
-                  Turn off to show only counts. Turn on to view each task list.
-                </p>
-              </div>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-extrabold text-gray-900">Task details</p>
               <ToggleSwitch
                 checked={includeTasks}
                 onChange={(v) => setIncludeTasks(!!v)}
@@ -797,7 +785,7 @@ function FiltersModal({
             </div>
 
             <div className="mt-4">
-              <Field label="Tasks shown per employee" hint="Only applies when task details are on.">
+              <Field label="Tasks per employee">
                 <input
                   type="number"
                   min={1}
@@ -805,59 +793,41 @@ function FiltersModal({
                   value={taskLimit}
                   onChange={(e) => setTaskLimit(e.target.value)}
                   className={input}
-                  placeholder="e.g. 10"
+                  placeholder="10"
                 />
               </Field>
             </div>
           </div>
 
           <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4">
-            <p className="text-sm font-extrabold text-gray-900 mb-3">Preview</p>
+            <p className="text-sm font-extrabold text-gray-900 mb-3">Summary</p>
 
             <div className="flex flex-wrap gap-2">
               <span className={cn(chip, chipSoft)}>
-                Status:{" "}
-                <b className="text-gray-900">
-                  {taskStatus === "all" ? "All" : statusLabel(taskStatus)}
-                </b>
+                Status: <b className="text-gray-900">{taskStatus === "all" ? "All" : statusLabel(taskStatus)}</b>
               </span>
 
               <span className={cn(chip, chipSoft)}>
-                Empty employees:{" "}
-                <b className="text-gray-900">{includeEmptyEmployees ? "Shown" : "Hidden"}</b>
+                Empty: <b className="text-gray-900">{includeEmptyEmployees ? "Show" : "Hide"}</b>
               </span>
 
               <span className={cn(chip, chipSoft)}>
-                Due soon:{" "}
-                <b className="text-gray-900">
-                  {String(windowDays || "").trim() ? `${windowDays} days` : "7 days"}
-                </b>
+                Soon: <b className="text-gray-900">{String(windowDays || "").trim() ? `${windowDays}d` : "7d"}</b>
               </span>
 
               <span className={cn(chip, chipSoft)}>
-                Task details: <b className="text-gray-900">{includeTasks ? "On" : "Off"}</b>
+                Details: <b className="text-gray-900">{includeTasks ? "On" : "Off"}</b>
               </span>
 
               {selectedEmployeeIds?.length ? (
                 <span className={cn(chip, chipIndigo)}>
-                  Employees selected: <b className="text-gray-900">{selectedEmployeeIds.length}</b>
+                  Employees: <b className="text-gray-900">{selectedEmployeeIds.length}</b>
                 </span>
               ) : (
                 <span className={cn(chip, chipSoft)}>
                   Employees: <b className="text-gray-900">All</b>
                 </span>
               )}
-
-              {completedFrom ? (
-                <span className={cn(chip, chipSoft)}>
-                  Completed from: <b className="text-gray-900">Set</b>
-                </span>
-              ) : null}
-              {completedTo ? (
-                <span className={cn(chip, chipSoft)}>
-                  Completed to: <b className="text-gray-900">Set</b>
-                </span>
-              ) : null}
             </div>
           </div>
         </div>
@@ -931,7 +901,251 @@ async function fetchCustomerWorkloadPage({
 }
 
 /* =========================
-   MAIN
+   EXPORT HELPERS
+========================= */
+function buildExportFiltersSummary({
+  q,
+  taskStatus,
+  includeEmptyEmployees,
+  windowDays,
+  completedFrom,
+  completedTo,
+  selectedEmployeeIds,
+  includeTasks,
+  taskLimit,
+  sort,
+  limit,
+}) {
+  const parts = []
+  if (q) parts.push(`Search: "${q}"`)
+  if (taskStatus && taskStatus !== "all") parts.push(`Status: ${statusLabel(taskStatus)}`)
+  if (includeEmptyEmployees === false) parts.push("Empty employees: Hidden")
+  if (String(windowDays || "").trim()) parts.push(`Due soon window: ${String(windowDays).trim()} days`)
+  if (completedFrom) parts.push(`Completed from: ${formatDateTimeFull(toISOFromDatetimeLocal(completedFrom) || completedFrom)}`)
+  if (completedTo) parts.push(`Completed to: ${formatDateTimeFull(toISOFromDatetimeLocal(completedTo) || completedTo)}`)
+  if ((selectedEmployeeIds?.length || 0) > 0) parts.push(`Employees selected: ${selectedEmployeeIds.length}`)
+  parts.push(`Details: ${includeTasks ? `On (${Number(taskLimit || 10)} tasks/employee)` : "Off"}`)
+  parts.push(`Sort: ${sort === "oldest" ? "Oldest" : "Newest"}`)
+  parts.push(`Page size: ${Number(limit || 20)}`)
+  return parts.join(" • ")
+}
+
+function flattenForExport(filteredRows, includeTasks) {
+  const customersSheet = []
+  const employeesSheet = []
+  const tasksSheet = []
+
+  for (const row of filteredRows || []) {
+    const c = row?.customer || {}
+    const cid = String(c?.customerId || "")
+    const totals = row?.totals || {}
+
+    const customerName = c?.name || "Customer"
+    const companyName = c?.companyName || ""
+    const email = c?.email || ""
+    const phone = c?.phone || ""
+
+    const employees = Array.isArray(row?.employees) ? row.employees : []
+    const employeesCount = employees.length
+
+    customersSheet.push({
+      "Customer ID": cid,
+      "Customer Name": customerName,
+      "Company": companyName,
+      "Email": email,
+      "Phone": phone,
+      "Employees": employeesCount,
+      "Tasks Total": Number(totals.total || 0),
+      Pending: Number(totals.pending || 0),
+      "In progress": Number(totals.in_progress || 0),
+      Done: Number(totals.done || 0),
+      Overdue: Number(totals.overdue || 0),
+      "Due soon": Number(totals.dueSoon || 0),
+    })
+
+    for (const eEntry of employees) {
+      const emp = eEntry?.employee || {}
+      const counts = eEntry?.counts || {}
+      employeesSheet.push({
+        "Customer ID": cid,
+        "Customer Name": customerName,
+        "Employee ID": String(emp?._id || ""),
+        "Employee Name": emp?.name || "—",
+        "Employee Email": emp?.email || "—",
+        Active: emp?.isActive === false ? "Inactive" : "Active",
+        "Tasks Total": Number(counts.total || 0),
+        Pending: Number(counts.pending || 0),
+        "In progress": Number(counts.in_progress || 0),
+        Done: Number(counts.done || 0),
+        Overdue: Number(counts.overdue || 0),
+        "Due soon": Number(counts.dueSoon || 0),
+      })
+
+      if (includeTasks) {
+        const tasks = Array.isArray(eEntry?.tasks) ? eEntry.tasks : []
+        for (const t of tasks) {
+          tasksSheet.push({
+            "Customer ID": cid,
+            "Customer Name": customerName,
+            "Employee Name": emp?.name || "—",
+            "Employee Email": emp?.email || "—",
+            "Task ID": String(t?._id || ""),
+            Title: t?.title || "Task",
+            Status: statusLabel(t?.status),
+            "Due At": t?.dueAt ? formatDateTimeFull(t.dueAt) : "",
+            "Completed At": t?.completedAt ? formatDateTimeFull(t.completedAt) : "",
+            "Created At": t?.createdAt ? formatDateTimeFull(t.createdAt) : "",
+          })
+        }
+      }
+    }
+  }
+
+  return { customersSheet, employeesSheet, tasksSheet }
+}
+
+function exportWorkloadToExcel({
+  filteredRows,
+  includeTasks,
+  reportTitle = "Workload Report",
+  filtersSummary = "",
+}) {
+  const { customersSheet, employeesSheet, tasksSheet } = flattenForExport(filteredRows, includeTasks)
+
+  const wb = XLSX.utils.book_new()
+
+  // Meta sheet
+  const meta = [
+    { Key: "Report", Value: reportTitle },
+    { Key: "Generated", Value: new Date().toLocaleString() },
+    { Key: "Filters", Value: filtersSummary || "—" },
+    { Key: "Customers exported", Value: customersSheet.length },
+    { Key: "Employee rows exported", Value: employeesSheet.length },
+    { Key: "Task rows exported", Value: includeTasks ? tasksSheet.length : 0 },
+  ]
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(meta), "Meta")
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(customersSheet), "Customers")
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(employeesSheet), "Employees")
+
+  if (includeTasks) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tasksSheet), "Tasks")
+  }
+
+  const fileName = `workload_report_${new Date().toISOString().slice(0, 10)}.xlsx`
+  XLSX.writeFile(wb, fileName)
+}
+
+function exportWorkloadToPdf({
+  filteredRows,
+  includeTasks,
+  reportTitle = "Workload Report",
+  filtersSummary = "",
+}) {
+  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" })
+
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(14)
+  doc.text(reportTitle, 40, 34)
+
+  doc.setFont("helvetica", "normal")
+  doc.setFontSize(10)
+  doc.text(`Generated: ${new Date().toLocaleString()}`, 40, 52)
+
+  const wrap = doc.splitTextToSize(filtersSummary || "Filters: —", 760)
+  doc.text(wrap, 40, 70)
+
+  const { customersSheet, employeesSheet, tasksSheet } = flattenForExport(filteredRows, includeTasks)
+
+  autoTable(doc, {
+    head: [
+      [
+        "Customer",
+        "Company",
+        "Email",
+        "Employees",
+        "Total",
+        "P",
+        "IP",
+        "D",
+        "OD",
+        "Soon",
+      ],
+    ],
+    body: customersSheet.map((r) => [
+      String(r["Customer Name"] || ""),
+      String(r["Company"] || ""),
+      String(r["Email"] || ""),
+      String(r["Employees"] ?? ""),
+      String(r["Tasks Total"] ?? ""),
+      String(r["Pending"] ?? ""),
+      String(r["In progress"] ?? ""),
+      String(r["Done"] ?? ""),
+      String(r["Overdue"] ?? ""),
+      String(r["Due soon"] ?? ""),
+    ]),
+    startY: 92,
+    margin: { left: 40, right: 40 },
+    styles: { font: "helvetica", fontSize: 8.5, cellPadding: 4, overflow: "linebreak", valign: "middle" },
+    headStyles: { fontStyle: "bold" },
+  })
+
+  // Employees summary table (new page if needed)
+  doc.addPage("a4", "landscape")
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(12)
+  doc.text("Employees", 40, 34)
+
+  autoTable(doc, {
+    head: [["Customer", "Employee", "Email", "Active", "Total", "P", "IP", "D", "OD", "Soon"]],
+    body: employeesSheet.map((r) => [
+      String(r["Customer Name"] || ""),
+      String(r["Employee Name"] || ""),
+      String(r["Employee Email"] || ""),
+      String(r["Active"] || ""),
+      String(r["Tasks Total"] ?? ""),
+      String(r["Pending"] ?? ""),
+      String(r["In progress"] ?? ""),
+      String(r["Done"] ?? ""),
+      String(r["Overdue"] ?? ""),
+      String(r["Due soon"] ?? ""),
+    ]),
+    startY: 52,
+    margin: { left: 40, right: 40 },
+    styles: { font: "helvetica", fontSize: 8.5, cellPadding: 4, overflow: "linebreak", valign: "middle" },
+    headStyles: { fontStyle: "bold" },
+  })
+
+  if (includeTasks) {
+    doc.addPage("a4", "landscape")
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(12)
+    doc.text("Tasks", 40, 34)
+
+    autoTable(doc, {
+      head: [["Customer", "Employee", "Title", "Status", "Due", "Completed", "Created"]],
+      body: tasksSheet.map((t) => [
+        String(t["Customer Name"] || ""),
+        String(t["Employee Name"] || ""),
+        String(t["Title"] || ""),
+        String(t["Status"] || ""),
+        String(t["Due At"] || ""),
+        String(t["Completed At"] || ""),
+        String(t["Created At"] || ""),
+      ]),
+      startY: 52,
+      margin: { left: 40, right: 40 },
+      styles: { font: "helvetica", fontSize: 8, cellPadding: 4, overflow: "linebreak", valign: "middle" },
+      headStyles: { fontStyle: "bold" },
+    })
+  }
+
+  const fileName = `workload_report_${new Date().toISOString().slice(0, 10)}.pdf`
+  doc.save(fileName)
+}
+
+/* =========================
+   MAIN (TABLE UI)
 ========================= */
 export default function ClientReport() {
   const [toast, setToast] = useState({ open: false, type: "success", message: "" })
@@ -993,29 +1207,6 @@ export default function ClientReport() {
     setFiltersOpen(true)
   }
 
-  const clearDraft = () => {
-    setDTaskStatus("all")
-    setDIncludeEmpty(true)
-    setDWindowDays("7")
-    setDFrom("")
-    setDTo("")
-    setDEmpIds([])
-    setDIncludeTasks(true)
-    setDTaskLimit("10")
-  }
-
-  const applyDraft = () => {
-    setTaskStatus(dTaskStatus)
-    setIncludeEmptyEmployees(!!dIncludeEmpty)
-    setWindowDays(String(dWindowDays || "7"))
-    setCompletedFrom(String(dFrom || ""))
-    setCompletedTo(String(dTo || ""))
-    setSelectedEmployeeIds(Array.isArray(dEmpIds) ? dEmpIds.slice() : [])
-    setIncludeTasks(!!dIncludeTasks)
-    setTaskLimit(String(dTaskLimit || "10"))
-    setFiltersOpen(false)
-  }
-
   const clearApplied = () => {
     setTaskStatus("all")
     setIncludeEmptyEmployees(true)
@@ -1058,29 +1249,23 @@ export default function ClientReport() {
 
   const abortRef = useRef(null)
 
-  // expand states
+  // expand states (customer + employee)
   const [openCustomerIds, setOpenCustomerIds] = useState(() => new Set())
   const [openEmployeeKeys, setOpenEmployeeKeys] = useState(() => new Set())
 
-  const toggleCustomer = (customerId) => {
-    const id = String(customerId)
-    setOpenCustomerIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
+  // export dropdown
+  const [exportOpen, setExportOpen] = useState(false)
+  const exportWrapRef = useRef(null)
 
-  const toggleEmployee = (customerId, employeeId) => {
-    const key = `${String(customerId)}:${String(employeeId)}`
-    setOpenEmployeeKeys((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
+  useEffect(() => {
+    const onDoc = (e) => {
+      if (!exportOpen) return
+      if (!exportWrapRef.current) return
+      if (!exportWrapRef.current.contains(e.target)) setExportOpen(false)
+    }
+    document.addEventListener("mousedown", onDoc)
+    return () => document.removeEventListener("mousedown", onDoc)
+  }, [exportOpen])
 
   const resetAndLoad = async () => {
     if (abortRef.current) abortRef.current.abort()
@@ -1271,57 +1456,53 @@ export default function ClientReport() {
         onRemove: () => setTaskStatus("all"),
       })
     }
-
     if (includeEmptyEmployees === false) {
       chips.push({
         key: "emptyEmp",
-        label: "Hide employees with no tasks",
+        label: "Empty: Hide",
         onRemove: () => setIncludeEmptyEmployees(true),
       })
     }
-
     if (String(windowDays || "").trim() && String(windowDays || "").trim() !== "7") {
       chips.push({
         key: "window",
-        label: `Due soon: ${windowDays}d`,
+        label: `Soon: ${windowDays}d`,
         onRemove: () => setWindowDays("7"),
       })
     }
-
-    if (completedFrom)
-      chips.push({
-        key: "from",
-        label: "Completed: from set",
-        onRemove: () => setCompletedFrom(""),
-      })
-    if (completedTo)
-      chips.push({
-        key: "to",
-        label: "Completed: to set",
-        onRemove: () => setCompletedTo(""),
-      })
-
+    if (completedFrom) chips.push({ key: "from", label: "Completed: From", onRemove: () => setCompletedFrom("") })
+    if (completedTo) chips.push({ key: "to", label: "Completed: To", onRemove: () => setCompletedTo("") })
     if ((selectedEmployeeIds?.length || 0) > 0) {
       chips.push({
         key: "emp",
-        label:
-          selectedEmployeeIds.length === 1
-            ? "1 employee selected"
-            : `${selectedEmployeeIds.length} employees selected`,
+        label: selectedEmployeeIds.length === 1 ? "Employees: 1" : `Employees: ${selectedEmployeeIds.length}`,
         onRemove: () => setSelectedEmployeeIds([]),
       })
     }
-
-    if (!includeTasks) {
-      chips.push({
-        key: "noTasks",
-        label: "Task details off",
-        onRemove: () => setIncludeTasks(true),
-      })
-    }
+    if (!includeTasks) chips.push({ key: "noTasks", label: "Details: Off", onRemove: () => setIncludeTasks(true) })
 
     return chips
+  }, [taskStatus, includeEmptyEmployees, windowDays, completedFrom, completedTo, selectedEmployeeIds, includeTasks])
+
+  const showSkeleton = isLoading || !hasLoadedOnce
+
+  // ======== EXPORT ACTIONS ========
+  const exportFiltersSummary = useMemo(() => {
+    return buildExportFiltersSummary({
+      q: debounced || "",
+      taskStatus,
+      includeEmptyEmployees,
+      windowDays,
+      completedFrom,
+      completedTo,
+      selectedEmployeeIds,
+      includeTasks,
+      taskLimit,
+      sort,
+      limit,
+    })
   }, [
+    debounced,
     taskStatus,
     includeEmptyEmployees,
     windowDays,
@@ -1329,10 +1510,42 @@ export default function ClientReport() {
     completedTo,
     selectedEmployeeIds,
     includeTasks,
+    taskLimit,
+    sort,
+    limit,
   ])
 
-  const showSkeleton = isLoading || !hasLoadedOnce
+  const doExportExcel = () => {
+    if (!filteredRows.length) return showToast("error", "No data to export.")
+    try {
+      exportWorkloadToExcel({
+        filteredRows,
+        includeTasks,
+        reportTitle: "Workload Report",
+        filtersSummary: exportFiltersSummary,
+      })
+      showToast("success", "Excel exported.")
+    } catch (e) {
+      showToast("error", e?.message || "Excel export failed.")
+    }
+  }
 
+  const doExportPdf = () => {
+    if (!filteredRows.length) return showToast("error", "No data to export.")
+    try {
+      exportWorkloadToPdf({
+        filteredRows,
+        includeTasks,
+        reportTitle: "Workload Report",
+        filtersSummary: exportFiltersSummary,
+      })
+      showToast("success", "PDF exported.")
+    } catch (e) {
+      showToast("error", e?.message || "PDF export failed.")
+    }
+  }
+
+  // ======== UI ========
   return (
     <div className={cn("min-h-screen p-4 sm:p-6 lg:p-8", pageBg)}>
       <AnimatePresence>
@@ -1361,8 +1574,27 @@ export default function ClientReport() {
             setIncludeTasks={setDIncludeTasks}
             taskLimit={dTaskLimit}
             setTaskLimit={setDTaskLimit}
-            onClear={clearDraft}
-            onApply={applyDraft}
+            onClear={() => {
+              setDTaskStatus("all")
+              setDIncludeEmpty(true)
+              setDWindowDays("7")
+              setDFrom("")
+              setDTo("")
+              setDEmpIds([])
+              setDIncludeTasks(true)
+              setDTaskLimit("10")
+            }}
+            onApply={() => {
+              setTaskStatus(dTaskStatus)
+              setIncludeEmptyEmployees(!!dIncludeEmpty)
+              setWindowDays(String(dWindowDays || "7"))
+              setCompletedFrom(String(dFrom || ""))
+              setCompletedTo(String(dTo || ""))
+              setSelectedEmployeeIds(Array.isArray(dEmpIds) ? dEmpIds.slice() : [])
+              setIncludeTasks(!!dIncludeTasks)
+              setTaskLimit(String(dTaskLimit || "10"))
+              setFiltersOpen(false)
+            }}
           />
         ) : null}
       </AnimatePresence>
@@ -1384,12 +1616,71 @@ export default function ClientReport() {
                     Workload Report
                   </h1>
                   <p className="text-sm text-gray-500 font-semibold">
-                    View customers, assigned employees, and task status at a glance
+                    Premium filters • Clean labels • Short toggles
                   </p>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                {/* Export */}
+                <div className="relative" ref={exportWrapRef}>
+                  <button
+                    type="button"
+                    onClick={() => setExportOpen((v) => !v)}
+                    disabled={isLoading || filteredRows.length === 0}
+                    className={cn(btn, btnPrimary, "disabled:opacity-60")}
+                    title="Export"
+                  >
+                    <FiFileText className="w-4 h-4" />
+                    Export
+                    <FiChevronDown className={cn("w-4 h-4 transition", exportOpen ? "rotate-180" : "")} />
+                  </button>
+
+                  <AnimatePresence>
+                    {exportOpen ? (
+                      <motion.div
+                        initial={{ opacity: 0, y: -6, scale: 0.99 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -6, scale: 0.99 }}
+                        transition={{ duration: 0.14 }}
+                        className="absolute right-0 mt-2 w-56 rounded-2xl border border-gray-100 bg-white shadow-[0_20px_45px_-25px_rgba(0,0,0,0.55)] overflow-hidden z-30"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExportOpen(false)
+                            doExportPdf()
+                          }}
+                          className="w-full px-3.5 py-3 flex items-center justify-between hover:bg-gray-50 transition"
+                        >
+                          <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                            <FaFilePdf className="w-4 h-4 text-rose-600" />
+                            Export PDF
+                          </span>
+                          <span className="text-xs text-gray-500">.pdf</span>
+                        </button>
+
+                        <div className="h-px bg-gray-100" />
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExportOpen(false)
+                            doExportExcel()
+                          }}
+                          className="w-full px-3.5 py-3 flex items-center justify-between hover:bg-gray-50 transition"
+                        >
+                          <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                            <SiMicrosoftexcel className="w-4 h-4 text-emerald-600" />
+                            Export Excel
+                          </span>
+                          <span className="text-xs text-gray-500">.xlsx</span>
+                        </button>
+                      </motion.div>
+                    ) : null}
+                  </AnimatePresence>
+                </div>
+
                 <button
                   onClick={refreshAll}
                   className={cn(btn, btnGhost)}
@@ -1400,7 +1691,7 @@ export default function ClientReport() {
                   Refresh
                 </button>
 
-                {/* ✅ FIXED SORT (no inner outline; outer focus ring on wrapper) */}
+                {/* Sort */}
                 <div
                   className={cn(
                     "rounded-2xl border border-gray-200 bg-white px-3 py-2 shadow-sm",
@@ -1411,9 +1702,7 @@ export default function ClientReport() {
                   <span className="text-xs text-gray-500 font-extrabold">Sort</span>
 
                   <div className="relative">
-                    {/* custom caret so we can hide native one */}
                     <FiChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-
                     <select
                       value={sort}
                       onChange={(e) => setSort(e.target.value)}
@@ -1423,12 +1712,9 @@ export default function ClientReport() {
                         "text-sm font-extrabold text-gray-900",
                         "border-0 outline-none ring-0 shadow-none",
                         "focus:outline-none focus:ring-0 focus:shadow-none",
-                        "[&::-ms-expand]:hidden" // hide old IE caret
+                        "[&::-ms-expand]:hidden"
                       )}
-                      style={{
-                        WebkitAppearance: "none",
-                        MozAppearance: "none",
-                      }}
+                      style={{ WebkitAppearance: "none", MozAppearance: "none" }}
                     >
                       <option value="newest">Newest</option>
                       <option value="oldest">Oldest</option>
@@ -1490,9 +1776,7 @@ export default function ClientReport() {
                       type="search"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder={
-                        appliedChips.length ? "Search customers…" : "Search by name, company, or email…"
-                      }
+                      placeholder={appliedChips.length ? "Search customers…" : "Search by name, company, or email…"}
                       className={cn(
                         "flex-1 min-w-[10rem] bg-transparent",
                         "text-sm text-gray-900 placeholder:text-gray-400",
@@ -1540,7 +1824,7 @@ export default function ClientReport() {
 
                 <div className="mt-2 flex items-center gap-2">
                   <p className="text-xs text-gray-500 font-semibold">
-                    Tip: Use Filters to narrow by employee, status, or completion date.
+                    Mobile tip: swipe horizontally to see all columns.
                   </p>
                 </div>
               </div>
@@ -1578,338 +1862,416 @@ export default function ClientReport() {
         </div>
       </motion.div>
 
-      {/* LIST */}
+      {/* TABLE */}
       <div className={cn(card, "overflow-hidden")}>
-        <div className="max-h-[72vh] overflow-y-auto">
-          {showSkeleton ? (
-            <CustomerListSkeleton rows={7} />
-          ) : (
-            <div className="divide-y divide-gray-100">
-              <AnimatePresence>
-                {filteredRows.length ? (
-                  filteredRows.map((row) => {
-                    const customer = row?.customer || {}
-                    const cid = String(customer?.customerId || "")
-                    const isOpen = openCustomerIds.has(cid)
+        {showSkeleton ? (
+          <TableSkeleton rows={8} />
+        ) : (
+          <div className="max-h-[72vh] overflow-auto">
+            <div className="min-w-[1020px]">
+              <div className="sticky top-0 z-10 bg-white border-b border-gray-100">
+                <div className="px-4 pb-3 pt-3">
+                  <div className="rounded-2xl border border-gray-100 bg-gray-50/60 overflow-hidden">
+                    <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[11px] font-extrabold text-gray-500">
+                      <div className="col-span-4">Customer</div>
+                      <div className="col-span-1 text-center">Employees</div>
+                      <div className="col-span-1 text-center">Tasks</div>
+                      <div className="col-span-1 text-center">P</div>
+                      <div className="col-span-1 text-center">IP</div>
+                      <div className="col-span-1 text-center">D</div>
+                      <div className="col-span-1 text-center">OD</div>
+                      <div className="col-span-1 text-center">S</div>
+                      <div className="col-span-1 text-center">Last update</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
 
-                    const totals = row?.totals || {}
-                    const pending = Number(totals.pending ?? 0)
-                    const in_progress = Number(totals.in_progress ?? 0)
-                    const done = Number(totals.done ?? 0)
-                    const overdue = Number(totals.overdue ?? 0)
-                    const dueSoon = Number(totals.dueSoon ?? 0)
-                    const totalTasks = Number(totals.total ?? 0)
+              <div className="px-4 pb-4">
+                <div className="space-y-3">
+                  <AnimatePresence>
+                    {filteredRows.length ? (
+                      filteredRows.map((row) => {
+                        const customer = row?.customer || {}
+                        const cid = String(customer?.customerId || "")
+                        const isOpen = openCustomerIds.has(cid)
 
-                    const employees = Array.isArray(row?.employees) ? row.employees : []
-                    const employeesCount = employees.length
+                        const totals = row?.totals || {}
+                        const pending = Number(totals.pending ?? 0)
+                        const in_progress = Number(totals.in_progress ?? 0)
+                        const done = Number(totals.done ?? 0)
+                        const overdue = Number(totals.overdue ?? 0)
+                        const dueSoon = Number(totals.dueSoon ?? 0)
+                        const totalTasks = Number(totals.total ?? 0)
 
-                    const lastTouch = (() => {
-                      if (!includeTasks) return null
-                      let max = 0
-                      for (const eEntry of employees) {
-                        const tasks = Array.isArray(eEntry?.tasks) ? eEntry.tasks : []
-                        for (const t of tasks) {
-                          const a = t?.completedAt ? new Date(t.completedAt).getTime() : NaN
-                          const b = t?.createdAt ? new Date(t.createdAt).getTime() : NaN
-                          const c = t?.dueAt ? new Date(t.dueAt).getTime() : NaN
-                          const m = Math.max(
-                            Number.isFinite(a) ? a : 0,
-                            Number.isFinite(b) ? b : 0,
-                            Number.isFinite(c) ? c : 0
-                          )
-                          if (m > max) max = m
-                        }
-                      }
-                      return max ? new Date(max).toISOString() : null
-                    })()
+                        const employees = Array.isArray(row?.employees) ? row.employees : []
+                        const employeesCount = employees.length
 
-                    return (
-                      <motion.div
-                        key={cid}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className={cn("p-4 sm:p-5", subtleHover)}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => toggleCustomer(cid)}
-                          className={cn(
-                            "w-full text-left rounded-2xl border border-gray-100 bg-white",
-                            "px-4 py-4",
-                            "hover:bg-gray-50/70 transition",
-                            "focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                          )}
-                          aria-expanded={isOpen}
-                        >
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-3">
-                                <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10 flex items-center justify-center font-extrabold shrink-0">
-                                  {initials(customer?.companyName || customer?.name)}
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-base font-extrabold text-gray-900 truncate">
-                                    {customer?.name || "Customer"}
-                                    {customer?.companyName ? (
-                                      <span className="text-gray-500">
-                                        {" "}
-                                        • {customer.companyName}
-                                      </span>
-                                    ) : null}
-                                  </p>
-                                  <p className="text-xs text-gray-500 truncate">
-                                    {customer?.email || "—"}
-                                    {customer?.phone ? ` • ${customer.phone}` : ""}
-                                  </p>
-                                </div>
-                              </div>
+                        const lastTouch = (() => {
+                          if (!includeTasks) return null
+                          let max = 0
+                          for (const eEntry of employees) {
+                            const tasks = Array.isArray(eEntry?.tasks) ? eEntry.tasks : []
+                            for (const t of tasks) {
+                              const a = t?.completedAt ? new Date(t.completedAt).getTime() : NaN
+                              const b = t?.createdAt ? new Date(t.createdAt).getTime() : NaN
+                              const c = t?.dueAt ? new Date(t.dueAt).getTime() : NaN
+                              const m = Math.max(
+                                Number.isFinite(a) ? a : 0,
+                                Number.isFinite(b) ? b : 0,
+                                Number.isFinite(c) ? c : 0
+                              )
+                              if (m > max) max = m
+                            }
+                          }
+                          return max ? new Date(max).toISOString() : null
+                        })()
 
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                <span className={cn(chip, chipGray)}>
-                                  <FiUsers className="w-3.5 h-3.5" /> Employees{" "}
-                                  <b>{employeesCount}</b>
-                                </span>
-                                <span className={cn(chip, chipGray)}>
-                                  Tasks <b>{totalTasks}</b>
-                                </span>
-                                {lastTouch ? (
-                                  <span className={cn(chip, chipGray)}>
-                                    <FiClock className="w-3.5 h-3.5" />
-                                    Last update: {formatDateTime(lastTouch)}
-                                  </span>
-                                ) : null}
-                              </div>
-                            </div>
-
-                            <div className="shrink-0 flex items-center gap-2 flex-wrap justify-end">
-                              <ShortCountBadge code="P" value={pending} title="Pending" className={cn(chipAmber)} />
-                              <ShortCountBadge code="IP" value={in_progress} title="In progress" className={cn(chipIndigo)} />
-                              <ShortCountBadge code="D" value={done} title="Done" className={cn(chipEmerald)} />
-                              <ShortCountBadge code="OD" value={overdue} title="Overdue" className={cn(chipRose)} />
-                              <ShortCountBadge code="S" value={dueSoon} title="Due soon" className={cn(chipGray)} />
-                              <FiChevronDown
-                                className={cn("w-5 h-5 text-gray-500 transition", isOpen ? "rotate-180" : "")}
-                              />
-                            </div>
-                          </div>
-                        </button>
-
-                        <AnimatePresence>
-                          {isOpen ? (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: "auto", opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.22 }}
-                              className="overflow-hidden"
+                        return (
+                          <motion.div
+                            key={cid}
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0 }}
+                            className={cn(
+                              "rounded-2xl border bg-white overflow-hidden",
+                              "border-gray-100",
+                              isOpen ? "bg-gray-50/40" : "",
+                              subtleHover
+                            )}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const id = String(cid)
+                                setOpenCustomerIds((prev) => {
+                                  const next = new Set(prev)
+                                  if (next.has(id)) next.delete(id)
+                                  else next.add(id)
+                                  return next
+                                })
+                              }}
+                              className={cn("w-full text-left px-3 py-3", "focus:outline-none")}
+                              aria-expanded={isOpen}
                             >
-                              <div className="mt-4 rounded-2xl border border-gray-100 bg-gray-50/60 p-3 sm:p-4">
-                                {(employees || []).length ? (
-                                  <div className="space-y-3">
-                                    {employees.map((eEntry) => {
-                                      const emp = eEntry?.employee || {}
-                                      const empId = String(emp?._id || "")
-                                      const eKey = `${cid}:${empId}`
-                                      const eOpen = openEmployeeKeys.has(eKey)
+                              <div className="grid grid-cols-12 gap-2 items-center">
+                                <div className="col-span-4 min-w-0 flex items-center gap-3">
+                                  <div className="w-11 h-11 rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10 flex items-center justify-center font-extrabold shrink-0">
+                                    {initials(customer?.companyName || customer?.name)}
+                                  </div>
 
-                                      const counts = eEntry?.counts || {}
-                                      const p = Number(counts.pending || 0)
-                                      const ip = Number(counts.in_progress || 0)
-                                      const d = Number(counts.done || 0)
-                                      const od = Number(counts.overdue || 0)
-                                      const ds = Number(counts.dueSoon || 0)
-                                      const total = Number(counts.total || 0)
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <p className="text-sm font-extrabold text-gray-900 truncate">
+                                        {customer?.name || "Customer"}
+                                      </p>
 
-                                      const tasks =
-                                        includeTasks && Array.isArray(eEntry?.tasks) ? eEntry.tasks : []
+                                      <span
+                                        className={cn(
+                                          "inline-flex items-center justify-center w-6 h-6 rounded-full border",
+                                          isOpen ? "border-indigo-200 bg-indigo-50" : "border-gray-200 bg-white"
+                                        )}
+                                      >
+                                        <FiChevronDown
+                                          className={cn("w-4 h-4 text-gray-600 transition", isOpen ? "rotate-180" : "")}
+                                        />
+                                      </span>
 
-                                      return (
-                                        <div
-                                          key={eKey}
-                                          className="rounded-2xl overflow-hidden border border-gray-200 bg-white shadow-[0_16px_40px_-30px_rgba(0,0,0,0.55)]"
-                                        >
-                                          <button
-                                            type="button"
-                                            onClick={() => toggleEmployee(cid, empId)}
-                                            className={cn(
-                                              "w-full text-left",
-                                              "px-4 py-4",
-                                              "flex items-start justify-between gap-3",
-                                              "hover:bg-gray-50/70 transition focus:outline-none"
-                                            )}
-                                            aria-expanded={eOpen}
-                                          >
-                                            <div className="flex items-start gap-3 min-w-0">
-                                              <div
-                                                className="w-1.5 self-stretch rounded-full bg-indigo-600/80"
-                                                aria-hidden="true"
-                                              />
-                                              <Avatar url={emp?.avatarUrl} label={emp?.name || emp?.email} />
+                                      {customer?.companyName ? (
+                                        <span className={cn(chip, chipSoft, "py-1 px-2 text-[10px]")}>
+                                          {customer.companyName}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <p className="text-xs text-gray-500 truncate mt-0.5">
+                                      {customer?.email || "—"}
+                                      {customer?.phone ? ` • ${customer.phone}` : ""}
+                                    </p>
+                                  </div>
+                                </div>
 
-                                              <div className="min-w-0">
-                                                <p className="text-sm sm:text-base font-extrabold text-gray-900 truncate">
-                                                  {emp?.name || "—"}
-                                                  {emp?.isActive === false ? (
-                                                    <span className="ml-2 text-[11px] font-extrabold text-rose-600 bg-rose-50 border border-rose-100 px-2 py-0.5 rounded-full">
-                                                      Inactive
-                                                    </span>
-                                                  ) : null}
-                                                </p>
-                                                <p className="text-xs sm:text-sm text-gray-500 truncate mt-0.5">
-                                                  {emp?.email || "—"}
-                                                </p>
-                                                <p className="mt-1 text-[11px] text-gray-400 font-semibold truncate">
-                                                  P=Pending • IP=In progress • D=Done • OD=Overdue • S=Due soon • T=Total
-                                                </p>
-                                              </div>
-                                            </div>
+                                <div className="col-span-1 text-center">
+                                  <span className={cn(chip, chipGray)} title="Employees">
+                                    <FiUsers className="w-3.5 h-3.5" /> <b>{employeesCount}</b>
+                                  </span>
+                                </div>
+                                <div className="col-span-1 text-center">
+                                  <span className={cn(chip, chipGray)} title="Total tasks">
+                                    <b>{totalTasks}</b>
+                                  </span>
+                                </div>
+                                <div className="col-span-1 text-center">
+                                  <ShortCountBadge code="P" value={pending} title="Pending" className={cn(chipAmber)} />
+                                </div>
+                                <div className="col-span-1 text-center">
+                                  <ShortCountBadge code="IP" value={in_progress} title="In progress" className={cn(chipIndigo)} />
+                                </div>
+                                <div className="col-span-1 text-center">
+                                  <ShortCountBadge code="D" value={done} title="Done" className={cn(chipEmerald)} />
+                                </div>
+                                <div className="col-span-1 text-center">
+                                  <ShortCountBadge code="OD" value={overdue} title="Overdue" className={cn(chipRose)} />
+                                </div>
+                                <div className="col-span-1 text-center">
+                                  <ShortCountBadge code="S" value={dueSoon} title="Due soon" className={cn(chipGray)} />
+                                </div>
 
-                                            <div className="shrink-0 flex items-center gap-2 flex-wrap justify-end">
-                                              <ShortCountBadge code="P" value={p} title="Pending" className={cn(chipAmber)} />
-                                              <ShortCountBadge code="IP" value={ip} title="In progress" className={cn(chipIndigo)} />
-                                              <ShortCountBadge code="D" value={d} title="Done" className={cn(chipEmerald)} />
-                                              <ShortCountBadge code="OD" value={od} title="Overdue" className={cn(chipRose)} />
-                                              <ShortCountBadge code="S" value={ds} title="Due soon" className={cn(chipGray)} />
-                                              <ShortCountBadge code="T" value={total} title="Total tasks" className={cn(chipGray)} />
-                                              <FiChevronDown
-                                                className={cn("w-4 h-4 text-gray-500 transition", eOpen ? "rotate-180" : "")}
-                                              />
-                                            </div>
-                                          </button>
-
-                                          <AnimatePresence>
-                                            {eOpen ? (
-                                              <motion.div
-                                                initial={{ height: 0, opacity: 0 }}
-                                                animate={{ height: "auto", opacity: 1 }}
-                                                exit={{ height: 0, opacity: 0 }}
-                                                transition={{ duration: 0.2 }}
-                                                className="overflow-hidden"
-                                              >
-                                                <div className="px-4 pb-4">
-                                                  {!includeTasks ? (
-                                                    <div className="mt-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-600 text-center font-semibold">
-                                                      Task details are turned off. Turn them on in Filters to view the task list.
-                                                    </div>
-                                                  ) : tasks.length ? (
-                                                    <div className="mt-2 space-y-2">
-                                                      {tasks.map((t) => {
-                                                        const overdueNow = isOverdueTask(t)
-                                                        const dueSoonNow = isDueSoonTask(t, 3)
-                                                        const doneNow = String(t?.status) === "done"
-
-                                                        return (
-                                                          <div
-                                                            key={String(t?._id)}
-                                                            className={cn(
-                                                              "rounded-2xl border bg-white p-3 sm:p-4",
-                                                              overdueNow
-                                                                ? "border-rose-200 ring-1 ring-rose-600/10"
-                                                                : "border-gray-100",
-                                                              "shadow-[0_10px_30px_-24px_rgba(0,0,0,0.5)]"
-                                                            )}
-                                                          >
-                                                            <div className="flex items-start gap-3">
-                                                              <span
-                                                                className={cn(
-                                                                  "mt-1.5 w-2.5 h-2.5 rounded-full shrink-0",
-                                                                  statusDot(t?.status)
-                                                                )}
-                                                              />
-                                                              <div className="min-w-0 flex-1">
-                                                                <div className="flex items-center gap-2 flex-wrap">
-                                                                  <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-extrabold bg-indigo-600 text-white">
-                                                                    Task
-                                                                  </span>
-                                                                  <p className="text-sm sm:text-[15px] font-extrabold text-gray-900 truncate">
-                                                                    {t?.title || "Task"}
-                                                                  </p>
-                                                                </div>
-
-                                                                <div className="mt-2 flex flex-wrap gap-2">
-                                                                  <span className={cn(chip, statusPill(t?.status))}>
-                                                                    {statusLabel(t?.status)}
-                                                                  </span>
-
-                                                                  {t?.dueAt ? (
-                                                                    <span className={cn(chip, chipGray)}>
-                                                                      <FiCalendar className="w-3.5 h-3.5" />
-                                                                      Due: {formatDateTime(t?.dueAt)}
-                                                                    </span>
-                                                                  ) : (
-                                                                    <span className={cn(chip, chipGray)} title="No due date">
-                                                                      <FiCalendar className="w-3.5 h-3.5" />
-                                                                      No due date
-                                                                    </span>
-                                                                  )}
-
-                                                                  {!doneNow && overdueNow ? (
-                                                                    <span className={cn(chip, chipRose)} title="This task is overdue">
-                                                                      Overdue
-                                                                    </span>
-                                                                  ) : null}
-
-                                                                  {!doneNow && !overdueNow && dueSoonNow ? (
-                                                                    <span className={cn(chip, chipAmber)} title="Due soon (within 3 days)">
-                                                                      Due soon
-                                                                    </span>
-                                                                  ) : null}
-
-                                                                  {t?.completedAt ? (
-                                                                    <span className={cn(chip, chipEmerald)}>
-                                                                      Completed {formatDateTime(t.completedAt)}
-                                                                    </span>
-                                                                  ) : null}
-                                                                </div>
-                                                              </div>
-                                                            </div>
-                                                          </div>
-                                                        )
-                                                      })}
-                                                    </div>
-                                                  ) : (
-                                                    <div className="mt-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-500 text-center font-semibold">
-                                                      No tasks found for this employee (with current filters)
-                                                    </div>
-                                                  )}
-                                                </div>
-                                              </motion.div>
-                                            ) : null}
-                                          </AnimatePresence>
+                                <div className="col-span-1 text-center min-w-0">
+                                  {lastTouch ? (
+                                    <div className="inline-flex items-center justify-center gap-2" title={formatDateTimeFull(lastTouch)}>
+                                      <FiClock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                                      <div className="text-left leading-tight">
+                                        <div className="text-xs font-extrabold text-gray-800">
+                                          {formatDate(lastTouch)}
                                         </div>
-                                      )
-                                    })}
-                                  </div>
-                                ) : (
-                                  <div className="rounded-2xl border border-gray-100 bg-white p-4 text-sm text-gray-500 text-center font-semibold">
-                                    No employees assigned to this customer
-                                  </div>
-                                )}
+                                        <div className="text-[11px] font-semibold text-gray-500">
+                                          {formatTime(lastTouch)}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-gray-400 font-semibold">—</span>
+                                  )}
+                                </div>
                               </div>
-                            </motion.div>
-                          ) : null}
-                        </AnimatePresence>
+                            </button>
+
+                            <AnimatePresence>
+                              {isOpen ? (
+                                <motion.div
+                                  initial={{ height: 0, opacity: 0 }}
+                                  animate={{ height: "auto", opacity: 1 }}
+                                  exit={{ height: 0, opacity: 0 }}
+                                  transition={{ duration: 0.2 }}
+                                  className="overflow-hidden"
+                                >
+                                  <div className="px-3 pb-3">
+                                    <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-3">
+                                      {(employees || []).length ? (
+                                        <div className="space-y-3">
+                                          {employees.map((eEntry) => {
+                                            const emp = eEntry?.employee || {}
+                                            const empId = String(emp?._id || "")
+                                            const eKey = `${cid}:${empId}`
+                                            const eOpen = openEmployeeKeys.has(eKey)
+
+                                            const counts = eEntry?.counts || {}
+                                            const p = Number(counts.pending || 0)
+                                            const ip = Number(counts.in_progress || 0)
+                                            const d = Number(counts.done || 0)
+                                            const od = Number(counts.overdue || 0)
+                                            const ds = Number(counts.dueSoon || 0)
+                                            const total = Number(counts.total || 0)
+
+                                            const tasks =
+                                              includeTasks && Array.isArray(eEntry?.tasks) ? eEntry.tasks : []
+
+                                            return (
+                                              <div
+                                                key={eKey}
+                                                className={cn(
+                                                  "rounded-2xl overflow-hidden border bg-white shadow-[0_16px_40px_-30px_rgba(0,0,0,0.55)]",
+                                                  "border-gray-200",
+                                                  eOpen ? "bg-gray-50/40" : ""
+                                                )}
+                                              >
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    const key = `${String(cid)}:${String(empId)}`
+                                                    setOpenEmployeeKeys((prev) => {
+                                                      const next = new Set(prev)
+                                                      if (next.has(key)) next.delete(key)
+                                                      else next.add(key)
+                                                      return next
+                                                    })
+                                                  }}
+                                                  className={cn(
+                                                    "w-full text-left px-4 py-4",
+                                                    "flex items-start justify-between gap-3",
+                                                    "hover:bg-gray-50/70 transition focus:outline-none"
+                                                  )}
+                                                  aria-expanded={eOpen}
+                                                >
+                                                  <div className="flex items-start gap-3 min-w-0">
+                                                    <div className="w-1.5 self-stretch rounded-full bg-indigo-600/80" />
+                                                    <Avatar url={emp?.avatarUrl} label={emp?.name || emp?.email} />
+
+                                                    <div className="min-w-0">
+                                                      <div className="flex items-center gap-2 min-w-0">
+                                                        <p className="text-sm sm:text-base font-extrabold text-gray-900 truncate">
+                                                          {emp?.name || "—"}
+                                                        </p>
+
+                                                        <span
+                                                          className={cn(
+                                                            "inline-flex items-center justify-center w-6 h-6 rounded-full border",
+                                                            eOpen ? "border-indigo-200 bg-indigo-50" : "border-gray-200 bg-white"
+                                                          )}
+                                                        >
+                                                          <FiChevronDown
+                                                            className={cn("w-4 h-4 text-gray-600 transition", eOpen ? "rotate-180" : "")}
+                                                          />
+                                                        </span>
+
+                                                        {emp?.isActive === false ? (
+                                                          <span className="text-[11px] font-extrabold text-rose-600 bg-rose-50 border border-rose-100 px-2 py-0.5 rounded-full">
+                                                            Inactive
+                                                          </span>
+                                                        ) : null}
+                                                      </div>
+
+                                                      <p className="text-xs sm:text-sm text-gray-500 truncate mt-0.5">
+                                                        {emp?.email || "—"}
+                                                      </p>
+                                                    </div>
+                                                  </div>
+
+                                                  <div className="shrink-0 flex items-center gap-2 flex-wrap justify-end">
+                                                    <ShortCountBadge code="P" value={p} title="Pending" className={cn(chipAmber)} />
+                                                    <ShortCountBadge code="IP" value={ip} title="In progress" className={cn(chipIndigo)} />
+                                                    <ShortCountBadge code="D" value={d} title="Done" className={cn(chipEmerald)} />
+                                                    <ShortCountBadge code="OD" value={od} title="Overdue" className={cn(chipRose)} />
+                                                    <ShortCountBadge code="S" value={ds} title="Due soon" className={cn(chipGray)} />
+                                                    <ShortCountBadge code="T" value={total} title="Total tasks" className={cn(chipGray)} />
+                                                  </div>
+                                                </button>
+
+                                                <AnimatePresence>
+                                                  {eOpen ? (
+                                                    <motion.div
+                                                      initial={{ height: 0, opacity: 0 }}
+                                                      animate={{ height: "auto", opacity: 1 }}
+                                                      exit={{ height: 0, opacity: 0 }}
+                                                      transition={{ duration: 0.2 }}
+                                                      className="overflow-hidden"
+                                                    >
+                                                      <div className="px-4 pb-4">
+                                                        {!includeTasks ? (
+                                                          <div className="mt-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-600 text-center font-semibold">
+                                                            Details are off.
+                                                          </div>
+                                                        ) : tasks.length ? (
+                                                          <div className="mt-2 space-y-2">
+                                                            {tasks.map((t) => {
+                                                              const overdueNow = isOverdueTask(t)
+                                                              const dueSoonNow = isDueSoonTask(t, 3)
+                                                              const doneNow = String(t?.status) === "done"
+
+                                                              return (
+                                                                <div
+                                                                  key={String(t?._id)}
+                                                                  className={cn(
+                                                                    "rounded-2xl border bg-white p-3 sm:p-4",
+                                                                    overdueNow
+                                                                      ? "border-rose-200 ring-1 ring-rose-600/10"
+                                                                      : "border-gray-100",
+                                                                    "shadow-[0_10px_30px_-24px_rgba(0,0,0,0.5)]"
+                                                                  )}
+                                                                >
+                                                                  <div className="flex items-start gap-3">
+                                                                    <span
+                                                                      className={cn(
+                                                                        "mt-1.5 w-2.5 h-2.5 rounded-full shrink-0",
+                                                                        statusDot(t?.status)
+                                                                      )}
+                                                                    />
+                                                                    <div className="min-w-0 flex-1">
+                                                                      <div className="flex items-center gap-2 flex-wrap">
+                                                                        <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-extrabold bg-indigo-600 text-white">
+                                                                          Task
+                                                                        </span>
+                                                                        <p className="text-sm sm:text-[15px] font-extrabold text-gray-900 truncate">
+                                                                          {t?.title || "Task"}
+                                                                        </p>
+                                                                      </div>
+
+                                                                      <div className="mt-2 flex flex-wrap gap-2">
+                                                                        <span className={cn(chip, statusPill(t?.status))}>
+                                                                          {statusLabel(t?.status)}
+                                                                        </span>
+
+                                                                        {t?.dueAt ? (
+                                                                          <span className={cn(chip, chipGray)}>
+                                                                            <FiCalendar className="w-3.5 h-3.5" />
+                                                                            Due: {formatDateTimeFull(t?.dueAt)}
+                                                                          </span>
+                                                                        ) : (
+                                                                          <span className={cn(chip, chipGray)}>
+                                                                            <FiCalendar className="w-3.5 h-3.5" />
+                                                                            No due date
+                                                                          </span>
+                                                                        )}
+
+                                                                        {!doneNow && overdueNow ? (
+                                                                          <span className={cn(chip, chipRose)}>
+                                                                            Overdue
+                                                                          </span>
+                                                                        ) : null}
+
+                                                                        {!doneNow && !overdueNow && dueSoonNow ? (
+                                                                          <span className={cn(chip, chipAmber)}>
+                                                                            Due soon
+                                                                          </span>
+                                                                        ) : null}
+
+                                                                        {t?.completedAt ? (
+                                                                          <span className={cn(chip, chipEmerald)}>
+                                                                            Completed {formatDateTimeFull(t.completedAt)}
+                                                                          </span>
+                                                                        ) : null}
+                                                                      </div>
+                                                                    </div>
+                                                                  </div>
+                                                                </div>
+                                                              )
+                                                            })}
+                                                          </div>
+                                                        ) : (
+                                                          <div className="mt-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 text-sm text-gray-500 text-center font-semibold">
+                                                            No tasks
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                    </motion.div>
+                                                  ) : null}
+                                                </AnimatePresence>
+                                              </div>
+                                            )
+                                          })}
+                                        </div>
+                                      ) : (
+                                        <div className="rounded-2xl border border-gray-100 bg-white p-4 text-sm text-gray-500 text-center font-semibold">
+                                          No employees
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              ) : null}
+                            </AnimatePresence>
+                          </motion.div>
+                        )
+                      })
+                    ) : (
+                      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-10 text-center">
+                        <p className="text-sm font-extrabold text-gray-900">No customers found</p>
+                        <p className="text-xs text-gray-500 font-semibold mt-1">
+                          Try changing your search or clearing filters.
+                        </p>
+                        {hasAppliedFilters ? (
+                          <button onClick={clearApplied} className={cn(btn, btnGhost, "mt-4")}>
+                            Clear filters
+                          </button>
+                        ) : null}
                       </motion.div>
-                    )
-                  })
-                ) : (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-10 text-center">
-                    <p className="text-sm font-extrabold text-gray-900">No customers found</p>
-                    <p className="text-xs text-gray-500 font-semibold mt-1">
-                      Try changing your search or clearing filters.
-                    </p>
-                    {hasAppliedFilters ? (
-                      <button onClick={clearApplied} className={cn(btn, btnGhost, "mt-4")}>
-                        Clear filters
-                      </button>
-                    ) : null}
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* FOOTER */}
         <div className="p-4 border-t border-gray-100 bg-white flex items-center justify-between gap-3 flex-wrap">

@@ -7,7 +7,7 @@ export default function Layout() {
   return (
     <ThemeProvider>
       <Outlet />
-     
+     {/* <SoftwareUpdateModal /> */}
     </ThemeProvider>
   );
 }
