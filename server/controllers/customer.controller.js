@@ -873,10 +873,8 @@ export const getCustomerById = async (req, res) => {
 
 /**
  * GET CUSTOMER TASKS
- * GET /customers/:id/tasks?limit=20&cursor=<taskId>&jobId=&rootJobId=
- * ✅ UPDATED: includes jobId/rootJobId in projection + supports filters
- *
- * NOTE: If you prefer, you can remove this route and use task.controller.js only.
+ * GET /customers/:id/tasks?limit=20&cursor=<taskId>&jobId=none|<jobId>&rootJobId=
+ * ✅ UPDATED: supports jobId=none for direct tasks
  */
 export const getCustomerTasks = async (req, res) => {
   try {
@@ -886,8 +884,17 @@ export const getCustomerTasks = async (req, res) => {
     const limit = clampLimit(req.query.limit, 1, 50, 20);
     const taskCursor = toObjectIdOrNull(req.query.cursor);
 
-    const jobId = req.query.jobId ? toObjectIdOrNull(req.query.jobId) : null;
-    if (req.query.jobId && !jobId) return res.status(400).json({ message: "Invalid jobId filter." });
+    // ✅ jobId filter (supports "none")
+    let jobId = null;
+    let jobNone = false;
+    if (req.query.jobId !== undefined) {
+      const raw = String(req.query.jobId || "").trim();
+      if (raw.toLowerCase() === "none") jobNone = true;
+      else {
+        jobId = toObjectIdOrNull(raw);
+        if (!jobId) return res.status(400).json({ message: "Invalid jobId filter." });
+      }
+    }
 
     const rootJobId = req.query.rootJobId ? toObjectIdOrNull(req.query.rootJobId) : null;
     if (req.query.rootJobId && !rootJobId) return res.status(400).json({ message: "Invalid rootJobId filter." });
@@ -918,6 +925,7 @@ export const getCustomerTasks = async (req, res) => {
       ...(isAdminOrSuperAdmin(req) ? [] : [{ $match: { "crmTasks.assignedTo": meId } }]),
       ...(taskCursor ? [{ $match: { "crmTasks._id": { $lt: taskCursor } } }] : []),
       ...(jobId ? [{ $match: { "crmTasks.jobId": jobId } }] : []),
+      ...(jobNone ? [{ $match: { "crmTasks.jobId": null } }] : []),
       ...(rootJobId ? [{ $match: { "crmTasks.rootJobId": rootJobId } }] : []),
 
       { $sort: { "crmTasks._id": -1 } },
@@ -958,6 +966,7 @@ export const getCustomerTasks = async (req, res) => {
     });
   }
 };
+
 
 /**
  * UPDATE CUSTOMER

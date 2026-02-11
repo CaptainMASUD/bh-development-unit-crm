@@ -158,8 +158,6 @@ export const getTaskTemplateById = async (req, res) => {
  * body: { title?, subtitles?, isActive? }
  *
  * ✅ FIX: If subtitles sent as strings, preserve existing subtitle _id and files by INDEX.
- * - If you remove subtitles, removed items (and their files) are removed too.
- * - If you add subtitles, new items start with files: []
  */
 export const updateTaskTemplate = async (req, res) => {
   try {
@@ -283,10 +281,13 @@ export const addTemplateSubtitleFile = async (req, res) => {
       return res.status(400).json({ message: "key, url and name are required." });
     }
 
+    const cleanName = String(name).trim();
+
     const fileDoc = {
       key: String(key).trim(),
       url: String(url).trim(),
-      name: String(name).trim(),
+      name: cleanName,
+      nameLower: cleanName.toLowerCase(), // ✅ FIX
       type: type ? String(type).trim() : "",
       size: size !== undefined ? Number(size) : undefined,
       uploadedAt: new Date(),
@@ -325,7 +326,12 @@ export const renameTemplateSubtitleFile = async (req, res) => {
 
     const updated = await TaskTemplate.findOneAndUpdate(
       { _id: id },
-      { $set: { "subtitles.$[s].files.$[f].name": name } },
+      {
+        $set: {
+          "subtitles.$[s].files.$[f].name": name,
+          "subtitles.$[s].files.$[f].nameLower": name.toLowerCase(), // ✅ FIX
+        },
+      },
       {
         new: true,
         runValidators: true,
@@ -348,8 +354,7 @@ export const renameTemplateSubtitleFile = async (req, res) => {
   }
 };
 
-// ✅ NEW: PATCH /task-templates/:id/subtitles/:subtitleId/files/:fileId/replace
-// Replace actual file content (upload new object to S3, then update key/url/metadata in same record)
+// PATCH /task-templates/:id/subtitles/:subtitleId/files/:fileId/replace
 export const replaceTemplateSubtitleFile = async (req, res) => {
   try {
     if (!isAdminOrSuperAdmin(req)) {
@@ -363,13 +368,16 @@ export const replaceTemplateSubtitleFile = async (req, res) => {
       return res.status(400).json({ message: "key, url and name are required." });
     }
 
+    const cleanName = String(name).trim();
+
     const updated = await TaskTemplate.findOneAndUpdate(
       { _id: id },
       {
         $set: {
           "subtitles.$[s].files.$[f].key": String(key).trim(),
           "subtitles.$[s].files.$[f].url": String(url).trim(),
-          "subtitles.$[s].files.$[f].name": String(name).trim(),
+          "subtitles.$[s].files.$[f].name": cleanName,
+          "subtitles.$[s].files.$[f].nameLower": cleanName.toLowerCase(), // ✅ FIX
           "subtitles.$[s].files.$[f].type": type ? String(type).trim() : "",
           "subtitles.$[s].files.$[f].size": size !== undefined ? Number(size) : undefined,
           "subtitles.$[s].files.$[f].uploadedAt": new Date(),
@@ -406,10 +414,20 @@ export const deleteTemplateSubtitleFile = async (req, res) => {
 
     const { id, subtitleId, fileId } = req.params;
 
+    // ✅ first check existence so we can return proper 404 if fileId not found
+    const tpl = await TaskTemplate.findById(id).select("subtitles").lean();
+    if (!tpl) return res.status(404).json({ message: "Template not found." });
+
+    const sub = (tpl.subtitles || []).find((s) => String(s._id) === String(subtitleId));
+    if (!sub) return res.status(404).json({ message: "Subtitle not found." });
+
+    const existed = (sub.files || []).some((f) => String(f._id) === String(fileId));
+    if (!existed) return res.status(404).json({ message: "File not found." });
+
     const updated = await TaskTemplate.findOneAndUpdate(
       { _id: id, "subtitles._id": subtitleId },
       { $pull: { "subtitles.$.files": { _id: fileId } } },
-      { new: true }
+      { new: true, runValidators: true }
     )
       .select("title subtitles isActive createdAt updatedAt")
       .lean();

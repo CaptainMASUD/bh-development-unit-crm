@@ -31,8 +31,7 @@ const router = createBrowserRouter([
       { path: 'employee', element: <EmployeeDashboard /> },
       { path: 'marketing', element: <MarketingDashboard /> },
       { path: 'crm', element: <RegisterForm /> },
-      { path: 't', element: <EcommerceHomePage /> },
-      { path: 'n', element: <CustomerServiceReport /> },
+  
       
     ],
   },

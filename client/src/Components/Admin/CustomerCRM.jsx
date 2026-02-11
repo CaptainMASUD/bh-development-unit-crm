@@ -17,6 +17,7 @@ import {
   FiSearch,
   FiRotateCcw,
   FiTag,
+  FiMove,
 } from "react-icons/fi"
 import {
   HiOutlineArchive,
@@ -195,7 +196,7 @@ async function presignUploadForTask({ file, customerId, taskId, subtitleId }) {
       customerId,
       taskId,
       subtitleId: subtitleId || undefined,
-      scope: "subtitle", // ✅ important for your backend scope routing
+      scope: "subtitle",
     }),
   })
   const data = await res.json().catch(() => ({}))
@@ -213,28 +214,33 @@ async function putToS3({ uploadUrl, file }) {
 }
 
 async function addSubtitleFilesApi({ customerId, taskId, subtitleId, body }) {
-  const res = await fetch(`${API_BASE}/customers/${customerId}/tasks/${taskId}/subtitles/${subtitleId}/files`, {
-    method: "POST",
-    headers: getAuthHeaders(),
-    body: JSON.stringify(body),
-  })
+  const res = await fetch(
+    `${API_BASE}/customers/${customerId}/tasks/${taskId}/subtitles/${subtitleId}/files`,
+    {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(body),
+    }
+  )
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data?.message || "Failed to save subtitle files")
   return data
 }
 
 async function addSubtitleNoteApi({ customerId, taskId, subtitleId, text }) {
-  const res = await fetch(`${API_BASE}/customers/${customerId}/tasks/${taskId}/subtitles/${subtitleId}/notes`, {
-    method: "POST",
-    headers: getAuthHeaders(),
-    body: JSON.stringify({ text }),
-  })
+  const res = await fetch(
+    `${API_BASE}/customers/${customerId}/tasks/${taskId}/subtitles/${subtitleId}/notes`,
+    {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ text }),
+    }
+  )
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data?.message || "Failed to save subtitle note")
   return data
 }
 
-/** ✅ UPDATE subtitle file meta (rename/displayName etc.) */
 async function patchSubtitleFileApi({ customerId, taskId, subtitleId, fileId, body }) {
   const res = await fetch(
     `${API_BASE}/customers/${customerId}/tasks/${taskId}/subtitles/${subtitleId}/files/${fileId}`,
@@ -249,14 +255,10 @@ async function patchSubtitleFileApi({ customerId, taskId, subtitleId, fileId, bo
   return data
 }
 
-/** ✅ DELETE subtitle file meta (DB record; optional S3 cleanup handled by backend if you add it) */
 async function deleteSubtitleFileApi({ customerId, taskId, subtitleId, fileId }) {
   const res = await fetch(
     `${API_BASE}/customers/${customerId}/tasks/${taskId}/subtitles/${subtitleId}/files/${fileId}`,
-    {
-      method: "DELETE",
-      headers: getAuthHeaders(),
-    }
+    { method: "DELETE", headers: getAuthHeaders() }
   )
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data?.message || "Failed to delete subtitle file")
@@ -320,14 +322,11 @@ async function fetchCustomerTasksApi({ customerId, limit = TASKS_PAGE_SIZE, curs
   }
 }
 
-/* ---- JOBS (root + subjobs) ---- */
+/* ---- JOBS ---- */
 async function fetchCustomerJobsApi({ customerId }) {
-  const res = await fetch(`${API_BASE}/customers/${customerId}/jobs`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await fetch(`${API_BASE}/customers/${customerId}/jobs`, { headers: getAuthHeaders() })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data?.message || "Failed to fetch jobs")
-
   const jobsFlat = Array.isArray(data?.jobsFlat) ? data.jobsFlat : Array.isArray(data?.jobs) ? data.jobs : []
   const jobsTree = Array.isArray(data?.jobsTree) ? data.jobsTree : []
   return { jobsFlat, jobsTree }
@@ -523,9 +522,7 @@ function ManualSubtitlesEditor({ value, onChange }) {
     setInput("")
   }
 
-  const removeOne = (idx) => {
-    onChange((value || []).filter((_, i) => i !== idx))
-  }
+  const removeOne = (idx) => onChange((value || []).filter((_, i) => i !== idx))
 
   return (
     <div className="md:col-span-2">
@@ -593,15 +590,12 @@ function SubtitleWorkPanel({
   const subtitleId = String(subtitle?._id || "")
   const [open, setOpen] = useState(false)
 
-  // ✅ Rename UI state per panel
   const [renamingFileId, setRenamingFileId] = useState("")
   const [renameValue, setRenameValue] = useState("")
   const [renameErr, setRenameErr] = useState("")
 
   const files = Array.isArray(subtitle?.files) ? subtitle.files : []
   const notes = Array.isArray(subtitle?.notes) ? subtitle.notes : []
-
-  // ✅ busyKey pattern: `${taskId}:${subtitleId}` for upload/note, or `${taskId}:${subtitleId}:file:${fileId}` for rename/delete
   const busy = typeof busyKey === "string" && busyKey.startsWith(`${task?._id}:${subtitleId}`)
   const draft = noteDraft?.[subtitleId] || ""
 
@@ -1070,7 +1064,7 @@ function JobModal({ open, loading, jobsTree, mode, parentJobId, onClose, onSubmi
   )
 }
 
-/* =================== TASK MODAL (JOB REQUIRED) =================== */
+/* =================== TASK MODAL (Job + Sub-job as separate fields) =================== */
 function TaskModal({
   open,
   mode,
@@ -1103,6 +1097,70 @@ function TaskModal({
 }) {
   const closeBtnRef = useRef(null)
   const titleRef = useRef(null)
+
+  // ✅ Build maps so we can show "Job" then "Sub-job"
+  const jobById = useMemo(() => {
+    const m = new Map()
+    for (const j of jobsFlat || []) m.set(String(j?._id), j)
+    return m
+  }, [jobsFlat])
+
+  const rootJobs = useMemo(() => (jobsFlat || []).filter((j) => !j?.parentJobId), [jobsFlat])
+
+  const subJobsByParent = useMemo(() => {
+    const map = new Map()
+    for (const j of jobsFlat || []) {
+      const pid = j?.parentJobId ? String(j.parentJobId) : ""
+      if (!pid) continue
+      if (!map.has(pid)) map.set(pid, [])
+      map.get(pid).push(j)
+    }
+    for (const [k, arr] of map.entries()) {
+      arr.sort((a, b) => String(a?.title || "").localeCompare(String(b?.title || "")))
+      map.set(k, arr)
+    }
+    return map
+  }, [jobsFlat])
+
+  const deriveRootAndSubFromJobId = (jobId) => {
+    const id = String(jobId || "")
+    if (!id) return { rootId: "", subId: "" }
+    const j = jobById.get(id)
+    if (!j) return { rootId: "", subId: "" }
+    if (j?.parentJobId) {
+      const rootId = String(j.parentJobId)
+      return { rootId, subId: id }
+    }
+    return { rootId: id, subId: "" }
+  }
+
+  const [selectedRootId, setSelectedRootId] = useState("")
+  const [selectedSubId, setSelectedSubId] = useState("")
+
+  useEffect(() => {
+    if (!open) return
+    const { rootId, subId } = deriveRootAndSubFromJobId(jobIdValue)
+    setSelectedRootId(rootId)
+    setSelectedSubId(subId)
+  }, [open, jobIdValue, jobById])
+
+  const onSelectRoot = (rootId) => {
+    const rid = String(rootId || "")
+    setSelectedRootId(rid)
+    setSelectedSubId("")
+    if (!rid) {
+      setJobIdValue("")
+      return
+    }
+    setJobIdValue(rid)
+  }
+
+  const onSelectSub = (subId) => {
+    const sid = String(subId || "")
+    setSelectedSubId(sid)
+    if (sid) setJobIdValue(sid)
+    else setJobIdValue(selectedRootId || "")
+  }
 
   useEffect(() => {
     if (!open) return
@@ -1154,15 +1212,14 @@ function TaskModal({
 
   const canSaveEmployee = !loading && String(statusValue || "").length > 0
 
-  const jobOk = String(jobIdValue || "").trim().length > 0
   const canSaveAdmin =
     !loading &&
     canAssign &&
-    jobOk &&
     (assigneesValue || []).length > 0 &&
     (inTemplateMode ? true : String(titleValue || "").trim().length > 0)
 
   const canSave = isEmployeeMode ? canSaveEmployee : canSaveAdmin
+  const subJobsForSelectedRoot = selectedRootId ? subJobsByParent.get(String(selectedRootId)) || [] : []
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-2 sm:p-4">
@@ -1210,26 +1267,75 @@ function TaskModal({
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* ✅ Job */}
               <div className="md:col-span-2">
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Job (required)</label>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Job (optional)</label>
                 <select
-                  value={jobIdValue}
-                  onChange={(e) => setJobIdValue(e.target.value)}
+                  value={selectedRootId}
+                  onChange={(e) => onSelectRoot(e.target.value)}
                   disabled={loading}
                   className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
                 >
-                  <option value="">Select a job/sub-job…</option>
-                  {(jobsFlat || []).map((j) => {
-                    const isSub = !!j?.parentJobId
-                    const label = `${isSub ? "↳ " : ""}${j?.title || "Job"}`
-                    return (
-                      <option key={String(j?._id)} value={String(j?._id)}>
-                        {label}
-                      </option>
-                    )
-                  })}
+                  <option value="">No job (independent task)</option>
+                  {(rootJobs || []).map((j) => (
+                    <option key={String(j?._id)} value={String(j?._id)}>
+                      {j?.title || "Job"}
+                    </option>
+                  ))}
                 </select>
-                {!jobOk ? <p className="text-xs text-red-600 mt-2">Job is required to create/update tasks.</p> : null}
+                <p className="text-xs text-gray-500 mt-2">
+                  First pick a job. If that job has sub-jobs, you can optionally pick one below.
+                </p>
+              </div>
+
+              {/* ✅ Sub-job field after selecting job */}
+              <div className="md:col-span-2">
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Sub-job (optional)</label>
+                <select
+                  value={selectedSubId}
+                  onChange={(e) => onSelectSub(e.target.value)}
+                  disabled={loading || !selectedRootId || subJobsForSelectedRoot.length === 0}
+                  className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white disabled:bg-gray-50"
+                >
+                  {!selectedRootId ? (
+                    <option value="">Select a job first</option>
+                  ) : subJobsForSelectedRoot.length === 0 ? (
+                    <option value="">No sub-jobs under this job</option>
+                  ) : (
+                    <>
+                      <option value="">No sub-job (keep under the selected job)</option>
+                      {subJobsForSelectedRoot.map((sj) => (
+                        <option key={String(sj?._id)} value={String(sj?._id)}>
+                          {sj?.title || "Sub-job"}
+                        </option>
+                      ))}
+                    </>
+                  )}
+                </select>
+
+                {/* ✅ breadcrumb preview */}
+                <div className="mt-2 rounded-2xl border border-gray-100 bg-gray-50/60 p-3 text-xs text-gray-700">
+                  <span className="font-extrabold text-gray-900">Selected path:</span>{" "}
+                  {!selectedRootId ? (
+                    <span className="text-gray-600">Independent (no job)</span>
+                  ) : (
+                    <>
+                      <span className="font-semibold text-indigo-700">
+                        {jobById.get(String(selectedRootId))?.title || "Job"}
+                      </span>
+                      {selectedSubId ? (
+                        <>
+                          <span className="text-gray-400"> {"›"} </span>
+                          <span className="font-semibold text-amber-700">
+                            {jobById.get(String(selectedSubId))?.title || "Sub-job"}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-gray-500"> (no sub-job)</span>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
 
               <div className="md:col-span-2">
@@ -1442,9 +1548,13 @@ function TaskCard({
   renameSubtitleFile,
   deleteSubtitleFile,
   inferActorRole,
+
+  jobsFlat,
+  jobById,
+  onMoveJob,
+  movingKey,
 }) {
   const busy = deletingTaskId === t._id
-
   const target = getTaskTargetDate(t)
   const timeLeftMs = target ? target.getTime() - nowTick : null
   const hasDue = !!t?.dueAt
@@ -1457,13 +1567,26 @@ function TaskCard({
   const assigneeNamesPreview = assignees.slice(0, 2).map((a) => a.name).join(", ")
   const assigneeNamesMore = assigneeCount > 2 ? ` +${assigneeCount - 2}` : ""
 
+  const currentJob = jobById?.get(String(t?.jobId || "")) || null
+  const parentJob = currentJob?.parentJobId ? jobById?.get(String(currentJob.parentJobId)) : null
+  const moving = movingKey === String(t?._id || "")
+
+  const formatJobPath = () => {
+    if (!currentJob) return null
+    if (currentJob?.parentJobId) {
+      const p = parentJob?.title || "Job"
+      const c = currentJob?.title || "Sub-job"
+      return `Sub-job: ${p} › ${c}`
+    }
+    return `Job: ${currentJob?.title || "Job"}`
+  }
+
   return (
     <div className="hover:bg-gray-50/60">
       <div className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
         <button type="button" onClick={onToggle} className="w-full sm:flex-1 min-w-0 text-left" aria-expanded={isOpen}>
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-extrabold text-indigo-700 truncate">{t.title || "Task"}</p>
-
             <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${statusPill(t.status)}`}>{t.status}</span>
 
             {hasDue ? (
@@ -1471,6 +1594,16 @@ function TaskCard({
                 {t.status === "done" ? "Completed" : formatTimeLeft(timeLeftMs)}
               </span>
             ) : null}
+
+            {currentJob ? (
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                {formatJobPath()}
+              </span>
+            ) : (
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 border border-gray-200">
+                No job
+              </span>
+            )}
           </div>
 
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500 leading-snug">
@@ -1536,11 +1669,57 @@ function TaskCard({
       <SmoothCollapse open={isOpen}>
         <div className="px-3 sm:px-6 pb-5 -mt-2">
           <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-3 sm:p-4">
-            {assigneeCount ? (
+            {/* MOVE TASK (ADMIN) */}
+            {isAdmin ? (
+              <div className="mb-4 rounded-2xl border border-gray-100 bg-white p-3">
+                <p className="text-xs font-extrabold text-gray-700 mb-2 flex items-center gap-2">
+                  <FiMove /> Move task
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <select
+                    disabled={moving}
+                    value={String(t?.jobId || "")}
+                    onChange={(e) => onMoveJob?.(t?._id, e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold"
+                    title="Move task to job/sub-job"
+                  >
+                    <option value="">No job (independent)</option>
+                    {(jobsFlat || []).map((j) => {
+                      const jid = String(j?._id || "")
+                      const pid = j?.parentJobId ? String(j.parentJobId) : ""
+                      const parent = pid ? jobById?.get(pid) : null
+                      const label = pid ? `${parent?.title || "Job"} › ${j?.title || "Sub-job"}` : j?.title || "Job"
+                      return (
+                        <option key={jid} value={jid}>
+                          {label}
+                        </option>
+                      )
+                    })}
+                  </select>
+
+                  <button
+                    type="button"
+                    disabled={moving}
+                    onClick={() => onMoveJob?.(t?._id, String(t?.jobId || ""))}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
+                    title="Re-apply move (refresh)"
+                  >
+                    {moving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    {moving ? "Moving..." : "Apply"}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Change the job here to move tasks between jobs/sub-jobs (or keep it independent).
+                </p>
+              </div>
+            ) : null}
+
+            {/* assignees */}
+            {resolveAssignees(t?.assignedTo, assignedEmployees).length ? (
               <div className="mb-3">
                 <p className="text-xs font-semibold text-gray-600 mb-2">Assigned to</p>
                 <div className="flex flex-wrap gap-2">
-                  {assignees.map((a) => (
+                  {resolveAssignees(t?.assignedTo, assignedEmployees).map((a) => (
                     <span
                       key={a._id}
                       className="inline-flex items-center px-3 py-1 rounded-full bg-white border border-gray-200 text-xs font-semibold text-gray-700"
@@ -1603,7 +1782,7 @@ function TaskCard({
   )
 }
 
-/* =================== CRM COMPONENT (WITH FILTERS + FILE CRUD) =================== */
+/* =================== CRM COMPONENT =================== */
 export default function CustomerCRM({
   customerId,
   customer,
@@ -1621,7 +1800,6 @@ export default function CustomerCRM({
     return () => clearInterval(id)
   }, [])
 
-  /* ✅ AUTO-HIDE TOAST */
   const toastTimerRef = useRef(null)
   const pushToast = (msg, ms = 2500) => {
     if (!showToast) return
@@ -1666,7 +1844,10 @@ export default function CustomerCRM({
   const [tasksHasMore, setTasksHasMore] = useState(false)
   const [tasksNextCursor, setTasksNextCursor] = useState(null)
 
-  // ✅ FILTERS
+  // moving
+  const [movingTaskId, setMovingTaskId] = useState("")
+
+  // FILTERS
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [searchText, setSearchText] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -1677,7 +1858,7 @@ export default function CustomerCRM({
   // Create modal
   const [createOpen, setCreateOpen] = useState(false)
   const [createSaving, setCreateSaving] = useState(false)
-  const [cJobId, setCJobId] = useState("")
+  const [cJobId, setCJobId] = useState("") // can be root or sub job id, or ""
   const [cTemplateId, setCTemplateId] = useState("")
   const [cSelectedSubtitleIds, setCSelectedSubtitleIds] = useState([])
   const [cTitle, setCTitle] = useState("")
@@ -1703,7 +1884,6 @@ export default function CustomerCRM({
 
   const canAssign = (assignedEmployees || []).length > 0
 
-  // ✅ infer role — if not in assignedTo => ADMIN
   const inferActorRole = (actorId, taskAssignedTo) => {
     const aid = String(actorId || "")
     if (!aid) return "admin"
@@ -1803,6 +1983,13 @@ export default function CustomerCRM({
     return map
   }, [jobsFlat])
 
+  const formatJobOptionLabel = (j) => {
+    const pid = j?.parentJobId ? String(j.parentJobId) : ""
+    if (!pid) return j?.title || "Job"
+    const parent = jobById.get(pid)
+    return `${parent?.title || "Job"} › ${j?.title || "Sub-job"}`
+  }
+
   const toggleTaskOpen = (id) => {
     const sid = String(id)
     setOpenTaskIds((prev) => {
@@ -1900,12 +2087,9 @@ export default function CustomerCRM({
   const createTask = async () => {
     setPageError?.("")
     if (!isAdmin) return
+
     if (!canAssign || cAssignees.length === 0) {
       setPageError?.("Select at least 1 assignee.")
-      return
-    }
-    if (!String(cJobId || "").trim()) {
-      setPageError?.("Select a job.")
       return
     }
 
@@ -1918,7 +2102,7 @@ export default function CustomerCRM({
     setCreateSaving(true)
     try {
       const body = {
-        jobId: String(cJobId),
+        jobId: String(cJobId || "").trim() ? String(cJobId) : null,
         description: String(cDesc || "").trim() || undefined,
         status: cStatus,
         dueAt: cDueAt ? new Date(cDueAt).toISOString() : null,
@@ -2008,10 +2192,6 @@ export default function CustomerCRM({
       setPageError?.("Select at least 1 assignee.")
       return
     }
-    if (!String(eJobId || "").trim()) {
-      setPageError?.("Select a job.")
-      return
-    }
 
     const inTemplateMode = !!eTemplateId
     if (!inTemplateMode && !String(eTitle || "").trim()) {
@@ -2022,7 +2202,7 @@ export default function CustomerCRM({
     setEditSaving(true)
     try {
       const body = {
-        jobId: String(eJobId),
+        jobId: String(eJobId || "").trim() ? String(eJobId) : null,
         description: String(eDesc || "").trim() || "",
         status: eStatus,
         dueAt: eDueAt ? new Date(eDueAt).toISOString() : null,
@@ -2046,6 +2226,32 @@ export default function CustomerCRM({
       setPageError?.(e?.message || "Failed to update task.")
     } finally {
       setEditSaving(false)
+    }
+  }
+
+  /* ---------------- MOVE TASK (ADMIN) ---------------- */
+  const moveTaskToJob = async (taskId, nextJobId) => {
+    if (!isAdmin) return
+    const tid = String(taskId || "")
+    if (!tid) return
+
+    const next = String(nextJobId || "")
+    setMovingTaskId(tid)
+    setPageError?.("")
+    try {
+      await patchTaskAdmin({
+        customerId,
+        taskId: tid,
+        body: {
+          jobId: next.trim() ? next.trim() : null,
+        },
+      })
+      await resetTasks()
+      pushToast("Task moved")
+    } catch (e) {
+      setPageError?.(e?.message || "Failed to move task.")
+    } finally {
+      setMovingTaskId("")
     }
   }
 
@@ -2148,7 +2354,6 @@ export default function CustomerCRM({
     }
   }
 
-  /* ✅ FILE CRUD: rename */
   const renameSubtitleFile = async (taskId, subtitleId, fileId, nextDisplayName) => {
     const name = String(nextDisplayName || "").trim()
     if (!taskId || !subtitleId || !fileId || !name) return
@@ -2172,7 +2377,6 @@ export default function CustomerCRM({
     }
   }
 
-  /* ✅ FILE CRUD: delete (confirm modal) */
   const deleteSubtitleFile = (taskId, subtitleId, fileId, fileObj) => {
     const shown = String(fileObj?.displayName || "").trim() || fileObj?.originalName || "file"
     setDeleteModal({
@@ -2184,7 +2388,7 @@ export default function CustomerCRM({
     })
   }
 
-  /* ---------------- DELETE CONFIRM HANDLER (tasks/jobs/files) ---------------- */
+  /* ---------------- DELETE CONFIRM HANDLER ---------------- */
   const confirmDelete = async () => {
     const payload = deleteModal.payload
     if (!payload) return
@@ -2285,25 +2489,23 @@ export default function CustomerCRM({
   const applyAllFiltersToTasks = (list) => {
     let out = Array.isArray(list) ? list.slice() : []
 
-    // job filter
     if (String(selectedJobId || "")) {
       const sid = String(selectedJobId || "")
       const job = jobById.get(sid)
       const isRoot = job && !job?.parentJobId
-      out = isRoot ? out.filter((t) => String(t?.rootJobId || "") === sid) : out.filter((t) => String(t?.jobId || "") === sid)
+      out = isRoot
+        ? out.filter((t) => String(t?.rootJobId || "") === sid)
+        : out.filter((t) => String(t?.jobId || "") === sid)
     }
 
-    // search
     out = out.filter((t) => matchesSearch(t, searchText))
 
-    // status
     if (statusFilter !== "all") {
       if (statusFilter === "overdue") out = out.filter((t) => isOverdue(t))
       else if (statusFilter === "no_due") out = out.filter((t) => !t?.dueAt)
       else out = out.filter((t) => String(t?.status || "") === statusFilter)
     }
 
-    // assignee
     if (assigneeFilter !== "all") {
       const aid = String(assigneeFilter)
       out = out.filter((t) => {
@@ -2313,7 +2515,6 @@ export default function CustomerCRM({
       })
     }
 
-    // due
     if (dueFilter !== "all") {
       if (dueFilter === "none") out = out.filter((t) => !t?.dueAt)
       if (dueFilter === "overdue") out = out.filter((t) => isOverdue(t))
@@ -2322,7 +2523,6 @@ export default function CustomerCRM({
       if (dueFilter === "30d") out = out.filter((t) => withinDays(t?.dueAt, 30))
     }
 
-    // sorting
     const statusRank = (s) => (s === "pending" ? 0 : s === "in_progress" ? 1 : 2)
     const dueValue = (t) => {
       if (!t?.dueAt) return Number.POSITIVE_INFINITY
@@ -2376,7 +2576,6 @@ export default function CustomerCRM({
     setSelectedJobId("")
   }
 
-  /* =================== JOB/TASK UI HELPERS =================== */
   const renderTaskList = (taskList) => {
     if (tasksLoading && (!taskList || taskList.length === 0)) {
       return <div className="p-10 text-center text-gray-500 text-sm">Loading tasks...</div>
@@ -2416,6 +2615,10 @@ export default function CustomerCRM({
               renameSubtitleFile={renameSubtitleFile}
               deleteSubtitleFile={deleteSubtitleFile}
               inferActorRole={inferActorRole}
+              jobsFlat={jobsFlat}
+              jobById={jobById}
+              onMoveJob={moveTaskToJob}
+              movingKey={movingTaskId}
             />
           )
         })}
@@ -2423,195 +2626,230 @@ export default function CustomerCRM({
     )
   }
 
+  const independentTasks = useMemo(() => {
+    const list = tasks.filter((t) => !String(t?.jobId || "").trim())
+    return applyAllFiltersToTasks(list)
+  }, [tasks, selectedJobId, searchText, statusFilter, assigneeFilter, dueFilter, sortBy, nowTick, jobById])
+
   const renderJobsTreeWithTasks = () => {
-    if (jobsLoading) {
-      return <div className="p-8 text-center text-gray-500 text-sm">Loading jobs...</div>
-    }
+    if (jobsLoading) return <div className="p-8 text-center text-gray-500 text-sm">Loading jobs...</div>
 
-    if (!jobsTree || jobsTree.length === 0) {
-      return (
-        <div className="p-6 rounded-2xl border border-gray-100 bg-white text-sm text-gray-500 text-center">
-          No jobs created yet.
-          {isAdmin ? (
-            <div className="mt-3">
-              <button
-                onClick={() => openCreateJobModal(null)}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold"
-              >
-                <FiPlus /> Create first job
-              </button>
-            </div>
-          ) : null}
-        </div>
-      )
-    }
-
-    // apply filters per-job
-    const getFilteredByJob = (jobId, isRoot) => {
-      const base = isRoot
-        ? tasks.filter((t) => String(t?.rootJobId || "") === String(jobId))
-        : tasks.filter((t) => String(t?.jobId || "") === String(jobId))
-      return applyAllFiltersToTasks(base)
-    }
+    const hasJobs = Array.isArray(jobsTree) && jobsTree.length > 0
+    const showIndependentSection = independentTasks.length > 0 // ✅ ONLY show when there are independent tasks
 
     return (
-      <div className="space-y-3">
-        {jobsTree.map((root) => {
-          const rootId = String(root?._id || "")
-          const rootOpen = openJobIds.has(rootId)
-          const children = Array.isArray(root?.children) ? root.children : Array.isArray(root?.subJobs) ? root.subJobs : []
-
-          const rootTasksFiltered = getFilteredByJob(rootId, true)
-
-          return (
-            <div key={rootId} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
-              <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <button type="button" onClick={() => toggleJobOpen(rootId)} className="flex-1 min-w-0 text-left" aria-expanded={rootOpen}>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-indigo-600 text-white shrink-0">
-                      <FiFolder className="w-4 h-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-extrabold text-indigo-700 truncate">{root?.title || "Job"}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {rootTasksFiltered.length} task{rootTasksFiltered.length === 1 ? "" : "s"} (filtered)
-                        {children.length ? ` • ${children.length} sub-job${children.length === 1 ? "" : "s"}` : ""}
-                      </p>
-                    </div>
-                  </div>
-                </button>
-
-                <div className="flex items-center gap-2 justify-end">
-                  {isAdmin ? (
-                    <>
-                      <button
-                        onClick={() => openCreateModal(rootId)}
-                        className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold"
-                        title="Add task under this job"
-                      >
-                        <FiPlus /> Task
-                      </button>
-                      <button
-                        onClick={() => openCreateJobModal(rootId)}
-                        className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
-                        title="Create sub-job"
-                      >
-                        <FiPlus /> Sub-job
-                      </button>
-                      <button
-                        onClick={() => requestDeleteJob(rootId)}
-                        className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 text-sm font-semibold"
-                        title="Delete job"
-                      >
-                        <FiTrash2 /> Delete
-                      </button>
-                    </>
-                  ) : null}
-
-                  <button
-                    type="button"
-                    onClick={() => toggleJobOpen(rootId)}
-                    className="h-10 w-10 flex items-center justify-center rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50"
-                    aria-label={rootOpen ? "Collapse" : "Expand"}
-                    title={rootOpen ? "Hide" : "Show"}
-                  >
-                    <FiChevronDown className={["transition-transform duration-300", rootOpen ? "rotate-180" : ""].join(" ")} />
-                  </button>
-                </div>
+      <div className="space-y-4">
+        {showIndependentSection ? (
+          <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-extrabold text-indigo-700 truncate">Independent Tasks (No job)</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  {independentTasks.length} task{independentTasks.length === 1 ? "" : "s"} (filtered)
+                </p>
               </div>
 
-              <SmoothCollapse open={rootOpen}>
-                <div className="px-3 sm:px-6 pb-5 pt-4 space-y-4 bg-gray-50/50">
-                  <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
-                    <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-2">
-                      <p className="text-xs font-extrabold text-indigo-700">Tasks (Job)</p>
+              {isAdmin ? (
+                <button
+                  onClick={() => openCreateModal("")}
+                  className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold"
+                >
+                  <FiPlus /> Task
+                </button>
+              ) : null}
+            </div>
+            {renderTaskList(independentTasks)}
+          </div>
+        ) : null}
+
+        {!hasJobs ? (
+          <div className="p-6 rounded-2xl border border-gray-100 bg-white text-sm text-gray-500 text-center">
+            No jobs created yet.
+            {isAdmin ? (
+              <div className="mt-3">
+                <button
+                  onClick={() => openCreateJobModal(null)}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold"
+                >
+                  <FiPlus /> Create first job
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {jobsTree.map((root) => {
+              const rootId = String(root?._id || "")
+              const rootOpen = openJobIds.has(rootId)
+              const children = Array.isArray(root?.children)
+                ? root.children
+                : Array.isArray(root?.subJobs)
+                ? root.subJobs
+                : []
+
+              const getFilteredByJob = (jobId, isRoot) => {
+                const base = isRoot
+                  ? tasks.filter((t) => String(t?.rootJobId || "") === String(jobId))
+                  : tasks.filter((t) => String(t?.jobId || "") === String(jobId))
+                return applyAllFiltersToTasks(base)
+              }
+
+              const rootTasksFiltered = getFilteredByJob(rootId, true)
+
+              return (
+                <div key={rootId} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+                  <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleJobOpen(rootId)}
+                      className="flex-1 min-w-0 text-left"
+                      aria-expanded={rootOpen}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="inline-flex items-center justify-center w-9 h-9 rounded-xl bg-indigo-600 text-white shrink-0">
+                          <FiFolder className="w-4 h-4" />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-extrabold text-indigo-700 truncate">{root?.title || "Job"}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {rootTasksFiltered.length} task{rootTasksFiltered.length === 1 ? "" : "s"} (filtered)
+                            {children.length ? ` • ${children.length} sub-job${children.length === 1 ? "" : "s"}` : ""}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+
+                    <div className="flex items-center gap-2 justify-end">
+                      {isAdmin ? (
+                        <>
+                          <button
+                            onClick={() => openCreateModal(rootId)}
+                            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold"
+                            title="Add task under this job"
+                          >
+                            <FiPlus /> Task
+                          </button>
+                          <button
+                            onClick={() => openCreateJobModal(rootId)}
+                            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
+                            title="Create sub-job"
+                          >
+                            <FiPlus /> Sub-job
+                          </button>
+                          <button
+                            onClick={() => requestDeleteJob(rootId)}
+                            className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 text-sm font-semibold"
+                            title="Delete job"
+                          >
+                            <FiTrash2 /> Delete
+                          </button>
+                        </>
+                      ) : null}
+
                       <button
                         type="button"
-                        onClick={() => setSelectedJobId(rootId)}
-                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-xs font-semibold"
-                        title="Filter to this job"
+                        onClick={() => toggleJobOpen(rootId)}
+                        className="h-10 w-10 flex items-center justify-center rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50"
+                        aria-label={rootOpen ? "Collapse" : "Expand"}
+                        title={rootOpen ? "Hide" : "Show"}
                       >
-                        Filter
+                        <FiChevronDown className={["transition-transform duration-300", rootOpen ? "rotate-180" : ""].join(" ")} />
                       </button>
                     </div>
-                    {renderTaskList(rootTasksFiltered)}
                   </div>
 
-                  {children.length ? (
-                    <div className="space-y-3">
-                      {children.map((sub) => {
-                        const subId = String(sub?._id || "")
-                        const subTasksFiltered = getFilteredByJob(subId, false)
+                  <SmoothCollapse open={rootOpen}>
+                    <div className="px-3 sm:px-6 pb-5 pt-4 space-y-4 bg-gray-50/50">
+                      <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+                        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-2">
+                          <p className="text-xs font-extrabold text-indigo-700">Tasks (Job)</p>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedJobId(rootId)}
+                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-xs font-semibold"
+                            title="Filter to this job"
+                          >
+                            Filter
+                          </button>
+                        </div>
+                        {renderTaskList(rootTasksFiltered)}
+                      </div>
 
-                        return (
-                          <div key={subId} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
-                            <div className="px-4 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                              <div className="min-w-0 flex items-center gap-2">
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-extrabold">
-                                  SUB-JOB
-                                </span>
-                                <p className="text-sm font-extrabold text-gray-900 truncate">{sub?.title || "Sub-job"}</p>
-                                <span className="text-xs text-gray-500">
-                                  • {subTasksFiltered.length} task{subTasksFiltered.length === 1 ? "" : "s"} (filtered)
-                                </span>
-                              </div>
+                      {children.length ? (
+                        <div className="space-y-3">
+                          {children.map((sub) => {
+                            const subId = String(sub?._id || "")
+                            const subTasksFiltered = getFilteredByJob(subId, false)
 
-                              <div className="flex items-center gap-2 justify-end">
-                                {isAdmin ? (
-                                  <>
+                            return (
+                              <div key={subId} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+                                <div className="px-4 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                  <div className="min-w-0 flex items-center gap-2">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-extrabold">
+                                      SUB-JOB
+                                    </span>
+                                    <p className="text-sm font-extrabold text-gray-900 truncate">{sub?.title || "Sub-job"}</p>
+                                    <span className="text-xs text-gray-500">
+                                      • {subTasksFiltered.length} task{subTasksFiltered.length === 1 ? "" : "s"} (filtered)
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 justify-end">
+                                    {isAdmin ? (
+                                      <>
+                                        <button
+                                          onClick={() => openCreateModal(subId)}
+                                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold"
+                                          title="Add task under this sub-job"
+                                        >
+                                          <FiPlus /> Task
+                                        </button>
+                                        <button
+                                          onClick={() => requestDeleteJob(subId)}
+                                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 text-sm font-semibold"
+                                          title="Delete sub-job"
+                                        >
+                                          <FiTrash2 /> Delete
+                                        </button>
+                                      </>
+                                    ) : null}
+
                                     <button
-                                      onClick={() => openCreateModal(subId)}
-                                      className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold"
-                                      title="Add task under this sub-job"
+                                      type="button"
+                                      onClick={() => setSelectedJobId(subId)}
+                                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
+                                      title="Filter to this sub-job"
                                     >
-                                      <FiPlus /> Task
+                                      Filter
                                     </button>
-                                    <button
-                                      onClick={() => requestDeleteJob(subId)}
-                                      className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 text-sm font-semibold"
-                                      title="Delete sub-job"
-                                    >
-                                      <FiTrash2 /> Delete
-                                    </button>
-                                  </>
-                                ) : null}
+                                  </div>
+                                </div>
 
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedJobId(subId)}
-                                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
-                                  title="Filter to this sub-job"
-                                >
-                                  Filter
-                                </button>
+                                {renderTaskList(subTasksFiltered)}
                               </div>
-                            </div>
-
-                            {renderTaskList(subTasksFiltered)}
-                          </div>
-                        )
-                      })}
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <div className="p-5 rounded-2xl border border-gray-100 bg-white text-sm text-gray-500 text-center">
+                          No sub-jobs under this job.
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <div className="p-5 rounded-2xl border border-gray-100 bg-white text-sm text-gray-500 text-center">
-                      No sub-jobs under this job.
-                    </div>
-                  )}
+                  </SmoothCollapse>
                 </div>
-              </SmoothCollapse>
-            </div>
-          )
-        })}
+              )
+            })}
+          </div>
+        )}
       </div>
     )
   }
 
-  /* =================== RENDER =================== */
   if (!customer) return <div className="p-8 text-center text-gray-500">No customer data found.</div>
 
   return (
     <div className="space-y-4">
-      {/* ✅ Allow file delete modal for employees too, not only admin */}
       <ConfirmDeleteModal
         open={deleteModal.open}
         title={deleteModal.title}
@@ -2698,7 +2936,6 @@ export default function CustomerCRM({
       />
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-lg overflow-hidden">
-        {/* HEADER */}
         <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex flex-col gap-3">
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
             <div className="min-w-0">
@@ -2746,7 +2983,7 @@ export default function CustomerCRM({
                     Add Job
                   </button>
                   <button
-                    onClick={() => openCreateModal(selectedJobId || "")}
+                    onClick={() => openCreateModal("")}
                     className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold"
                   >
                     <FiPlus />
@@ -2757,7 +2994,6 @@ export default function CustomerCRM({
             </div>
           </div>
 
-          {/* FILTER PANEL */}
           <SmoothCollapse open={filtersOpen}>
             <div className="mt-2 rounded-2xl border border-gray-100 bg-gray-50/60 p-3 sm:p-4">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
@@ -2785,8 +3021,7 @@ export default function CustomerCRM({
                     <option value="">All jobs</option>
                     {(jobsFlat || []).map((j) => (
                       <option key={String(j?._id)} value={String(j?._id)}>
-                        {j?.parentJobId ? "↳ " : ""}
-                        {j?.title || "Job"}
+                        {formatJobOptionLabel(j)}
                       </option>
                     ))}
                   </select>
@@ -2879,7 +3114,6 @@ export default function CustomerCRM({
           </SmoothCollapse>
         </div>
 
-        {/* BODY */}
         <div className="p-4 sm:p-6 bg-gray-50/40">
           {activeFilterCount ? (
             <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
@@ -2908,7 +3142,6 @@ export default function CustomerCRM({
           )}
         </div>
 
-        {/* FOOTER */}
         <div className="p-4 border-t border-gray-100 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <p className="text-xs text-gray-500">
             Loaded {tasks.length} • Page size {TASKS_PAGE_SIZE}

@@ -171,11 +171,11 @@ export default function About() {
 
   const meta = useMemo(
     () => ({
-      productName: "CRM System",
+     productName: "CRM System",
       company: "Captains IT & Business Hub",
-      version: "v1.0.0",
+      version: "v1.0.6",
       releaseChannel: "Production",
-      lastUpdated: "2025-01-01",
+      lastUpdated: "2025-02-08",
       docsLabel: "User Guide",
     }),
     []

@@ -108,8 +108,10 @@ const customerAccessForEmployee = (customer, userId) => {
 
 /**
  * resolve rootJobId (max depth=2)
+ * NOTE: jobId can now be null (direct task)
  */
 const resolveRootJobId = (jobs, jobId) => {
+  if (!jobId) return { rootJobId: null, jobNode: null }; // ✅ direct task
   const idStr = String(jobId);
   const node = (jobs || []).find((j) => String(j._id) === idStr);
   if (!node) return { error: "jobId not found under this customer." };
@@ -153,6 +155,7 @@ const normalizeManualSubtitlesV2 = (subtitles, existingSubtitles = []) => {
       const prev = byText.get(t.toLowerCase());
       raw.push({
         text: t,
+        templateSubtitleId: prev?.templateSubtitleId ?? null,
         files: prev?.files || [],
         notes: prev?.notes || [],
       });
@@ -168,6 +171,9 @@ const normalizeManualSubtitlesV2 = (subtitles, existingSubtitles = []) => {
 
       raw.push({
         text: t,
+        templateSubtitleId: s.templateSubtitleId
+          ? toObjectIdSafe(s.templateSubtitleId) || null
+          : prev?.templateSubtitleId ?? null,
         files: Array.isArray(s.files) ? s.files : prev?.files || [],
         notes: Array.isArray(s.notes) ? s.notes : prev?.notes || [],
       });
@@ -184,6 +190,7 @@ const normalizeManualSubtitlesV2 = (subtitles, existingSubtitles = []) => {
 
     normalized.push({
       text: item.text,
+      templateSubtitleId: item.templateSubtitleId ?? null,
       files: Array.isArray(item.files) ? item.files : [],
       notes: Array.isArray(item.notes) ? item.notes : [],
     });
@@ -241,7 +248,31 @@ const buildSubtitleNote = (req, text, fileId = null) => {
 };
 
 /**
- * Template build: returns task subtitles with files+notes empty
+ * ✅ NEW: Resolve subtitle inside a specific task safely
+ * Accepts either:
+ * - task subtitle _id
+ * - OR templateSubtitleId (shared across tasks) but matched ONLY within that task
+ */
+const resolveTaskSubtitle = (task, subtitleIdOrTemplateId) => {
+  const sidStr = String(subtitleIdOrTemplateId || "");
+  if (!sidStr) return { error: "subtitleId is required." };
+
+  const subs = Array.isArray(task?.subtitles) ? task.subtitles : [];
+
+  // 1) match real task subtitle id
+  let found = subs.find((s) => String(s?._id) === sidStr);
+  if (found) return { subtitle: found, realSubtitleId: found._id };
+
+  // 2) match templateSubtitleId
+  found = subs.find((s) => s?.templateSubtitleId && String(s.templateSubtitleId) === sidStr);
+  if (found) return { subtitle: found, realSubtitleId: found._id };
+
+  return { error: "Subtitle not found in this task." };
+};
+
+/**
+ * ✅ Template build: returns task subtitles with files+notes empty
+ * ✅ FIX: store templateSubtitleId for safe mapping, but each task subtitle keeps its own unique _id
  */
 const buildTaskFromTemplate = async (templateId, selectedSubtitleIds = undefined) => {
   const tpl = await TaskTemplate.findOne({ _id: templateId, isActive: true })
@@ -256,19 +287,20 @@ const buildTaskFromTemplate = async (templateId, selectedSubtitleIds = undefined
   let subtitles = Array.isArray(tpl.subtitles)
     ? tpl.subtitles
         .map((s) => ({
-          _id: String(s?._id ?? ""),
+          tplSubtitleId: String(s?._id ?? ""),
           text: String(s?.text ?? "").trim(),
         }))
-        .filter((s) => s.text)
+        .filter((s) => s.text && s.tplSubtitleId)
     : [];
 
   if (Array.isArray(selectedSubtitleIds) && selectedSubtitleIds.length > 0) {
     const allowed = new Set(selectedSubtitleIds.map(String));
-    subtitles = subtitles.filter((s) => allowed.has(String(s._id)));
+    subtitles = subtitles.filter((s) => allowed.has(String(s.tplSubtitleId)));
   }
 
   const subtitleDocs = subtitles.map((s) => ({
     text: s.text,
+    templateSubtitleId: toObjectIdSafe(s.tplSubtitleId) || null, // ✅ critical fix
     files: [],
     notes: [],
   }));
@@ -321,6 +353,7 @@ const writeServiceLogIfDone = async ({ customerId, task }) => {
 
 /* =========================================================
    TASKS LIST
+   ✅ supports jobId=none to fetch direct tasks
 ========================================================= */
 export const getCustomerTasks = async (req, res) => {
   try {
@@ -330,8 +363,17 @@ export const getCustomerTasks = async (req, res) => {
     const limit = clampInt(req.query.limit, 1, MAX_LIMIT, DEFAULT_LIMIT);
     const cursor = toObjectIdSafe(req.query.cursor);
 
-    const jobId = req.query.jobId ? toObjectIdSafe(req.query.jobId) : null;
-    if (req.query.jobId && !jobId) return res.status(400).json({ message: "Invalid jobId filter." });
+    // ✅ jobId filter
+    let jobId = null;
+    let jobNone = false;
+    if (req.query.jobId !== undefined) {
+      const raw = String(req.query.jobId || "").trim();
+      if (raw.toLowerCase() === "none") jobNone = true;
+      else {
+        jobId = toObjectIdSafe(raw);
+        if (!jobId) return res.status(400).json({ message: "Invalid jobId filter." });
+      }
+    }
 
     const rootJobId = req.query.rootJobId ? toObjectIdSafe(req.query.rootJobId) : null;
     if (req.query.rootJobId && !rootJobId) return res.status(400).json({ message: "Invalid rootJobId filter." });
@@ -352,6 +394,7 @@ export const getCustomerTasks = async (req, res) => {
     if (cursor) matchTask["crmTasks._id"] = { $lt: cursor };
     if (!isAdmin && uid) matchTask["crmTasks.assignedTo"] = uid;
     if (jobId) matchTask["crmTasks.jobId"] = jobId;
+    if (jobNone) matchTask["crmTasks.jobId"] = null;
     if (rootJobId) matchTask["crmTasks.rootJobId"] = rootJobId;
 
     const pipeline = [
@@ -403,6 +446,7 @@ export const getCustomerTasks = async (req, res) => {
 
 /* =========================================================
    CREATE TASK (Admin only)
+   ✅ jobId optional now (direct task)
 ========================================================= */
 export const addTask = async (req, res) => {
   try {
@@ -415,8 +459,9 @@ export const addTask = async (req, res) => {
 
     const { description, dueAt, status, templateId, selectedSubtitleIds } = req.body;
 
-    const jobId = toObjectIdSafe(req.body?.jobId);
-    if (!jobId) return res.status(400).json({ message: "jobId is required and must be valid." });
+    const jobIdRaw = req.body?.jobId;
+    const jobId = jobIdRaw ? toObjectIdSafe(jobIdRaw) : null;
+    if (jobIdRaw && !jobId) return res.status(400).json({ message: "jobId must be valid if provided." });
 
     const finalStatus = status ? String(status) : "pending";
     if (!ALLOWED_STATUSES.includes(finalStatus)) {
@@ -473,8 +518,11 @@ export const addTask = async (req, res) => {
     const taskDoc = {
       _id: taskId,
       title: taskTitle,
-      jobId,
-      rootJobId,
+
+      // ✅ allow direct tasks
+      jobId: jobId || null,
+      rootJobId: rootJobId || null,
+
       subtitles: taskSubtitles,
       templateId: usedTemplateId,
       description: description ? String(description).trim() : "",
@@ -503,6 +551,9 @@ export const addTask = async (req, res) => {
 
 /* =========================================================
    ADMIN UPDATE TASK
+   ✅ allow moving:
+     - set jobId to valid job => under job/subjob
+     - set jobId to null => direct task
 ========================================================= */
 export const updateTaskByAdmin = async (req, res) => {
   try {
@@ -545,15 +596,21 @@ export const updateTaskByAdmin = async (req, res) => {
     if (description !== undefined) $set["crmTasks.$.description"] = String(description || "").trim();
     if (dueAt !== undefined) $set["crmTasks.$.dueAt"] = dueAt ? new Date(dueAt) : null;
 
+    // ✅ job move (allow null)
     if (nextJobIdRaw !== undefined) {
-      const nextJobId = nextJobIdRaw ? toObjectIdSafe(nextJobIdRaw) : null;
-      if (!nextJobId) return res.status(400).json({ message: "jobId must be valid." });
+      if (nextJobIdRaw === null || nextJobIdRaw === "" || String(nextJobIdRaw).toLowerCase() === "none") {
+        $set["crmTasks.$.jobId"] = null;
+        $set["crmTasks.$.rootJobId"] = null;
+      } else {
+        const nextJobId = toObjectIdSafe(nextJobIdRaw);
+        if (!nextJobId) return res.status(400).json({ message: "jobId must be valid or null." });
 
-      const { rootJobId, error: jobErr } = resolveRootJobId(found.jobs || [], nextJobId);
-      if (jobErr) return res.status(400).json({ message: jobErr });
+        const { rootJobId, error: jobErr } = resolveRootJobId(found.jobs || [], nextJobId);
+        if (jobErr) return res.status(400).json({ message: jobErr });
 
-      $set["crmTasks.$.jobId"] = nextJobId;
-      $set["crmTasks.$.rootJobId"] = rootJobId;
+        $set["crmTasks.$.jobId"] = nextJobId;
+        $set["crmTasks.$.rootJobId"] = rootJobId;
+      }
     }
 
     // template change
@@ -635,7 +692,7 @@ export const updateTaskByAdmin = async (req, res) => {
 };
 
 /* =========================================================
-   EMPLOYEE STATUS UPDATE
+   EMPLOYEE STATUS UPDATE (unchanged logic)
 ========================================================= */
 export const updateTaskStatus = async (req, res) => {
   try {
@@ -707,16 +764,16 @@ export const updateTaskStatus = async (req, res) => {
 };
 
 /* =========================================================
-   SUBTITLE FILES - CREATE (already existed)
-   POST /customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files
+   SUBTITLE FILES - CREATE
+   ✅ FIXED: subtitleId param can be task subtitle _id OR templateSubtitleId
 ========================================================= */
 export const addSubtitleFiles = async (req, res) => {
   try {
     const customerId = toObjectIdSafe(req.params.customerId);
     const taskId = toObjectIdSafe(req.params.taskId);
-    const subtitleId = toObjectIdSafe(req.params.subtitleId);
+    const subtitleIdParam = req.params.subtitleId; // could be task subtitle _id OR templateSubtitleId
 
-    if (!customerId || !taskId || !subtitleId) {
+    if (!customerId || !taskId || !subtitleIdParam) {
       return res.status(400).json({ message: "Invalid ids." });
     }
 
@@ -742,8 +799,9 @@ export const addSubtitleFiles = async (req, res) => {
       }
     }
 
-    const subtitle = (task.subtitles || []).find((s) => String(s?._id) === String(subtitleId));
-    if (!subtitle) return res.status(404).json({ message: "Subtitle not found." });
+    // ✅ resolve correct subtitle INSIDE this task
+    const { realSubtitleId, error: subErr } = resolveTaskSubtitle(task, subtitleIdParam);
+    if (subErr) return res.status(404).json({ message: subErr });
 
     const { files, error } = normalizeFilesInput(req.body);
     if (error) return res.status(400).json({ message: error });
@@ -779,13 +837,14 @@ export const addSubtitleFiles = async (req, res) => {
     }
 
     await Customer.updateOne({ _id: customerId }, update, {
-      arrayFilters: [{ "t._id": taskId }, { "s._id": subtitleId }],
+      arrayFilters: [{ "t._id": taskId }, { "s._id": realSubtitleId }],
     });
 
     return res.status(201).json({
       message: "Files added under subtitle.",
       files: readyFiles,
       notesAdded: notesToPush.length,
+      subtitleIdUsed: String(realSubtitleId),
     });
   } catch (err) {
     return res.status(500).json({ message: "Server error in addSubtitleFiles.", error: err.message });
@@ -793,16 +852,16 @@ export const addSubtitleFiles = async (req, res) => {
 };
 
 /* =========================================================
-   SUBTITLE FILES - READ (NEW)
-   GET /customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files
+   SUBTITLE FILES - READ
+   ✅ FIXED: subtitleId param can be task subtitle _id OR templateSubtitleId
 ========================================================= */
 export const getSubtitleFiles = async (req, res) => {
   try {
     const customerId = toObjectIdSafe(req.params.customerId);
     const taskId = toObjectIdSafe(req.params.taskId);
-    const subtitleId = toObjectIdSafe(req.params.subtitleId);
+    const subtitleIdParam = req.params.subtitleId;
 
-    if (!customerId || !taskId || !subtitleId) {
+    if (!customerId || !taskId || !subtitleIdParam) {
       return res.status(400).json({ message: "Invalid ids." });
     }
 
@@ -828,13 +887,14 @@ export const getSubtitleFiles = async (req, res) => {
       }
     }
 
-    const subtitle = (task.subtitles || []).find((s) => String(s?._id) === String(subtitleId));
-    if (!subtitle) return res.status(404).json({ message: "Subtitle not found." });
+    const { subtitle, error: subErr } = resolveTaskSubtitle(task, subtitleIdParam);
+    if (subErr) return res.status(404).json({ message: subErr });
 
     return res.status(200).json({
       message: "Subtitle files fetched.",
       files: subtitle.files || [],
       count: (subtitle.files || []).length,
+      subtitleIdUsed: String(subtitle._id),
     });
   } catch (err) {
     return res.status(500).json({ message: "Server error in getSubtitleFiles.", error: err.message });
@@ -842,18 +902,17 @@ export const getSubtitleFiles = async (req, res) => {
 };
 
 /* =========================================================
-   SUBTITLE FILES - UPDATE (NEW)
-   PATCH /customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files/:fileId
-   Editable: displayName
+   SUBTITLE FILES - UPDATE
+   ✅ FIXED: subtitleId param can be task subtitle _id OR templateSubtitleId
 ========================================================= */
 export const updateSubtitleFile = async (req, res) => {
   try {
     const customerId = toObjectIdSafe(req.params.customerId);
     const taskId = toObjectIdSafe(req.params.taskId);
-    const subtitleId = toObjectIdSafe(req.params.subtitleId);
+    const subtitleIdParam = req.params.subtitleId;
     const fileId = toObjectIdSafe(req.params.fileId);
 
-    if (!customerId || !taskId || !subtitleId || !fileId) {
+    if (!customerId || !taskId || !subtitleIdParam || !fileId) {
       return res.status(400).json({ message: "Invalid ids." });
     }
 
@@ -879,8 +938,8 @@ export const updateSubtitleFile = async (req, res) => {
       }
     }
 
-    const subtitle = (task.subtitles || []).find((s) => String(s?._id) === String(subtitleId));
-    if (!subtitle) return res.status(404).json({ message: "Subtitle not found." });
+    const { subtitle, realSubtitleId, error: subErr } = resolveTaskSubtitle(task, subtitleIdParam);
+    if (subErr) return res.status(404).json({ message: subErr });
 
     const existing = (subtitle.files || []).find((f) => String(f?._id) === String(fileId));
     if (!existing) return res.status(404).json({ message: "File not found in this subtitle." });
@@ -900,7 +959,7 @@ export const updateSubtitleFile = async (req, res) => {
     await Customer.updateOne(
       { _id: customerId },
       { $set },
-      { arrayFilters: [{ "t._id": taskId }, { "s._id": subtitleId }, { "f._id": fileId }] }
+      { arrayFilters: [{ "t._id": taskId }, { "s._id": realSubtitleId }, { "f._id": fileId }] }
     );
 
     const refreshed = await Customer.findOne(
@@ -909,30 +968,27 @@ export const updateSubtitleFile = async (req, res) => {
     ).lean();
 
     const task2 = refreshed?.crmTasks?.[0];
-    const subtitle2 = (task2?.subtitles || []).find((s) => String(s?._id) === String(subtitleId));
+    const { subtitle: subtitle2 } = resolveTaskSubtitle(task2, realSubtitleId);
     const file2 = (subtitle2?.files || []).find((f) => String(f?._id) === String(fileId));
 
-    return res.status(200).json({ message: "File updated.", file: file2 });
+    return res.status(200).json({ message: "File updated.", file: file2, subtitleIdUsed: String(realSubtitleId) });
   } catch (err) {
     return res.status(500).json({ message: "Server error in updateSubtitleFile.", error: err.message });
   }
 };
 
 /* =========================================================
-   SUBTITLE FILES - DELETE (NEW)
-   DELETE /customers/:customerId/tasks/:taskId/subtitles/:subtitleId/files/:fileId
-   - removes DB file entry
-   - removes notes referencing that fileId
-   - optionally deletes S3 object
+   SUBTITLE FILES - DELETE
+   ✅ FIXED: subtitleId param can be task subtitle _id OR templateSubtitleId
 ========================================================= */
 export const deleteSubtitleFile = async (req, res) => {
   try {
     const customerId = toObjectIdSafe(req.params.customerId);
     const taskId = toObjectIdSafe(req.params.taskId);
-    const subtitleId = toObjectIdSafe(req.params.subtitleId);
+    const subtitleIdParam = req.params.subtitleId;
     const fileId = toObjectIdSafe(req.params.fileId);
 
-    if (!customerId || !taskId || !subtitleId || !fileId) {
+    if (!customerId || !taskId || !subtitleIdParam || !fileId) {
       return res.status(400).json({ message: "Invalid ids." });
     }
 
@@ -958,8 +1014,8 @@ export const deleteSubtitleFile = async (req, res) => {
       }
     }
 
-    const subtitle = (task.subtitles || []).find((s) => String(s?._id) === String(subtitleId));
-    if (!subtitle) return res.status(404).json({ message: "Subtitle not found." });
+    const { subtitle, realSubtitleId, error: subErr } = resolveTaskSubtitle(task, subtitleIdParam);
+    if (subErr) return res.status(404).json({ message: subErr });
 
     const file = (subtitle.files || []).find((f) => String(f?._id) === String(fileId));
     if (!file) return res.status(404).json({ message: "File not found in this subtitle." });
@@ -973,11 +1029,10 @@ export const deleteSubtitleFile = async (req, res) => {
           "crmTasks.$[t].subtitles.$[s].notes": { fileId: fileId },
         },
       },
-      { arrayFilters: [{ "t._id": taskId }, { "s._id": subtitleId }] }
+      { arrayFilters: [{ "t._id": taskId }, { "s._id": realSubtitleId }] }
     );
 
-    // 2) OPTIONAL: delete from S3 (recommended)
-    // If you want to skip S3 delete, comment this block out
+    // 2) OPTIONAL: delete from S3
     try {
       if (file?.key) {
         await s3.send(
@@ -988,15 +1043,19 @@ export const deleteSubtitleFile = async (req, res) => {
         );
       }
     } catch (e) {
-      // Don't fail DB delete if S3 fails; just report it
       return res.status(200).json({
         message: "File deleted from DB. S3 delete failed (check logs).",
         deletedFileId: String(fileId),
+        subtitleIdUsed: String(realSubtitleId),
         s3Error: e?.message || "Unknown S3 error",
       });
     }
 
-    return res.status(200).json({ message: "File deleted.", deletedFileId: String(fileId) });
+    return res.status(200).json({
+      message: "File deleted.",
+      deletedFileId: String(fileId),
+      subtitleIdUsed: String(realSubtitleId),
+    });
   } catch (err) {
     return res.status(500).json({ message: "Server error in deleteSubtitleFile.", error: err.message });
   }
@@ -1004,14 +1063,15 @@ export const deleteSubtitleFile = async (req, res) => {
 
 /* =========================================================
    ADD NOTE UNDER A SUBTITLE
+   ✅ FIXED: subtitleId param can be task subtitle _id OR templateSubtitleId
 ========================================================= */
 export const addSubtitleNote = async (req, res) => {
   try {
     const customerId = toObjectIdSafe(req.params.customerId);
     const taskId = toObjectIdSafe(req.params.taskId);
-    const subtitleId = toObjectIdSafe(req.params.subtitleId);
+    const subtitleIdParam = req.params.subtitleId;
 
-    if (!customerId || !taskId || !subtitleId) {
+    if (!customerId || !taskId || !subtitleIdParam) {
       return res.status(400).json({ message: "Invalid ids." });
     }
 
@@ -1043,8 +1103,8 @@ export const addSubtitleNote = async (req, res) => {
       }
     }
 
-    const subtitle = (task.subtitles || []).find((s) => String(s?._id) === String(subtitleId));
-    if (!subtitle) return res.status(404).json({ message: "Subtitle not found." });
+    const { subtitle, realSubtitleId, error: subErr } = resolveTaskSubtitle(task, subtitleIdParam);
+    if (subErr) return res.status(404).json({ message: subErr });
 
     if (fileId) {
       const ok = (subtitle.files || []).some((f) => String(f?._id) === String(fileId));
@@ -1057,10 +1117,14 @@ export const addSubtitleNote = async (req, res) => {
     await Customer.updateOne(
       { _id: customerId },
       { $push: { "crmTasks.$[t].subtitles.$[s].notes": noteObj } },
-      { arrayFilters: [{ "t._id": taskId }, { "s._id": subtitleId }] }
+      { arrayFilters: [{ "t._id": taskId }, { "s._id": realSubtitleId }] }
     );
 
-    return res.status(201).json({ message: "Note added under subtitle.", note: noteObj });
+    return res.status(201).json({
+      message: "Note added under subtitle.",
+      note: noteObj,
+      subtitleIdUsed: String(realSubtitleId),
+    });
   } catch (err) {
     return res.status(500).json({ message: "Server error in addSubtitleNote.", error: err.message });
   }
@@ -1099,7 +1163,7 @@ export const addTaskFile = async (req, res) => {
 };
 
 /* =========================================================
-   DEADLINE NOTIFICATIONS
+   DEADLINE NOTIFICATIONS (unchanged)
 ========================================================= */
 const parseDeadlineQuery = (req) => {
   const now = new Date();

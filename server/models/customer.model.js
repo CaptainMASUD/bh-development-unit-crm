@@ -94,9 +94,24 @@ const subtitleNoteSchema = new mongoose.Schema(
   { _id: true }
 );
 
+/**
+ * ✅ UPDATED subtitle schema:
+ * - Each TASK subtitle keeps its own _id (already unique per task)
+ * - Also stores templateSubtitleId (to map back to template subtitle safely)
+ * - Files/notes remain per-task-subtitle (isolated)
+ */
 const subtitleSchema = new mongoose.Schema(
   {
     text: { type: String, required: true, trim: true },
+
+    // ✅ NEW: Link to template subtitle id (if created from a template)
+    // This helps you map S1 from template => this task's subtitle instance
+    templateSubtitleId: {
+      type: mongoose.Schema.Types.ObjectId,
+      default: null,
+      index: true,
+    },
+
     files: { type: [fileSchema], default: [] },
     notes: { type: [subtitleNoteSchema], default: [] },
   },
@@ -340,8 +355,9 @@ customerSchema.index({ "crmTasks.rootJobId": 1 });
 // ✅ NEW: running services queries
 customerSchema.index({ "crmTasks.startedAt": 1 });
 
-// subtitle-level indexes (kept)
+// subtitle-level indexes (kept + new)
 customerSchema.index({ "crmTasks.subtitles._id": 1 });
+customerSchema.index({ "crmTasks.subtitles.templateSubtitleId": 1 }); // ✅ NEW for mapping
 customerSchema.index({ "crmTasks.subtitles.notes.createdAt": 1 });
 
 // ✅ Engagement indexes (kept)
