@@ -1,0 +1,980 @@
+import mongoose from "mongoose";
+import Activity from "../models/activity.model.js";
+import Lead from "../models/lead.model.js";
+import WorkQueue from "../models/workQueue.model.js";
+import Notification from "../models/notification.model.js";
+import { getReqMeta, writeAudit, writeActivity } from "../utils/audit.js";
+
+const toObjectId = (v) => {
+  if (!v) return null;
+  return mongoose.Types.ObjectId.isValid(v)
+    ? new mongoose.Types.ObjectId(v)
+    : null;
+};
+
+const normalizeString = (value = "") => String(value || "").trim();
+
+const validateDateOrNull = (value) => {
+  if (!value) return null;
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt;
+};
+
+const isAdminOrSuperAdmin = (req) => {
+  const role = req?.user?.role;
+  return role === "admin" || role === "superadmin";
+};
+
+const buildLeadAccessMatch = (req) => {
+  if (isAdminOrSuperAdmin(req)) return {};
+
+  const me = new mongoose.Types.ObjectId(req.user._id);
+
+  return {
+    $or: [
+      { assignedTo: me },
+      { allowedUsers: me },
+      { createdBy: me, ownerLocked: false },
+    ],
+  };
+};
+
+const assertLeadAccessOrThrow = async ({ req, leadId }) => {
+  if (!leadId) return true;
+  if (isAdminOrSuperAdmin(req)) return true;
+
+  const exists = await Lead.exists({
+    _id: leadId,
+    ...buildLeadAccessMatch(req),
+  });
+
+  if (!exists) {
+    const err = new Error("Not authorized to access this lead");
+    err.statusCode = 403;
+    throw err;
+  }
+
+  return true;
+};
+
+const ACTIVITY_TYPES = [
+  "note",
+  "call",
+  "email",
+  "meeting",
+  "whatsapp",
+  "task_followup",
+];
+
+const ACTIVITY_STATUSES = ["pending", "completed", "cancelled"];
+const PRIORITIES = ["low", "medium", "high"];
+
+const QUICK_ACTION_KEYS = [
+  "",
+  "call_done",
+  "whatsapp_sent",
+  "email_sent",
+  "meeting_scheduled",
+  "followup_tomorrow",
+  "client_interested",
+  "client_not_interested",
+  "proposal_requested",
+  "proposal_sent",
+  "deal_discussed",
+];
+
+const ACTIVITY_RESULTS = [
+  "",
+  "positive",
+  "neutral",
+  "negative",
+  "no_response",
+  "interested",
+  "not_interested",
+  "callback_requested",
+  "proposal_requested",
+];
+
+const getStartOfDay = (date = new Date()) => {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+const calculateLeadQueueScore = (lead = {}) => {
+  let score = Number(lead.leadScore || 0);
+
+  if (lead.priority === "high") score += 20;
+  if (lead.priority === "medium") score += 10;
+
+  if (lead.leadTemperature === "hot") score += 25;
+  if (lead.leadTemperature === "warm") score += 10;
+
+  if (Number(lead.requirement?.expectedValue || 0) >= 100000) score += 25;
+  else if (Number(lead.requirement?.expectedValue || 0) >= 50000) score += 15;
+  else if (Number(lead.requirement?.expectedValue || 0) >= 10000) score += 8;
+
+  if (["proposal", "negotiation"].includes(lead.pipelineStage)) score += 25;
+  if (lead.pipelineStage === "qualified") score += 12;
+  if (lead.pipelineStage === "discovery") score += 15;
+
+  if (lead.nextFollowUpAt && new Date(lead.nextFollowUpAt) < new Date()) {
+    score += 30;
+  }
+
+  if (!lead.lastContactedAt) score += 10;
+
+  return Math.max(0, Math.min(score, 1000));
+};
+
+const getQueuePriority = (score) => {
+  if (score >= 120) return "urgent";
+  if (score >= 85) return "high";
+  if (score >= 45) return "normal";
+  return "low";
+};
+
+const getRecommendedActionFromActivity = (activity = {}) => {
+  if (activity.quickActionKey === "proposal_requested") return "send_proposal";
+  if (activity.quickActionKey === "deal_discussed") return "create_deal";
+  if (activity.type === "call") return "call";
+  if (activity.type === "email") return "email";
+  if (activity.type === "whatsapp") return "whatsapp";
+  if (activity.type === "meeting") return "meeting";
+  return "follow_up";
+};
+
+const createOrUpdateQueueForLead = async ({
+  lead,
+  activity = null,
+  dueAt = null,
+  source = "follow_up_due",
+  createdBy,
+}) => {
+  try {
+    if (!lead?._id || !lead?.assignedTo) return null;
+
+    const score = calculateLeadQueueScore(lead);
+    const priority = getQueuePriority(score);
+    const queueDate = getStartOfDay(dueAt || new Date());
+
+    const title =
+      activity?.nextAction ||
+      lead.nextAction ||
+      activity?.title ||
+      "Follow up with lead";
+
+    const recommendedAction = getRecommendedActionFromActivity(activity || {});
+
+    return await WorkQueue.findOneAndUpdate(
+      {
+        leadId: lead._id,
+        assignedTo: lead.assignedTo,
+        source,
+        status: { $in: ["pending", "in_progress", "snoozed"] },
+      },
+      {
+        $set: {
+          queueDate,
+          customerId: lead.customerId || null,
+          activityId: activity?._id || null,
+          title,
+          description: activity?.body || activity?.outcome || "",
+          recommendedAction,
+          priority,
+          priorityScore: score,
+          dueAt,
+          createdBy,
+          autoGenerated: true,
+        },
+        $setOnInsert: {
+          leadId: lead._id,
+          assignedTo: lead.assignedTo,
+          status: "pending",
+        },
+      },
+      {
+        new: true,
+        upsert: true,
+        runValidators: true,
+      }
+    );
+  } catch (err) {
+    console.error("Work queue update from activity failed:", err.message);
+    return null;
+  }
+};
+
+const createNotificationSafe = async ({
+  userId,
+  title,
+  message,
+  type = "activity",
+  priority = "normal",
+  entityType = "Activity",
+  entityId,
+  createdBy,
+}) => {
+  try {
+    if (!userId || !title) return null;
+
+    return await Notification.create({
+      userId,
+      title,
+      message,
+      type,
+      priority,
+      entityType,
+      entityId,
+      createdBy,
+    });
+  } catch (err) {
+    console.error("Notification failed:", err.message);
+    return null;
+  }
+};
+
+const updateLeadAfterActivity = async ({
+  leadId,
+  activity,
+  status,
+  nextActionDate,
+  nextAction,
+}) => {
+  if (!leadId) return null;
+
+  const lead = await Lead.findById(leadId);
+  if (!lead) return null;
+
+  const now = new Date();
+
+  const set = {
+    lastActivityAt: now,
+    untouchedSinceCreated: false,
+  };
+
+  if (status === "completed") {
+    set.lastContactedAt = now;
+
+    if (lead.status === "new") {
+      set.status = "contacted";
+    }
+  }
+
+  if (nextActionDate) {
+    set.nextFollowUpAt = nextActionDate;
+    set.nextActionAt = nextActionDate;
+    set.nextAction = normalizeString(nextAction) || activity?.nextAction || "Follow up with this lead";
+    set.nextActionType = "follow_up";
+  }
+
+  if (activity?.activityResult === "interested") {
+    set.leadTemperature = "hot";
+    set.priority = lead.priority === "low" ? "medium" : lead.priority;
+  }
+
+  if (activity?.activityResult === "not_interested") {
+    set.leadTemperature = "cold";
+  }
+
+  if (activity?.quickActionKey === "proposal_requested") {
+    set.pipelineStage = "proposal";
+    set.nextAction = "Create or send proposal";
+    set.nextActionType = "proposal";
+  }
+
+  if (activity?.quickActionKey === "deal_discussed") {
+    set.pipelineStage = "negotiation";
+    set.nextAction = "Create or update deal";
+    set.nextActionType = "deal";
+  }
+
+  const score = calculateLeadQueueScore({
+    ...lead.toObject(),
+    ...set,
+  });
+
+  set.workQueueScore = score;
+  set.workQueuePriority = getQueuePriority(score);
+
+  const followUpDate = nextActionDate || lead.nextFollowUpAt;
+
+  if (followUpDate && new Date(followUpDate) < new Date()) {
+    set.isOverdue = !["won", "lost"].includes(set.pipelineStage || lead.pipelineStage);
+    set.overdueSince = followUpDate;
+  } else {
+    set.isOverdue = false;
+    set.overdueSince = null;
+  }
+
+  set["automationFlags.needsFirstContact"] = false;
+  set["automationFlags.needsFollowUp"] = Boolean(set.isOverdue);
+  set["automationFlags.proposalFollowUpDue"] =
+    (set.pipelineStage || lead.pipelineStage) === "proposal" && Boolean(set.isOverdue);
+  set["automationFlags.dealStuck"] =
+    (set.pipelineStage || lead.pipelineStage) === "negotiation" && Boolean(set.isOverdue);
+
+  return await Lead.findByIdAndUpdate(
+    leadId,
+    {
+      $set: set,
+      $push: {
+        notes: {
+          note: activity?.title || activity?.body || "Activity added",
+          type:
+            activity?.type === "call"
+              ? "call"
+              : activity?.type === "email"
+              ? "email"
+              : activity?.type === "meeting"
+              ? "meeting"
+              : activity?.type === "whatsapp"
+              ? "whatsapp"
+              : "general",
+          oldStage: lead.pipelineStage || "",
+          newStage: set.pipelineStage || lead.pipelineStage || "",
+          oldStatus: lead.status || "",
+          newStatus: set.status || lead.status || "",
+          reason: activity?.outcome || "",
+          createdBy: activity?.createdBy,
+          createdAt: now,
+        },
+      },
+    },
+    { new: true, runValidators: true }
+  );
+};
+
+/* =======================
+   CREATE ACTIVITY
+======================= */
+export const createActivity = async (req, res) => {
+  try {
+    const meta = getReqMeta(req);
+
+    const {
+      leadId,
+      customerId = null,
+      dealId = null,
+      type = "note",
+      status = "pending",
+      priority = "medium",
+      title = "",
+      body = "",
+      scheduledAt = null,
+      completedAt = null,
+      outcome = "",
+      nextAction = "",
+      assignedTo = null,
+
+      quickActionKey = "",
+      activityResult = "",
+      nextActionDate = null,
+      reminderStatus = "none",
+      autoGenerated = false,
+      source = "manual",
+    } = req.body || {};
+
+    const safeLeadId = toObjectId(leadId);
+    const safeCustomerId = toObjectId(customerId);
+    const safeDealId = toObjectId(dealId);
+
+    if (!safeLeadId && !safeCustomerId && !safeDealId) {
+      return res.status(400).json({
+        message: "Activity must be connected to lead, customer, or deal.",
+      });
+    }
+
+    if (safeLeadId) {
+      await assertLeadAccessOrThrow({ req, leadId: safeLeadId });
+    }
+
+    if (!ACTIVITY_TYPES.includes(type)) {
+      return res.status(400).json({
+        message: `Invalid type. Use: ${ACTIVITY_TYPES.join(", ")}`,
+      });
+    }
+
+    if (!ACTIVITY_STATUSES.includes(status)) {
+      return res.status(400).json({
+        message: `Invalid status. Use: ${ACTIVITY_STATUSES.join(", ")}`,
+      });
+    }
+
+    if (!PRIORITIES.includes(priority)) {
+      return res.status(400).json({
+        message: `Invalid priority. Use: ${PRIORITIES.join(", ")}`,
+      });
+    }
+
+    if (!QUICK_ACTION_KEYS.includes(quickActionKey)) {
+      return res.status(400).json({
+        message: `Invalid quickActionKey.`,
+      });
+    }
+
+    if (!ACTIVITY_RESULTS.includes(activityResult)) {
+      return res.status(400).json({
+        message: `Invalid activityResult.`,
+      });
+    }
+
+    const scheduledDate = validateDateOrNull(scheduledAt);
+    const completedDate = validateDateOrNull(completedAt);
+    const nextActionDt = validateDateOrNull(nextActionDate);
+
+    const doc = await Activity.create({
+      leadId: safeLeadId,
+      customerId: safeCustomerId,
+      dealId: safeDealId,
+      type,
+      status,
+      priority,
+      title: normalizeString(title),
+      body: normalizeString(body),
+      scheduledAt: scheduledDate,
+      completedAt: status === "completed" ? completedDate || new Date() : completedDate,
+      outcome: normalizeString(outcome),
+      nextAction: normalizeString(nextAction),
+      createdBy: req.user._id,
+      assignedTo: toObjectId(assignedTo) || req.user._id,
+
+      quickActionKey,
+      activityResult,
+      nextActionDate: nextActionDt,
+      reminderStatus: nextActionDt ? "scheduled" : reminderStatus,
+      autoGenerated: Boolean(autoGenerated),
+      source,
+    });
+
+    let updatedLead = null;
+
+    if (safeLeadId) {
+      updatedLead = await updateLeadAfterActivity({
+        leadId: safeLeadId,
+        activity: doc,
+        status,
+        nextActionDate: nextActionDt,
+        nextAction,
+      });
+
+      if (updatedLead && nextActionDt) {
+        await createOrUpdateQueueForLead({
+          lead: updatedLead,
+          activity: doc,
+          dueAt: nextActionDt,
+          source: nextActionDt < new Date() ? "overdue_follow_up" : "follow_up_due",
+          createdBy: req.user._id,
+        });
+
+        await createNotificationSafe({
+          userId: updatedLead.assignedTo,
+          title: "Follow-up scheduled",
+          message: updatedLead.contact?.name
+            ? `${updatedLead.contact.name}: ${normalizeString(nextAction) || "Follow up"}`
+            : normalizeString(nextAction) || "Follow up",
+          priority: updatedLead.workQueuePriority || "normal",
+          entityId: doc._id,
+          createdBy: req.user._id,
+        });
+      }
+
+      await writeActivity({
+        leadId: safeLeadId,
+        customerId: safeCustomerId,
+        dealId: safeDealId,
+        entityType: "Activity",
+        entityId: doc._id,
+        type: "activity_created",
+        message: `Activity created: ${doc.title || doc.type}`,
+        createdBy: req.user._id,
+        meta: {
+          activityId: doc._id,
+          activityType: type,
+          status,
+          scheduledAt: scheduledDate,
+          outcome,
+          quickActionKey,
+          activityResult,
+        },
+      });
+    }
+
+    await writeAudit({
+      actorId: req.user._id,
+      action: "create",
+      entityType: "Activity",
+      entityId: doc._id,
+      before: null,
+      after: doc.toObject(),
+      meta,
+    });
+
+    return res.status(201).json({
+      message: "Activity created",
+      activity: doc,
+      lead: updatedLead,
+    });
+  } catch (err) {
+    const code = err.statusCode || 500;
+
+    return res.status(code).json({
+      message: err.statusCode ? err.message : "Failed to create activity",
+      error: err.message,
+    });
+  }
+};
+
+/* =======================
+   QUICK ACTION
+======================= */
+export const quickAction = async (req, res) => {
+  try {
+    const {
+      leadId,
+      action,
+      note = "",
+      outcome = "",
+      nextAction = "",
+      nextActionDate = null,
+    } = req.body || {};
+
+    const safeLeadId = toObjectId(leadId);
+    if (!safeLeadId) return res.status(400).json({ message: "leadId is required" });
+
+    await assertLeadAccessOrThrow({ req, leadId: safeLeadId });
+
+    const actionMap = {
+      call_done: {
+        type: "call",
+        status: "completed",
+        title: "Call done",
+        activityResult: "neutral",
+      },
+      whatsapp_sent: {
+        type: "whatsapp",
+        status: "completed",
+        title: "WhatsApp sent",
+        activityResult: "neutral",
+      },
+      email_sent: {
+        type: "email",
+        status: "completed",
+        title: "Email sent",
+        activityResult: "neutral",
+      },
+      meeting_scheduled: {
+        type: "meeting",
+        status: "pending",
+        title: "Meeting scheduled",
+        activityResult: "callback_requested",
+      },
+      followup_tomorrow: {
+        type: "task_followup",
+        status: "pending",
+        title: "Follow-up tomorrow",
+        activityResult: "callback_requested",
+      },
+      client_interested: {
+        type: "note",
+        status: "completed",
+        title: "Client interested",
+        activityResult: "interested",
+      },
+      client_not_interested: {
+        type: "note",
+        status: "completed",
+        title: "Client not interested",
+        activityResult: "not_interested",
+      },
+      proposal_requested: {
+        type: "note",
+        status: "completed",
+        title: "Proposal requested",
+        activityResult: "proposal_requested",
+      },
+      proposal_sent: {
+        type: "email",
+        status: "completed",
+        title: "Proposal sent",
+        activityResult: "positive",
+      },
+      deal_discussed: {
+        type: "meeting",
+        status: "completed",
+        title: "Deal discussed",
+        activityResult: "positive",
+      },
+    };
+
+    const mapped = actionMap[action];
+
+    if (!mapped) {
+      return res.status(400).json({
+        message: `Invalid action. Use: ${Object.keys(actionMap).join(", ")}`,
+      });
+    }
+
+    let nextDt = validateDateOrNull(nextActionDate);
+
+    if (action === "followup_tomorrow" && !nextDt) {
+      nextDt = new Date();
+      nextDt.setDate(nextDt.getDate() + 1);
+      nextDt.setHours(10, 0, 0, 0);
+    }
+
+    req.body = {
+      leadId,
+      type: mapped.type,
+      status: mapped.status,
+      priority: mapped.activityResult === "interested" ? "high" : "medium",
+      title: mapped.title,
+      body: note,
+      outcome,
+      nextAction,
+      nextActionDate: nextDt,
+      quickActionKey: action,
+      activityResult: mapped.activityResult,
+      source: "quick_action",
+      reminderStatus: nextDt ? "scheduled" : "none",
+      assignedTo: req.user._id,
+    };
+
+    return createActivity(req, res);
+  } catch (err) {
+    const code = err.statusCode || 500;
+
+    return res.status(code).json({
+      message: err.statusCode ? err.message : "Failed to perform quick action",
+      error: err.message,
+    });
+  }
+};
+
+/* =======================
+   LIST ACTIVITIES
+======================= */
+export const listActivities = async (req, res) => {
+  try {
+    const {
+      leadId,
+      customerId,
+      dealId,
+      type,
+      status,
+      assignedTo,
+      from,
+      to,
+      reminderStatus,
+      source,
+      limit = 50,
+    } = req.query || {};
+
+    const filter = {};
+
+    const safeLeadId = toObjectId(leadId);
+    if (safeLeadId) {
+      await assertLeadAccessOrThrow({ req, leadId: safeLeadId });
+      filter.leadId = safeLeadId;
+    }
+
+    const safeCustomerId = toObjectId(customerId);
+    if (safeCustomerId) filter.customerId = safeCustomerId;
+
+    const safeDealId = toObjectId(dealId);
+    if (safeDealId) filter.dealId = safeDealId;
+
+    if (type && ACTIVITY_TYPES.includes(String(type))) filter.type = type;
+    if (status && ACTIVITY_STATUSES.includes(String(status))) filter.status = status;
+    if (reminderStatus) filter.reminderStatus = reminderStatus;
+    if (source) filter.source = source;
+
+    const safeAssignedTo = toObjectId(assignedTo);
+    if (safeAssignedTo) filter.assignedTo = safeAssignedTo;
+
+    if (from || to) {
+      filter.scheduledAt = {};
+      const fromDt = validateDateOrNull(from);
+      const toDt = validateDateOrNull(to);
+      if (fromDt) filter.scheduledAt.$gte = fromDt;
+      if (toDt) filter.scheduledAt.$lte = toDt;
+    }
+
+    const pageSize = Math.min(Math.max(parseInt(limit || "50", 10), 1), 100);
+
+    const items = await Activity.find(filter)
+      .populate("createdBy", "name email role avatarUrl")
+      .populate("assignedTo", "name email role avatarUrl")
+      .sort({ scheduledAt: 1, createdAt: -1 })
+      .limit(pageSize)
+      .lean();
+
+    return res.json({ items });
+  } catch (err) {
+    const code = err.statusCode || 500;
+
+    return res.status(code).json({
+      message: err.statusCode ? err.message : "Failed to list activities",
+      error: err.message,
+    });
+  }
+};
+
+/* =======================
+   COMPLETE ACTIVITY
+======================= */
+export const completeActivity = async (req, res) => {
+  try {
+    const meta = getReqMeta(req);
+
+    const id = toObjectId(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid activity id" });
+
+    const before = await Activity.findById(id).lean();
+    if (!before) return res.status(404).json({ message: "Activity not found" });
+
+    if (before.leadId) {
+      await assertLeadAccessOrThrow({ req, leadId: before.leadId });
+    }
+
+    const {
+      outcome = "",
+      nextAction = "",
+      body = undefined,
+      activityResult = "",
+      nextActionDate = null,
+    } = req.body || {};
+
+    const nextDt = validateDateOrNull(nextActionDate);
+
+    const set = {
+      status: "completed",
+      completedAt: new Date(),
+      outcome: normalizeString(outcome),
+      nextAction: normalizeString(nextAction),
+      reminderStatus: "done",
+    };
+
+    if (body !== undefined) set.body = normalizeString(body);
+    if (activityResult && ACTIVITY_RESULTS.includes(activityResult)) {
+      set.activityResult = activityResult;
+    }
+    if (nextDt) {
+      set.nextActionDate = nextDt;
+      set.reminderStatus = "scheduled";
+    }
+
+    const doc = await Activity.findByIdAndUpdate(
+      id,
+      { $set: set },
+      { new: true, runValidators: true }
+    );
+
+    let updatedLead = null;
+
+    if (before.leadId) {
+      updatedLead = await updateLeadAfterActivity({
+        leadId: before.leadId,
+        activity: doc,
+        status: "completed",
+        nextActionDate: nextDt,
+        nextAction,
+      });
+
+      await WorkQueue.updateMany(
+        { activityId: id, status: { $in: ["pending", "in_progress", "snoozed"] } },
+        { $set: { status: "done", doneAt: new Date(), result: "Activity completed" } }
+      );
+
+      if (updatedLead && nextDt) {
+        await createOrUpdateQueueForLead({
+          lead: updatedLead,
+          activity: doc,
+          dueAt: nextDt,
+          source: nextDt < new Date() ? "overdue_follow_up" : "follow_up_due",
+          createdBy: req.user._id,
+        });
+      }
+
+      await writeActivity({
+        leadId: before.leadId,
+        customerId: before.customerId,
+        dealId: before.dealId,
+        entityType: "Activity",
+        entityId: doc._id,
+        type: "activity_completed",
+        message: `Activity completed: ${doc.title || doc.type}`,
+        createdBy: req.user._id,
+        meta: {
+          outcome,
+          nextAction,
+          nextActionDate: nextDt,
+        },
+      });
+    }
+
+    await writeAudit({
+      actorId: req.user._id,
+      action: "complete",
+      entityType: "Activity",
+      entityId: doc._id,
+      before,
+      after: doc.toObject(),
+      meta,
+    });
+
+    return res.json({
+      message: "Activity completed",
+      activity: doc,
+      lead: updatedLead,
+    });
+  } catch (err) {
+    const code = err.statusCode || 500;
+
+    return res.status(code).json({
+      message: err.statusCode ? err.message : "Failed to complete activity",
+      error: err.message,
+    });
+  }
+};
+
+/* =======================
+   CANCEL ACTIVITY
+======================= */
+export const cancelActivity = async (req, res) => {
+  try {
+    const meta = getReqMeta(req);
+
+    const id = toObjectId(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid activity id" });
+
+    const before = await Activity.findById(id).lean();
+    if (!before) return res.status(404).json({ message: "Activity not found" });
+
+    if (before.leadId) {
+      await assertLeadAccessOrThrow({ req, leadId: before.leadId });
+    }
+
+    const { reason = "" } = req.body || {};
+
+    const doc = await Activity.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          status: "cancelled",
+          reminderStatus: "cancelled",
+          outcome: normalizeString(reason),
+        },
+      },
+      { new: true, runValidators: true }
+    );
+
+    await WorkQueue.updateMany(
+      { activityId: id, status: { $in: ["pending", "in_progress", "snoozed"] } },
+      { $set: { status: "cancelled", result: reason || "Activity cancelled" } }
+    );
+
+    if (before.leadId) {
+      await writeActivity({
+        leadId: before.leadId,
+        customerId: before.customerId,
+        dealId: before.dealId,
+        entityType: "Activity",
+        entityId: doc._id,
+        type: "activity_cancelled",
+        message: `Activity cancelled: ${doc.title || doc.type}`,
+        createdBy: req.user._id,
+        meta: { reason },
+      });
+    }
+
+    await writeAudit({
+      actorId: req.user._id,
+      action: "cancel",
+      entityType: "Activity",
+      entityId: doc._id,
+      before,
+      after: doc.toObject(),
+      meta,
+    });
+
+    return res.json({
+      message: "Activity cancelled",
+      activity: doc,
+    });
+  } catch (err) {
+    const code = err.statusCode || 500;
+
+    return res.status(code).json({
+      message: err.statusCode ? err.message : "Failed to cancel activity",
+      error: err.message,
+    });
+  }
+};
+
+/* =======================
+   DELETE ACTIVITY
+======================= */
+export const deleteActivity = async (req, res) => {
+  try {
+    const meta = getReqMeta(req);
+
+    const id = toObjectId(req.params.id);
+    if (!id) return res.status(400).json({ message: "Invalid activity id" });
+
+    const before = await Activity.findById(id).lean();
+    if (!before) return res.status(404).json({ message: "Activity not found" });
+
+    if (before.leadId) {
+      await assertLeadAccessOrThrow({ req, leadId: before.leadId });
+    }
+
+    if (!isAdminOrSuperAdmin(req) && String(before.createdBy) !== String(req.user._id)) {
+      return res.status(403).json({
+        message: "Only creator or admin can delete this activity.",
+      });
+    }
+
+    await Activity.findByIdAndDelete(id);
+
+    await WorkQueue.updateMany(
+      { activityId: id, status: { $in: ["pending", "in_progress", "snoozed"] } },
+      { $set: { status: "cancelled", result: "Activity deleted" } }
+    );
+
+    await writeAudit({
+      actorId: req.user._id,
+      action: "delete",
+      entityType: "Activity",
+      entityId: id,
+      before,
+      after: null,
+      meta,
+    });
+
+    if (before.leadId) {
+      await writeActivity({
+        leadId: before.leadId,
+        customerId: before.customerId,
+        dealId: before.dealId,
+        entityType: "Activity",
+        entityId: id,
+        type: "activity_cancelled",
+        message: "Activity deleted",
+        createdBy: req.user._id,
+      });
+    }
+
+    return res.json({
+      message: "Activity deleted",
+    });
+  } catch (err) {
+    const code = err.statusCode || 500;
+
+    return res.status(code).json({
+      message: err.statusCode ? err.message : "Failed to delete activity",
+      error: err.message,
+    });
+  }
+};

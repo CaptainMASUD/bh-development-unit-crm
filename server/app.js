@@ -6,7 +6,7 @@ const app = express();
 
 app.use(
   cors({
-    origin: ["https://businesshub-crm.vercel.app", "http://localhost:5173"],
+    origin: ["https://businesshub-crm.vercel.app", "http://localhost:5173",],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
@@ -15,61 +15,133 @@ app.use(
 
 app.use(express.json());
 
+/* =========================
+   ROUTE IMPORTS
+========================= */
 import userRoutes from "./routes/user.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
+
 import customerRoutes from "./routes/customer.route.js";
 import taskRoutes from "./routes/task.route.js";
 import reportRoutes from "./routes/report.route.js";
+
 import leadRoutes from "./routes/lead.routes.js";
+import activityRoutes from "./routes/activity.routes.js";
+import proposalRoutes from "./routes/proposal.routes.js";
+import dealRoutes from "./routes/deal.routes.js";
+
+import workQueueRoutes from "./routes/workQueue.routes.js";
+import automationRoutes from "./routes/automation.routes.js";
+import notificationRoutes from "./routes/notification.routes.js";
+import templateRoutes from "./routes/template.routes.js";
+import assignmentRoutes from "./routes/assignment.routes.js";
+
 import taskTemplateRoutes from "./routes/taskTemplate.route.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
 import engagementTemplateRoutes from "./routes/engagementTemplate.route.js";
 import workloadRoutes from "./routes/workload.route.js";
-import activityRoutes from "./routes/activity.routes.js";
+
 import viewPreferenceRoutes from "./routes/viewPreference.routes.js";
 import purchaseTypeRoutes from "./routes/purchaseType.routes.js";
+
 import serviceReportRoutes from "./routes/serviceReport.route.js";
 import customerViewPreferenceRoutes from "./routes/customerViewPreference.routes.js";
+
 import employeeReportRoutes from "./routes/employeeReport.route.js";
 import employeeReportViewPreferenceRoutes from "./routes/employeeReportViewPreference.route.js";
 
+/* =========================
+   HEALTH CHECK
+========================= */
+app.get("/api/health", (req, res) => {
+  res.json({
+    success: true,
+    message: "BusinessHub CRM API is running",
+  });
+});
+
+/* =========================
+   EMPLOYEE REPORTS
+========================= */
 app.use("/api/view-preferences/employee-report", employeeReportViewPreferenceRoutes);
 app.use("/api/employeeReport", employeeReportRoutes);
 
+/* =========================
+   CUSTOMER VIEW PREFERENCES
+========================= */
 app.use("/api/customer-view-preferences", customerViewPreferenceRoutes);
 
-// service reports
+/* =========================
+   SERVICE REPORTS
+========================= */
 app.use("/api/reports", serviceReportRoutes);
-app.use("/api/activity", activityRoutes);
 
+/* =========================
+   CRM SALES MODULES - OLD UPDATED
+========================= */
+app.use("/api/leads", leadRoutes);
+app.use("/api/activities", activityRoutes);
+app.use("/api/proposals", proposalRoutes);
+app.use("/api/deals", dealRoutes);
 
+/* =========================
+   CRM PRODUCTIVITY MODULES - NEW
+========================= */
+app.use("/api/work-queue", workQueueRoutes);
+app.use("/api/automation-rules", automationRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/templates", templateRoutes);
+app.use("/api/assignments", assignmentRoutes);
+
+/* =========================
+   WORKLOAD
+========================= */
 app.use("/api/workload", workloadRoutes);
 
-// dashboard
+/* =========================
+   DASHBOARD
+========================= */
 app.use("/api/dashboard", dashboardRoutes);
 
-
-  
-// templates
+/* =========================
+   TEMPLATES
+========================= */
 app.use("/api", taskTemplateRoutes);
-app.use("/api/engagement-templates", engagementTemplateRoutes); 
+app.use("/api/engagement-templates", engagementTemplateRoutes);
 
-// core modules
-app.use("/api/leads", leadRoutes);
+/* =========================
+   CORE MODULES
+========================= */
 app.use("/api/customers", customerRoutes);
 app.use("/api", taskRoutes);
 app.use("/api", reportRoutes);
 
+/* =========================
+   UPLOAD / USERS / SETTINGS
+========================= */
 app.use("/api/upload", uploadRoutes);
 app.use("/api/users", userRoutes);
 
 app.use("/api/view-preferences", viewPreferenceRoutes);
 app.use("/api/purchase-types", purchaseTypeRoutes);
 
-// Error handling middleware
+/* =========================
+   404 HANDLER
+========================= */
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `Route not found: ${req.method} ${req.originalUrl}`,
+  });
+});
+
+/* =========================
+   ERROR HANDLER
+========================= */
 app.use((err, req, res, next) => {
   const statusCode = err.statusCode || 500;
   const message = err.message || "Internal server error";
+
   res.status(statusCode).json({
     success: false,
     statusCode,

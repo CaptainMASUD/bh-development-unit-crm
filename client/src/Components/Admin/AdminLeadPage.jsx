@@ -1,86 +1,382 @@
 "use client"
 
 /**
- * AdminLeadsPage.jsx (UPDATED)
- * - Robust "converted" detection (supports multiple backend response shapes)
- * - Safer convert handler return parsing
- * - Optional role-based convert gating (kept soft: backend is source of truth)
- * - No UI/Design changes — same premium design, just wired to backend changes
+ * AdminLeadsPage.updated.jsx — BusinessHub CRM Lead + Productivity UI
  *
- * NOTE:
- * - If you're using Vite: keep import.meta.env
- * - If you're using Next.js: replace API_BASE line with NEXT_PUBLIC_API_URL
+ * Updated for old + new APIs:
+ * OLD UPDATED:
+ * - /api/view-preferences/leads.list
+ * - /api/leads
+ * - /api/leads/:id/stage
+ * - /api/leads/:id/requirement
+ * - /api/leads/:id/contacted
+ * - /api/leads/:id/followup
+ * - /api/leads/:id/won
+ * - /api/leads/:id/lost
+ * - /api/leads/:id/convert
+ * - /api/leads/:id/timeline
+ * - /api/activities
+ * - /api/activities/quick-action
+ * - /api/proposals
+ * - /api/deals
+ *
+ * NEW PRODUCTIVITY:
+ * - /api/work-queue
+ * - /api/work-queue/today
+ * - /api/work-queue/summary
+ * - /api/notifications/my
+ * - /api/notifications/my/read-all
+ * - /api/templates
+ * - /api/assignments/available-users
+ * - /api/assignments/lead/manual
+ * - /api/assignments/lead/auto
+ * - /api/assignments/lead/bulk-auto
+ * - /api/assignments/rules
+ *
+ * Vite:
+ * const API_BASE = `${import.meta.env.VITE_API_URL}/api`
  */
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import LeadDetailsPage from "./LeadDetailsPage"
+import { createPortal } from "react-dom"
+import toast, { Toaster } from "react-hot-toast"
 import {
-  FiSearch,
-  FiPlus,
-  FiEye,
-  FiX,
-  FiEdit2,
-  FiTrash2,
-  FiRefreshCcw,
-  FiCheck,
+  FiActivity,
   FiAlertCircle,
-  FiFilter,
-  FiPhoneCall,
-  FiCalendar,
-  FiFileText,
-  FiUserPlus,
-  FiMoreVertical,
-  FiLoader,
   FiAlertTriangle,
+  FiArrowRight,
+  FiBarChart2,
+  FiBell,
+  FiBriefcase,
+  FiCalendar,
+  FiCheck,
+  FiCheckCircle,
+  FiClock,
   FiColumns,
+  FiEdit2,
+  FiEye,
+  FiFileText,
+  FiFilter,
+  FiFlag,
+  FiGrid,
+  FiInfo,
+  FiLoader,
+  FiMail,
+  FiMoreVertical,
+  FiPhoneCall,
+  FiPlus,
+  FiRefreshCcw,
+  FiSearch,
+  FiSend,
+  FiSliders,
+  FiTarget,
+  FiTrash2,
+  FiTrendingUp,
+  FiUnlock,
+  FiUser,
+  FiUserCheck,
+  FiUserPlus,
+  FiX,
+  FiXCircle,
+  FiZap,
 } from "react-icons/fi"
 import { SiMicrosoftexcel } from "react-icons/si"
 import * as XLSX from "xlsx"
 
-// ✅ Vite:
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
-// ✅ Next.js alternative:
-// const API_BASE = `${process.env.NEXT_PUBLIC_API_URL}/api`
 
-/* =========================
-   UI TOKENS (PREMIUM)
-========================= */
 const shell = "min-h-screen bg-gradient-to-b from-gray-50 to-white"
 const card = "rounded-2xl border border-gray-100 bg-white shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]"
-const subtleHover = "transition-colors hover:bg-gray-50/70"
 const btn =
-  "inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl active:scale-[0.99] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+  "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60"
 const btnPrimary = "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
-const btnGhost = "border border-gray-200 bg-white hover:bg-gray-50"
-const btnDanger = "border border-rose-200 bg-white hover:bg-rose-50"
+const btnGhost = "border border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
+const btnDanger = "border border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
+const btnSoft = "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
 const iconBtn =
-  "p-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+  "inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
 const input =
-  "w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-white outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 focus-visible:border-transparent"
+  "w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-transparent focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+const label = "mb-1.5 block text-sm font-semibold text-gray-800"
+const chip = "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ring-1"
 
-const chip = "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ring-1"
+const LEAD_STATUSES = ["new", "contacted", "pending", "confirmed", "lost"]
+const PIPELINE_STAGES = ["new", "qualified", "discovery", "proposal", "negotiation", "won", "lost"]
+const ACTIVE_PIPELINE_STAGES = ["new", "qualified", "discovery", "proposal", "negotiation"]
+const FINAL_PIPELINE_STAGES = ["won", "lost"]
+const STAGE_LABELS = { new: "New", qualified: "Qualified", discovery: "Discovery", proposal: "Proposal", negotiation: "Negotiation", won: "Won", lost: "Lost" }
+const STAGE_REQUIREMENTS = {
+  new: "Capture lead details",
+  qualified: "Validate need and interest",
+  discovery: "Collect requirements",
+  proposal: "Send quotation/proposal",
+  negotiation: "Discuss price and terms",
+  won: "Client accepted",
+  lost: "Client rejected or no fit",
+}
+function getStageIndex(stage) {
+  const index = ACTIVE_PIPELINE_STAGES.indexOf(String(stage || "new"))
+  return index >= 0 ? index : 0
+}
+function getNextPipelineStage(lead) {
+  const current = String(lead?.pipelineStage || "new")
+  if (FINAL_PIPELINE_STAGES.includes(current)) return ""
+  const index = getStageIndex(current)
+  return ACTIVE_PIPELINE_STAGES[index + 1] || ""
+}
+function isFinalPipelineStage(stage) {
+  return FINAL_PIPELINE_STAGES.includes(String(stage || ""))
+}
+function getSuggestedStatusForStage(stage, currentStatus = "") {
+  if (stage === "won") return "confirmed"
+  if (stage === "lost") return "lost"
+  if (["qualified", "discovery", "proposal", "negotiation"].includes(stage)) return "contacted"
+  return currentStatus || "new"
+}
+function getRequirementChecklist(lead) {
+  const r = lead?.requirement || {}
+  const hasBudget = Number(r.expectedValue || 0) > 0 || Number(r.budgetMin || 0) > 0 || Number(r.budgetMax || 0) > 0
+  return [
+    { key: "summary", label: "Requirement summary", done: Boolean(String(r.summary || "").trim()) },
+    { key: "expectedSolution", label: "Expected solution", done: Boolean(String(r.expectedSolution || "").trim()) },
+    { key: "budget", label: "Budget or expected value", done: hasBudget },
+    { key: "timeline", label: "Timeline", done: Boolean(String(r.timeline || "").trim()) },
+    { key: "decisionMaker", label: "Decision maker", done: Boolean(String(r.decisionMaker || "").trim()) },
+  ]
+}
+function hasRequirementDetails(lead) {
+  return getRequirementChecklist(lead).every((x) => x.done)
+}
+function getMissingRequirementLabels(lead) {
+  return getRequirementChecklist(lead).filter((x) => !x.done).map((x) => x.label)
+}
+function hasProposalWork(lead, timeline = null) {
+  const proposals = Array.isArray(timeline?.proposals) ? timeline.proposals : []
+  if (proposals.length > 0) return true
+  if (Number(lead?.proposalCount || 0) > 0) return true
+  return false
+}
 
-/* ✅ Search Bar styles (MORE reduced height + standard sizing) */
-const searchWrap =
-  [
-    "w-full rounded-2xl border border-gray-200 bg-white",
-    "px-3 py-1 sm:px-3.5 sm:py-1",
-    "min-h-[40px] sm:min-h-[42px]",
-    "flex items-center gap-2 flex-wrap",
-    "transition shadow-none",
-    "focus-within:border-indigo-300",
-    "focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.14)]",
-  ].join(" ")
+function getProposalCount(lead, timeline = null) {
+  const proposals = Array.isArray(timeline?.proposals) ? timeline.proposals : []
+  return Math.max(Number(lead?.proposalCount || 0), proposals.length)
+}
+function getProposalShortcutInfo(lead, timeline = null) {
+  const stage = String(lead?.pipelineStage || "new")
+  const stageIndex = getStageIndex(stage)
+  const requirementReady = hasRequirementDetails(lead)
+  const proposalCount = getProposalCount(lead, timeline)
+  if (stageIndex < getStageIndex("discovery")) {
+    return { show: false, disabled: true, action: "", label: "Proposal", helper: "Proposal starts after discovery." }
+  }
+  if (stage === "discovery" && !requirementReady) {
+    return { show: true, disabled: true, action: "requirement", label: "Create proposal", helper: "Complete requirement first to unlock proposal." }
+  }
+  if (proposalCount > 0 || ["negotiation", "won"].includes(stage)) {
+    return { show: true, disabled: false, action: "manageProposal", label: "Manage proposals", helper: "View, send, accept or reject from the Proposals tab." }
+  }
+  return { show: true, disabled: false, action: "proposal", label: "Create proposal", helper: "Create a linked proposal for this lead." }
+}
 
-const searchInput =
-  [
-    "flex-1 min-w-[10rem] bg-transparent",
-    "text-sm text-gray-900 placeholder:text-gray-400",
-    "border-0 outline-none ring-0 shadow-none appearance-none",
-    "h-8 sm:h-9",
-    "focus:outline-none focus:ring-0 focus:shadow-none",
-  ].join(" ")
+function getLatestLeadNotes(lead, limit = 4) {
+  const notes = Array.isArray(lead?.notes) ? lead.notes : []
+  return [...notes]
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .slice(0, limit)
+}
+function getGuidedNextAction(stage) {
+  if (stage === "discovery") return { type: "requirement", label: "Fill requirement", icon: FiTarget, text: "Discovery needs client requirement, budget, pain points and expected solution." }
+  if (stage === "proposal") return { type: "proposal", label: "Create proposal", icon: FiFileText, text: "Proposal stage should create/send a quotation from this lead." }
+  return null
+}
+
+function getStageDetailSummary(stage, lead, timeline = null) {
+  const stageKey = String(stage || "new")
+  const requirementItems = getRequirementChecklist(lead)
+  const doneRequirement = requirementItems.filter((x) => x.done).length
+  const proposals = Array.isArray(timeline?.proposals) ? timeline.proposals : []
+  const proposalCount = Math.max(Number(lead?.proposalCount || 0), proposals.length)
+  const latestProposal = proposals[0] || null
+
+  if (stageKey === "new") {
+    return {
+      title: "Lead captured",
+      text: lead?.contact?.name ? `${lead.contact.name}${lead?.contact?.companyName ? ` • ${lead.contact.companyName}` : ""}` : "Contact and company information",
+      meta: lead?.source ? `Source: ${lead.source}` : "Ready for first contact",
+    }
+  }
+
+  if (stageKey === "qualified") {
+    return {
+      title: "Need validated",
+      text: `${lead?.leadTemperature || "warm"} lead • ${lead?.priority || "medium"} priority`,
+      meta: lead?.lastContactedAt ? `Last contacted ${formatDate(lead.lastContactedAt, true)}` : "First contact still needed",
+    }
+  }
+
+  if (stageKey === "discovery") {
+    return {
+      title: `${doneRequirement}/${requirementItems.length} requirement fields`,
+      text: doneRequirement === requirementItems.length ? "Requirement is complete" : "Collect requirement before moving forward",
+      meta: lead?.requirement?.expectedValue ? `Value: ${formatMoney(lead.requirement.expectedValue)}` : "Budget, timeline and decision maker needed",
+    }
+  }
+
+  if (stageKey === "proposal") {
+    return {
+      title: proposalCount ? `${proposalCount} proposal linked` : "Proposal required",
+      text: latestProposal?.title || "Create proposal before continuing",
+      meta: latestProposal?.status ? `Status: ${latestProposal.status}` : "Use proposal modal to save amount and history",
+    }
+  }
+
+  if (stageKey === "negotiation") {
+    return {
+      title: "Closing work",
+      text: lead?.nextAction || "Discuss price, terms and final decision",
+      meta: lead?.nextFollowUpAt ? `Follow-up ${formatDate(lead.nextFollowUpAt, true)}` : "Set next follow-up for closing",
+    }
+  }
+
+  return { title: STAGE_LABELS[stageKey] || stageKey, text: STAGE_REQUIREMENTS[stageKey] || "Review stage work", meta: "" }
+}
+
+function getStageState(stage, lead, selectedStage = "", timeline = null) {
+  const currentStage = String(lead?.pipelineStage || "new")
+  const currentIndex = getStageIndex(currentStage)
+  const stageIndex = getStageIndex(stage)
+  const isCurrent = stage === currentStage
+  const isSelected = stage === selectedStage
+  const completed = isFinalPipelineStage(currentStage) || stageIndex < currentIndex
+  const proposalReady = hasProposalWork(lead, timeline)
+  const requirementReady = hasRequirementDetails(lead)
+
+  if (stage === "discovery" && !requirementReady && (isCurrent || isSelected)) return "Required"
+  if (stage === "proposal" && !proposalReady && (isCurrent || isSelected)) return "Required"
+  if (completed) return "Done"
+  if (isCurrent) return "Current"
+  if (isSelected) return "Selected"
+  return "Locked"
+}
+const PRIORITIES = ["low", "medium", "high"]
+const TEMPERATURES = ["cold", "warm", "hot"]
+const WORK_PRIORITIES = ["low", "normal", "high", "urgent"]
+const ACTIVITY_TYPES = ["note", "call", "email", "meeting", "whatsapp", "task_followup"]
+const ACTIVITY_STATUSES = ["pending", "completed", "cancelled"]
+const ACTIVITY_RESULTS = ["", "positive", "neutral", "negative", "no_response", "interested", "not_interested", "callback_requested", "proposal_requested"]
+const QUICK_ACTIONS = [
+  ["call_done", "Call Done", FiPhoneCall],
+  ["whatsapp_sent", "WhatsApp Sent", FiSend],
+  ["email_sent", "Email Sent", FiMail],
+  ["meeting_scheduled", "Meeting Scheduled", FiCalendar],
+  ["followup_tomorrow", "Follow-up Tomorrow", FiClock],
+  ["client_interested", "Client Interested", FiTrendingUp],
+  ["client_not_interested", "Not Interested", FiXCircle],
+  ["proposal_requested", "Proposal Requested", FiFileText],
+  ["proposal_sent", "Proposal Sent", FiSend],
+  ["deal_discussed", "Deal Discussed", FiBriefcase],
+]
+const PROPOSAL_STATUSES = ["draft", "sent", "accepted", "rejected", "expired", "cancelled"]
+const DEAL_STAGES = ["new", "qualified", "proposal", "negotiation", "won", "lost"]
+const DEAL_HEALTH = ["unknown", "healthy", "at_risk", "stuck", "critical"]
+const PROPOSAL_STATUS_FOR_DEAL = ["none", "draft", "sent", "accepted", "rejected", "expired"]
+const TEMPLATE_CHANNELS = ["call_note", "whatsapp", "email", "meeting", "proposal_note", "general"]
+const TEMPLATE_PURPOSES = ["first_contact", "follow_up", "proposal_sent", "proposal_reminder", "meeting_schedule", "lost_reason", "won_note", "general"]
+const ASSIGNMENT_STRATEGIES = ["round_robin", "least_loaded", "fixed_user"]
+
+const DEFAULT_COLUMNS = [
+  "leadNumber",
+  "contact.name",
+  "contact.companyName",
+  "status",
+  "pipelineStage",
+  "priority",
+  "leadTemperature",
+  "leadScore",
+  "workQueuePriority",
+  "workQueueScore",
+  "nextAction",
+  "nextActionAt",
+  "isOverdue",
+  "purchaseType",
+  "nextFollowUpAt",
+  "lastContactedAt",
+  "lastActivityAt",
+  "source",
+  "convertedAt",
+  "createdAt",
+]
+
+const FALLBACK_ALLOWED_COLUMNS = [
+  "leadNumber",
+  "contact.name",
+  "contact.companyName",
+  "contact.phone",
+  "contact.email",
+  "status",
+  "pipelineStage",
+  "priority",
+  "leadTemperature",
+  "leadScore",
+  "workQueuePriority",
+  "workQueueScore",
+  "lastActivityAt",
+  "nextAction",
+  "nextActionType",
+  "nextActionAt",
+  "isOverdue",
+  "overdueSince",
+  "purchaseType",
+  "source",
+  "tags",
+  "nextFollowUpAt",
+  "lastContactedAt",
+  "lostReason",
+  "lostAt",
+  "wonReason",
+  "wonAt",
+  "customerId",
+  "convertedCustomer",
+  "convertedAt",
+  "createdAt",
+  "updatedAt",
+]
+
+const COLUMN_LABELS = {
+  leadNumber: "Lead No",
+  "contact.name": "Contact",
+  "contact.companyName": "Company",
+  "contact.phone": "Phone",
+  "contact.email": "Email",
+  status: "Status",
+  pipelineStage: "Stage",
+  priority: "Priority",
+  leadTemperature: "Temp",
+  leadScore: "Score",
+  workQueuePriority: "Queue Priority",
+  workQueueScore: "Queue Score",
+  lastActivityAt: "Last Activity",
+  nextAction: "Next Action",
+  nextActionType: "Action Type",
+  nextActionAt: "Next Action At",
+  isOverdue: "Overdue",
+  overdueSince: "Overdue Since",
+  purchaseType: "Purchase",
+  source: "Source",
+  tags: "Tags",
+  nextFollowUpAt: "Next Follow-up",
+  lastContactedAt: "Last Contacted",
+  lostReason: "Lost Reason",
+  lostAt: "Lost At",
+  wonReason: "Won Reason",
+  wonAt: "Won At",
+  customerId: "Customer",
+  convertedCustomer: "Converted",
+  convertedAt: "Converted At",
+  createdAt: "Created",
+  updatedAt: "Updated",
+}
 
 function cn(...classes) {
   return classes.filter(Boolean).join(" ")
@@ -95,177 +391,96 @@ function getAuthHeaders(extra = {}) {
   }
 }
 
-function formatDate(dt) {
-  if (!dt) return "—"
-  const d = new Date(dt)
+function getByPath(obj, path) {
+  if (!obj || !path) return undefined
+  if (!String(path).includes(".")) return obj?.[path]
+  return String(path).split(".").reduce((acc, key) => (acc && acc[key] !== undefined ? acc[key] : undefined), obj)
+}
+
+function normalizeApiList(data) {
+  return Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data?.data)
+      ? data.data
+      : Array.isArray(data?.results)
+        ? data.results
+        : Array.isArray(data?.leads)
+          ? data.leads
+          : Array.isArray(data?.rules)
+            ? data.rules
+            : Array.isArray(data?.templates)
+              ? data.templates
+              : Array.isArray(data?.users)
+                ? data.users
+                : []
+}
+
+function formatDate(value, withTime = false) {
+  if (!value) return "—"
+  const d = new Date(value)
   if (Number.isNaN(d.getTime())) return "—"
-  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "2-digit" })
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    ...(withTime ? { hour: "2-digit", minute: "2-digit" } : {}),
+  })
+}
+
+function formatDateInput(value, mode = "datetime") {
+  if (!value) return ""
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ""
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+  return mode === "date" ? local.toISOString().slice(0, 10) : local.toISOString().slice(0, 16)
+}
+
+function formatMoney(value, currency = "BDT") {
+  const n = Number(value || 0)
+  return `${currency || "BDT"} ${n.toLocaleString()}`
 }
 
 function initials(name = "") {
-  const parts = String(name).trim().split(/\s+/).filter(Boolean)
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean)
   if (!parts.length) return "?"
   const a = parts[0]?.[0] || ""
   const b = parts.length > 1 ? parts[parts.length - 1]?.[0] || "" : ""
   return (a + b).toUpperCase()
 }
 
-/**
- * ✅ UPDATED: robust "converted" detection
- * Supports multiple backend response shapes:
- * - lead.isConverted / lead.converted
- * - lead.convertedCustomerId / lead.customerId
- * - lead.convertedCustomer object
- */
-const isConvertedLead = (lead) => {
-  return Boolean(
-    lead?.isConverted ||
-      lead?.converted === true ||
-      lead?.convertedCustomerId ||
-      lead?.customerId ||
-      lead?.convertedCustomer?._id ||
-      lead?.convertedCustomer
-  )
+function getLeadId(lead) {
+  return lead?._id || lead?.id || ""
 }
 
-/* =========================
-   BADGES
-========================= */
-function LeadStatusBadge({ status }) {
-  const s = String(status || "").toLowerCase()
-  const cls =
-    s === "confirmed"
-      ? "bg-green-50 text-green-700 ring-green-600/10"
-      : s === "contacted"
-      ? "bg-sky-50 text-sky-700 ring-sky-600/10"
-      : s === "pending"
-      ? "bg-amber-50 text-amber-800 ring-amber-600/10"
-      : s === "lost"
-      ? "bg-rose-50 text-rose-700 ring-rose-600/10"
-      : "bg-gray-100 text-gray-700 ring-gray-600/10"
+function isConvertedLead(lead) {
+  return Boolean(lead?.customerId || lead?.convertedCustomer || lead?.convertedAt || lead?.isConverted || lead?.converted)
+}
 
-  const label = s || "—"
+function badgeClass(value) {
+  const v = String(value || "").toLowerCase()
+  if (["confirmed", "won", "accepted", "completed", "healthy", "done", "success"].includes(v)) return "bg-emerald-50 text-emerald-700 ring-emerald-600/10"
+  if (["contacted", "qualified", "sent", "in_progress", "normal"].includes(v)) return "bg-sky-50 text-sky-700 ring-sky-600/10"
+  if (["proposal", "pending", "negotiation", "draft", "high", "warm", "at_risk", "snoozed"].includes(v)) return "bg-amber-50 text-amber-800 ring-amber-600/10"
+  if (["lost", "rejected", "cancelled", "urgent", "hot", "critical", "stuck", "danger"].includes(v)) return "bg-rose-50 text-rose-700 ring-rose-600/10"
+  return "bg-gray-100 text-gray-700 ring-gray-600/10"
+}
 
+function Badge({ value }) {
+  const v = value === true ? "yes" : value === false ? "no" : String(value || "—")
   return (
-    <span className={cn(chip, cls)}>
-      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-40" />
-      {label}
+    <span className={cn(chip, badgeClass(v))}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current opacity-40" />
+      {v}
     </span>
   )
 }
 
-function StageBadge({ stage }) {
-  const s = String(stage || "").toLowerCase()
-  const cls =
-    s === "won"
-      ? "bg-green-50 text-green-700 ring-green-600/10"
-      : s === "lost"
-      ? "bg-rose-50 text-rose-700 ring-rose-600/10"
-      : s === "negotiation"
-      ? "bg-indigo-50 text-indigo-700 ring-indigo-600/10"
-      : s === "proposal"
-      ? "bg-amber-50 text-amber-800 ring-amber-600/10"
-      : s === "qualified"
-      ? "bg-sky-50 text-sky-700 ring-sky-600/10"
-      : "bg-gray-100 text-gray-700 ring-gray-600/10"
-
-  const label = s || "—"
-
-  return (
-    <span className={cn(chip, cls)}>
-      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-40" />
-      {label}
-    </span>
-  )
-}
-
-function PriorityBadge({ priority }) {
-  const p = String(priority || "medium").toLowerCase()
-  const cls =
-    p === "high"
-      ? "bg-rose-50 text-rose-700 ring-rose-600/10"
-      : p === "low"
-      ? "bg-gray-50 text-gray-700 ring-gray-200"
-      : "bg-amber-50 text-amber-800 ring-amber-600/10"
-  const label = p || "—"
-  return (
-    <span className={cn(chip, cls)}>
-      <span className="w-1.5 h-1.5 rounded-full bg-current opacity-40" />
-      {label}
-    </span>
-  )
-}
-
-/* =========================
-   FILTER CHIP
-========================= */
-function FilterChip({ label, value, onRemove }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold",
-        "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10"
-      )}
-      title={`${label}: ${value}`}
-    >
-      <span className="truncate max-w-[160px]">
-        <span className="opacity-70">{label}:</span> <span className="font-extrabold">{String(value)}</span>
-      </span>
-      <button
-        type="button"
-        onClick={onRemove}
-        className="h-4.5 w-4.5 inline-flex items-center justify-center rounded-full hover:bg-indigo-600/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
-        aria-label={`Remove ${label} filter`}
-        title="Remove"
-      >
-        <FiX className="w-3 h-3" />
-      </button>
-    </span>
-  )
-}
-
-/* =========================
-   TOAST
-========================= */
-function Toast({ open, type = "success", message, onClose }) {
-  if (!open) return null
-  const styles =
-    type === "error" ? "bg-rose-50 border-rose-200 text-rose-700" : "bg-green-50 border-green-200 text-green-700"
-  const Icon = type === "error" ? FiAlertCircle : FiCheck
-
-  return (
-    <div className="fixed top-4 right-4 z-[80] max-w-sm w-[92vw] sm:w-auto">
-      <motion.div
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -8 }}
-        className={cn("rounded-2xl border p-3 shadow-lg", styles)}
-      >
-        <div className="flex items-start gap-3">
-          <Icon className="w-5 h-5 mt-0.5" />
-          <p className="text-sm font-semibold flex-1">{message}</p>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg hover:bg-black/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-black/10"
-            aria-label="Close"
-          >
-            <FiX className="w-4 h-4" />
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  )
-}
-
-/* =========================
-   MODAL SHELL
-========================= */
 function ModalShell({ open, onClose, title, subtitle, icon, children, footer, maxWidthClass = "max-w-3xl" }) {
   useEffect(() => {
     if (!open) return
     const prev = document.body.style.overflow
     document.body.style.overflow = "hidden"
-    return () => (document.body.style.overflow = prev)
+    return () => { document.body.style.overflow = prev }
   }, [open])
 
   useEffect(() => {
@@ -278,51 +493,23 @@ function ModalShell({ open, onClose, title, subtitle, icon, children, footer, ma
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[90]" role="dialog" aria-modal="true">
       <div className="absolute inset-0 overflow-y-auto">
-        <div className="min-h-full flex items-start sm:items-center justify-center p-4 sm:p-6">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/40 backdrop-blur-md"
-            onClick={onClose}
-          />
-          <motion.div
-            initial={{ opacity: 0, y: 14, scale: 0.99 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 14, scale: 0.99 }}
-            transition={{ type: "spring", stiffness: 260, damping: 24 }}
-            className={cn(
-              "relative w-full overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_30px_70px_-30px_rgba(0,0,0,0.6)]",
-              maxWidthClass
-            )}
-          >
-            <div className="p-4 sm:p-5 border-b border-gray-100 flex items-center justify-between bg-white sticky top-0 z-20">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm shrink-0">
-                  {icon}
-                </div>
+        <div className="flex min-h-full items-start justify-center p-4 sm:items-center sm:p-6">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 bg-black/40 backdrop-blur-md" onClick={onClose} />
+          <motion.div initial={{ opacity: 0, y: 14, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: "spring", stiffness: 260, damping: 24 }} className={cn("relative w-full overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_30px_70px_-30px_rgba(0,0,0,0.65)]", maxWidthClass)}>
+            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-100 bg-white p-4 sm:p-5">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">{icon}</div>
                 <div className="min-w-0">
-                  <h2 className="text-base sm:text-lg font-bold text-gray-900 truncate">{title}</h2>
-                  {subtitle ? <p className="text-sm text-gray-600 truncate">{subtitle}</p> : null}
+                  <h2 className="truncate text-base font-bold text-gray-900 sm:text-lg">{title}</h2>
+                  {subtitle ? <p className="truncate text-sm text-gray-600">{subtitle}</p> : null}
                 </div>
               </div>
-
-              <button
-                onClick={onClose}
-                className="p-2 rounded-xl hover:bg-gray-100 active:scale-95 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
-                aria-label="Close"
-              >
-                <FiX className="w-5 h-5 text-gray-700" />
-              </button>
+              <button onClick={onClose} className="rounded-xl p-2 transition hover:bg-gray-100"><FiX className="h-5 w-5 text-gray-700" /></button>
             </div>
-
-            <div className="p-4 sm:p-5 bg-white max-h-[calc(100vh-14rem)] overflow-y-auto">{children}</div>
-
-            {footer ? (
-              <div className="p-4 sm:p-5 border-t border-gray-100 bg-white sticky bottom-0 z-20">{footer}</div>
-            ) : null}
+            <div className="max-h-[calc(100vh-14rem)] overflow-y-auto bg-white p-4 sm:p-5">{children}</div>
+            {footer ? <div className="sticky bottom-0 z-20 border-t border-gray-100 bg-white p-4 sm:p-5">{footer}</div> : null}
           </motion.div>
         </div>
       </div>
@@ -330,2097 +517,1940 @@ function ModalShell({ open, onClose, title, subtitle, icon, children, footer, ma
   )
 }
 
-function Field({ label, hint, children }) {
+function Field({ label: labelText, hint, children }) {
+  return <div><label className={label}>{labelText}</label>{children}{hint ? <p className="mt-1 text-xs text-gray-500">{hint}</p> : null}</div>
+}
+
+function EmptyState({ icon, title, subtitle }) {
   return (
-    <div>
-      <label className="block text-sm font-semibold text-gray-800 mb-1.5">{label}</label>
-      {children}
-      {hint ? <p className="text-xs text-gray-500 mt-1">{hint}</p> : null}
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50/50 p-8 text-center">
+      <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-gray-500 shadow-sm">{icon}</div>
+      <p className="text-sm font-bold text-gray-900">{title}</p>
+      {subtitle ? <p className="mt-1 max-w-md text-sm text-gray-500">{subtitle}</p> : null}
     </div>
   )
 }
 
-function ConfirmDeleteModal({ open, title, description, confirmText = "Delete", loading, onClose, onConfirm }) {
-  const closeBtnRef = useRef(null)
-
-  useEffect(() => {
-    if (!open) return
-    const t = setTimeout(() => closeBtnRef.current?.focus(), 50)
-    return () => clearTimeout(t)
-  }, [open])
-
-  if (!open) return null
-
-  return (
-    <div className="fixed inset-0 z-[75] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={() => !loading && onClose?.()} />
-      <div className="relative w-full max-w-md rounded-2xl bg-white shadow-2xl border border-gray-100 overflow-hidden">
-        <div className="p-5 flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-red-50 border border-red-100 flex items-center justify-center text-red-600">
-            <FiAlertTriangle className="w-5 h-5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h3 className="text-base font-bold text-gray-900">{title}</h3>
-            <p className="text-sm text-gray-600 mt-1">{description}</p>
-          </div>
-          <button
-            ref={closeBtnRef}
-            disabled={loading}
-            onClick={onClose}
-            className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
-            aria-label="Close"
-          >
-            <FiX className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="px-5 pb-5 flex items-center justify-end gap-2">
-          <button
-            disabled={loading}
-            onClick={onClose}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
-          >
-            Cancel
-          </button>
-
-          <button
-            disabled={loading}
-            onClick={onConfirm}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white hover:bg-red-700 text-sm font-semibold disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30"
-          >
-            {loading ? <FiLoader className="w-4 h-4 animate-spin" /> : <FiTrash2 className="w-4 h-4" />}
-            {loading ? "Deleting..." : confirmText}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
+async function apiJson(url, options = {}) {
+  const res = await fetch(url, { credentials: "include", ...options, headers: getAuthHeaders(options.headers || {}) })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || data?.error || "Request failed")
+  return data
 }
 
-/* =========================
-   API HELPERS
-========================= */
 const VIEW_KEY = "leads.list"
-
-async function apiGetViewPref(signal) {
-  const res = await fetch(`${API_BASE}/view-preferences/${encodeURIComponent(VIEW_KEY)}`, {
-    headers: getAuthHeaders(),
-    credentials: "include",
-    signal,
-  })
-  if (res.status === 304) return { notModified: true }
+const apiGetViewPref = async (signal) => {
+  const res = await fetch(`${API_BASE}/view-preferences/${encodeURIComponent(VIEW_KEY)}`, { headers: getAuthHeaders(), credentials: "include", signal })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Failed to load view preferences")
-  return { ...data, etag: res.headers.get("ETag") }
+  if (!res.ok && res.status !== 304) throw new Error(data?.message || "Failed to load view preferences")
+  return data
 }
-
-async function apiSaveViewPref(columns) {
-  const res = await fetch(`${API_BASE}/view-preferences/${encodeURIComponent(VIEW_KEY)}`, {
-    method: "PUT",
-    headers: getAuthHeaders(),
-    credentials: "include",
-    body: JSON.stringify({ columns }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Failed to save view preferences")
-  return { ...data, etag: res.headers.get("ETag") }
-}
-
-async function apiListPurchaseTypes(signal) {
-  const res = await fetch(`${API_BASE}/purchase-types`, {
-    headers: getAuthHeaders(),
-    credentials: "include",
-    signal,
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Failed to load purchase types")
-  return Array.isArray(data?.items) ? data.items : Array.isArray(data?.data) ? data.data : []
-}
-
-async function apiCreatePurchaseType({ name, key }) {
-  const res = await fetch(`${API_BASE}/purchase-types`, {
-    method: "POST",
-    headers: getAuthHeaders(),
-    credentials: "include",
-    body: JSON.stringify({ name, key }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Failed to create purchase type")
+const apiSaveViewPref = (columns) => apiJson(`${API_BASE}/view-preferences/${encodeURIComponent(VIEW_KEY)}`, { method: "PUT", body: JSON.stringify({ columns }) })
+const apiListPurchaseTypes = async (signal) => normalizeApiList(await apiJson(`${API_BASE}/purchase-types`, { signal }))
+const apiCreatePurchaseType = async (payload) => {
+  const data = await apiJson(`${API_BASE}/purchase-types`, { method: "POST", body: JSON.stringify(payload) })
   return data?.purchaseType || data?.item || data
 }
-
-async function apiListLeads({ limit = 25, cursor, params = {}, fields, signal } = {}) {
+const apiListLeads = async ({ limit = 25, cursor, params = {}, fields, signal } = {}) => {
   const qs = new URLSearchParams()
   qs.set("limit", String(limit))
   if (cursor) qs.set("cursor", String(cursor))
-  if (fields && String(fields).trim()) qs.set("fields", String(fields).trim())
-
-  Object.entries(params || {}).forEach(([k, v]) => {
-    if (v === undefined || v === null) return
-    const s = String(v).trim()
-    if (!s) return
-    qs.set(k, s)
-  })
-
-  const res = await fetch(`${API_BASE}/leads?${qs.toString()}`, {
-    headers: getAuthHeaders(),
-    credentials: "include",
-    signal,
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Failed to load leads")
-  return data
+  if (fields) qs.set("fields", fields)
+  Object.entries(params || {}).forEach(([k, v]) => { if (String(v ?? "").trim()) qs.set(k, String(v).trim()) })
+  return apiJson(`${API_BASE}/leads?${qs.toString()}`, { signal })
 }
+const apiGetLead = (id, signal) => apiJson(`${API_BASE}/leads/${id}`, { signal })
+const apiGetLeadTimeline = (id, signal) => apiJson(`${API_BASE}/leads/${id}/timeline`, { signal })
+const apiCreateLead = (payload) => apiJson(`${API_BASE}/leads`, { method: "POST", body: JSON.stringify(payload) })
+const apiUpdateLead = (id, payload) => apiJson(`${API_BASE}/leads/${id}`, { method: "PUT", body: JSON.stringify(payload) })
+const apiAddLeadNote = (id, payload) => apiJson(`${API_BASE}/leads/${id}/notes`, { method: "POST", body: JSON.stringify(payload) })
+const apiUpdateLeadStage = (id, payload) => apiJson(`${API_BASE}/leads/${id}/stage`, { method: "PATCH", body: JSON.stringify(payload) })
+const apiUpdateRequirement = (id, payload) => apiJson(`${API_BASE}/leads/${id}/requirement`, { method: "PATCH", body: JSON.stringify(payload) })
+const apiMarkContacted = (id, payload = {}) => apiJson(`${API_BASE}/leads/${id}/contacted`, { method: "PATCH", body: JSON.stringify(payload) })
+const apiSetFollowUp = (id, payload) => apiJson(`${API_BASE}/leads/${id}/followup`, { method: "PATCH", body: JSON.stringify(payload) })
+const apiLeadWon = (id, payload) => apiJson(`${API_BASE}/leads/${id}/won`, { method: "PATCH", body: JSON.stringify(payload) })
+const apiLeadLost = (id, payload) => apiJson(`${API_BASE}/leads/${id}/lost`, { method: "PATCH", body: JSON.stringify(payload) })
+const apiConvertLead = (id) => apiJson(`${API_BASE}/leads/${id}/convert`, { method: "POST" })
+const apiDeleteLead = (id) => apiJson(`${API_BASE}/leads/${id}`, { method: "DELETE" })
+const apiCreateActivity = (payload) => apiJson(`${API_BASE}/activities`, { method: "POST", body: JSON.stringify(payload) })
+const apiQuickAction = (payload) => apiJson(`${API_BASE}/activities/quick-action`, { method: "POST", body: JSON.stringify(payload) })
+const apiCompleteActivity = (id, payload) => apiJson(`${API_BASE}/activities/${id}/complete`, { method: "PATCH", body: JSON.stringify(payload) })
+const apiCancelActivity = (id, payload) => apiJson(`${API_BASE}/activities/${id}/cancel`, { method: "PATCH", body: JSON.stringify(payload) })
+const apiCreateProposal = (payload) => apiJson(`${API_BASE}/proposals`, { method: "POST", body: JSON.stringify(payload) })
+const apiSendProposal = (id) => apiJson(`${API_BASE}/proposals/${id}/send`, { method: "PATCH" })
+const apiAcceptProposal = (id) => apiJson(`${API_BASE}/proposals/${id}/accept`, { method: "PATCH" })
+const apiRejectProposal = (id, payload) => apiJson(`${API_BASE}/proposals/${id}/reject`, { method: "PATCH", body: JSON.stringify(payload) })
+const apiCreateDeal = (payload) => apiJson(`${API_BASE}/deals`, { method: "POST", body: JSON.stringify(payload) })
+const apiDealWon = (id, payload) => apiJson(`${API_BASE}/deals/${id}/won`, { method: "PATCH", body: JSON.stringify(payload) })
+const apiDealLost = (id, payload) => apiJson(`${API_BASE}/deals/${id}/lost`, { method: "PATCH", body: JSON.stringify(payload) })
 
-async function apiCreateLead(payload) {
-  const res = await fetch(`${API_BASE}/leads`, {
-    method: "POST",
-    headers: getAuthHeaders(),
-    credentials: "include",
-    body: JSON.stringify(payload),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Create lead failed")
-  return data
+const apiTodayQueue = () => apiJson(`${API_BASE}/work-queue/today`)
+const apiQueueSummary = () => apiJson(`${API_BASE}/work-queue/summary`)
+const apiListQueue = (params = {}) => apiJson(`${API_BASE}/work-queue?${new URLSearchParams(params).toString()}`)
+const apiQueueDone = (id, payload) => apiJson(`${API_BASE}/work-queue/${id}/done`, { method: "PATCH", body: JSON.stringify(payload) })
+const apiQueueSnooze = (id, payload) => apiJson(`${API_BASE}/work-queue/${id}/snooze`, { method: "PATCH", body: JSON.stringify(payload) })
+const apiQueueStart = (id) => apiJson(`${API_BASE}/work-queue/${id}/start`, { method: "PATCH" })
+const apiQueueCancel = (id, payload) => apiJson(`${API_BASE}/work-queue/${id}/cancel`, { method: "PATCH", body: JSON.stringify(payload) })
+const apiCreateQueue = (payload) => apiJson(`${API_BASE}/work-queue`, { method: "POST", body: JSON.stringify(payload) })
+
+const apiMyNotifications = () => apiJson(`${API_BASE}/notifications/my`)
+const apiReadAllNotifications = () => apiJson(`${API_BASE}/notifications/my/read-all`, { method: "PATCH" })
+const apiReadNotification = (id) => apiJson(`${API_BASE}/notifications/${id}/read`, { method: "PATCH" })
+
+const apiListTemplates = (params = {}) => apiJson(`${API_BASE}/templates?${new URLSearchParams(params).toString()}`)
+const apiCreateTemplate = (payload) => apiJson(`${API_BASE}/templates`, { method: "POST", body: JSON.stringify(payload) })
+const apiUpdateTemplate = (id, payload) => apiJson(`${API_BASE}/templates/${id}`, { method: "PUT", body: JSON.stringify(payload) })
+const apiDeleteTemplate = (id) => apiJson(`${API_BASE}/templates/${id}`, { method: "DELETE" })
+const apiUseTemplate = (id, payload) => apiJson(`${API_BASE}/templates/${id}/use`, { method: "POST", body: JSON.stringify(payload) })
+
+
+const apiAvailableAssignees = (params = {}) => {
+  const qs = new URLSearchParams(params).toString()
+  return apiJson(`${API_BASE}/assignments/available-users${qs ? `?${qs}` : ""}`)
 }
+const apiManualAssign = (payload) => apiJson(`${API_BASE}/assignments/lead/manual`, { method: "POST", body: JSON.stringify(payload) })
+const apiAutoAssign = (leadId) => apiJson(`${API_BASE}/assignments/lead/auto`, { method: "POST", body: JSON.stringify({ leadId }) })
+const apiBulkAutoAssign = (limit = 50) => apiJson(`${API_BASE}/assignments/lead/bulk-auto`, { method: "POST", body: JSON.stringify({ limit }) })
+const apiListAssignmentRules = () => apiJson(`${API_BASE}/assignments/rules`)
+const apiCreateAssignmentRule = (payload) => apiJson(`${API_BASE}/assignments/rules`, { method: "POST", body: JSON.stringify(payload) })
+const apiUpdateAssignmentRule = (id, payload) => apiJson(`${API_BASE}/assignments/rules/${id}`, { method: "PUT", body: JSON.stringify(payload) })
+const apiDeleteAssignmentRule = (id) => apiJson(`${API_BASE}/assignments/rules/${id}`, { method: "DELETE" })
 
-async function apiUpdateLead(id, payload) {
-  const res = await fetch(`${API_BASE}/leads/${id}`, {
-    method: "PUT",
-    headers: getAuthHeaders(),
-    credentials: "include",
-    body: JSON.stringify(payload),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Update lead failed")
-  return data
-}
-
-async function apiAddLeadNote(id, note) {
-  const res = await fetch(`${API_BASE}/leads/${id}/notes`, {
-    method: "POST",
-    headers: getAuthHeaders(),
-    credentials: "include",
-    body: JSON.stringify({ note }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Add note failed")
-  return data
-}
-
-async function apiMarkContacted(id) {
-  const res = await fetch(`${API_BASE}/leads/${id}/contacted`, {
-    method: "PATCH",
-    headers: getAuthHeaders(),
-    credentials: "include",
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Mark contacted failed")
-  return data
-}
-
-async function apiSetFollowUp(id, nextFollowUpAt) {
-  const res = await fetch(`${API_BASE}/leads/${id}/followup`, {
-    method: "PATCH",
-    headers: getAuthHeaders(),
-    credentials: "include",
-    body: JSON.stringify({ nextFollowUpAt }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Set followup failed")
-  return data
-}
-
-async function apiConvertLead(id) {
-  const res = await fetch(`${API_BASE}/leads/${id}/convert`, {
-    method: "POST",
-    headers: getAuthHeaders(),
-    credentials: "include",
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Convert failed")
-  return data
-}
-
-async function apiDeleteLead(id) {
-  const res = await fetch(`${API_BASE}/leads/${id}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(),
-    credentials: "include",
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Delete failed")
-  return data
-}
-
-/* =========================
-   COLUMN PICKER MODAL
-========================= */
 function ColumnPickerModal({ open, onClose, allowed = [], selected = [], onSave }) {
   const [q, setQ] = useState("")
   const [local, setLocal] = useState([])
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState("")
-
-  useEffect(() => {
-    if (!open) return
-    setQ("")
-    setErr("")
-    setSaving(false)
-    setLocal(Array.isArray(selected) && selected.length ? selected : allowed)
-  }, [open, selected, allowed])
-
+  useEffect(() => { if (open) { setQ(""); setErr(""); setSaving(false); setLocal(selected?.length ? selected : allowed) } }, [open, selected, allowed])
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
-    if (!s) return allowed
-    return allowed.filter((c) => c.toLowerCase().includes(s))
+    return s ? allowed.filter((c) => String(COLUMN_LABELS[c] || c).toLowerCase().includes(s) || c.toLowerCase().includes(s)) : allowed
   }, [q, allowed])
-
-  const isChecked = (c) => local.includes(c)
-
-  const toggle = (c) => setLocal((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]))
-
-  const selectAll = () => setLocal(allowed)
-
-  const resetToDefault = async () => {
-    setErr("")
-    setSaving(true)
-    try {
-      await onSave?.([])
-      onClose?.()
-    } catch (e) {
-      setErr(e?.message || "Failed to reset columns")
-    } finally {
-      setSaving(false)
-    }
+  const save = async (cols) => {
+    setErr(""); setSaving(true)
+    try { await onSave?.(cols); onClose?.() } catch (e) { setErr(e?.message || "Failed to save columns") } finally { setSaving(false) }
   }
-
-  const save = async () => {
-    setErr("")
-    setSaving(true)
-    try {
-      await onSave?.(local)
-      onClose?.()
-    } catch (e) {
-      setErr(e?.message || "Failed to save columns")
-    } finally {
-      setSaving(false)
-    }
-  }
-
   return (
-    <ModalShell
-      open={open}
-      onClose={onClose}
-      title="Columns"
-      subtitle="Choose what you want to see in the list (Actions stays)."
-      icon={<FiColumns className="w-5 h-5" />}
-      maxWidthClass="max-w-3xl"
-      footer={
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <button onClick={selectAll} className={cn(btn, btnGhost, "px-3 py-2 text-sm")} disabled={saving}>
-              Select all
-            </button>
-            <button onClick={resetToDefault} className={cn(btn, btnGhost, "px-3 py-2 text-sm")} disabled={saving}>
-              Reset to default
-            </button>
-          </div>
-          <div className="flex items-center justify-end gap-2">
-            <button onClick={onClose} className={cn(btn, btnGhost)} disabled={saving}>
-              Cancel
-            </button>
-            <button onClick={save} className={cn(btn, btnPrimary, "disabled:opacity-60")} disabled={saving}>
-              {saving ? "Saving..." : "Save"}
-            </button>
-          </div>
-        </div>
-      }
-    >
-      {err ? (
-        <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{err}</div>
-      ) : null}
-
-      <div className="flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between mb-4">
-        <div className="w-full sm:max-w-md">
-          <div
-            className={cn(
-              "w-full h-10 rounded-2xl border border-gray-200 bg-white px-3 flex items-center gap-2",
-              "focus-within:border-indigo-300 focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.14)] transition"
-            )}
-          >
-            <FiSearch className="w-4 h-4 text-gray-400" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Filter columns..."
-              className={cn(
-                "flex-1 bg-transparent text-sm text-gray-900 placeholder:text-gray-400 border-0 outline-none"
-              )}
-            />
-          </div>
-        </div>
-
-        <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>
-          Selected: <span className="font-bold">{local.length}</span>
-        </span>
+    <ModalShell open={open} onClose={onClose} title="Columns" subtitle="Choose visible lead list columns. Actions column stays visible." icon={<FiColumns className="h-5 w-5" />} maxWidthClass="max-w-3xl" footer={<div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div className="flex gap-2"><button className={cn(btn, btnGhost, "px-3 py-2")} disabled={saving} onClick={() => setLocal(allowed)}>Select all</button><button className={cn(btn, btnGhost, "px-3 py-2")} disabled={saving} onClick={() => save([])}>Reset default</button></div><div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} disabled={saving} onClick={onClose}>Cancel</button><button className={cn(btn, btnPrimary)} disabled={saving} onClick={() => save(local)}>{saving ? "Saving..." : "Save columns"}</button></div></div>}>
+      {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
+      <div className="mb-4 flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 py-2"><FiSearch className="h-4 w-4 text-gray-400" /><input value={q} onChange={(e) => setQ(e.target.value)} className="flex-1 border-0 bg-transparent text-sm outline-none" placeholder="Search columns..." /><span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>{local.length} selected</span></div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {filtered.map((c) => <label key={c} className="flex cursor-pointer items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50/60 p-3 transition hover:bg-gray-50"><input type="checkbox" className="h-4 w-4" checked={local.includes(c)} onChange={() => setLocal((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c])} /><span className="text-sm font-semibold text-gray-900">{COLUMN_LABELS[c] || c}</span><span className="ml-auto text-xs text-gray-400">{c}</span></label>)}
       </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {filtered.map((c) => (
-          <label
-            key={c}
-            className={cn(
-              "flex items-center gap-3 p-3 rounded-2xl border border-gray-100 bg-gray-50/50 hover:bg-gray-50 transition cursor-pointer"
-            )}
-          >
-            <input type="checkbox" checked={isChecked(c)} onChange={() => toggle(c)} className="h-4 w-4" />
-            <span className="text-sm font-semibold text-gray-900">{c}</span>
-          </label>
-        ))}
-      </div>
-
-      <p className="text-xs text-gray-500 mt-4">Actions column is always visible.</p>
     </ModalShell>
   )
 }
 
-/* =========================
-   PURCHASE TYPE MODAL
-========================= */
 function AddPurchaseTypeModal({ open, onClose, onCreated }) {
   const [name, setName] = useState("")
   const [key, setKey] = useState("")
-  const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [err, setErr] = useState("")
-
-  useEffect(() => {
-    if (!open) return
-    setName("")
-    setKey("")
-    setErr("")
-    setSaving(false)
-  }, [open])
-
+  useEffect(() => { if (open) { setName(""); setKey(""); setErr("") } }, [open])
   const submit = async () => {
     setErr("")
-    const n = String(name || "").trim()
-    if (!n) return setErr("Name is required.")
-    const k = String(key || "").trim()
-    setSaving(true)
-    try {
-      const created = await apiCreatePurchaseType({ name: n, key: k || undefined })
-      onCreated?.(created)
-      onClose?.()
-    } catch (e) {
-      setErr(e?.message || "Failed to create purchase type")
-    } finally {
-      setSaving(false)
-    }
+    if (!name.trim()) return setErr("Name is required.")
+    setLoading(true)
+    try { const created = await apiCreatePurchaseType({ name: name.trim(), key: key.trim() || undefined }); onCreated?.(created); onClose?.() } catch (e) { setErr(e?.message || "Failed to create purchase type") } finally { setLoading(false) }
   }
+  return <ModalShell open={open} onClose={onClose} title="Add Purchase Type" subtitle="This will show in lead create/edit." icon={<FiPlus className="h-5 w-5" />} maxWidthClass="max-w-xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Creating..." : "Create"}</button></div>}>{err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}<div className="grid gap-4"><Field label="Name *"><input value={name} onChange={(e) => setName(e.target.value)} className={input} placeholder="Service" /></Field><Field label="Key (optional)"><input value={key} onChange={(e) => setKey(e.target.value)} className={input} placeholder="service" /></Field></div></ModalShell>
+}
 
+function ItemEditor({ items, setItems, showDescription = false }) {
+  const add = () => setItems((prev) => [...prev, { productId: "", nameSnapshot: "", description: "", qty: 1, unitPrice: 0, discount: 0 }])
+  const update = (idx, key, value) => setItems((prev) => prev.map((it, i) => i === idx ? { ...it, [key]: value } : it))
+  const remove = (idx) => setItems((prev) => prev.filter((_, i) => i !== idx))
+  const total = items.reduce((sum, it) => sum + Math.max(Number(it.qty || 0) * Number(it.unitPrice || 0) - Number(it.discount || 0), 0), 0)
   return (
-    <ModalShell
-      open={open}
-      onClose={onClose}
-      title="Add Purchase Type"
-      subtitle="This will be available in the Create Lead dropdown."
-      icon={<FiPlus className="w-5 h-5" />}
-      maxWidthClass="max-w-xl"
-      footer={
-        <div className="flex items-center justify-end gap-2">
-          <button onClick={onClose} className={cn(btn, btnGhost)} disabled={saving}>
-            Cancel
-          </button>
-          <button onClick={submit} className={cn(btn, btnPrimary, "disabled:opacity-60")} disabled={saving}>
-            {saving ? "Creating..." : "Create"}
-          </button>
-        </div>
-      }
-    >
-      {err ? (
-        <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{err}</div>
-      ) : null}
-
-      <div className="grid grid-cols-1 gap-4">
-        <Field label="Name *" hint='Example: "Retail", "Wholesale", "Service"'>
-          <input value={name} onChange={(e) => setName(e.target.value)} className={input} placeholder="Retail" />
-        </Field>
-
-        <Field label="Key (optional)" hint='If empty, it will auto-generate from the name. Example: "retail"'>
-          <input value={key} onChange={(e) => setKey(e.target.value)} className={input} placeholder="retail" />
-        </Field>
+    <div className="rounded-2xl border border-gray-100">
+      <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/70 px-4 py-3"><div><p className="text-sm font-bold text-gray-900">Items</p><p className="text-xs text-gray-500">Products/services included for amount calculation.</p></div><button type="button" onClick={add} className={cn(btn, btnGhost, "px-3 py-2")}><FiPlus className="h-4 w-4" />Add item</button></div>
+      <div className="space-y-3 p-4">
+        {items.length ? items.map((it, idx) => (
+          <div key={idx} className="rounded-2xl border border-gray-100 bg-white p-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
+              <div className="md:col-span-4"><Field label="Name"><input value={it.nameSnapshot || ""} onChange={(e) => update(idx, "nameSnapshot", e.target.value)} className={input} placeholder="CRM setup" /></Field></div>
+              <div className="md:col-span-2"><Field label="Qty"><input type="number" min="0" value={it.qty} onChange={(e) => update(idx, "qty", e.target.value)} className={input} /></Field></div>
+              <div className="md:col-span-2"><Field label="Unit price"><input type="number" min="0" value={it.unitPrice} onChange={(e) => update(idx, "unitPrice", e.target.value)} className={input} /></Field></div>
+              <div className="md:col-span-2"><Field label="Discount"><input type="number" min="0" value={it.discount} onChange={(e) => update(idx, "discount", e.target.value)} className={input} /></Field></div>
+              <div className="flex items-end md:col-span-2"><button type="button" onClick={() => remove(idx)} className={cn(btn, btnDanger, "w-full")}><FiTrash2 className="h-4 w-4" />Remove</button></div>
+              {showDescription ? <div className="md:col-span-12"><Field label="Description"><textarea value={it.description || ""} onChange={(e) => update(idx, "description", e.target.value)} className={cn(input, "min-h-[80px]")} /></Field></div> : null}
+            </div>
+          </div>
+        )) : <EmptyState icon={<FiFileText className="h-5 w-5" />} title="No items added" subtitle="Add items if you need proposal/deal amount calculation." />}
+        <div className="flex justify-end"><span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>Estimated total: {formatMoney(total)}</span></div>
       </div>
-    </ModalShell>
+    </div>
   )
 }
 
-/* =========================
-   LEAD UPSERT MODAL
-========================= */
-function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
-  const [form, setForm] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    companyName: "",
-    source: "",
-    status: "new",
-    pipelineStage: "new",
-    priority: "medium",
-    purchaseType: "",
-    tags: "",
-    website: "",
-    industry: "",
-    address: "",
-    assignedTo: "",
+function UserSelect({ value, onChange, users = [], label: labelText = "User", placeholder = "Use current user", allowEmpty = true, hint = "" }) {
+  const safeUsers = Array.isArray(users) ? users : []
+  return (
+    <Field label={labelText} hint={hint || (!safeUsers.length ? "User list is available for admin/superadmin. Empty means backend will use current logged-in user." : "Select a user instead of typing raw ID.") }>
+      <select className={input} value={value || ""} onChange={(e) => onChange?.(e.target.value)}>
+        {allowEmpty ? <option value="">{placeholder}</option> : null}
+        {safeUsers.map((u) => (
+          <option key={u._id || u.id} value={u._id || u.id}>
+            {u.name || u.email || u._id} {u.role ? `(${u.role})` : ""}
+          </option>
+        ))}
+      </select>
+    </Field>
+  )
+}
+
+function getTemplatePayloadData(lead = {}) {
+  return {
+    leadId: getLeadId(lead),
+    leadNumber: lead?.leadNumber || "",
+    name: lead?.contact?.name || "",
+    contactName: lead?.contact?.name || "",
+    companyName: lead?.contact?.companyName || "",
+    phone: lead?.contact?.phone || "",
+    email: lead?.contact?.email || "",
+    source: lead?.source || "",
+    purchaseType: lead?.purchaseType || "",
+    priority: lead?.priority || "",
+    leadTemperature: lead?.leadTemperature || "",
+    leadScore: lead?.leadScore || "",
+    pipelineStage: lead?.pipelineStage || "",
+    status: lead?.status || "",
+    requirementSummary: lead?.requirement?.summary || "",
+    expectedSolution: lead?.requirement?.expectedSolution || "",
+    budgetMin: lead?.requirement?.budgetMin || "",
+    budgetMax: lead?.requirement?.budgetMax || "",
+    expectedValue: lead?.requirement?.expectedValue || "",
+    timeline: lead?.requirement?.timeline || "",
+    decisionMaker: lead?.requirement?.decisionMaker || "",
+    nextAction: lead?.nextAction || "",
+    nextFollowUpAt: formatDate(lead?.nextFollowUpAt, true),
+    today: formatDate(new Date(), false),
+  }
+}
+
+function renderTemplateText(text = "", data = {}) {
+  return String(text || "").replace(/{{\s*([\w.]+)\s*}}/g, (_, key) => {
+    const value = getByPath(data, key) ?? data[key]
+    return value === undefined || value === null ? "" : String(value)
   })
+}
 
-  const [purchaseTypes, setPurchaseTypes] = useState([])
-  const [ptLoading, setPtLoading] = useState(false)
-  const [ptError, setPtError] = useState("")
-  const [addPtOpen, setAddPtOpen] = useState(false)
-  const ptAbortRef = useRef(null)
+function getTemplateRenderFromResponse(response, fallbackTemplate, data) {
+  const subjectRaw =
+    response?.subject ||
+    response?.data?.subject ||
+    response?.template?.subject ||
+    response?.rendered?.subject ||
+    fallbackTemplate?.subject ||
+    ""
 
-  const [error, setError] = useState("")
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const bodyRaw =
+    response?.body ||
+    response?.data?.body ||
+    response?.template?.body ||
+    response?.rendered?.body ||
+    fallbackTemplate?.body ||
+    ""
+
+  return {
+    subject: renderTemplateText(subjectRaw, data),
+    body: renderTemplateText(bodyRaw, data),
+  }
+}
+
+function formatTemplateWithSubject(subject = "", body = "") {
+  const cleanSubject = String(subject || "").trim()
+  const cleanBody = String(body || "").trim()
+  if (cleanSubject && cleanBody) return `Subject: ${cleanSubject}\n\n${cleanBody}`
+  return cleanBody || cleanSubject
+}
+
+function templateChannelForActivity(type) {
+  if (type === "call") return "call_note"
+  if (type === "whatsapp") return "whatsapp"
+  if (type === "email") return "email"
+  if (type === "meeting") return "meeting"
+  return "general"
+}
+
+function TemplateUseBox({ lead, channel = "general", purpose = "general", label: labelText = "Use template", onApply, append = true, includeSubjectInText = false }) {
+  const [templates, setTemplates] = useState([])
+  const [selectedId, setSelectedId] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [usingTemplate, setUsingTemplate] = useState(false)
+  const [err, setErr] = useState("")
 
   useEffect(() => {
-    if (!open) return
-    setError("")
-    const c = initial || {}
-    setForm({
-      name: c?.contact?.name || "",
-      email: c?.contact?.email || "",
-      phone: c?.contact?.phone || "",
-      companyName: c?.contact?.companyName || "",
-      source: c?.source || "",
-      status: c?.status || "new",
-      pipelineStage: c?.pipelineStage || "new",
-      priority: c?.priority || "medium",
-      purchaseType: c?.purchaseType || "",
-      tags: Array.isArray(c?.tags) ? c.tags.join(", ") : "",
-      website: c?.company?.website || "",
-      industry: c?.company?.industry || "",
-      address: c?.company?.address || "",
-      assignedTo: typeof c?.assignedTo === "string" ? c.assignedTo : c?.assignedTo?._id || "",
-    })
-  }, [open, initial])
+    let alive = true
+    const load = async () => {
+      setLoading(true)
+      setErr("")
+      try {
+        const params = {}
+        if (channel) params.channel = channel
+        if (purpose) params.purpose = purpose
+        const data = await apiListTemplates(params)
+        const list = normalizeApiList(data).filter((t) => t?.isActive !== false)
+        if (!alive) return
+        setTemplates(list)
+        setSelectedId((prev) => (prev && list.some((t) => (t._id || t.id) === prev) ? prev : (list[0]?._id || list[0]?.id || "")))
+      } catch (e) {
+        if (!alive) return
+        setTemplates([])
+        setSelectedId("")
+        setErr(e?.message || "Failed to load templates")
+      } finally {
+        if (alive) setLoading(false)
+      }
+    }
+    load()
+    return () => { alive = false }
+  }, [channel, purpose])
 
-  const fetchPurchaseTypes = async () => {
-    if (ptAbortRef.current) ptAbortRef.current.abort()
-    const controller = new AbortController()
-    ptAbortRef.current = controller
-    setPtLoading(true)
-    setPtError("")
+  const selectedTemplate = templates.find((t) => (t._id || t.id) === selectedId)
+  const apply = async () => {
+    if (!selectedTemplate) return
+    setUsingTemplate(true)
+    setErr("")
+    const data = getTemplatePayloadData(lead)
     try {
-      const items = await apiListPurchaseTypes(controller.signal)
-      setPurchaseTypes(Array.isArray(items) ? items : [])
+      const response = await apiUseTemplate(selectedId, { data, leadId: getLeadId(lead) || undefined })
+      const rendered = getTemplateRenderFromResponse(response, selectedTemplate, data)
+      const text = includeSubjectInText ? formatTemplateWithSubject(rendered.subject, rendered.body) : rendered.body
+      onApply?.(text, { append, template: selectedTemplate, response, rendered })
     } catch (e) {
-      if (e?.name === "AbortError") return
-      setPtError(e?.message || "Failed to load purchase types")
-      setPurchaseTypes([])
+      const rendered = {
+        subject: renderTemplateText(selectedTemplate?.subject || "", data),
+        body: renderTemplateText(selectedTemplate?.body || "", data),
+      }
+      const text = includeSubjectInText ? formatTemplateWithSubject(rendered.subject, rendered.body) : rendered.body
+      if (text) onApply?.(text, { append, template: selectedTemplate, response: null, rendered })
+      else setErr(e?.message || "Template use failed")
     } finally {
-      setPtLoading(false)
+      setUsingTemplate(false)
     }
   }
-
-  useEffect(() => {
-    if (!open) return
-    fetchPurchaseTypes()
-    return () => ptAbortRef.current?.abort?.()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
-
-  const update = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }))
-
-  const onPurchaseTypeCreated = async (created) => {
-    await fetchPurchaseTypes()
-    const createdKey = created?.key || ""
-    if (createdKey) setForm((p) => ({ ...p, purchaseType: createdKey }))
-  }
-
-  const submit = async () => {
-    setError("")
-    if (!form.name.trim()) return setError("Contact name is required.")
-    if (!form.companyName.trim()) return setError("Company name is required.")
-
-    const payload = {
-      contact: {
-        name: form.name.trim(),
-        email: form.email.trim() ? form.email.trim().toLowerCase() : "",
-        phone: form.phone.trim() || "",
-        companyName: form.companyName.trim(),
-      },
-      source: form.source.trim() || "",
-      status: form.status,
-      pipelineStage: form.pipelineStage,
-      priority: (form.priority || "medium").toLowerCase(),
-      purchaseType: form.purchaseType.trim() || "",
-      tags: form.tags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-      company: {
-        website: form.website.trim() || "",
-        industry: form.industry.trim() || "",
-        address: form.address.trim() || "",
-      },
-      ...(form.assignedTo.trim() ? { assignedTo: form.assignedTo.trim() } : {}),
-    }
-
-    setIsSubmitting(true)
-    try {
-      if (mode === "create") await apiCreateLead(payload)
-      else await apiUpdateLead(initial?._id, payload)
-      onSaved?.()
-      onClose?.()
-    } catch (e) {
-      setError(e?.message || "Save failed")
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  const purchaseTypeOptions = useMemo(() => {
-    const arr = Array.isArray(purchaseTypes) ? purchaseTypes : []
-    return arr
-      .slice()
-      .sort((a, b) => String(a?.name || "").localeCompare(String(b?.name || "")))
-      .map((pt) => ({
-        key: String(pt?.key || "").trim(),
-        name: String(pt?.name || pt?.key || "").trim(),
-      }))
-      .filter((x) => x.key && x.name)
-  }, [purchaseTypes])
 
   return (
+    <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-bold text-gray-900">{labelText}</p>
+          <p className="text-xs text-gray-500">Select a saved template and insert it into this field.</p>
+        </div>
+        <span className={cn(chip, "bg-white text-indigo-700 ring-indigo-600/10")}>{channel}{purpose ? ` • ${purpose}` : ""}</span>
+      </div>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <select className={cn(input, "flex-1")} value={selectedId} onChange={(e) => setSelectedId(e.target.value)} disabled={loading || usingTemplate || !templates.length}>
+          {loading ? <option>Loading templates...</option> : null}
+          {!loading && !templates.length ? <option value="">No template found</option> : null}
+          {templates.map((t) => <option key={t._id || t.id} value={t._id || t.id}>{t.name || t.key || "Untitled template"}</option>)}
+        </select>
+        <button type="button" className={cn(btn, btnSoft, "shrink-0")} onClick={apply} disabled={loading || usingTemplate || !selectedTemplate}>
+          {usingTemplate ? <FiLoader className="h-4 w-4 animate-spin" /> : <FiFileText className="h-4 w-4" />}
+          Insert template
+        </button>
+      </div>
+      {selectedTemplate ? (
+        <div className="mt-2 space-y-1 rounded-xl bg-white/70 px-3 py-2 text-xs text-gray-600">
+          {selectedTemplate.subject ? <p className="line-clamp-1 font-semibold text-gray-700">Subject: {selectedTemplate.subject}</p> : null}
+          {selectedTemplate.body ? <p className="line-clamp-2">{selectedTemplate.body}</p> : null}
+        </div>
+      ) : null}
+      {err ? <p className="mt-2 text-xs font-semibold text-rose-600">{err}</p> : null}
+    </div>
+  )
+}
+
+function appendTemplateText(current, text) {
+  const clean = String(text || "").trim()
+  if (!clean) return current || ""
+  return current?.trim() ? `${current.trim()}\n\n${clean}` : clean
+}
+
+function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved, users = [] }) {
+  const [form, setForm] = useState({ name: "", email: "", phone: "", companyName: "", source: "", priority: "medium", leadTemperature: "warm", leadScore: 0, purchaseType: "", tags: "", website: "", industry: "", address: "", assignedTo: "", nextFollowUpAt: "", requirementSummary: "", expectedSolution: "", painPoints: "", budgetMin: "", budgetMax: "", expectedValue: "", timeline: "", decisionMaker: "" })
+  const [purchaseTypes, setPurchaseTypes] = useState([])
+  const [addPtOpen, setAddPtOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState("")
+  useEffect(() => {
+    if (!open) return
+    const c = initial || {}
+    const r = c.requirement || {}
+    setErr("")
+    setForm({ name: c?.contact?.name || "", email: c?.contact?.email || "", phone: c?.contact?.phone || "", companyName: c?.contact?.companyName || "", source: c?.source || "", priority: c?.priority || "medium", leadTemperature: c?.leadTemperature || "warm", leadScore: c?.leadScore || 0, purchaseType: c?.purchaseType || "", tags: Array.isArray(c?.tags) ? c.tags.join(", ") : "", website: c?.company?.website || "", industry: c?.company?.industry || "", address: c?.company?.address || "", assignedTo: typeof c?.assignedTo === "string" ? c.assignedTo : c?.assignedTo?._id || "", nextFollowUpAt: formatDateInput(c?.nextFollowUpAt), requirementSummary: r.summary || "", expectedSolution: r.expectedSolution || "", painPoints: Array.isArray(r.painPoints) ? r.painPoints.join(", ") : "", budgetMin: r.budgetMin || "", budgetMax: r.budgetMax || "", expectedValue: r.expectedValue || "", timeline: r.timeline || "", decisionMaker: r.decisionMaker || "" })
+    apiListPurchaseTypes().then(setPurchaseTypes).catch(() => setPurchaseTypes([]))
+  }, [open, initial])
+  const update = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }))
+  const submit = async () => {
+    setErr("")
+    if (!form.name.trim()) return setErr("Contact name is required.")
+    if (!form.companyName.trim()) return setErr("Company name is required.")
+    const payload = { contact: { name: form.name.trim(), email: form.email.trim().toLowerCase(), phone: form.phone.trim(), companyName: form.companyName.trim() }, source: form.source.trim(), priority: form.priority, leadTemperature: form.leadTemperature, leadScore: Number(form.leadScore || 0), purchaseType: form.purchaseType.trim(), tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean), company: { website: form.website.trim(), industry: form.industry.trim(), address: form.address.trim() }, requirement: { summary: form.requirementSummary.trim(), expectedSolution: form.expectedSolution.trim(), painPoints: form.painPoints.split(",").map((p) => p.trim()).filter(Boolean), budgetMin: Number(form.budgetMin || 0), budgetMax: Number(form.budgetMax || 0), expectedValue: Number(form.expectedValue || 0), timeline: form.timeline.trim(), decisionMaker: form.decisionMaker.trim() }, ...(form.assignedTo.trim() ? { assignedTo: form.assignedTo.trim() } : {}), ...(form.nextFollowUpAt ? { nextFollowUpAt: new Date(form.nextFollowUpAt).toISOString() } : {}) }
+    setLoading(true)
+    try { if (mode === "edit") await apiUpdateLead(getLeadId(initial), payload); else await apiCreateLead(payload); onSaved?.(); onClose?.() } catch (e) { setErr(e?.message || "Save failed") } finally { setLoading(false) }
+  }
+  return (
     <>
-      <ModalShell
-        open={open}
-        onClose={onClose}
-        title={mode === "edit" ? "Edit Lead" : "Create Lead"}
-        subtitle="Contact + pipeline information"
-        icon={mode === "edit" ? <FiEdit2 className="w-5 h-5" /> : <FiPlus className="w-5 h-5" />}
-        footer={
-          <div className="flex flex-col sm:flex-row sm:justify-end gap-2">
-            <button onClick={onClose} className={cn(btn, btnGhost)} disabled={isSubmitting}>
-              Cancel
-            </button>
-            <button onClick={submit} disabled={isSubmitting} className={cn(btn, btnPrimary, "disabled:opacity-60")}>
-              {isSubmitting ? "Saving..." : mode === "edit" ? "Update" : "Create"}
-            </button>
-          </div>
-        }
-      >
-        {error ? (
-          <div className="mb-5 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>
-        ) : null}
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="Contact Name *">
-            <input value={form.name} onChange={update("name")} className={input} placeholder="Person name" />
-          </Field>
-
-          <Field label="Company Name *">
-            <input value={form.companyName} onChange={update("companyName")} className={input} placeholder="Company" />
-          </Field>
-
-          <Field label="Email">
-            <input value={form.email} onChange={update("email")} className={input} placeholder="email@example.com" />
-          </Field>
-
-          <Field label="Phone">
-            <input value={form.phone} onChange={update("phone")} className={input} placeholder="01XXXXXXXXX" />
-          </Field>
-
-          <Field label="Priority">
-            <select value={form.priority} onChange={update("priority")} className={input}>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-            </select>
-          </Field>
-
-          <Field label="Purchase Type" hint="Choose a purchase type. You can add a new one if needed.">
-            <div className="flex items-center gap-2">
-              <select value={form.purchaseType} onChange={update("purchaseType")} className={cn(input, "flex-1")}>
-                <option value="">{ptLoading ? "Loading..." : "Select purchase type"}</option>
-                {purchaseTypeOptions.map((pt) => (
-                  <option key={pt.key} value={pt.key}>
-                    {pt.name}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                type="button"
-                onClick={() => setAddPtOpen(true)}
-                className={cn(btn, btnGhost, "px-3 py-2")}
-                disabled={ptLoading}
-                title="Add purchase type"
-              >
-                <FiPlus className="w-4 h-4" />
-                Add
-              </button>
-            </div>
-
-            {ptError ? (
-              <p className="text-xs text-rose-700 mt-2 flex items-center gap-2">
-                <FiAlertCircle className="w-4 h-4" />
-                {ptError}
-              </p>
-            ) : null}
-          </Field>
-
-          <Field label="Status">
-            <select value={form.status} onChange={update("status")} className={input}>
-              <option value="new">new</option>
-              <option value="contacted">contacted</option>
-              <option value="pending">pending</option>
-              <option value="confirmed">confirmed</option>
-              <option value="lost">lost</option>
-            </select>
-          </Field>
-
-          <Field label="Pipeline Stage">
-            <select value={form.pipelineStage} onChange={update("pipelineStage")} className={input}>
-              <option value="new">new</option>
-              <option value="qualified">qualified</option>
-              <option value="proposal">proposal</option>
-              <option value="negotiation">negotiation</option>
-              <option value="won">won</option>
-              <option value="lost">lost</option>
-            </select>
-          </Field>
-
-          <Field label="Source">
-            <input
-              value={form.source}
-              onChange={update("source")}
-              className={input}
-              placeholder="Facebook / referral / etc."
-            />
-          </Field>
-
-          <Field label="Tags (comma separated)">
-            <input value={form.tags} onChange={update("tags")} className={input} placeholder="vip, hot, retail, ..." />
-          </Field>
-
-          <div className="md:col-span-2">
-            <div className="border-t border-gray-100 pt-4">
-              <p className="text-sm font-bold text-gray-900 mb-3">Company</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Field label="Website">
-                  <input value={form.website} onChange={update("website")} className={input} placeholder="https://..." />
-                </Field>
-                <Field label="Industry">
-                  <input value={form.industry} onChange={update("industry")} className={input} placeholder="Industry" />
-                </Field>
-                <div className="md:col-span-2">
-                  <Field label="Address">
-                    <input
-                      value={form.address}
-                      onChange={update("address")}
-                      className={input}
-                      placeholder="Street, area, city"
-                    />
-                  </Field>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="md:col-span-2">
-            <Field label="Assigned To (optional User ID)">
-              <input
-                value={form.assignedTo}
-                onChange={update("assignedTo")}
-                className={input}
-                placeholder="UserId (optional)"
-              />
-            </Field>
-          </div>
+      <ModalShell open={open} onClose={onClose} title={mode === "edit" ? "Edit Lead" : "Create Lead"} subtitle="Contact, score, source, discovery and assignment fields" icon={mode === "edit" ? <FiEdit2 className="h-5 w-5" /> : <FiPlus className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex flex-col justify-end gap-2 sm:flex-row"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : mode === "edit" ? "Update lead" : "Create lead"}</button></div>}>
+        {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Field label="Contact name *"><input className={input} value={form.name} onChange={update("name")} /></Field><Field label="Company name *"><input className={input} value={form.companyName} onChange={update("companyName")} /></Field><Field label="Email"><input className={input} value={form.email} onChange={update("email")} /></Field><Field label="Phone"><input className={input} value={form.phone} onChange={update("phone")} /></Field>
+          <Field label="Priority"><select className={input} value={form.priority} onChange={update("priority")}>{PRIORITIES.map((x) => <option key={x} value={x}>{x}</option>)}</select></Field><Field label="Lead temperature"><select className={input} value={form.leadTemperature} onChange={update("leadTemperature")}>{TEMPERATURES.map((x) => <option key={x} value={x}>{x}</option>)}</select></Field><Field label="Lead score"><input className={input} type="number" min="0" max="100" value={form.leadScore} onChange={update("leadScore")} /></Field>
+          <Field label="Purchase type"><div className="flex gap-2"><select className={cn(input, "flex-1")} value={form.purchaseType} onChange={update("purchaseType")}><option value="">Select purchase type</option>{purchaseTypes.map((pt) => <option key={pt.key || pt._id} value={pt.key || pt.name}>{pt.name || pt.key}</option>)}</select><button type="button" className={cn(btn, btnGhost, "px-3")} onClick={() => setAddPtOpen(true)}><FiPlus className="h-4 w-4" /></button></div></Field>
+          <Field label="Source"><input className={input} value={form.source} onChange={update("source")} /></Field><Field label="Next follow-up"><input type="datetime-local" className={input} value={form.nextFollowUpAt} onChange={update("nextFollowUpAt")} /></Field><Field label="Tags"><input className={input} value={form.tags} onChange={update("tags")} /></Field><UserSelect label="Assign owner" value={form.assignedTo} users={users} onChange={(val) => setForm((p) => ({ ...p, assignedTo: val }))} placeholder="Use current user" />
+          <div className="md:col-span-2 rounded-2xl border border-gray-100 p-4"><p className="mb-3 text-sm font-bold text-gray-900">Company info</p><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><Field label="Website"><input className={input} value={form.website} onChange={update("website")} /></Field><Field label="Industry"><input className={input} value={form.industry} onChange={update("industry")} /></Field><div className="md:col-span-2"><Field label="Address"><input className={input} value={form.address} onChange={update("address")} /></Field></div></div></div>
+          <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4"><p className="mb-3 text-sm font-bold text-gray-900">Requirement / discovery</p><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><div className="md:col-span-2"><Field label="Requirement summary"><textarea className={cn(input, "min-h-[90px]")} value={form.requirementSummary} onChange={update("requirementSummary")} /></Field></div><div className="md:col-span-2"><Field label="Expected solution"><textarea className={cn(input, "min-h-[80px]")} value={form.expectedSolution} onChange={update("expectedSolution")} /></Field></div><Field label="Pain points"><input className={input} value={form.painPoints} onChange={update("painPoints")} /></Field><Field label="Decision maker"><input className={input} value={form.decisionMaker} onChange={update("decisionMaker")} /></Field><Field label="Budget min"><input className={input} type="number" value={form.budgetMin} onChange={update("budgetMin")} /></Field><Field label="Budget max"><input className={input} type="number" value={form.budgetMax} onChange={update("budgetMax")} /></Field><Field label="Expected value"><input className={input} type="number" value={form.expectedValue} onChange={update("expectedValue")} /></Field><Field label="Timeline"><input className={input} value={form.timeline} onChange={update("timeline")} /></Field></div></div>
         </div>
       </ModalShell>
-
-      <AnimatePresence>
-        {addPtOpen ? (
-          <AddPurchaseTypeModal open={addPtOpen} onClose={() => setAddPtOpen(false)} onCreated={onPurchaseTypeCreated} />
-        ) : null}
-      </AnimatePresence>
+      <AddPurchaseTypeModal open={addPtOpen} onClose={() => setAddPtOpen(false)} onCreated={(created) => { apiListPurchaseTypes().then(setPurchaseTypes); if (created?.key) setForm((p) => ({ ...p, purchaseType: created.key })) }} />
     </>
   )
 }
 
-function NoteModal({ open, onClose, lead, onAdded }) {
-  const [note, setNote] = useState("")
+function NoteModal({ open, onClose, lead, onSaved }) {
+  const [form, setForm] = useState({ note: "", type: "general", reason: "" })
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
-
-  useEffect(() => {
-    if (!open) return
-    setNote("")
-    setError("")
-    setLoading(false)
-  }, [open])
-
-  const submit = async () => {
-    setError("")
-    if (!note.trim()) return setError("Write a note first.")
-    setLoading(true)
-    try {
-      await apiAddLeadNote(lead?._id, note.trim())
-      onAdded?.()
-      onClose?.()
-    } catch (e) {
-      setError(e?.message || "Failed to add note")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <ModalShell
-      open={open}
-      onClose={onClose}
-      title="Add Note"
-      subtitle={lead?.contact?.name ? `Lead: ${lead.contact.name}` : ""}
-      icon={<FiFileText className="w-5 h-5" />}
-      maxWidthClass="max-w-xl"
-      footer={
-        <div className="flex items-center justify-end gap-2">
-          <button onClick={onClose} className={cn(btn, btnGhost)} disabled={loading}>
-            Cancel
-          </button>
-          <button onClick={submit} className={cn(btn, btnPrimary, "disabled:opacity-60")} disabled={loading}>
-            {loading ? "Saving..." : "Add note"}
-          </button>
-        </div>
-      }
-    >
-      {error ? (
-        <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>
-      ) : null}
-      <textarea value={note} onChange={(e) => setNote(e.target.value)} className={cn(input, "min-h-[140px]")} />
-    </ModalShell>
-  )
+  const [err, setErr] = useState("")
+  useEffect(() => { if (open) { setForm({ note: "", type: "general", reason: "" }); setErr("") } }, [open])
+  const submit = async () => { setErr(""); if (!form.note.trim()) return setErr("Note is required."); setLoading(true); try { await apiAddLeadNote(getLeadId(lead), form); onSaved?.(); onClose?.() } catch (e) { setErr(e?.message || "Failed") } finally { setLoading(false) } }
+  return <ModalShell open={open} onClose={onClose} title="Add note" subtitle={lead?.contact?.name || ""} icon={<FiFileText className="h-5 w-5" />} maxWidthClass="max-w-xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : "Add note"}</button></div>}>
+    {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
+    <div className="grid gap-4">
+      <Field label="Type"><select className={input} value={form.type} onChange={(e) => setForm((p) => ({ ...p, type: e.target.value }))}>{["general", "call", "email", "meeting", "whatsapp", "follow_up", "stage_change", "quick_action", "lost_reason", "won_reason"].map((x) => <option key={x}>{x}</option>)}</select></Field>
+      <Field label="Reason"><input className={input} value={form.reason} onChange={(e) => setForm((p) => ({ ...p, reason: e.target.value }))} /></Field>
+      <TemplateUseBox lead={lead} channel={form.type === "call" ? "call_note" : ["email", "meeting", "whatsapp"].includes(form.type) ? form.type : "general"} purpose={form.type === "follow_up" ? "follow_up" : "general"} label="Insert note template" onApply={(text) => setForm((p) => ({ ...p, note: appendTemplateText(p.note, text) }))} />
+      <Field label="Note *"><textarea className={cn(input, "min-h-[140px]")} value={form.note} onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))} /></Field>
+    </div>
+  </ModalShell>
 }
 
-function FollowUpModal({ open, onClose, lead, onSaved }) {
-  const [dt, setDt] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
+function StageProgressController({ lead, onNextStage, onMoveStage, compact = false, selectedStage = "", timeline = null }) {
+  const currentStage = String(lead?.pipelineStage || "new")
+  const currentIndex = getStageIndex(currentStage)
+  const nextStage = getNextPipelineStage(lead)
+  const finalStage = isFinalPipelineStage(currentStage)
+  const progressStages = ACTIVE_PIPELINE_STAGES
+  const selected = selectedStage || nextStage || currentStage
 
-  useEffect(() => {
-    if (!open) return
-    setError("")
-    setLoading(false)
-    const existing = lead?.nextFollowUpAt ? new Date(lead.nextFollowUpAt) : null
-    if (existing && !Number.isNaN(existing.getTime())) {
-      const iso = new Date(existing.getTime() - existing.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
-      setDt(iso)
-    } else {
-      setDt("")
-    }
-  }, [open, lead])
-
-  const submit = async () => {
-    setError("")
-    if (!dt) return setError("Select a date/time.")
-    setLoading(true)
-    try {
-      await apiSetFollowUp(lead?._id, new Date(dt).toISOString())
-      onSaved?.()
-      onClose?.()
-    } catch (e) {
-      setError(e?.message || "Failed to set follow up")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <ModalShell
-      open={open}
-      onClose={onClose}
-      title="Set Follow-up"
-      subtitle={lead?.contact?.name ? `Lead: ${lead.contact.name}` : ""}
-      icon={<FiCalendar className="w-5 h-5" />}
-      maxWidthClass="max-w-xl"
-      footer={
-        <div className="flex items-center justify-end gap-2">
-          <button onClick={onClose} className={cn(btn, btnGhost)} disabled={loading}>
-            Cancel
-          </button>
-          <button onClick={submit} className={cn(btn, btnPrimary, "disabled:opacity-60")} disabled={loading}>
-            {loading ? "Saving..." : "Save follow-up"}
-          </button>
-        </div>
-      }
-    >
-      {error ? (
-        <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>
-      ) : null}
-
-      <Field label="Next Follow-up Date & Time">
-        <input type="datetime-local" value={dt} onChange={(e) => setDt(e.target.value)} className={input} />
-      </Field>
-    </ModalShell>
-  )
-}
-
-/* =========================
-   FILTERS MODAL
-========================= */
-function FiltersModal({ open, onClose, draft, setDraft, onApply, onClearDraft, activeSummary }) {
-  const hasAnyDraft = useMemo(() => Object.values(draft || {}).some((v) => String(v || "").trim()), [draft])
-
-  return (
-    <ModalShell
-      open={open}
-      onClose={onClose}
-      title="Filters"
-      subtitle="Narrow down the deals list"
-      icon={<FiFilter className="w-5 h-5" />}
-      maxWidthClass="max-w-4xl"
-      footer={
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <button
-            type="button"
-            onClick={onClearDraft}
-            disabled={!hasAnyDraft}
-            className={cn(btn, btnGhost, "px-3 py-2 text-sm disabled:opacity-60")}
+  const StepDot = ({ stage, index }) => {
+    const completed = finalStage || index < currentIndex
+    const active = stage === currentStage
+    const selectedDot = stage === selected && stage !== currentStage
+    return (
+      <div className="flex min-w-0 flex-1 items-center">
+        <div className="flex min-w-0 flex-1 flex-col items-center gap-2 text-center">
+          <div
+            className={cn(
+              "flex h-9 w-9 items-center justify-center rounded-full border text-xs font-black transition",
+              completed
+                ? "border-emerald-600 bg-emerald-600 text-white"
+                : active
+                  ? "border-indigo-600 bg-indigo-600 text-white shadow-sm shadow-indigo-600/20"
+                  : selectedDot
+                    ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                    : "border-gray-200 bg-white text-gray-400"
+            )}
           >
-            Clear
-          </button>
-          <div className="flex items-center justify-end gap-2">
-            <button onClick={onClose} className={cn(btn, btnGhost)}>
-              Cancel
+            {completed ? <FiCheck className="h-4 w-4" /> : index + 1}
+          </div>
+          <div className="min-w-0">
+            <p className={cn("truncate text-xs font-black", active || selectedDot ? "text-indigo-700" : completed ? "text-emerald-700" : "text-gray-500")}>{STAGE_LABELS[stage] || stage}</p>
+            {!compact ? <p className="mt-0.5 hidden text-[11px] font-medium text-gray-400 md:block">{STAGE_REQUIREMENTS[stage]}</p> : null}
+          </div>
+        </div>
+        {index < progressStages.length - 1 ? (
+          <div className={cn("mx-1 h-0.5 flex-1 rounded-full", index < currentIndex || finalStage ? "bg-emerald-300" : "bg-gray-200")} />
+        ) : null}
+      </div>
+    )
+  }
+
+  const StageDetailCard = ({ stage, index }) => {
+    const state = getStageState(stage, lead, selected, timeline)
+    const detail = getStageDetailSummary(stage, lead, timeline)
+    const current = stage === currentStage
+    const isSelected = stage === selected && stage !== currentStage
+    const done = state === "Done"
+    const required = state === "Required"
+
+    return (
+      <div
+        className={cn(
+          "rounded-2xl border p-3 transition",
+          current
+            ? "border-indigo-200 bg-indigo-50/70"
+            : required
+              ? "border-amber-200 bg-amber-50/80"
+              : done
+                ? "border-emerald-100 bg-emerald-50/60"
+                : isSelected
+                  ? "border-indigo-100 bg-white"
+                  : "border-gray-100 bg-gray-50/60"
+        )}
+      >
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className={cn("text-xs font-black", current || isSelected ? "text-indigo-700" : done ? "text-emerald-700" : required ? "text-amber-800" : "text-gray-600")}>{index + 1}. {STAGE_LABELS[stage] || stage}</p>
+          <span className={cn(chip, "px-2 py-1", current || isSelected ? "bg-indigo-50 text-indigo-700 ring-indigo-600/10" : done ? "bg-emerald-50 text-emerald-700 ring-emerald-600/10" : required ? "bg-amber-50 text-amber-800 ring-amber-600/20" : "bg-gray-100 text-gray-600 ring-gray-600/10")}>{state}</span>
+        </div>
+        <p className="text-sm font-black text-gray-950">{detail.title}</p>
+        <p className="mt-1 line-clamp-2 text-xs font-semibold text-gray-600">{detail.text}</p>
+        {detail.meta ? <p className="mt-2 truncate text-[11px] font-bold text-gray-400">{detail.meta}</p> : null}
+      </div>
+    )
+  }
+
+  return (
+    <div className={cn("rounded-2xl border border-gray-200 bg-white", compact ? "p-4" : "p-5")}> 
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm font-black text-gray-950">Stage flow</p>
+          <p className="mt-1 text-xs font-semibold text-gray-500">
+            {nextStage ? `${STAGE_LABELS[currentStage] || currentStage} → ${STAGE_LABELS[nextStage] || nextStage}` : finalStage ? "Pipeline closed" : "No next stage available"}
+          </p>
+        </div>
+        {!compact ? (
+          <div className="flex flex-wrap gap-2">
+            <button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onMoveStage?.(lead)}>
+              <FiUnlock className="h-4 w-4" /> Manual jump
             </button>
-            <button onClick={onApply} className={cn(btn, btnPrimary)}>
-              Apply
+            <button className={cn(btn, btnPrimary, "px-3 py-2")} disabled={!nextStage || finalStage} onClick={() => onNextStage?.(lead)}>
+              <FiArrowRight className="h-4 w-4" />
+              {nextStage ? `Next: ${STAGE_LABELS[nextStage] || nextStage}` : finalStage ? "Final stage" : "No next stage"}
             </button>
           </div>
+        ) : null}
+      </div>
+
+      <div className={cn("mt-4", compact ? "px-1" : "")}> 
+        <div className="flex w-full items-start">
+          {progressStages.map((stage, index) => <StepDot key={stage} stage={stage} index={index} />)}
+        </div>
+      </div>
+
+      {compact ? (
+        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+          {progressStages.map((stage, index) => <StageDetailCard key={stage} stage={stage} index={index} />)}
+        </div>
+      ) : null}
+
+      {!compact ? (
+        <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-semibold text-gray-600">
+          <Badge value={`Current: ${STAGE_LABELS[currentStage] || currentStage}`} />
+          {nextStage ? <Badge value={`Next: ${STAGE_LABELS[nextStage] || nextStage}`} /> : <Badge value={finalStage ? "Pipeline closed" : "Last active stage"} />}
+          <span className="text-gray-400">Default flow moves one step. Use manual jump only for exception cases.</span>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage = false, mode = "manual", onOpenRequirement, onOpenProposal, refreshToken = 0 }) {
+  const nextStage = targetStage || getNextPipelineStage(lead)
+  const initialStage = lockStage && nextStage ? nextStage : lead?.pipelineStage || "qualified"
+  const [form, setForm] = useState({ pipelineStage: initialStage, status: "", reason: "", note: "", nextFollowUpAt: "" })
+  const [unlockedJump, setUnlockedJump] = useState(false)
+  const currentStage = lead?.pipelineStage || "new"
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState("")
+  const [stageGate, setStageGate] = useState({ checking: false, timeline: null, fullLead: null })
+
+  useEffect(() => {
+    if (open) {
+      const safeTarget = lockStage && nextStage ? nextStage : lead?.pipelineStage || "qualified"
+      setErr("")
+      setUnlockedJump(false)
+      setForm({
+        pipelineStage: safeTarget,
+        status: getSuggestedStatusForStage(safeTarget, lead?.status || ""),
+        reason: lockStage && nextStage ? `Completed ${STAGE_LABELS[lead?.pipelineStage || "new"] || lead?.pipelineStage || "new"} stage and moved to ${STAGE_LABELS[nextStage] || nextStage}.` : "",
+        note: "",
+        nextFollowUpAt: "",
+      })
+    }
+  }, [open, lead, lockStage, nextStage])
+
+  useEffect(() => {
+    if (!open || !lead) return
+    const selected = String((lockStage && nextStage ? nextStage : lead?.pipelineStage) || "")
+    const shouldCheckProposal = ["proposal", "negotiation"].includes(selected) || ["proposal", "negotiation"].includes(String(nextStage || ""))
+    let ignore = false
+    setStageGate((p) => ({ ...p, checking: true }))
+    Promise.all([
+      apiGetLead(getLeadId(lead)).catch(() => null),
+      shouldCheckProposal ? apiGetLeadTimeline(getLeadId(lead)).catch(() => null) : Promise.resolve(null),
+    ])
+      .then(([leadData, timelineData]) => {
+        if (ignore) return
+        setStageGate({
+          checking: false,
+          fullLead: leadData?.lead || leadData?.data || leadData || null,
+          timeline: timelineData?.timeline || timelineData || null,
+        })
+      })
+      .catch(() => { if (!ignore) setStageGate({ checking: false, timeline: null, fullLead: null }) })
+    return () => { ignore = true }
+  }, [open, lead, lockStage, nextStage, refreshToken])
+
+  const isStageLocked = lockStage && !unlockedJump
+  const currentIndex = PIPELINE_STAGES.indexOf(String(currentStage || "new"))
+  const selectedIndex = PIPELINE_STAGES.indexOf(String(form.pipelineStage || ""))
+  const jumpCount = currentIndex >= 0 && selectedIndex >= 0 ? Math.abs(selectedIndex - currentIndex) : 0
+  const isJumpingMultipleStages = unlockedJump && jumpCount > 1
+
+  const handleToggleUnlock = (checked) => {
+    setUnlockedJump(checked)
+    setForm((p) => ({
+      ...p,
+      reason: checked
+        ? `Exceptional stage jump from ${STAGE_LABELS[currentStage] || currentStage} to ${STAGE_LABELS[p.pipelineStage] || p.pipelineStage}. Lead progress changed faster than the normal flow.`
+        : nextStage
+          ? `Completed ${STAGE_LABELS[currentStage] || currentStage} stage and moved to ${STAGE_LABELS[nextStage] || nextStage}.`
+          : p.reason,
+    }))
+  }
+
+  const handleStageChange = (value) => {
+    setForm((p) => ({
+      ...p,
+      pipelineStage: value,
+      status: getSuggestedStatusForStage(value, p.status),
+      reason: unlockedJump
+        ? `Exceptional stage jump from ${STAGE_LABELS[currentStage] || currentStage} to ${STAGE_LABELS[value] || value}. Lead progress changed faster than the normal flow.`
+        : p.reason,
+    }))
+  }
+
+  const submit = async () => {
+    setErr("")
+    if (!form.pipelineStage) return setErr("Stage is required.")
+    if (isStageLocked && !nextStage) return setErr("This lead has no next stage available.")
+    if (unlockedJump && form.pipelineStage === currentStage) return setErr("Select a different stage to update this lead.")
+    if (stageBlocked) return setErr(stageBlockedText)
+    if (!form.reason.trim()) return setErr("Reason is required.")
+    setLoading(true)
+    try {
+      await apiUpdateLeadStage(getLeadId(lead), {
+        pipelineStage: form.pipelineStage,
+        ...(form.status ? { status: form.status } : {}),
+        reason: form.reason.trim(),
+        note: form.note.trim(),
+        ...(form.nextFollowUpAt ? { nextFollowUpAt: new Date(form.nextFollowUpAt).toISOString() } : {}),
+      })
+      const closeAfterSave = await onSaved?.({ pipelineStage: form.pipelineStage, lead })
+      if (closeAfterSave !== false) onClose?.()
+    } catch (e) {
+      setErr(e?.message || "Stage update failed")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const title = mode === "next" ? (unlockedJump ? "Jump stage" : "Move to next stage") : "Update stage"
+  const subtitle = mode === "next" && nextStage ? `${STAGE_LABELS[currentStage] || currentStage} → ${STAGE_LABELS[nextStage] || nextStage}` : lead?.contact?.name || ""
+  const guidedAction = getGuidedNextAction(form.pipelineStage)
+  const GuidedIcon = guidedAction?.icon || FiInfo
+  const selectedStage = String(form.pipelineStage || "")
+  const gateLead = stageGate.fullLead || lead
+  const requirementReady = hasRequirementDetails(gateLead)
+  const proposalReady = hasProposalWork(gateLead, stageGate.timeline)
+  const needsRequirementBeforeMove = selectedStage === "discovery" && !requirementReady
+  const needsProposalBeforeMove = selectedStage === "proposal" && !proposalReady
+  const needsProposalBeforeNegotiation = currentStage === "proposal" && selectedStage === "negotiation" && !proposalReady
+  const missingRequirements = getMissingRequirementLabels(gateLead)
+  const stageBlocked = needsRequirementBeforeMove || needsProposalBeforeMove || needsProposalBeforeNegotiation
+  const stageBlockedTitle = needsRequirementBeforeMove
+    ? "Complete requirement first"
+    : needsProposalBeforeMove
+      ? "Create proposal first"
+      : needsProposalBeforeNegotiation
+        ? "Proposal is required before negotiation"
+        : "Complete required work first"
+  const stageBlockedText = needsRequirementBeforeMove
+    ? `Before moving to Discovery, fill: ${missingRequirements.join(", ")}.`
+    : "Before continuing this stage flow, create the proposal from this lead so the backend can save proposal history and sync the stage properly."
+
+  return (
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      title={title}
+      subtitle={subtitle}
+      icon={<FiArrowRight className="h-5 w-5" />}
+      maxWidthClass="max-w-3xl"
+      footer={
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button>
+          <button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading || stageGate.checking || stageBlocked || (isStageLocked && !nextStage)}>
+            {loading ? "Saving..." : stageGate.checking ? "Checking..." : stageBlocked ? "Complete required work first" : mode === "next" ? (unlockedJump ? "Update stage" : "Complete & move next") : "Move stage"}
+          </button>
         </div>
       }
     >
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div className="lg:col-span-7">
-          <div className={cn(card, "overflow-hidden")}>
-            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/70 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-bold text-gray-900">Choose filters</p>
-                <p className="text-xs text-gray-500">Use the search bar above for name/company/phone/email.</p>
-              </div>
-              {hasAnyDraft ? (
-                <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>Selected</span>
-              ) : (
-                <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>None</span>
-              )}
+      {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
+
+      <StageProgressController lead={gateLead} compact selectedStage={form.pipelineStage} timeline={stageGate.timeline} />
+
+      {lockStage ? (
+        <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-3">
+          <label className="flex cursor-pointer items-center justify-between gap-4">
+            <span className="min-w-0">
+              <span className="block text-sm font-black text-gray-900">Allow manual stage jump</span>
+              <span className="mt-0.5 block text-xs font-semibold text-gray-500">Use only when the lead quickly skips multiple stages.</span>
+            </span>
+            <input
+              type="checkbox"
+              className="h-5 w-5 shrink-0 rounded border-gray-300 accent-indigo-600"
+              checked={unlockedJump}
+              onChange={(e) => handleToggleUnlock(e.target.checked)}
+            />
+          </label>
+        </div>
+      ) : null}
+
+      {isJumpingMultipleStages ? (
+        <div className="mt-3 flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
+          <FiAlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>Multi-stage jump selected. Write a clear reason so the A-Z history explains why stages were skipped.</span>
+        </div>
+      ) : null}
+
+      {stageBlocked ? (
+        <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-amber-700 shadow-sm">
+              <FiAlertTriangle className="h-5 w-5" />
             </div>
-
-            <div className="p-4 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Status">
-                  <select
-                    value={draft.status || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, status: e.target.value }))}
-                    className={input}
-                  >
-                    <option value="">All</option>
-                    <option value="new">new</option>
-                    <option value="contacted">contacted</option>
-                    <option value="pending">pending</option>
-                    <option value="confirmed">confirmed</option>
-                    <option value="lost">lost</option>
-                  </select>
-                </Field>
-
-                <Field label="Pipeline Stage">
-                  <select
-                    value={draft.pipelineStage || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, pipelineStage: e.target.value }))}
-                    className={input}
-                  >
-                    <option value="">All</option>
-                    <option value="new">new</option>
-                    <option value="qualified">qualified</option>
-                    <option value="proposal">proposal</option>
-                    <option value="negotiation">negotiation</option>
-                    <option value="won">won</option>
-                    <option value="lost">lost</option>
-                  </select>
-                </Field>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Priority">
-                  <select
-                    value={draft.priority || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, priority: e.target.value }))}
-                    className={input}
-                  >
-                    <option value="">All</option>
-                    <option value="low">low</option>
-                    <option value="medium">medium</option>
-                    <option value="high">high</option>
-                  </select>
-                </Field>
-
-                <Field label="Purchase Type">
-                  <input
-                    value={draft.purchaseType || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, purchaseType: e.target.value }))}
-                    className={input}
-                    placeholder="retail / wholesale / service..."
-                  />
-                </Field>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Source">
-                  <input
-                    value={draft.source || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, source: e.target.value }))}
-                    className={input}
-                    placeholder="Facebook / referral / etc."
-                  />
-                </Field>
-
-                <Field label="Tag">
-                  <input
-                    value={draft.tag || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, tag: e.target.value }))}
-                    className={input}
-                    placeholder="vip / hot / ..."
-                  />
-                </Field>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Next Follow-up From">
-                  <input
-                    type="date"
-                    value={draft.nextFollowUpFrom || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, nextFollowUpFrom: e.target.value }))}
-                    className={input}
-                  />
-                </Field>
-                <Field label="Next Follow-up To">
-                  <input
-                    type="date"
-                    value={draft.nextFollowUpTo || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, nextFollowUpTo: e.target.value }))}
-                    className={input}
-                  />
-                </Field>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Field label="Last Contacted From">
-                  <input
-                    type="date"
-                    value={draft.lastContactedFrom || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, lastContactedFrom: e.target.value }))}
-                    className={input}
-                  />
-                </Field>
-                <Field label="Last Contacted To">
-                  <input
-                    type="date"
-                    value={draft.lastContactedTo || ""}
-                    onChange={(e) => setDraft((p) => ({ ...p, lastContactedTo: e.target.value }))}
-                    className={input}
-                  />
-                </Field>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-black text-amber-950">{stageBlockedTitle}</p>
+              <p className="mt-1 text-xs font-semibold text-amber-800">{stageBlockedText}</p>
+              {needsRequirementBeforeMove ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {getRequirementChecklist(gateLead).map((x) => (
+                    <span key={x.key} className={cn(chip, x.done ? "bg-emerald-50 text-emerald-700 ring-emerald-600/10" : "bg-white text-amber-800 ring-amber-600/20")}>
+                      {x.done ? <FiCheck className="h-3.5 w-3.5" /> : <FiAlertCircle className="h-3.5 w-3.5" />}
+                      {x.label}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              <div className="mt-3">
+                {needsRequirementBeforeMove ? (
+                  <button type="button" className={cn(btn, btnPrimary, "px-3 py-2")} onClick={() => onOpenRequirement?.(gateLead)}>
+                    <FiTarget className="h-4 w-4" /> Complete Requirement
+                  </button>
+                ) : (
+                  <button type="button" className={cn(btn, btnPrimary, "px-3 py-2")} onClick={() => onOpenProposal?.(gateLead)}>
+                    <FiFileText className="h-4 w-4" /> Create Proposal
+                  </button>
+                )}
               </div>
             </div>
           </div>
         </div>
+      ) : null}
 
-        <div className="lg:col-span-5">
-          <div className={cn(card, "overflow-hidden")}>
-            <div className="px-4 py-3 border-b border-gray-100 bg-gray-50/70">
-              <p className="text-sm font-bold text-gray-900">Preview</p>
-              <p className="text-xs text-gray-500">These will be applied</p>
-            </div>
-            <div className="p-4">{activeSummary}</div>
+      {guidedAction && !stageBlocked ? (
+        <div className="mt-3 flex items-start gap-3 rounded-2xl border border-indigo-100 bg-indigo-50 p-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-indigo-700 shadow-sm">
+            <GuidedIcon className="h-4 w-4" />
           </div>
+          <div className="min-w-0">
+            <p className="text-sm font-black text-gray-900">Next required work: {guidedAction.label}</p>
+            <p className="mt-0.5 text-xs font-semibold text-gray-600">{guidedAction.text}</p>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <Field label="Pipeline stage *">
+          {isStageLocked ? (
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-black text-indigo-700">
+              {STAGE_LABELS[form.pipelineStage] || form.pipelineStage || "No next stage"}
+            </div>
+          ) : (
+            <select className={input} value={form.pipelineStage} onChange={(e) => handleStageChange(e.target.value)}>
+              {PIPELINE_STAGES.map((x) => <option key={x} value={x}>{STAGE_LABELS[x] || x}</option>)}
+            </select>
+          )}
+        </Field>
+
+        <Field label="Status">
+          <select className={input} value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}>
+            <option value="">Keep current</option>
+            {LEAD_STATUSES.map((x) => <option key={x} value={x}>{x}</option>)}
+          </select>
+        </Field>
+
+        <div className="md:col-span-2">
+          <Field label="Reason *" hint="Saved in the A-Z timeline/history.">
+            <input className={input} value={form.reason} onChange={(e) => setForm((p) => ({ ...p, reason: e.target.value }))} />
+          </Field>
+        </div>
+
+        <div className="md:col-span-2">
+          <Field label="Extra note">
+            <textarea className={cn(input, "min-h-[90px]")} value={form.note} onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))} />
+          </Field>
+        </div>
+
+        <div className="md:col-span-2">
+          <Field label="Next follow-up">
+            <input className={input} type="datetime-local" value={form.nextFollowUpAt} onChange={(e) => setForm((p) => ({ ...p, nextFollowUpAt: e.target.value }))} />
+          </Field>
         </div>
       </div>
     </ModalShell>
   )
 }
 
-/* =========================
-   ACTIONS MENU (ROW)
-========================= */
-function RowActionsMenu({
-  lead,
-  onView,
-  onEdit,
-  onAddNote,
-  onSetFollowUp,
-  onMarkContacted,
-  onConvert,
-  onDelete,
-  busy,
-  converting,
-  canConvert = true,
-}) {
-  const [open, setOpen] = useState(false)
-  const menuRef = useRef(null)
-
-  const converted = isConvertedLead(lead)
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e) => {
-      if (!menuRef.current) return
-      if (!menuRef.current.contains(e.target)) setOpen(false)
+function RequirementModal({ open, onClose, lead, onSaved }) {
+  const r = lead?.requirement || {}
+  const [form, setForm] = useState({ summary: "", painPoints: "", expectedSolution: "", budgetMin: "", budgetMax: "", expectedValue: "", timeline: "", decisionMaker: "", note: "" })
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState("")
+  useEffect(() => { if (open) { setErr(""); setForm({ summary: r.summary || "", painPoints: Array.isArray(r.painPoints) ? r.painPoints.join(", ") : "", expectedSolution: r.expectedSolution || "", budgetMin: r.budgetMin || "", budgetMax: r.budgetMax || "", expectedValue: r.expectedValue || "", timeline: r.timeline || "", decisionMaker: r.decisionMaker || "", note: "" }) } }, [open, lead])
+  const submit = async () => {
+    setErr("")
+    if (!form.summary.trim()) return setErr("Requirement summary is required to complete Discovery.")
+    if (!form.expectedSolution.trim()) return setErr("Expected solution is required to complete Discovery.")
+    if (!Number(form.expectedValue || 0) && !Number(form.budgetMin || 0) && !Number(form.budgetMax || 0)) return setErr("Add budget or expected value to complete Discovery.")
+    if (!form.timeline.trim()) return setErr("Timeline is required to complete Discovery.")
+    if (!form.decisionMaker.trim()) return setErr("Decision maker is required to complete Discovery.")
+    setLoading(true)
+    try {
+      const data = await apiUpdateRequirement(getLeadId(lead), { summary: form.summary.trim(), painPoints: form.painPoints.split(",").map((p) => p.trim()).filter(Boolean), expectedSolution: form.expectedSolution.trim(), budgetMin: Number(form.budgetMin || 0), budgetMax: Number(form.budgetMax || 0), expectedValue: Number(form.expectedValue || 0), timeline: form.timeline.trim(), decisionMaker: form.decisionMaker.trim(), note: form.note.trim() })
+      onSaved?.(data?.lead || data?.data?.lead || data)
+      onClose?.()
+    } catch (e) {
+      setErr(e?.message || "Requirement update failed")
+    } finally {
+      setLoading(false)
     }
-    document.addEventListener("mousedown", onDoc)
-    return () => document.removeEventListener("mousedown", onDoc)
-  }, [open])
+  }
+  return <ModalShell open={open} onClose={onClose} title="Requirement / Discovery" subtitle={lead?.contact?.name || ""} icon={<FiTarget className="h-5 w-5" />} maxWidthClass="max-w-3xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : "Save requirement"}</button></div>}>{err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}<div className="grid grid-cols-1 gap-4 md:grid-cols-2"><div className="md:col-span-2"><Field label="Summary"><textarea className={cn(input, "min-h-[100px]")} value={form.summary} onChange={(e) => setForm((p) => ({ ...p, summary: e.target.value }))} /></Field></div><div className="md:col-span-2"><Field label="Expected solution"><textarea className={cn(input, "min-h-[90px]")} value={form.expectedSolution} onChange={(e) => setForm((p) => ({ ...p, expectedSolution: e.target.value }))} /></Field></div><Field label="Pain points"><input className={input} value={form.painPoints} onChange={(e) => setForm((p) => ({ ...p, painPoints: e.target.value }))} /></Field><Field label="Decision maker"><input className={input} value={form.decisionMaker} onChange={(e) => setForm((p) => ({ ...p, decisionMaker: e.target.value }))} /></Field><Field label="Budget min"><input type="number" className={input} value={form.budgetMin} onChange={(e) => setForm((p) => ({ ...p, budgetMin: e.target.value }))} /></Field><Field label="Budget max"><input type="number" className={input} value={form.budgetMax} onChange={(e) => setForm((p) => ({ ...p, budgetMax: e.target.value }))} /></Field><Field label="Expected value"><input type="number" className={input} value={form.expectedValue} onChange={(e) => setForm((p) => ({ ...p, expectedValue: e.target.value }))} /></Field><Field label="Timeline"><input className={input} value={form.timeline} onChange={(e) => setForm((p) => ({ ...p, timeline: e.target.value }))} /></Field><div className="md:col-span-2"><Field label="Note"><textarea className={cn(input, "min-h-[80px]")} value={form.note} onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))} /></Field></div></div></ModalShell>
+}
+
+function FollowUpModal({ open, onClose, lead, onSaved }) {
+  const [form, setForm] = useState({ nextFollowUpAt: "", note: "", nextAction: "" })
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState("")
+  useEffect(() => { if (open) { setErr(""); setForm({ nextFollowUpAt: formatDateInput(lead?.nextFollowUpAt), note: "", nextAction: lead?.nextAction || "Follow up with this lead" }) } }, [open, lead])
+  const submit = async () => { setErr(""); if (!form.nextFollowUpAt) return setErr("Follow-up date is required."); setLoading(true); try { await apiSetFollowUp(getLeadId(lead), { nextFollowUpAt: new Date(form.nextFollowUpAt).toISOString(), note: form.note.trim(), nextAction: form.nextAction.trim() }); onSaved?.(); onClose?.() } catch (e) { setErr(e?.message || "Follow-up failed") } finally { setLoading(false) } }
+  return <ModalShell open={open} onClose={onClose} title="Set follow-up" subtitle={lead?.contact?.name || ""} icon={<FiCalendar className="h-5 w-5" />} maxWidthClass="max-w-xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : "Save follow-up"}</button></div>}>
+    {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
+    <div className="grid gap-4">
+      <Field label="Date & time *"><input type="datetime-local" className={input} value={form.nextFollowUpAt} onChange={(e) => setForm((p) => ({ ...p, nextFollowUpAt: e.target.value }))} /></Field>
+      <TemplateUseBox lead={lead} channel="general" purpose="follow_up" label="Insert follow-up template" onApply={(text) => setForm((p) => ({ ...p, note: appendTemplateText(p.note, text) }))} />
+      <Field label="Next action"><input className={input} value={form.nextAction} onChange={(e) => setForm((p) => ({ ...p, nextAction: e.target.value }))} /></Field>
+      <Field label="Note"><textarea className={cn(input, "min-h-[100px]")} value={form.note} onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))} /></Field>
+    </div>
+  </ModalShell>
+}
+
+function ActivityModal({ open, onClose, lead, onSaved, users = [] }) {
+  const [form, setForm] = useState({ type: "call", status: "pending", priority: "medium", title: "", body: "", scheduledAt: "", outcome: "", nextAction: "", nextActionDate: "", quickActionKey: "", activityResult: "", assignedTo: "" })
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState("")
+  useEffect(() => { if (open) { setErr(""); setForm({ type: "call", status: "pending", priority: lead?.priority || "medium", title: "", body: "", scheduledAt: "", outcome: "", nextAction: "", nextActionDate: "", quickActionKey: "", activityResult: "", assignedTo: typeof lead?.assignedTo === "string" ? lead.assignedTo : lead?.assignedTo?._id || "" }) } }, [open, lead])
+  const submit = async () => { setLoading(true); setErr(""); try { await apiCreateActivity({ leadId: getLeadId(lead), ...form, scheduledAt: form.scheduledAt ? new Date(form.scheduledAt).toISOString() : null, nextActionDate: form.nextActionDate ? new Date(form.nextActionDate).toISOString() : null, assignedTo: form.assignedTo || undefined }); onSaved?.(); onClose?.() } catch (e) { setErr(e?.message || "Activity create failed") } finally { setLoading(false) } }
+  return <ModalShell open={open} onClose={onClose} title="Create activity" subtitle={lead?.contact?.name || ""} icon={<FiActivity className="h-5 w-5" />} maxWidthClass="max-w-3xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Creating..." : "Create activity"}</button></div>}>
+    {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <Field label="Type"><select className={input} value={form.type} onChange={(e) => setForm((p) => ({ ...p, type: e.target.value }))}>{ACTIVITY_TYPES.map((x) => <option key={x}>{x}</option>)}</select></Field>
+      <Field label="Status"><select className={input} value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}>{ACTIVITY_STATUSES.map((x) => <option key={x}>{x}</option>)}</select></Field>
+      <Field label="Priority"><select className={input} value={form.priority} onChange={(e) => setForm((p) => ({ ...p, priority: e.target.value }))}>{PRIORITIES.map((x) => <option key={x}>{x}</option>)}</select></Field>
+      <Field label="Result"><select className={input} value={form.activityResult} onChange={(e) => setForm((p) => ({ ...p, activityResult: e.target.value }))}>{ACTIVITY_RESULTS.map((x) => <option key={x} value={x}>{x || "none"}</option>)}</select></Field>
+      <Field label="Title"><input className={input} value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} /></Field>
+      <Field label="Scheduled at"><input type="datetime-local" className={input} value={form.scheduledAt} onChange={(e) => setForm((p) => ({ ...p, scheduledAt: e.target.value }))} /></Field>
+      <Field label="Next action date"><input type="datetime-local" className={input} value={form.nextActionDate} onChange={(e) => setForm((p) => ({ ...p, nextActionDate: e.target.value }))} /></Field>
+      <UserSelect label="Assign activity to" value={form.assignedTo} users={users} onChange={(val) => setForm((p) => ({ ...p, assignedTo: val }))} placeholder="Use current user" />
+      <div className="md:col-span-2"><TemplateUseBox lead={lead} channel={templateChannelForActivity(form.type)} purpose={form.type === "task_followup" ? "follow_up" : "general"} label="Insert activity template" onApply={(text, meta) => setForm((p) => ({ ...p, title: p.title || meta?.rendered?.subject || p.title, body: appendTemplateText(p.body, text) }))} /></div>
+      <div className="md:col-span-2"><Field label="Outcome"><input className={input} value={form.outcome} onChange={(e) => setForm((p) => ({ ...p, outcome: e.target.value }))} /></Field></div>
+      <div className="md:col-span-2"><Field label="Body"><textarea className={cn(input, "min-h-[100px]")} value={form.body} onChange={(e) => setForm((p) => ({ ...p, body: e.target.value }))} /></Field></div>
+      <div className="md:col-span-2"><Field label="Next action"><textarea className={cn(input, "min-h-[80px]")} value={form.nextAction} onChange={(e) => setForm((p) => ({ ...p, nextAction: e.target.value }))} /></Field></div>
+    </div>
+  </ModalShell>
+}
+
+function ProposalModal({ open, onClose, lead, onSaved, users = [] }) {
+  const [form, setForm] = useState({ title: "", currency: "BDT", validTill: "", terms: "", notes: "", ownerId: "" })
+  const [items, setItems] = useState([{ nameSnapshot: "", description: "", qty: 1, unitPrice: 0, discount: 0 }])
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState("")
+  useEffect(() => { if (open) { setErr(""); setForm({ title: lead?.contact?.companyName ? `${lead.contact.companyName} Proposal` : "", currency: "BDT", validTill: "", terms: "", notes: "", ownerId: "" }); setItems([{ nameSnapshot: lead?.purchaseType || "", description: "", qty: 1, unitPrice: lead?.requirement?.expectedValue || 0, discount: 0 }]) } }, [open, lead])
+  const submit = async () => { setErr(""); if (!form.title.trim()) return setErr("Title is required."); setLoading(true); try { const data = await apiCreateProposal({ leadId: getLeadId(lead), customerId: lead?.customerId?._id || lead?.customerId || null, title: form.title.trim(), currency: form.currency.trim() || "BDT", validTill: form.validTill ? new Date(form.validTill).toISOString() : null, terms: form.terms.trim(), notes: form.notes.trim(), ownerId: form.ownerId.trim() || undefined, items }); onSaved?.(data?.lead || data?.data?.lead || data, data?.proposal || data?.data?.proposal); onClose?.() } catch (e) { setErr(e?.message || "Proposal create failed") } finally { setLoading(false) } }
+  return <ModalShell open={open} onClose={onClose} title="Create proposal / quotation" subtitle={lead?.contact?.name || ""} icon={<FiFileText className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Creating..." : "Create proposal"}</button></div>}>
+    {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <Field label="Title *"><input className={input} value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} /></Field>
+      <Field label="Currency"><input className={input} value={form.currency} onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value }))} /></Field>
+      <Field label="Valid till"><input type="date" className={input} value={form.validTill} onChange={(e) => setForm((p) => ({ ...p, validTill: e.target.value }))} /></Field>
+      <UserSelect label="Proposal owner" value={form.ownerId} users={users} onChange={(val) => setForm((p) => ({ ...p, ownerId: val }))} placeholder="Current logged-in user" />
+      <div className="md:col-span-2"><TemplateUseBox lead={lead} channel="proposal_note" purpose="proposal_sent" label="Insert proposal template" includeSubjectInText onApply={(text) => setForm((p) => ({ ...p, notes: appendTemplateText(p.notes, text) }))} /></div>
+      <div className="md:col-span-2"><Field label="Terms"><textarea className={cn(input, "min-h-[80px]")} value={form.terms} onChange={(e) => setForm((p) => ({ ...p, terms: e.target.value }))} /></Field></div>
+      <div className="md:col-span-2"><Field label="Notes"><textarea className={cn(input, "min-h-[80px]")} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></Field></div>
+      <div className="md:col-span-2"><ItemEditor items={items} setItems={setItems} showDescription /></div>
+    </div>
+  </ModalShell>
+}
+
+function DealModal({ open, onClose, lead, onSaved, users = [], onConvert }) {
+  const [form, setForm] = useState({ customerId: "", title: "", stage: "new", currency: "BDT", probability: 10, expectedCloseDate: "", proposalStatus: "none", ownerId: "", notes: "", nextDealAction: "", nextDealActionAt: "", stuckReason: "" })
+  const [items, setItems] = useState([{ nameSnapshot: "", qty: 1, unitPrice: 0, discount: 0 }])
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState("")
+  useEffect(() => { if (open) { setErr(""); setForm({ customerId: lead?.customerId?._id || lead?.customerId || lead?.convertedCustomer?._id || lead?.convertedCustomer || "", title: lead?.contact?.companyName ? `${lead.contact.companyName} Deal` : "", stage: lead?.pipelineStage === "negotiation" ? "negotiation" : lead?.pipelineStage === "proposal" ? "proposal" : "new", currency: "BDT", probability: lead?.pipelineStage === "negotiation" ? 70 : 10, expectedCloseDate: "", proposalStatus: "none", ownerId: "", notes: "", nextDealAction: "Work on this deal", nextDealActionAt: "", stuckReason: "" }); setItems([{ nameSnapshot: lead?.purchaseType || "", qty: 1, unitPrice: lead?.requirement?.expectedValue || 0, discount: 0 }]) } }, [open, lead])
+  const submit = async () => { setErr(""); if (!form.title.trim()) return setErr("Title is required."); if (!form.customerId.trim()) return setErr("Customer ID is required. Convert lead to customer first, then create deal."); setLoading(true); try { await apiCreateDeal({ leadId: getLeadId(lead), customerId: form.customerId.trim(), title: form.title.trim(), stage: form.stage, currency: form.currency.trim() || "BDT", items, probability: Number(form.probability || 10), expectedCloseDate: form.expectedCloseDate ? new Date(form.expectedCloseDate).toISOString() : null, proposalStatus: form.proposalStatus, ownerId: form.ownerId.trim() || undefined, notes: form.notes.trim(), nextDealAction: form.nextDealAction.trim(), nextDealActionAt: form.nextDealActionAt ? new Date(form.nextDealActionAt).toISOString() : null, stuckReason: form.stuckReason.trim(), requirementSnapshot: { summary: lead?.requirement?.summary || "", budgetMin: lead?.requirement?.budgetMin || 0, budgetMax: lead?.requirement?.budgetMax || 0, expectedValue: lead?.requirement?.expectedValue || 0, timeline: lead?.requirement?.timeline || "", decisionMaker: lead?.requirement?.decisionMaker || "" } }); onSaved?.(); onClose?.() } catch (e) { setErr(e?.message || "Deal create failed") } finally { setLoading(false) } }
+  return <ModalShell open={open} onClose={onClose} title="Create deal" subtitle={lead?.contact?.name || ""} icon={<FiBriefcase className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Creating..." : "Create deal"}</button></div>}>
+    {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
+    {!form.customerId ? <div className="mb-4 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800 sm:flex-row sm:items-center sm:justify-between"><span>Deal needs a converted customer. Convert this lead first, then create the deal.</span>{onConvert ? <button type="button" className={cn(btn, "bg-amber-600 text-white hover:bg-amber-700")} onClick={() => onConvert(lead)}><FiUserPlus className="h-4 w-4" />Convert now</button> : null}</div> : <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">Customer is linked automatically from this converted lead.</div>}
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <Field label="Linked customer"><input className={input} value={form.customerId ? "Converted customer linked" : "Not converted yet"} disabled readOnly /></Field>
+      <Field label="Title *"><input className={input} value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} /></Field>
+      <Field label="Stage"><select className={input} value={form.stage} onChange={(e) => setForm((p) => ({ ...p, stage: e.target.value }))}>{DEAL_STAGES.filter((x) => !["won", "lost"].includes(x)).map((x) => <option key={x}>{x}</option>)}</select></Field>
+      <Field label="Currency"><input className={input} value={form.currency} onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value }))} /></Field>
+      <Field label="Probability"><input type="number" min="0" max="100" className={input} value={form.probability} onChange={(e) => setForm((p) => ({ ...p, probability: e.target.value }))} /></Field>
+      <Field label="Expected close date"><input type="date" className={input} value={form.expectedCloseDate} onChange={(e) => setForm((p) => ({ ...p, expectedCloseDate: e.target.value }))} /></Field>
+      <Field label="Proposal status"><select className={input} value={form.proposalStatus} onChange={(e) => setForm((p) => ({ ...p, proposalStatus: e.target.value }))}>{PROPOSAL_STATUS_FOR_DEAL.map((x) => <option key={x}>{x}</option>)}</select></Field>
+      <UserSelect label="Deal owner" value={form.ownerId} users={users} onChange={(val) => setForm((p) => ({ ...p, ownerId: val }))} placeholder="Current logged-in user" />
+      <div className="md:col-span-2"><TemplateUseBox lead={lead} channel="proposal_note" purpose="general" label="Insert deal template" includeSubjectInText onApply={(text) => setForm((p) => ({ ...p, notes: appendTemplateText(p.notes, text) }))} /></div>
+      <Field label="Next deal action"><input className={input} value={form.nextDealAction} onChange={(e) => setForm((p) => ({ ...p, nextDealAction: e.target.value }))} /></Field>
+      <Field label="Next action at"><input type="datetime-local" className={input} value={form.nextDealActionAt} onChange={(e) => setForm((p) => ({ ...p, nextDealActionAt: e.target.value }))} /></Field>
+      <div className="md:col-span-2"><Field label="Stuck reason"><input className={input} value={form.stuckReason} onChange={(e) => setForm((p) => ({ ...p, stuckReason: e.target.value }))} /></Field></div>
+      <div className="md:col-span-2"><Field label="Notes"><textarea className={cn(input, "min-h-[90px]")} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></Field></div>
+      <div className="md:col-span-2"><ItemEditor items={items} setItems={setItems} /></div>
+    </div>
+  </ModalShell>
+}
+
+function ReasonModal({ open, onClose, title, subtitle, icon, actionLabel, danger = false, onSubmit }) {
+  const [reason, setReason] = useState("")
+  const [note, setNote] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState("")
+  useEffect(() => { if (open) { setReason(""); setNote(""); setErr("") } }, [open])
+  const submit = async () => { setErr(""); if (!reason.trim()) return setErr("Reason is required."); setLoading(true); try { await onSubmit?.({ reason: reason.trim(), note: note.trim() }); onClose?.() } catch (e) { setErr(e?.message || "Action failed") } finally { setLoading(false) } }
+  return <ModalShell open={open} onClose={onClose} title={title} subtitle={subtitle} icon={icon} maxWidthClass="max-w-xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, danger ? "bg-rose-600 text-white hover:bg-rose-700" : btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : actionLabel}</button></div>}>{err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}<div className="grid gap-4"><Field label="Reason *"><input className={input} value={reason} onChange={(e) => setReason(e.target.value)} /></Field><Field label="Extra note"><textarea className={cn(input, "min-h-[120px]")} value={note} onChange={(e) => setNote(e.target.value)} /></Field></div></ModalShell>
+}
+
+function ConfirmDeleteModal({ open, leadName, loading, onClose, onConfirm }) {
+  if (!open) return null
+  return <ModalShell open={open} onClose={onClose} title="Delete lead" subtitle="This action cannot be undone." icon={<FiAlertTriangle className="h-5 w-5" />} maxWidthClass="max-w-md" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, "bg-rose-600 text-white hover:bg-rose-700")} onClick={onConfirm} disabled={loading}>{loading ? "Deleting..." : "Delete"}</button></div>}><p className="text-sm text-gray-600">Are you sure you want to delete <span className="font-bold text-gray-900">{leadName || "this lead"}</span>?</p></ModalShell>
+}
+
+function QuickActionModal({ open, onClose, lead, onSaved }) {
+  const [form, setForm] = useState({ action: "call_done", note: "", outcome: "", nextAction: "", nextActionDate: "" })
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState("")
+  useEffect(() => { if (open) { setErr(""); setForm({ action: "call_done", note: "", outcome: "", nextAction: lead?.nextAction || "", nextActionDate: "" }) } }, [open, lead])
+  const submit = async () => { setErr(""); setLoading(true); try { await apiQuickAction({ leadId: getLeadId(lead), ...form, nextActionDate: form.nextActionDate ? new Date(form.nextActionDate).toISOString() : null }); onSaved?.(); onClose?.() } catch (e) { setErr(e?.message || "Quick action failed") } finally { setLoading(false) } }
+  const quickChannel = form.action.includes("whatsapp") ? "whatsapp" : form.action.includes("email") ? "email" : form.action.includes("meeting") ? "meeting" : form.action.includes("proposal") ? "proposal_note" : form.action.includes("call") ? "call_note" : "general"
+  const quickPurpose = form.action.includes("followup") ? "follow_up" : form.action.includes("proposal") ? "proposal_sent" : form.action.includes("not_interested") ? "lost_reason" : "general"
+  return <ModalShell open={open} onClose={onClose} title="Quick action" subtitle={lead?.contact?.name || ""} icon={<FiZap className="h-5 w-5" />} maxWidthClass="max-w-3xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : "Run action"}</button></div>}>
+    {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
+    <div className="grid gap-4">
+      <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-3 text-sm font-semibold text-amber-800">
+        Quick actions are for fast activity logging. Use the real Proposal modal/tab to create, send, accept or reject proposal records.
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{QUICK_ACTIONS.map(([key, text, Icon]) => {
+        const isProposalLog = ["proposal_requested", "proposal_sent"].includes(key)
+        const helper = key === "proposal_requested" ? "Logs that client asked for a proposal." : key === "proposal_sent" ? "Only logs activity; does not update proposal status." : ""
+        return <button key={key} type="button" className={cn("flex items-start gap-3 rounded-2xl border p-3 text-left transition", form.action === key ? "border-indigo-300 bg-indigo-50 text-indigo-700" : isProposalLog ? "border-amber-100 bg-amber-50/40 text-amber-900 hover:bg-amber-50" : "border-gray-100 bg-white text-gray-800 hover:bg-gray-50")} onClick={() => setForm((p) => ({ ...p, action: key }))}>
+          <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+          <span><span className="block text-sm font-bold">{text}</span>{helper ? <span className="mt-0.5 block text-xs font-semibold opacity-75">{helper}</span> : null}</span>
+        </button>
+      })}</div>
+      <TemplateUseBox lead={lead} channel={quickChannel} purpose={quickPurpose} label="Insert quick-action template" onApply={(text) => setForm((p) => ({ ...p, note: appendTemplateText(p.note, text) }))} />
+      <Field label="Note"><textarea className={cn(input, "min-h-[90px]")} value={form.note} onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))} /></Field>
+      <Field label="Outcome"><input className={input} value={form.outcome} onChange={(e) => setForm((p) => ({ ...p, outcome: e.target.value }))} /></Field>
+      <Field label="Next action"><input className={input} value={form.nextAction} onChange={(e) => setForm((p) => ({ ...p, nextAction: e.target.value }))} /></Field>
+      <Field label="Next action date"><input type="datetime-local" className={input} value={form.nextActionDate} onChange={(e) => setForm((p) => ({ ...p, nextActionDate: e.target.value }))} /></Field>
+    </div>
+  </ModalShell>
+}
+
+function AssignLeadModal({ open, onClose, lead, onSaved }) {
+  const [users, setUsers] = useState([])
+  const [assignedTo, setAssignedTo] = useState("")
+  const [lockOwner, setLockOwner] = useState(true)
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState("")
 
   useEffect(() => {
     if (!open) return
-    const onKey = (e) => e.key === "Escape" && setOpen(false)
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [open])
+    setErr("")
+    setAssignedTo(typeof lead?.assignedTo === "string" ? lead.assignedTo : lead?.assignedTo?._id || "")
+    setLockOwner(true)
+    apiAvailableAssignees({ role: "marketing_team" })
+      .then((d) => setUsers(normalizeApiList(d)))
+      .catch(() => setUsers([]))
+  }, [open, lead])
 
-  const item =
-    "w-full text-left px-3 py-2 rounded-xl hover:bg-gray-50 text-sm font-semibold text-gray-800 flex items-center gap-2 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/20"
+  const selectedUser = users.find((u) => String(u._id || u.id) === String(assignedTo))
+
+  const submit = async () => {
+    setErr("")
+    if (!assignedTo) return setErr("Select a marketing team member first.")
+    setLoading(true)
+    try {
+      await apiManualAssign({ leadId: getLeadId(lead), assignedTo, lockOwner })
+      onSaved?.()
+      onClose?.()
+    } catch (e) {
+      setErr(e?.message || "Assign failed")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return <ModalShell open={open} onClose={onClose} title="Assign marketing person" subtitle={lead?.contact?.name || "Choose who will handle this lead"} icon={<FiUserCheck className="h-5 w-5" />} maxWidthClass="max-w-2xl" footer={<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading || !assignedTo}>{loading ? "Assigning..." : "Assign lead"}</button></div>}>
+    {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
+
+    <div className="grid gap-4">
+      <Field label="Marketing team member">
+        <select className={input} value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
+          <option value="">Select marketing person</option>
+          {users.map((u) => <option key={u._id || u.id} value={u._id || u.id}>{u.name || u.email} {u.currentOpenLeadCount !== undefined ? `— open ${u.currentOpenLeadCount || 0}` : ""}</option>)}
+        </select>
+      </Field>
+
+      {selectedUser ? <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-sm font-black text-indigo-700 shadow-sm">{initials(selectedUser.name || selectedUser.email)}</div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-bold text-gray-900">{selectedUser.name || "Marketing user"}</p>
+            <p className="truncate text-xs text-gray-500">{selectedUser.email || "—"}</p>
+          </div>
+          <Badge value={selectedUser.workStatus || "available"} />
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600 sm:grid-cols-3">
+          <div className="rounded-xl bg-white p-3"><p className="font-semibold text-gray-500">Role</p><p className="mt-1 font-bold text-gray-900">{selectedUser.role || "marketing_team"}</p></div>
+          <div className="rounded-xl bg-white p-3"><p className="font-semibold text-gray-500">Open leads</p><p className="mt-1 font-bold text-gray-900">{selectedUser.currentOpenLeadCount || 0}</p></div>
+          <div className="rounded-xl bg-white p-3"><p className="font-semibold text-gray-500">Pending queue</p><p className="mt-1 font-bold text-gray-900">{selectedUser.currentPendingWorkQueueCount || 0}</p></div>
+        </div>
+      </div> : null}
+
+      <label className="flex items-start gap-3 rounded-2xl border border-gray-100 bg-white p-4 text-sm text-gray-700">
+        <input type="checkbox" className="mt-1" checked={lockOwner} onChange={(e) => setLockOwner(e.target.checked)} />
+        <span><span className="block font-bold text-gray-900">Lock this lead to selected person</span><span className="mt-1 block text-xs text-gray-500">Recommended for manual assignment, so the lead does not move to another owner accidentally.</span></span>
+      </label>
+
+      {!users.length ? <EmptyState icon={<FiUserCheck className="h-5 w-5" />} title="No available marketing team users" subtitle="Only active, available users with marketing_team role are shown here." /> : null}
+    </div>
+  </ModalShell>
+}
+
+function StageWorkGuide({ lead, onAction }) {
+  const stage = String(lead?.pipelineStage || "new")
+  const requirementReady = hasRequirementDetails(lead)
+  const proposalInfo = getProposalShortcutInfo(lead)
+  const proposalCount = getProposalCount(lead)
+  const guidance = getGuidedNextAction(stage)
+
+  if (!guidance && !["qualified", "discovery", "proposal"].includes(stage)) return null
+
+  const Icon = guidance?.icon || FiTarget
+  let title = "Stage work"
+  let text = "Keep this lead moving with the next required action."
+  let actionType = guidance?.type || "activity"
+  let actionLabel = guidance?.label || "Create activity"
+  let stateLabel = "Ready"
+
+  if (stage === "qualified") {
+    title = "Prepare discovery"
+    text = "Qualified lead is ready for requirement collection. Move next, then fill requirement details."
+    actionType = "nextStage"
+    actionLabel = "Move to Discovery"
+    stateLabel = "Qualification done"
+  }
+
+  if (stage === "discovery") {
+    title = requirementReady ? "Requirement captured" : "Requirement needed"
+    text = requirementReady ? "Requirement exists. You can review it or move to proposal when ready." : "Discovery stage should capture client requirement, budget, timeline and decision maker."
+    actionType = "requirement"
+    actionLabel = requirementReady ? "Review Requirement" : "Fill Requirement"
+    stateLabel = requirementReady ? "Completed" : "Required"
+  }
+
+  if (stage === "proposal") {
+    title = proposalCount ? "Proposal work" : "Proposal needed"
+    text = proposalInfo.helper || "Proposal stage should use the proposal modal so amount, items, valid date and notes stay linked with this lead."
+    actionType = proposalInfo.action || "proposal"
+    actionLabel = proposalInfo.label || (proposalCount ? "Manage Proposals" : "Create Proposal")
+    stateLabel = proposalCount ? `${proposalCount} proposal` : "Required"
+  }
 
   return (
-    <div className="relative flex items-center justify-end gap-2" ref={menuRef}>
-      <button onClick={onView} className={cn(btn, btnPrimary, "px-3.5 py-2")} title="View">
-        <FiEye className="w-4 h-4" />
-        View
-      </button>
-
-      <button onClick={() => setOpen((v) => !v)} className={iconBtn} aria-label="More actions" title="More">
-        <FiMoreVertical className="w-4 h-4 text-gray-700" />
-      </button>
-
-      <AnimatePresence>
-        {open ? (
-          <motion.div
-            initial={{ opacity: 0, y: 6, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 6, scale: 0.98 }}
-            className="absolute right-0 top-12 z-30 w-56 rounded-2xl border border-gray-100 bg-white shadow-xl p-2"
-          >
-            <button
-              className={item}
-              onClick={() => {
-                setOpen(false)
-                onEdit?.(lead)
-              }}
-            >
-              <FiEdit2 className="w-4 h-4 text-gray-500" /> Edit
-            </button>
-
-            <button
-              className={item}
-              onClick={() => {
-                setOpen(false)
-                onAddNote?.(lead)
-              }}
-            >
-              <FiFileText className="w-4 h-4 text-gray-500" /> Add note
-            </button>
-
-            <button
-              className={item}
-              onClick={() => {
-                setOpen(false)
-                onSetFollowUp?.(lead)
-              }}
-            >
-              <FiCalendar className="w-4 h-4 text-gray-500" /> Set follow-up
-            </button>
-
-            <button
-              disabled={busy}
-              className={cn(item, busy ? "opacity-60 cursor-not-allowed" : "")}
-              onClick={() => {
-                setOpen(false)
-                onMarkContacted?.(lead?._id)
-              }}
-            >
-              {busy ? (
-                <FiLoader className="w-4 h-4 text-gray-500 animate-spin" />
-              ) : (
-                <FiPhoneCall className="w-4 h-4 text-gray-500" />
-              )}
-              Mark contacted
-            </button>
-
-            <button
-              disabled={!canConvert || converting || converted}
-              className={cn(item, !canConvert || converting || converted ? "opacity-60 cursor-not-allowed" : "")}
-              onClick={() => {
-                if (!canConvert || converted) return
-                setOpen(false)
-                onConvert?.(lead?._id)
-              }}
-              title={!canConvert ? "Not allowed" : converted ? "Already converted" : "Convert"}
-            >
-              {converting ? (
-                <FiLoader className="w-4 h-4 text-indigo-600 animate-spin" />
-              ) : (
-                <FiUserPlus className="w-4 h-4 text-indigo-600" />
-              )}
-              {converted ? "Already converted" : "Convert to customer"}
-            </button>
-
-            <div className="my-1 border-t border-gray-100" />
-
-            <button
-              className={cn(item, "text-rose-700 hover:bg-rose-50")}
-              onClick={() => {
-                setOpen(false)
-                onDelete?.(lead)
-              }}
-            >
-              <FiTrash2 className="w-4 h-4" /> Delete
-            </button>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+    <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-indigo-700 shadow-sm">
+            <Icon className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-black text-gray-950">{title}</p>
+              <Badge value={stateLabel} />
+            </div>
+            <p className="mt-1 text-sm font-medium text-gray-600">{text}</p>
+          </div>
+        </div>
+        <button className={cn(btn, btnPrimary, "shrink-0 px-3 py-2")} disabled={stage === "proposal" && proposalInfo.disabled} onClick={() => onAction?.(actionType, lead)}>
+          {actionLabel}
+        </button>
+      </div>
     </div>
   )
 }
 
-/* =========================
-   MAIN PAGE (ADMINLEAD)
-========================= */
-export default function AdminLeadsPage({ onConvertedToCustomer }) {
-  const PAGE_SIZE = 25
-
-  const [leads, setLeads] = useState([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [isLoadingMore, setIsLoadingMore] = useState(false)
-  const [error, setError] = useState("")
-  const [nextCursor, setNextCursor] = useState(null)
-  const [hasMore, setHasMore] = useState(false)
-
-  const [selectedLeadId, setSelectedLeadId] = useState(null)
-
-  const [detailsRefreshTick, setDetailsRefreshTick] = useState(0)
-  const bumpDetailsRefresh = () => setDetailsRefreshTick((x) => x + 1)
-
-  const [filters, setFilters] = useState({
-    q: "",
-    status: "",
-    pipelineStage: "",
-    priority: "",
-    purchaseType: "",
-    source: "",
-    tag: "",
-    nextFollowUpFrom: "",
-    nextFollowUpTo: "",
-    lastContactedFrom: "",
-    lastContactedTo: "",
-  })
-
-  const EMPTY_DRAFT = useMemo(
-    () => ({
-      status: "",
-      pipelineStage: "",
-      priority: "",
-      purchaseType: "",
-      source: "",
-      tag: "",
-      nextFollowUpFrom: "",
-      nextFollowUpTo: "",
-      lastContactedFrom: "",
-      lastContactedTo: "",
-    }),
-    []
-  )
-
-  const [filtersOpen, setFiltersOpen] = useState(false)
-  const [draft, setDraft] = useState(EMPTY_DRAFT)
-
-  const [showCreate, setShowCreate] = useState(false)
-  const [editLead, setEditLead] = useState(null)
-  const [noteLead, setNoteLead] = useState(null)
-  const [followupLead, setFollowupLead] = useState(null)
-
-  const [deleteModal, setDeleteModal] = useState({ open: false, leadId: "", leadName: "" })
-  const [deleteLoading, setDeleteLoading] = useState(false)
-
-  const [convertLoadingId, setConvertLoadingId] = useState(null)
-  const [busyId, setBusyId] = useState(null)
-
-  const [toast, setToast] = useState({ open: false, type: "success", message: "" })
-  const showToast = (type, message) => {
-    setToast({ open: true, type, message })
-    window.clearTimeout(showToast._t)
-    showToast._t = window.setTimeout(() => setToast({ open: false, type: "success", message: "" }), 2200)
-  }
-
-  const abortRef = useRef(null)
-
-  /* ===== Columns state (server-backed) ===== */
-  const [colsOpen, setColsOpen] = useState(false)
-  const [allowedCols, setAllowedCols] = useState([])
-  const [selectedCols, setSelectedCols] = useState([])
-  const prefAbortRef = useRef(null)
-
-  // Optional: basic role gating. Backend still enforces.
-  const canConvert = useMemo(() => {
-    const role = String(localStorage.getItem("role") || "").toLowerCase()
-    if (!role) return true
-    return role !== "marketing_team"
-  }, [])
-
-  const activeFilterCount = useMemo(
-    () =>
-      Object.entries(filters || {})
-        .filter(([k, v]) => k !== "q" && String(v || "").trim())
-        .length,
-    [filters]
-  )
-
-  const filterLabelMap = useMemo(
-    () => ({
-      status: "Status",
-      pipelineStage: "Stage",
-      priority: "Priority",
-      purchaseType: "Purchase",
-      source: "Source",
-      tag: "Tag",
-      nextFollowUpFrom: "FU From",
-      nextFollowUpTo: "FU To",
-      lastContactedFrom: "LC From",
-      lastContactedTo: "LC To",
-    }),
-    []
-  )
-
-  const activeFilterEntries = useMemo(() => {
-    return Object.entries(filters || [])
-      .filter(([k]) => k !== "q")
-      .filter(([, v]) => String(v || "").trim())
-      .map(([k, v]) => ({ key: k, label: filterLabelMap[k] || k, value: v }))
-  }, [filters, filterLabelMap])
-
-  const buildParams = () => {
-    const p = {}
-    if (filters.status) p.status = filters.status
-    if (filters.pipelineStage) p.pipelineStage = filters.pipelineStage
-    if (filters.priority) p.priority = filters.priority
-    if (filters.purchaseType) p.purchaseType = filters.purchaseType
-    if (filters.source) p.source = filters.source
-    if (filters.tag) p.tag = filters.tag
-    if (filters.q) p.q = filters.q
-    if (filters.nextFollowUpFrom) p.nextFollowUpFrom = filters.nextFollowUpFrom
-    if (filters.nextFollowUpTo) p.nextFollowUpTo = filters.nextFollowUpTo
-    if (filters.lastContactedFrom) p.lastContactedFrom = filters.lastContactedFrom
-    if (filters.lastContactedTo) p.lastContactedTo = filters.lastContactedTo
-    return p
-  }
-
-  const fieldsParam = useMemo(() => {
-    return Array.isArray(selectedCols) && selectedCols.length ? selectedCols.join(",") : ""
-  }, [selectedCols])
-
-  const fetchViewPrefs = async () => {
-    if (prefAbortRef.current) prefAbortRef.current.abort()
-    const controller = new AbortController()
-    prefAbortRef.current = controller
-    try {
-      const data = await apiGetViewPref(controller.signal)
-      if (data?.notModified) return
-      const allowed = Array.isArray(data?.allowedColumns) ? data.allowedColumns : []
-      const columns = Array.isArray(data?.columns) ? data.columns : []
-      setAllowedCols(allowed)
-      setSelectedCols(columns.length ? columns : allowed)
-    } catch (e) {
-      setAllowedCols([
-        "leadNumber",
-        "contact.name",
-        "contact.companyName",
-        "status",
-        "pipelineStage",
-        "priority",
-        "purchaseType",
-        "nextFollowUpAt",
-        "lastContactedAt",
-        "source",
-        "createdAt",
-        "updatedAt",
-      ])
-      setSelectedCols((prev) =>
-        prev.length ? prev : ["leadNumber", "status", "pipelineStage", "priority", "nextFollowUpAt"]
-      )
-    }
-  }
-
-  const fetchLeadsPage = async ({ reset = false, forceFields } = {}) => {
-    if (abortRef.current) abortRef.current.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
-
-    if (reset) {
-      setIsLoading(true)
-      setLeads([])
-      setNextCursor(null)
-      setHasMore(false)
-    } else {
-      setIsLoadingMore(true)
-    }
-
-    setError("")
-    try {
-      const data = await apiListLeads({
-        limit: PAGE_SIZE,
-        cursor: reset ? null : nextCursor,
-        params: buildParams(),
-        fields: typeof forceFields === "string" ? forceFields : fieldsParam,
-        signal: controller.signal,
-      })
-
-      const items = Array.isArray(data?.items)
-        ? data.items
-        : Array.isArray(data?.leads)
-        ? data.leads
-        : Array.isArray(data?.results)
-        ? data.results
-        : []
-
-      const page = data?.pageInfo || {}
-      const nc = page?.nextCursor ?? data?.nextCursor ?? null
-      const hm = page?.hasNextPage ?? data?.hasMore ?? false
-
-      setLeads((prev) => (reset ? items : [...prev, ...items]))
-      setNextCursor(nc)
-      setHasMore(!!hm)
-    } catch (e) {
-      if (e?.name !== "AbortError") setError(e?.message || "Failed to load leads.")
-    } finally {
-      setIsLoading(false)
-      setIsLoadingMore(false)
-    }
-  }
-
-  const saveViewPrefs = async (cols) => {
-    const data = await apiSaveViewPref(cols)
-    const allowed = Array.isArray(data?.allowedColumns) ? data.allowedColumns : allowedCols
-    const columns = Array.isArray(data?.columns) ? data.columns : cols
-    setAllowedCols(allowed)
-    setSelectedCols(columns)
-    showToast("success", cols?.length ? "Columns saved." : "Reset to default columns.")
-    await fetchLeadsPage({ reset: true, forceFields: columns.join(",") })
-  }
-
-  useEffect(() => {
-    fetchViewPrefs()
-    fetchLeadsPage({ reset: true })
-    return () => {
-      abortRef.current?.abort?.()
-      prefAbortRef.current?.abort?.()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  useEffect(() => {
-    fetchLeadsPage({ reset: true })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(filters), fieldsParam])
-
-  const openFilters = () => {
-    setDraft({
-      ...EMPTY_DRAFT,
-      status: filters.status,
-      pipelineStage: filters.pipelineStage,
-      priority: filters.priority,
-      purchaseType: filters.purchaseType,
-      source: filters.source,
-      tag: filters.tag,
-      nextFollowUpFrom: filters.nextFollowUpFrom,
-      nextFollowUpTo: filters.nextFollowUpTo,
-      lastContactedFrom: filters.lastContactedFrom,
-      lastContactedTo: filters.lastContactedTo,
-    })
-    setFiltersOpen(true)
-  }
-
-  const clearFilters = () => {
-    setFilters({
-      q: "",
-      status: "",
-      pipelineStage: "",
-      priority: "",
-      purchaseType: "",
-      source: "",
-      tag: "",
-      nextFollowUpFrom: "",
-      nextFollowUpTo: "",
-      lastContactedFrom: "",
-      lastContactedTo: "",
-    })
-  }
-
-  const applyDraft = () => {
-    setFilters((p) => ({ ...p, ...draft }))
-    setFiltersOpen(false)
-  }
-
-  const removeOneFilter = (key) => setFilters((p) => ({ ...p, [key]: "" }))
-
-  const requestDelete = (lead) => {
-    setDeleteModal({
-      open: true,
-      leadId: lead?._id || "",
-      leadName: lead?.contact?.name || "this lead",
-    })
-  }
-
-  const confirmDelete = async () => {
-    if (!deleteModal.leadId) return
-    setDeleteLoading(true)
-    try {
-      await apiDeleteLead(deleteModal.leadId)
-      showToast("success", "Lead deleted.")
-      setDeleteModal((p) => ({ ...p, open: false }))
-      if (selectedLeadId === deleteModal.leadId) setSelectedLeadId(null)
-      await fetchLeadsPage({ reset: true })
-      bumpDetailsRefresh()
-    } catch (e) {
-      showToast("error", e?.message || "Delete failed")
-    } finally {
-      setDeleteLoading(false)
-    }
-  }
-
-  const doMarkContacted = async (leadId) => {
-    if (!leadId) return
-    setBusyId(leadId)
-    try {
-      await apiMarkContacted(leadId)
-      showToast("success", "Lead marked as contacted.")
-      await fetchLeadsPage({ reset: true })
-      bumpDetailsRefresh()
-    } catch (e) {
-      showToast("error", e?.message || "Failed")
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const doConvert = async (leadId) => {
-    if (!leadId) return
-    if (!canConvert) {
-      showToast("error", "You are not allowed to convert leads.")
-      return
-    }
-
-    setConvertLoadingId(leadId)
-    try {
-      const data = await apiConvertLead(leadId)
-
-      // ✅ UPDATED: safer extraction of customer id
-      const customerId =
-        data?.customerId || data?.customer?._id || data?.convertedCustomerId || data?.convertedCustomer?._id || null
-
-      showToast("success", "Converted successfully.")
-      await fetchLeadsPage({ reset: true })
-      bumpDetailsRefresh()
-
-      if (customerId) onConvertedToCustomer?.(customerId)
-    } catch (e) {
-      showToast("error", e?.message || "Convert failed")
-    } finally {
-      setConvertLoadingId(null)
-    }
-  }
-
-  const disableLoadMore = isLoadingMore || isLoading || !hasMore
-
-  const afterMutate = async () => {
-    await fetchLeadsPage({ reset: true })
-    bumpDetailsRefresh()
-  }
-
-  /* =========================
-     ✅ EXCEL EXPORT (selected columns only)
-========================= */
-  const exportToExcel = () => {
-    try {
-      if (!Array.isArray(leads) || leads.length === 0) {
-        showToast("error", "No data to export.")
-        return
-      }
-
-      const colsToExport =
-        Array.isArray(selectedCols) && selectedCols.length
-          ? selectedCols
-          : ["leadNumber", "status", "pipelineStage", "priority", "nextFollowUpAt"]
-
-      const headerMap = {
-        leadNumber: "Lead No",
-        "contact.name": "Contact Name",
-        "contact.companyName": "Company",
-        "contact.phone": "Phone",
-        "contact.email": "Email",
-        status: "Status",
-        pipelineStage: "Stage",
-        priority: "Priority",
-        purchaseType: "Purchase Type",
-        nextFollowUpAt: "Next Follow-up",
-        lastContactedAt: "Last Contacted",
-        source: "Source",
-        createdAt: "Created",
-        updatedAt: "Updated",
-        tags: "Tags",
-      }
-
-      const getByPath = (obj, path) => {
-        if (!obj || !path) return ""
-        if (!String(path).includes(".")) return obj?.[path]
-        return String(path)
-          .split(".")
-          .reduce((acc, k) => (acc && acc[k] !== undefined ? acc[k] : undefined), obj)
-      }
-
-      const normalizeValue = (key, val) => {
-        if (val === undefined || val === null) return ""
-        if (key === "tags") {
-          const arr = Array.isArray(val) ? val : []
-          return arr.join(", ")
-        }
-        if (key === "nextFollowUpAt" || key === "lastContactedAt" || key === "createdAt" || key === "updatedAt") {
-          return val ? formatDate(val) : ""
-        }
-        if (typeof val === "object") return JSON.stringify(val)
-        return String(val)
-      }
-
-      const rows = leads.map((l) => {
-        const out = {}
-        colsToExport.forEach((key) => {
-          const raw = getByPath(l, key)
-          out[headerMap[key] || key] = normalizeValue(key, raw)
-        })
-        return out
-      })
-
-      const ws = XLSX.utils.json_to_sheet(rows)
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, "Deals")
-
-      const fileName = `deals_export_${new Date().toISOString().slice(0, 10)}.xlsx`
-      XLSX.writeFile(wb, fileName)
-
-      showToast("success", "Excel exported.")
-    } catch (e) {
-      showToast("error", e?.message || "Export failed")
-    }
-  }
-
-  /* ===== Dynamic table columns mapping ===== */
-  const columnDefs = useMemo(() => {
-    return {
-      leadNumber: {
-        label: "Lead",
-        render: (l) => {
-          const no = l?.leadNumber || "—"
-          const name = l?.contact?.name || "Unnamed"
-          const company = l?.contact?.companyName || "—"
-          const converted = isConvertedLead(l)
-
-          return (
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
-                <span className="text-sm font-bold text-indigo-700">{initials(name)}</span>
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <p className="font-semibold text-gray-900 truncate">{name}</p>
-                  {converted ? (
-                    <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>Converted</span>
-                  ) : null}
-                </div>
-                <p className="text-xs text-gray-500 mt-0.5 truncate">
-                  <span className="text-gray-400">No:</span>{" "}
-                  <span className="font-semibold text-gray-700 font-mono">{no}</span>
-                  <span className="mx-2 text-gray-300">•</span>
-                  <span className="text-gray-400">Company:</span>{" "}
-                  <span className="font-semibold text-gray-700">{company}</span>
-                </p>
-              </div>
-            </div>
-          )
-        },
-      },
-
-      "contact.name": {
-        label: "Lead",
-        render: (l) => {
-          const name = l?.contact?.name || "Unnamed"
-          const company = l?.contact?.companyName || "—"
-          const source = l?.source || ""
-          const converted = isConvertedLead(l)
-
-          return (
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center">
-                <span className="text-sm font-bold text-indigo-700">{initials(name)}</span>
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <p className="font-semibold text-gray-900 truncate">{name}</p>
-                  {converted ? (
-                    <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>Converted</span>
-                  ) : null}
-                </div>
-                <p className="text-xs text-gray-500 mt-0.5 truncate">
-                  <span className="text-gray-400">Company:</span>{" "}
-                  <span className="font-semibold text-gray-700">{company}</span>
-                  {source ? (
-                    <>
-                      <span className="mx-2 text-gray-300">•</span>
-                      <span className="text-gray-400">Source:</span>{" "}
-                      <span className="font-semibold text-gray-700">{source}</span>
-                    </>
-                  ) : null}
-                </p>
-              </div>
-            </div>
-          )
-        },
-      },
-
-      status: { label: "Status", render: (l) => <LeadStatusBadge status={l?.status} /> },
-      pipelineStage: { label: "Stage", render: (l) => <StageBadge stage={l?.pipelineStage} /> },
-      priority: { label: "Priority", render: (l) => <PriorityBadge priority={l?.priority} /> },
-      purchaseType: {
-        label: "Purchase Type",
-        render: (l) => <span className="text-sm font-semibold text-gray-900">{l?.purchaseType || "—"}</span>,
-      },
-      nextFollowUpAt: {
-        label: "Follow-up",
-        render: (l) => (
-          <div className="flex flex-col">
-            <span className="font-semibold text-gray-900">{formatDate(l?.nextFollowUpAt)}</span>
-            <span className="text-xs text-gray-500">Last contacted: {formatDate(l?.lastContactedAt)}</span>
-          </div>
-        ),
-      },
-      lastContactedAt: {
-        label: "Last Contacted",
-        render: (l) => <span className="text-sm text-gray-700">{formatDate(l?.lastContactedAt)}</span>,
-      },
-      source: { label: "Source", render: (l) => <span className="text-sm text-gray-700">{l?.source || "—"}</span> },
-      createdAt: { label: "Created", render: (l) => <span className="text-sm text-gray-700">{formatDate(l?.createdAt)}</span> },
-      updatedAt: { label: "Updated", render: (l) => <span className="text-sm text-gray-700">{formatDate(l?.updatedAt)}</span> },
-      "contact.companyName": {
-        label: "Company",
-        render: (l) => <span className="text-sm font-semibold text-gray-900">{l?.contact?.companyName || "—"}</span>,
-      },
-      "contact.phone": { label: "Phone", render: (l) => <span className="text-sm text-gray-700">{l?.contact?.phone || "—"}</span> },
-      "contact.email": { label: "Email", render: (l) => <span className="text-sm text-gray-700 break-all">{l?.contact?.email || "—"}</span> },
-      tags: {
-        label: "Tags",
-        render: (l) => {
-          const tags = Array.isArray(l?.tags) ? l.tags : []
-          if (!tags.length) return <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>No tags</span>
-          return (
-            <div className="flex flex-wrap gap-1.5">
-              {tags.slice(0, 3).map((t) => (
-                <span key={String(t)} className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>
-                  {String(t)}
-                </span>
-              ))}
-              {tags.length > 3 ? (
-                <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>+{tags.length - 3}</span>
-              ) : null}
-            </div>
-          )
-        },
-      },
-    }
-  }, [])
-
-  const visibleCols = useMemo(() => {
-    const base =
-      Array.isArray(selectedCols) && selectedCols.length
-        ? selectedCols
-        : ["leadNumber", "status", "pipelineStage", "priority", "nextFollowUpAt"]
-
-    const unique = [...new Set(base)]
-    const firstKey = unique.includes("leadNumber") ? "leadNumber" : unique.includes("contact.name") ? "contact.name" : unique[0]
-    const ordered = firstKey ? [firstKey, ...unique.filter((c) => c !== firstKey)] : unique
-
-    return ordered.filter((c) => !!columnDefs[c])
-  }, [selectedCols, columnDefs])
-
+function RequirementOverview({ lead, onAction }) {
+  const r = lead?.requirement || {}
+  const ready = hasRequirementDetails(lead)
   return (
-    <div className={shell}>
-      <AnimatePresence>
-        <Toast
-          open={toast.open}
-          type={toast.type}
-          message={toast.message}
-          onClose={() => setToast({ open: false, type: "success", message: "" })}
-        />
-      </AnimatePresence>
-
-      <ConfirmDeleteModal
-        open={deleteModal.open}
-        title="Delete lead?"
-        description={`This will permanently delete "${deleteModal.leadName}". This cannot be undone.`}
-        confirmText="Delete"
-        loading={deleteLoading}
-        onClose={() => {
-          if (deleteLoading) return
-          setDeleteModal((p) => ({ ...p, open: false }))
-        }}
-        onConfirm={confirmDelete}
-      />
-
-      <AnimatePresence>
-        {filtersOpen ? (
-          <FiltersModal
-            open={filtersOpen}
-            onClose={() => setFiltersOpen(false)}
-            draft={draft}
-            setDraft={setDraft}
-            onApply={applyDraft}
-            onClearDraft={() => setDraft(EMPTY_DRAFT)}
-            activeSummary={
-              <div className="text-sm text-gray-700">
-                <p className="font-bold text-gray-900">Selected filters</p>
-                <p className="text-xs text-gray-500 mt-1">Tap Apply to refresh the list.</p>
-
-                <div className="mt-3">
-                  {Object.entries(draft || {}).filter(([, v]) => String(v || "").trim()).length === 0 ? (
-                    <span className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>No filters selected</span>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {Object.entries(draft || {})
-                        .filter(([, v]) => String(v || "").trim())
-                        .slice(0, 10)
-                        .map(([k, v]) => (
-                          <span key={k} className={cn(chip, "bg-gray-50 text-gray-700 ring-gray-200")}>
-                            <span className="text-gray-500">{k}:</span> <span className="font-bold">{String(v)}</span>
-                          </span>
-                        ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            }
-          />
-        ) : null}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {colsOpen ? (
-          <ColumnPickerModal
-            open={colsOpen}
-            onClose={() => setColsOpen(false)}
-            allowed={allowedCols}
-            selected={selectedCols}
-            onSave={saveViewPrefs}
-          />
-        ) : null}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {showCreate ? (
-          <LeadUpsertModal open={showCreate} mode="create" onClose={() => setShowCreate(false)} onSaved={afterMutate} />
-        ) : null}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {!!editLead ? (
-          <LeadUpsertModal
-            open={!!editLead}
-            mode="edit"
-            initial={editLead}
-            onClose={() => setEditLead(null)}
-            onSaved={afterMutate}
-          />
-        ) : null}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {!!noteLead ? <NoteModal open={!!noteLead} lead={noteLead} onClose={() => setNoteLead(null)} onAdded={afterMutate} /> : null}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {!!followupLead ? (
-          <FollowUpModal
-            open={!!followupLead}
-            lead={followupLead}
-            onClose={() => setFollowupLead(null)}
-            onSaved={afterMutate}
-          />
-        ) : null}
-      </AnimatePresence>
-
-      {selectedLeadId ? (
-        <LeadDetailsPage
-          leadId={selectedLeadId}
-          refreshTick={detailsRefreshTick}
-          onBack={() => {
-            setSelectedLeadId(null)
-            fetchLeadsPage({ reset: true })
-          }}
-          onEdit={(lead) => setEditLead(lead)}
-          onAddNote={(lead) => setNoteLead(lead)}
-          onSetFollowUp={(lead) => setFollowupLead(lead)}
-          onMarkContacted={(id) => doMarkContacted(id)}
-          onConvert={(id) => doConvert(id)}
-          onDelete={(lead) => requestDelete(lead)}
-          showToast={showToast}
-        />
-      ) : (
-        <div className="p-4 sm:p-6 lg:p-8">
-          {/* HEADER */}
-          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
-            <div className={cn(card, "p-5 sm:p-6")}>
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className="bg-indigo-600 w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-sm">
-                      <FiUserPlus className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Deals</h1>
-                      <p className="text-sm text-gray-500">Dynamic columns • Server-optimized list</p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>
-                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-600/60" />
-                      Loaded: {leads.length}
-                    </span>
-
-                    <button onClick={() => setColsOpen(true)} className={cn(btn, btnGhost)} title="Columns">
-                      <FiColumns className="w-4 h-4" />
-                      Columns
-                    </button>
-
-                    {/* ✅ EXCEL EXPORT BUTTON */}
-                    <button
-                      onClick={exportToExcel}
-                      disabled={isLoading || leads.length === 0}
-                      className={cn(
-                        btn,
-                        "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm disabled:opacity-60",
-                        "focus-visible:ring-2 focus-visible:ring-emerald-500/40"
-                      )}
-                      title="Export Excel"
-                    >
-                      <span className="w-4 h-4 rounded-xl bg-white/15 flex items-center justify-center">
-                        <SiMicrosoftexcel className="w-5 h-5 text-white" />
-                      </span>
-                      Export
-                    </button>
-
-                    <button onClick={() => fetchLeadsPage({ reset: true })} className={cn(btn, btnGhost)} title="Refresh">
-                      <FiRefreshCcw className={cn("w-4 h-4", isLoading ? "animate-spin" : "")} />
-                      Refresh
-                    </button>
-
-                    <button onClick={() => setShowCreate(true)} className={cn(btn, btnPrimary)}>
-                      <FiPlus className="w-4 h-4" />
-                      Create
-                    </button>
-                  </div>
-                </div>
-
-                {/* SEARCH BAR */}
-                <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
-                  <div className="w-full lg:w-2/3">
-                    <div className={searchWrap}>
-                      <FiSearch className="w-4 h-4 text-gray-400 shrink-0" />
-
-                      {activeFilterEntries.map((f) => (
-                        <FilterChip key={f.key} label={f.label} value={f.value} onRemove={() => removeOneFilter(f.key)} />
-                      ))}
-
-                      <input
-                        type="search"
-                        value={filters.q}
-                        onChange={(e) => setFilters((p) => ({ ...p, q: e.target.value }))}
-                        placeholder="Search by name, company, phone, email..."
-                        className={searchInput}
-                      />
-
-                      <button
-                        type="button"
-                        onClick={openFilters}
-                        className={cn(
-                          "relative shrink-0 h-8 w-8 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition",
-                          "flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
-                        )}
-                        aria-label="Open filters"
-                        title="Filters"
-                      >
-                        <FiFilter className="w-4 h-4 text-gray-700" />
-                        {activeFilterCount ? (
-                          <span className="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center">
-                            {activeFilterCount}
-                          </span>
-                        ) : null}
-                      </button>
-
-                      {(activeFilterCount || filters.q) ? (
-                        <button
-                          type="button"
-                          onClick={clearFilters}
-                          className={cn(
-                            "shrink-0 h-8 w-8 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 transition",
-                            "flex items-center justify-center focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
-                          )}
-                          aria-label="Clear"
-                          title="Clear"
-                        >
-                          <FiX className="w-4 h-4 text-gray-700" />
-                        </button>
-                      ) : null}
-                    </div>
-
-                    <p className="mt-2 text-xs text-gray-500">
-                      Filters show inside the search bar. Click any chip <span className="font-bold">×</span> to remove it.
-                    </p>
-                  </div>
-
-                  <div className="text-sm text-gray-600">
-                    Showing <span className="font-bold text-gray-900">{leads.length}</span> deal(s)
-                  </div>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-
-          {error ? (
-            <div className="mb-6 p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 flex items-start gap-2">
-              <FiAlertCircle className="w-5 h-5 mt-0.5" />
-              <span className="text-sm font-semibold">{error}</span>
-            </div>
-          ) : null}
-
-          {/* TABLE */}
-          <div className={cn(card, "overflow-hidden")}>
-            <div className="max-h-[65vh] overflow-y-auto">
-              <table className="w-full">
-                <thead className="sticky top-0 z-10 bg-white/85 backdrop-blur border-b border-gray-100">
-                  <tr>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">No.</th>
-
-                    {visibleCols.map((c) => (
-                      <th key={c} className="px-6 py-4 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">
-                        {columnDefs[c]?.label || c}
-                      </th>
-                    ))}
-
-                    <th className="px-6 py-4 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-
-                <tbody className="divide-y divide-gray-100">
-                  <AnimatePresence>
-                    {isLoading && leads.length === 0 ? (
-                      [...Array(8)].map((_, idx) => (
-                        <tr key={idx} className="animate-pulse">
-                          <td className="px-6 py-4">
-                            <div className="h-4 w-10 bg-gray-200 rounded" />
-                          </td>
-                          {[...Array(Math.max(visibleCols.length, 2))].map((__, i) => (
-                            <td key={i} className="px-6 py-4">
-                              <div className="h-4 w-full max-w-[12rem] bg-gray-200 rounded" />
-                            </td>
-                          ))}
-                          <td className="px-6 py-4">
-                            <div className="h-9 w-24 bg-gray-200 rounded-xl ml-auto" />
-                          </td>
-                        </tr>
-                      ))
-                    ) : leads.length > 0 ? (
-                      leads.map((l, index) => {
-                        const busy = busyId === l._id
-                        const converting = convertLoadingId === l._id
-                        return (
-                          <motion.tr
-                            key={l?._id || `lead-${index}`}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className={subtleHover}
-                          >
-                            <td className="px-6 py-5 text-sm text-gray-500">{index + 1}</td>
-
-                            {visibleCols.map((c) => (
-                              <td key={`${l?._id}-${c}`} className="px-6 py-5 align-top">
-                                {columnDefs[c]?.render?.(l) ?? <span className="text-sm text-gray-700">—</span>}
-                              </td>
-                            ))}
-
-                            <td className="px-6 py-5">
-                              <RowActionsMenu
-                                lead={l}
-                                busy={busy}
-                                converting={converting}
-                                canConvert={canConvert}
-                                onView={() => setSelectedLeadId(l._id)}
-                                onEdit={(lead) => setEditLead(lead)}
-                                onAddNote={(lead) => setNoteLead(lead)}
-                                onSetFollowUp={(lead) => setFollowupLead(lead)}
-                                onMarkContacted={(id) => doMarkContacted(id)}
-                                onConvert={(id) => doConvert(id)}
-                                onDelete={(lead) => requestDelete(lead)}
-                              />
-                            </td>
-                          </motion.tr>
-                        )
-                      })
-                    ) : (
-                      <tr>
-                        <td colSpan={visibleCols.length + 2} className="px-6 py-12 text-center text-gray-500">
-                          No deals found.
-                        </td>
-                      </tr>
-                    )}
-                  </AnimatePresence>
-                </tbody>
-              </table>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3 justify-between items-center p-4 text-sm text-gray-600 border-t border-gray-100 bg-white">
-              <span>
-                Loaded: <span className="font-bold text-gray-900">{leads.length}</span>
-              </span>
-
-              <div className="flex items-center gap-2">
-                <button onClick={() => fetchLeadsPage({ reset: true })} className={cn(btn, btnGhost, "px-4 py-2")}>
-                  Refresh list
-                </button>
-
-                <button
-                  onClick={() => fetchLeadsPage({ reset: false })}
-                  disabled={disableLoadMore}
-                  className={cn(btn, btnPrimary, "px-4 py-2 disabled:opacity-60")}
-                  title={hasMore ? "Load next page" : "No more deals"}
-                >
-                  {isLoadingMore ? <FiLoader className="w-4 h-4 animate-spin" /> : null}
-                  {hasMore ? "Load more" : "No more"}
-                </button>
-              </div>
-            </div>
-          </div>
+    <div className="rounded-2xl border border-gray-100 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-black text-gray-950">Requirement / Discovery</p>
+          <p className="text-xs font-semibold text-gray-500">Client need, budget and decision info</p>
         </div>
+        <button className={cn(btn, ready ? btnGhost : btnPrimary, "px-3 py-2")} onClick={() => onAction?.("requirement", lead)}>
+          {ready ? "Edit" : "Add"}
+        </button>
+      </div>
+      {ready ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          <DetailRow label="Summary" value={r.summary} />
+          <DetailRow label="Expected solution" value={r.expectedSolution} />
+          <DetailRow label="Budget" value={`${formatMoney(r.budgetMin || 0)} - ${formatMoney(r.budgetMax || 0)}`} />
+          <DetailRow label="Expected value" value={formatMoney(r.expectedValue || 0)} />
+          <DetailRow label="Timeline" value={r.timeline} />
+          <DetailRow label="Decision maker" value={r.decisionMaker} />
+          <div className="md:col-span-2"><DetailRow label="Pain points" value={Array.isArray(r.painPoints) && r.painPoints.length ? r.painPoints.join(", ") : "—"} /></div>
+        </div>
+      ) : (
+        <EmptyState icon={<FiTarget className="h-5 w-5" />} title="No requirement captured yet" subtitle="When the lead reaches Discovery, add requirement details from here." />
       )}
     </div>
   )
+}
+
+function LeadNotesOverview({ lead, onAction }) {
+  const notes = getLatestLeadNotes(lead, 5)
+  return (
+    <div className="rounded-2xl border border-gray-100 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-black text-gray-950">Latest Notes</p>
+          <p className="text-xs font-semibold text-gray-500">Stage reason, activity notes and manual notes</p>
+        </div>
+        <button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onAction?.("note", lead)}>Add Note</button>
+      </div>
+      {notes.length ? (
+        <div className="space-y-2">
+          {notes.map((note, index) => (
+            <div key={note._id || `${note.createdAt || "note"}-${index}`} className="rounded-2xl border border-gray-100 bg-gray-50 p-3">
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <Badge value={note.type || "note"} />
+                <span className="text-xs font-semibold text-gray-400">{formatDate(note.createdAt, true)}</span>
+              </div>
+              <p className="text-sm font-semibold text-gray-800">{note.note || note.reason || "—"}</p>
+              {note.oldStage || note.newStage ? <p className="mt-1 text-xs font-semibold text-gray-500">{note.oldStage || "—"} → {note.newStage || "—"}</p> : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState icon={<FiFileText className="h-5 w-5" />} title="No notes yet" subtitle="Add notes or update stages to build the lead history." />
+      )}
+    </div>
+  )
+}
+
+function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initialTab = "overview" }) {
+  const [lead, setLead] = useState(null)
+  const [timeline, setTimeline] = useState({ logs: [], activities: [], proposals: [], deals: [], queueItems: [] })
+  const [tab, setTab] = useState(initialTab || "overview")
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState("")
+  const [reasonModal, setReasonModal] = useState({ open: false })
+  const load = useCallback(async () => {
+    if (!open || !leadId) return
+    setLoading(true); setErr("")
+    try { const [a, b] = await Promise.all([apiGetLead(leadId), apiGetLeadTimeline(leadId)]); setLead(a?.lead || a?.data || a); setTimeline(b?.timeline || b || {}) } catch (e) { setErr(e?.message || "Failed to load lead details") } finally { setLoading(false) }
+  }, [open, leadId])
+  useEffect(() => { if (open) setTab(initialTab || "overview") }, [open, initialTab, leadId])
+  useEffect(() => { load() }, [load, refreshTick])
+  const logs = timeline.logs || []
+  const activities = timeline.activities || []
+  const proposals = timeline.proposals || []
+  const deals = timeline.deals || []
+  const queueItems = timeline.queueItems || []
+  const tabs = [["overview", "Overview", FiInfo], ["timeline", "Timeline", FiClock], ["activities", "Activities", FiActivity], ["proposals", "Proposals", FiFileText], ["deals", "Deals", FiBriefcase], ["queue", "Queue", FiZap], ["notes", "Notes", FiFileText]]
+  const openReasonModal = (config) => setReasonModal({ open: true, ...config })
+  const closeReasonModal = () => setReasonModal({ open: false })
+  return <><ModalShell open={open} onClose={onClose} title="Lead A-Z History" subtitle={lead?.contact?.name || "Full timeline, activities, proposals, deals and work queue"} icon={<FiEye className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex flex-wrap justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load}><FiRefreshCcw className="h-4 w-4" />Refresh</button>{lead ? (() => { const proposalInfo = getProposalShortcutInfo(lead, timeline); return <><button className={cn(btn, btnPrimary)} disabled={!getNextPipelineStage(lead)} onClick={() => onAction?.("nextStage", lead)}><FiArrowRight />Next Stage</button><button className={cn(btn, btnSoft)} onClick={() => onAction?.("quick", lead)}><FiZap />Quick action</button>{proposalInfo.show ? <button className={cn(btn, proposalInfo.action === "proposal" ? btnPrimary : btnGhost)} disabled={proposalInfo.disabled} onClick={() => proposalInfo.action === "manageProposal" ? setTab("proposals") : onAction?.(proposalInfo.action, lead)}><FiFileText />{proposalInfo.label}</button> : null}<button className={cn(btn, btnGhost)} onClick={() => onAction?.("deal", lead)}><FiBriefcase />Deal</button><button className={cn(btn, btnPrimary)} onClick={() => onAction?.("convert", lead)}><FiUserPlus />Convert</button></> })() : null}</div>}>
+    {loading ? <div className="flex justify-center p-10"><FiLoader className="h-6 w-6 animate-spin text-indigo-600" /></div> : err ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : lead ? <>
+      <div className="mb-4 flex flex-wrap gap-2">{tabs.map(([k, name, Icon]) => <button key={k} className={cn(btn, tab === k ? btnPrimary : btnGhost, "px-3 py-2")} onClick={() => setTab(k)}><Icon className="h-4 w-4" />{name}</button>)}</div>
+      {tab === "overview" && (
+        <div className="space-y-4">
+          <StageProgressController lead={lead} onNextStage={(item) => onAction?.("nextStage", item)} onMoveStage={(item) => onAction?.("stage", item)} />
+          <StageWorkGuide lead={lead} onAction={onAction} />
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <DetailRow label="Lead no" value={lead.leadNumber} />
+            <DetailRow label="Company" value={lead.contact?.companyName} />
+            <DetailRow label="Contact" value={lead.contact?.name} />
+            <DetailRow label="Phone" value={lead.contact?.phone} />
+            <DetailRow label="Email" value={lead.contact?.email} />
+            <DetailRow label="Stage" value={<Badge value={lead.pipelineStage} />} />
+            <DetailRow label="Status" value={<Badge value={lead.status} />} />
+            <DetailRow label="Queue" value={<Badge value={lead.workQueuePriority} />} />
+            <DetailRow label="Score" value={lead.workQueueScore || lead.leadScore || 0} />
+            <DetailRow label="Next action" value={lead.nextAction} />
+            <DetailRow label="Next action at" value={formatDate(lead.nextActionAt, true)} />
+            <DetailRow label="Overdue" value={<Badge value={lead.isOverdue ? "yes" : "no"} />} />
+          </div>
+
+          <RequirementOverview lead={lead} onAction={onAction} />
+        </div>
+      )}
+      {tab === "timeline" && <div className="space-y-3">{[...logs, ...activities, ...proposals, ...deals, ...queueItems].sort((a,b)=>new Date(b.createdAt||b.sentAt||0)-new Date(a.createdAt||a.sentAt||0)).map((x, i) => <TimelineCard key={`${x._id || i}`} item={x} />)}{!logs.length && !activities.length && !proposals.length && !deals.length && !queueItems.length ? <EmptyState icon={<FiClock />} title="No history yet" /> : null}</div>}
+      {tab === "activities" && <RecordList items={activities} type="activity" onComplete={async (id) => { await apiCompleteActivity(id, { outcome: "Completed from UI" }); await load(); onAction?.("refresh") }} onCancel={async (id) => { await apiCancelActivity(id, { reason: "Cancelled from UI" }); await load(); onAction?.("refresh") }} />}
+      {tab === "proposals" && <RecordList items={proposals} type="proposal" onSend={async (id) => { await apiSendProposal(id); await load(); onAction?.("refresh") }} onAccept={async (id) => { await apiAcceptProposal(id); await load(); onAction?.("refresh") }} onReject={(id) => openReasonModal({ title: "Reject proposal", subtitle: lead?.contact?.name || "Add a clear reason before rejecting.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Reject proposal", danger: true, onSubmit: async ({ reason, note }) => { await apiRejectProposal(id, { rejectReason: reason, note }); await load(); onAction?.("refresh") } })} />}
+      {tab === "deals" && <RecordList items={deals} type="deal" onWon={(id) => openReasonModal({ title: "Mark deal as won", subtitle: lead?.contact?.name || "Add a clear win reason.", icon: <FiCheckCircle className="h-5 w-5" />, actionLabel: "Mark won", onSubmit: async ({ reason, note }) => { await apiDealWon(id, { reason, note }); await load(); onAction?.("refresh") } })} onLost={(id) => openReasonModal({ title: "Mark deal as lost", subtitle: lead?.contact?.name || "Add a clear loss reason.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Mark lost", danger: true, onSubmit: async ({ reason, note }) => { await apiDealLost(id, { reason, note }); await load(); onAction?.("refresh") } })} />}
+      {tab === "queue" && <RecordList items={queueItems} type="queue" onDone={async (id) => { await apiQueueDone(id, { result: "Done from lead view" }); await load(); onAction?.("refresh") }} />}
+      {tab === "notes" && <LeadNotesOverview lead={lead} onAction={onAction} />}
+    </> : <EmptyState icon={<FiEye className="h-5 w-5" />} title="No lead selected" />}
+  </ModalShell>
+  <ReasonModal open={reasonModal.open} onClose={closeReasonModal} title={reasonModal.title} subtitle={reasonModal.subtitle} icon={reasonModal.icon || <FiInfo className="h-5 w-5" />} actionLabel={reasonModal.actionLabel || "Submit"} danger={reasonModal.danger} onSubmit={reasonModal.onSubmit} />
+</>
+}
+
+function DetailRow({ label: labelText, value }) { return <div className="rounded-2xl border border-gray-100 bg-gray-50/50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{labelText}</p><div className="mt-1 break-words text-sm font-semibold text-gray-900">{value || "—"}</div></div> }
+function TimelineCard({ item }) { const title = item?.message || item?.title || item?.type || item?.status || item?.stage || item?.proposalNo || item?.dealNo || "Timeline item"; return <div className="relative pl-7"><span className="absolute left-0 top-1.5 h-3 w-3 rounded-full bg-indigo-600 ring-4 ring-indigo-50" /><div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-bold text-gray-900">{title}</p><p className="text-xs text-gray-500">{item?.createdBy?.name || item?.assignedTo?.name || "System"} • {formatDate(item?.createdAt || item?.scheduledAt || item?.sentAt, true)}</p></div>{item?.status || item?.stage || item?.priority ? <Badge value={item.status || item.stage || item.priority} /> : null}</div>{item?.body || item?.description || item?.result ? <p className="mt-2 text-sm text-gray-600">{item.body || item.description || item.result}</p> : null}</div></div> }
+function RecordList({ items = [], type, onComplete, onCancel, onSend, onAccept, onReject, onWon, onLost, onDone }) { if (!items.length) return <EmptyState icon={<FiInfo className="h-5 w-5" />} title={`No ${type} records`} />; return <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">{items.map((it) => <div key={it._id} className="rounded-2xl border border-gray-100 bg-white p-4"><div className="flex flex-wrap justify-between gap-2"><div><p className="font-bold text-gray-900">{it.title || it.proposalNo || it.dealNo || it.type || it.source}</p><p className="text-xs text-gray-500">{formatDate(it.createdAt || it.scheduledAt || it.followupDueAt, true)}</p></div><Badge value={it.status || it.stage || it.priority || it.dealHealth} /></div>{it.grandTotal !== undefined ? <div className="mt-3"><span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>{formatMoney(it.grandTotal, it.currency)}</span></div> : null}<div className="mt-4 flex flex-wrap gap-2">{type === "activity" ? <><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onComplete?.(it._id)}>Complete</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={() => onCancel?.(it._id)}>Cancel</button></> : null}{type === "proposal" ? <><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onSend?.(it._id)}>Send</button><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onAccept?.(it._id)}>Accept</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={() => onReject?.(it._id)}>Reject</button></> : null}{type === "deal" ? <><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onWon?.(it._id)}>Won</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={() => onLost?.(it._id)}>Lost</button></> : null}{type === "queue" ? <button className={cn(btn, btnPrimary, "px-3 py-2")} onClick={() => onDone?.(it._id)}>Done</button> : null}</div></div>)}</div> }
+
+function RowActionsMenu({ lead, onAction, busy, converting, canConvert }) {
+  const [open, setOpen] = useState(false)
+  const [menuStyle, setMenuStyle] = useState({ top: 0, left: 0, transformOrigin: "top right" })
+  const ref = useRef(null)
+  const buttonRef = useRef(null)
+  const menuRef = useRef(null)
+  const converted = isConvertedLead(lead)
+
+  const updateMenuPosition = useCallback(() => {
+    if (typeof window === "undefined" || !buttonRef.current) return
+    const rect = buttonRef.current.getBoundingClientRect()
+    const menuWidth = 288
+    const estimatedHeight = Math.min(560, window.innerHeight - 24)
+    const gap = 8
+    const spaceBelow = window.innerHeight - rect.bottom
+    const shouldOpenUp = spaceBelow < 360
+    const top = shouldOpenUp ? Math.max(12, rect.top - estimatedHeight - gap) : Math.min(rect.bottom + gap, window.innerHeight - 12)
+    const left = Math.min(Math.max(12, rect.right - menuWidth), Math.max(12, window.innerWidth - menuWidth - 12))
+    setMenuStyle({ top, left, transformOrigin: shouldOpenUp ? "bottom right" : "top right" })
+  }, [])
+
+  const toggleMenu = () => {
+    if (!open) updateMenuPosition()
+    setOpen((v) => !v)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    updateMenuPosition()
+    const closeOnOutside = (e) => {
+      if (ref.current?.contains(e.target) || menuRef.current?.contains(e.target)) return
+      setOpen(false)
+    }
+    const reposition = () => updateMenuPosition()
+    document.addEventListener("mousedown", closeOnOutside)
+    window.addEventListener("resize", reposition)
+    window.addEventListener("scroll", reposition, true)
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside)
+      window.removeEventListener("resize", reposition)
+      window.removeEventListener("scroll", reposition, true)
+    }
+  }, [open, updateMenuPosition])
+
+  const [menuLead, setMenuLead] = useState(null)
+  const [menuTimeline, setMenuTimeline] = useState(null)
+  const [checkingProposal, setCheckingProposal] = useState(false)
+
+  useEffect(() => {
+    if (!open || !lead) return
+    let ignore = false
+    const currentStage = String(lead?.pipelineStage || "new")
+    const shouldHydrate = getStageIndex(currentStage) >= getStageIndex("discovery")
+    setMenuLead(null)
+    setMenuTimeline(null)
+    if (!shouldHydrate) {
+      setCheckingProposal(false)
+      return
+    }
+    setCheckingProposal(true)
+    Promise.all([
+      apiGetLead(getLeadId(lead)).catch(() => null),
+      apiGetLeadTimeline(getLeadId(lead)).catch(() => null),
+    ])
+      .then(([leadData, timelineData]) => {
+        if (ignore) return
+        setMenuLead(leadData?.lead || leadData?.data || leadData || null)
+        setMenuTimeline(timelineData?.timeline || timelineData || null)
+      })
+      .finally(() => { if (!ignore) setCheckingProposal(false) })
+    return () => { ignore = true }
+  }, [open, lead])
+
+  const hydratedLead = menuLead || lead
+  const proposalInfo = checkingProposal
+    ? { show: true, disabled: true, action: "proposal", label: "Checking proposal...", helper: "Loading requirement and proposal status." }
+    : getProposalShortcutInfo(hydratedLead, menuTimeline)
+  const items = [["view", "View A-Z history", FiEye], ["quick", "Quick action", FiZap], ["assign", "Assign lead", FiUserCheck], ["edit", "Edit lead", FiEdit2], ["note", "Add note", FiFileText], ["nextStage", "Next stage", FiArrowRight], ["stage", "Manual stage", FiSliders], ["requirement", "Requirement", FiTarget], ["activity", "Create activity", FiActivity], ["followup", "Set follow-up", FiCalendar], ["contacted", "Mark contacted", FiPhoneCall], ...(proposalInfo.show ? [[proposalInfo.action, proposalInfo.label, FiFileText, proposalInfo.disabled, proposalInfo.helper]] : []), ["deal", "Create deal", FiBriefcase], ["won", "Mark won", FiCheckCircle], ["lost", "Mark lost", FiXCircle], ["convert", converted ? "Already converted" : "Convert", FiUserPlus]]
+
+  const menu = open && typeof document !== "undefined" ? createPortal(
+    <AnimatePresence>
+      <motion.div
+        ref={menuRef}
+        initial={{ opacity: 0, y: 8, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 8, scale: 0.98 }}
+        transition={{ duration: 0.14 }}
+        style={{ top: menuStyle.top, left: menuStyle.left, transformOrigin: menuStyle.transformOrigin }}
+        className="fixed z-[9999] w-72 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_24px_60px_-20px_rgba(15,23,42,0.45)]"
+      >
+        <div className="max-h-[min(70vh,560px)] overflow-y-auto p-2">
+          {items.map(([key, text, Icon, forceDisabled, helper]) => {
+            const disabled = Boolean(forceDisabled) || (key === "convert" && (!canConvert || converted || converting)) || (key === "contacted" && busy) || (key === "won" && lead?.pipelineStage === "won") || (key === "lost" && lead?.pipelineStage === "lost") || (key === "nextStage" && !getNextPipelineStage(lead))
+            return <button key={key} disabled={disabled} className={cn("flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50", key === "proposal" ? "bg-indigo-50/60 text-indigo-800" : key === "manageProposal" ? "bg-gray-50 text-gray-900" : "text-gray-800")} onClick={() => { setOpen(false); onAction(key, ["proposal", "manageProposal", "requirement", "deal", "nextStage", "stage"].includes(key) ? hydratedLead : lead) }}>{key === "contacted" && busy ? <FiLoader className="mt-0.5 h-4 w-4 animate-spin" /> : key === "convert" && converting ? <FiLoader className="mt-0.5 h-4 w-4 animate-spin" /> : <Icon className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" />}<span><span className="block text-sm font-semibold">{text}</span>{helper ? <span className="mt-0.5 block text-xs font-medium text-gray-500">{helper}</span> : null}</span></button>
+          })}
+          <div className="my-1 border-t border-gray-100" />
+          <button className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-rose-700 transition hover:bg-rose-50" onClick={() => { setOpen(false); onAction("delete", lead) }}><FiTrash2 className="h-4 w-4" />Delete lead</button>
+        </div>
+      </motion.div>
+    </AnimatePresence>,
+    document.body
+  ) : null
+
+  return <div ref={ref} className="relative flex items-center justify-end gap-2"><button className={cn(btn, btnPrimary, "px-3 py-2")} onClick={() => onAction("view", lead)}><FiEye className="h-4 w-4" />View</button><button ref={buttonRef} className={iconBtn} onClick={toggleMenu} aria-haspopup="menu" aria-expanded={open}><FiMoreVertical className="h-4 w-4" /></button>{menu}</div>
+}
+
+function WorkQueuePanel({ open, onClose, onToast, onChanged }) {
+  const [items, setItems] = useState([])
+  const [summary, setSummary] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [snooze, setSnooze] = useState({ id: "", date: "" })
+  const load = async () => { setLoading(true); try { const [a, b] = await Promise.all([apiTodayQueue(), apiQueueSummary()]); setItems(a?.items || []); setSummary(a?.summary || b?.summary || {}) } catch (e) { onToast?.("error", e.message) } finally { setLoading(false) } }
+  useEffect(() => { if (open) load() }, [open])
+  const done = async (id) => { await apiQueueDone(id, { result: "Completed from work queue" }); onToast?.("success", "Queue item completed."); await load(); onChanged?.() }
+  const start = async (id) => { await apiQueueStart(id); await load() }
+  const runSnooze = async () => { if (!snooze.id || !snooze.date) return; await apiQueueSnooze(snooze.id, { snoozedUntil: new Date(snooze.date).toISOString(), reason: "Snoozed from UI" }); setSnooze({ id: "", date: "" }); await load(); onChanged?.() }
+  return <ModalShell open={open} onClose={onClose} title="Today’s Work Queue" subtitle="Priority based daily work for marketing/sales team" icon={<FiZap className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load}><FiRefreshCcw />Refresh</button></div>}>
+    {summary ? <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">{Object.entries(summary).map(([k, v]) => <div key={k} className="rounded-2xl border border-gray-100 bg-gray-50 p-3"><p className="text-xs font-bold uppercase text-gray-500">{k}</p><p className="mt-1 text-2xl font-black text-gray-900">{v}</p></div>)}</div> : null}
+    {loading ? <div className="flex justify-center p-8"><FiLoader className="animate-spin" /></div> : items.length ? <div className="space-y-3">{items.map((it) => <div key={it._id} className="rounded-2xl border border-gray-100 bg-white p-4"><div className="flex flex-wrap justify-between gap-3"><div><p className="font-bold text-gray-900">{it.title}</p><p className="text-sm text-gray-500">{it.description || it.leadId?.contact?.companyName || "—"}</p><p className="mt-1 text-xs text-gray-400">Due: {formatDate(it.dueAt, true)}</p></div><div className="flex flex-wrap gap-2"><Badge value={it.priority} /><Badge value={it.status} /><Badge value={it.source} /></div></div><div className="mt-3 flex flex-wrap gap-2"><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => start(it._id)}>Start</button><button className={cn(btn, btnPrimary, "px-3 py-2")} onClick={() => done(it._id)}>Done</button><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => setSnooze({ id: it._id, date: formatDateInput(new Date(Date.now() + 24 * 60 * 60 * 1000)) })}>Snooze</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={async () => { await apiQueueCancel(it._id, { reason: "Cancelled from UI" }); await load() }}>Cancel</button></div></div>)}</div> : <EmptyState icon={<FiZap />} title="No work queue items for today" />}
+    {snooze.id ? <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50 p-4"><div className="grid gap-3 md:grid-cols-[1fr_auto]"><input type="datetime-local" className={input} value={snooze.date} onChange={(e) => setSnooze((p) => ({ ...p, date: e.target.value }))} /><button className={cn(btn, btnPrimary)} onClick={runSnooze}>Confirm snooze</button></div></div> : null}
+  </ModalShell>
+}
+
+
+function TemplatesPanel({ open, onClose, onToast }) {
+  const [templates, setTemplates] = useState([])
+  const [form, setForm] = useState({ name: "", key: "", channel: "general", purpose: "general", subject: "", body: "" })
+  const [saving, setSaving] = useState(false)
+  const [copyingId, setCopyingId] = useState("")
+
+  const load = async () => {
+    try {
+      const d = await apiListTemplates()
+      setTemplates(normalizeApiList(d))
+    } catch (e) {
+      onToast?.("error", e.message)
+    }
+  }
+
+  useEffect(() => { if (open) load() }, [open])
+
+  const create = async () => {
+    if (!form.name.trim()) return onToast?.("error", "Template name is required.")
+    if (!form.body.trim()) return onToast?.("error", "Template body is required.")
+    setSaving(true)
+    try {
+      await apiCreateTemplate({ ...form, variables: [] })
+      onToast?.("success", "Template created.")
+      setForm({ name: "", key: "", channel: "general", purpose: "general", subject: "", body: "" })
+      await load()
+    } catch (e) {
+      onToast?.("error", e.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const copyTemplate = async (template) => {
+    const id = template?._id || template?.id
+    if (!id) return
+    setCopyingId(id)
+    try {
+      const response = await apiUseTemplate(id, { data: {} })
+      const rendered = getTemplateRenderFromResponse(response, template, {})
+      await navigator.clipboard?.writeText(formatTemplateWithSubject(rendered.subject, rendered.body))
+      onToast?.("success", rendered.subject ? "Template subject and body copied." : "Template body copied.")
+      await load()
+    } catch (e) {
+      onToast?.("error", e?.message || "Failed to copy template.")
+    } finally {
+      setCopyingId("")
+    }
+  }
+
+  return <ModalShell open={open} onClose={onClose} title="Message Templates" subtitle="" icon={<FiFileText className="h-5 w-5" />} maxWidthClass="max-w-5xl">
+    <div className="mb-5 rounded-2xl border border-gray-100 bg-gray-50 p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="font-bold text-gray-900">Create template</p>
+        <span className={cn(chip, "bg-white text-indigo-700 ring-indigo-600/10")}>Variables: {"{{name}}"}</span>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <Field label="Name"><input className={input} value={form.name} onChange={(e)=>setForm(p=>({...p,name:e.target.value}))} placeholder="Follow-up message" /></Field>
+        <Field label="Key"><input className={input} value={form.key} onChange={(e)=>setForm(p=>({...p,key:e.target.value}))} placeholder="auto generated from name" /></Field>
+        <Field label="Channel"><select className={input} value={form.channel} onChange={(e)=>setForm(p=>({...p,channel:e.target.value}))}>{TEMPLATE_CHANNELS.map(x=><option key={x} value={x}>{x.replaceAll("_", " ")}</option>)}</select></Field>
+        <Field label="Purpose"><select className={input} value={form.purpose} onChange={(e)=>setForm(p=>({...p,purpose:e.target.value}))}>{TEMPLATE_PURPOSES.map(x=><option key={x} value={x}>{x.replaceAll("_", " ")}</option>)}</select></Field>
+        <div className="md:col-span-2"><Field label="Subject / Title"><input className={input} value={form.subject} onChange={(e)=>setForm(p=>({...p,subject:e.target.value}))} placeholder="Optional" /></Field></div>
+        <div className="md:col-span-2"><Field label="Body *"><textarea className={cn(input,"min-h-[120px]")} value={form.body} onChange={(e)=>setForm(p=>({...p,body:e.target.value}))} placeholder="Write template body..." /></Field></div>
+      </div>
+      <div className="mt-3 flex justify-end"><button className={cn(btn, btnPrimary)} onClick={create} disabled={saving}>{saving ? "Creating..." : "Create template"}</button></div>
+    </div>
+
+    <div className="grid gap-3 md:grid-cols-2">
+      {templates.map((t)=> {
+        const id = t._id || t.id
+        return <div key={id} className="rounded-2xl border border-gray-100 bg-white p-4">
+          <div className="flex justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate font-bold text-gray-900">{t.name}</p>
+              <p className="text-xs text-gray-500">{String(t.channel || "general").replaceAll("_", " ")} • {String(t.purpose || "general").replaceAll("_", " ")} • used {t.usageCount || 0}</p>
+            </div>
+            <Badge value={t.isActive ? "active" : "inactive"} />
+          </div>
+          {t.subject ? <p className="mt-3 line-clamp-1 rounded-xl bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800">Subject: {t.subject}</p> : null}
+          <p className="mt-3 line-clamp-3 text-sm text-gray-600">{t.body}</p>
+          <div className="mt-3 flex gap-2">
+            <button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => copyTemplate(t)} disabled={copyingId === id}>{copyingId === id ? "Copying..." : t.subject ? "Copy subject + body" : "Copy body"}</button>
+            <button className={cn(btn, btnDanger, "px-3 py-2")} onClick={async()=>{await apiDeleteTemplate(id); await load()}}>Delete</button>
+          </div>
+        </div>
+      })}
+    </div>
+    {!templates.length ? <EmptyState icon={<FiFileText className="h-5 w-5" />} title="No templates yet" subtitle="Create one template and reuse it inside notes, activity, proposal and follow-up forms." /> : null}
+  </ModalShell>
+}
+
+function AssignmentPanel({ open, onClose, onToast }) {
+  const [users, setUsers] = useState([])
+  const [loading, setLoading] = useState(false)
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const data = await apiAvailableAssignees({ role: "marketing_team" })
+      setUsers(normalizeApiList(data))
+    } catch (e) {
+      onToast?.("error", e.message)
+      setUsers([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { if (open) load() }, [open])
+
+  return <ModalShell open={open} onClose={onClose} title="Lead Assignment" subtitle="" icon={<FiUserCheck className="h-5 w-5" />} maxWidthClass="max-w-4xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load} disabled={loading}>{loading ? "Refreshing..." : "Refresh"}</button><button className={cn(btn, btnPrimary)} onClick={onClose}>Done</button></div>}>
+
+    {loading ? <div className="flex justify-center p-8"><FiLoader className="h-5 w-5 animate-spin text-gray-500" /></div> : users.length ? <div className="grid gap-3 md:grid-cols-2">
+      {users.map((u) => <div key={u._id || u.id} className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-sm font-black text-indigo-700">{initials(u.name || u.email)}</div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-bold text-gray-900">{u.name || "Marketing user"}</p>
+            <p className="truncate text-xs text-gray-500">{u.email || "—"}</p>
+            <div className="mt-2 flex flex-wrap gap-2"><Badge value={u.role || "marketing_team"} /><Badge value={u.workStatus || "available"} /></div>
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-xl bg-gray-50 p-3"><p className="text-xs font-semibold text-gray-500">Open</p><p className="mt-1 text-lg font-black text-gray-900">{u.currentOpenLeadCount || 0}</p></div>
+          <div className="rounded-xl bg-gray-50 p-3"><p className="text-xs font-semibold text-gray-500">Queue</p><p className="mt-1 text-lg font-black text-gray-900">{u.currentPendingWorkQueueCount || 0}</p></div>
+          <div className="rounded-xl bg-gray-50 p-3"><p className="text-xs font-semibold text-gray-500">Limit</p><p className="mt-1 text-lg font-black text-gray-900">{u.dailyLeadLimit || "∞"}</p></div>
+        </div>
+      </div>)}
+    </div> : <EmptyState icon={<FiUserCheck className="h-5 w-5" />} title="No available marketing team users" subtitle="Only active, available marketing_team users can receive leads in this simplified flow." />}
+  </ModalShell>
+}
+
+function NotificationsPanel({ open, onClose, onToast, onChanged }) {
+  const [items, setItems] = useState([])
+  const [unread, setUnread] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [actionId, setActionId] = useState("")
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const d = await apiMyNotifications()
+      setItems(d?.items || [])
+      setUnread(d?.unreadCount || 0)
+    } catch (e) {
+      onToast?.("error", e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { if (open) load() }, [open])
+
+  const markOneRead = async (notification) => {
+    if (!notification?._id || notification.isRead) return
+    setActionId(notification._id)
+
+    // instant UI update first, then sync with backend
+    setItems((prev) => prev.map((item) => item._id === notification._id ? { ...item, isRead: true } : item))
+    setUnread((prev) => Math.max(prev - 1, 0))
+
+    try {
+      await apiReadNotification(notification._id)
+      onToast?.("success", "Alert marked as read.")
+      await load()
+      await onChanged?.()
+    } catch (e) {
+      onToast?.("error", e.message || "Failed to update alert.")
+      await load()
+      await onChanged?.()
+    } finally {
+      setActionId("")
+    }
+  }
+
+  const markAllRead = async () => {
+    setActionId("all")
+
+    // instant UI update first, then sync with backend
+    setItems((prev) => prev.map((item) => ({ ...item, isRead: true })))
+    setUnread(0)
+
+    try {
+      await apiReadAllNotifications()
+      onToast?.("success", "All alerts marked as read.")
+      await load()
+      await onChanged?.()
+    } catch (e) {
+      onToast?.("error", e.message || "Failed to update alerts.")
+      await load()
+      await onChanged?.()
+    } finally {
+      setActionId("")
+    }
+  }
+
+  return (
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      title="Notifications"
+      subtitle={`${unread} unread`}
+      icon={<FiBell className="h-5 w-5" />}
+      maxWidthClass="max-w-3xl"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button className={cn(btn, btnGhost)} onClick={load} disabled={loading || Boolean(actionId)}>
+            {loading ? <FiLoader className="h-4 w-4 animate-spin" /> : <FiRefreshCcw className="h-4 w-4" />}
+            Refresh
+          </button>
+          <button className={cn(btn, btnPrimary)} onClick={markAllRead} disabled={!items.length || unread === 0 || Boolean(actionId)}>
+            {actionId === "all" ? <FiLoader className="h-4 w-4 animate-spin" /> : <FiCheck className="h-4 w-4" />}
+            Mark all read
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-3">
+        {items.map((n) => (
+          <button
+            key={n._id}
+            className={cn(
+              "w-full rounded-2xl border p-4 text-left transition hover:bg-gray-50",
+              n.isRead ? "border-gray-100 bg-white" : "border-indigo-100 bg-indigo-50"
+            )}
+            disabled={actionId === n._id}
+            onClick={() => markOneRead(n)}
+          >
+            <div className="flex justify-between gap-2">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-bold text-gray-900">{n.title}</p>
+                  {!n.isRead ? <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white">NEW</span> : null}
+                  {actionId === n._id ? <FiLoader className="h-4 w-4 animate-spin text-indigo-600" /> : null}
+                </div>
+                <p className="mt-1 text-sm text-gray-600">{n.message}</p>
+                <p className="mt-1 text-xs text-gray-400">{formatDate(n.createdAt, true)}</p>
+              </div>
+              <Badge value={n.priority} />
+            </div>
+          </button>
+        ))}
+        {!items.length ? <EmptyState icon={<FiBell />} title="No notifications" /> : null}
+      </div>
+    </ModalShell>
+  )
+}
+
+export default function AdminLeadsPage({ onConvertedToCustomer }) {
+  const PAGE_SIZE = 25
+  const [leads, setLeads] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [error, setError] = useState("")
+  const [nextCursor, setNextCursor] = useState(null)
+  const [hasMore, setHasMore] = useState(false)
+  const [filters, setFilters] = useState({ q: "", status: "", pipelineStage: "", priority: "", leadTemperature: "", workQueuePriority: "", isOverdue: "", nextActionType: "", purchaseType: "", source: "", tag: "", nextFollowUpFrom: "", nextFollowUpTo: "", lastContactedFrom: "", lastContactedTo: "" })
+  const [filterDraft, setFilterDraft] = useState(filters)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [allowedCols, setAllowedCols] = useState([])
+  const [selectedCols, setSelectedCols] = useState([])
+  const [colsOpen, setColsOpen] = useState(false)
+  const [modal, setModal] = useState({ type: "", lead: null })
+  const [childModal, setChildModal] = useState({ type: "", lead: null })
+  const [stageWorkTick, setStageWorkTick] = useState(0)
+  const [panel, setPanel] = useState("")
+  const [viewLeadId, setViewLeadId] = useState("")
+  const [viewInitialTab, setViewInitialTab] = useState("overview")
+  const [viewTick, setViewTick] = useState(0)
+  const [busyId, setBusyId] = useState("")
+  const [convertingId, setConvertingId] = useState("")
+  const [deleteState, setDeleteState] = useState({ open: false, lead: null, loading: false })
+  const [queueSummary, setQueueSummary] = useState(null)
+  const [notifications, setNotifications] = useState(0)
+  const [assignees, setAssignees] = useState([])
+  const abortRef = useRef(null)
+  const role = String(localStorage.getItem("role") || "").toLowerCase()
+  const canConvert = !role || ["admin", "superadmin", "marketing_team"].includes(role)
+  const showToast = (type, message) => {
+    const safeMessage = message || "Something went wrong."
+    if (type === "error") toast.error(safeMessage)
+    else toast.success(safeMessage)
+  }
+  const fieldsParam = useMemo(() => (selectedCols.length ? selectedCols.join(",") : ""), [selectedCols])
+  const buildParams = () => { const out = {}; Object.entries(filters).forEach(([k, v]) => { const s = String(v || "").trim(); if (s) out[k] = s }); return out }
+  const fetchViewPrefs = async () => { try { const data = await apiGetViewPref(); const allowed = Array.isArray(data?.allowedColumns) && data.allowedColumns.length ? Array.from(new Set([...data.allowedColumns, ...FALLBACK_ALLOWED_COLUMNS])) : FALLBACK_ALLOWED_COLUMNS; const cols = Array.isArray(data?.columns) && data.columns.length ? data.columns : DEFAULT_COLUMNS; setAllowedCols(allowed); setSelectedCols(cols) } catch { setAllowedCols(FALLBACK_ALLOWED_COLUMNS); setSelectedCols(DEFAULT_COLUMNS) } }
+  const fetchLeads = async ({ reset = false } = {}) => { abortRef.current?.abort?.(); const controller = new AbortController(); abortRef.current = controller; reset ? (setLoading(true), setLeads([]), setNextCursor(null), setHasMore(false)) : setLoadingMore(true); setError(""); try { const data = await apiListLeads({ limit: PAGE_SIZE, cursor: reset ? null : nextCursor, params: buildParams(), fields: fieldsParam, signal: controller.signal }); const items = normalizeApiList(data); setLeads((prev) => reset ? items : [...prev, ...items]); setNextCursor(data?.pageInfo?.nextCursor || null); setHasMore(Boolean(data?.pageInfo?.hasNextPage)) } catch (e) { if (e.name !== "AbortError") setError(e.message || "Failed to load leads") } finally { setLoading(false); setLoadingMore(false) } }
+  const fetchAssignees = async () => {
+    try {
+      const data = await apiAvailableAssignees({ role: "marketing_team" })
+      setAssignees(Array.isArray(data?.users) ? data.users : normalizeApiList(data))
+    } catch {
+      setAssignees([])
+    }
+  }
+  const refreshProductivity = async () => { try { const [q,n]=await Promise.all([apiQueueSummary(), apiMyNotifications()]); setQueueSummary(q?.summary || null); setNotifications(n?.unreadCount || 0) } catch {} }
+  const refreshAll = async () => { await Promise.all([fetchLeads({ reset: true }), refreshProductivity(), fetchAssignees()]); setViewTick((t) => t + 1) }
+  useEffect(() => { fetchViewPrefs(); refreshProductivity(); fetchAssignees() }, [])
+  useEffect(() => { fetchLeads({ reset: true }) }, [filters, fieldsParam])
+  const saveColumns = async (cols) => { const safe = cols.length ? cols : DEFAULT_COLUMNS; await apiSaveViewPref(safe); setSelectedCols(safe) }
+  const getFreshLeadForAction = async (lead) => {
+    if (!lead || !getLeadId(lead)) return lead
+    try {
+      const data = await apiGetLead(getLeadId(lead))
+      return data?.lead || data?.data || data || lead
+    } catch {
+      return lead
+    }
+  }
+  const action = async (type, lead) => {
+    if (type === "view" || type === "manageProposal") { setViewInitialTab(type === "manageProposal" ? "proposals" : "overview"); return setViewLeadId(getLeadId(lead)) }
+    if (["requirement", "proposal", "deal", "stage", "nextStage"].includes(type)) {
+      const freshLead = await getFreshLeadForAction(lead)
+      if (type === "proposal" && !hasRequirementDetails(freshLead)) {
+        showToast("error", "Complete requirement first, then create proposal.")
+        return setModal({ type: "requirement", lead: freshLead })
+      }
+      return setModal({ type, lead: freshLead })
+    }
+    if (["create", "edit", "note", "followup", "activity", "quick", "assign"].includes(type)) return setModal({ type, lead })
+    if (type === "delete") return setDeleteState({ open: true, lead, loading: false })
+    if (type === "won") return setModal({ type: "leadWon", lead })
+    if (type === "lost") return setModal({ type: "leadLost", lead })
+    if (type === "contacted") { setBusyId(getLeadId(lead)); try { await apiMarkContacted(getLeadId(lead), { note: "Marked contacted from list" }); showToast("success", "Lead marked contacted."); await refreshAll() } catch (e) { showToast("error", e.message) } finally { setBusyId("") } }
+    if (type === "convert") { setConvertingId(getLeadId(lead)); try { const data = await apiConvertLead(getLeadId(lead)); showToast("success", "Lead converted to customer."); onConvertedToCustomer?.(data?.customer || data); await refreshAll() } catch (e) { showToast("error", e.message) } finally { setConvertingId("") } }
+    if (type === "refresh") return refreshAll()
+  }
+  const updateOpenStageLead = (updatedLead) => {
+    if (!updatedLead || !getLeadId(updatedLead)) return
+    setModal((p) => {
+      if (!["stage", "nextStage"].includes(p.type)) return p
+      if (getLeadId(p.lead) !== getLeadId(updatedLead)) return p
+      return { ...p, lead: { ...(p.lead || {}), ...updatedLead } }
+    })
+    setChildModal((p) => p.lead && getLeadId(p.lead) === getLeadId(updatedLead) ? { ...p, lead: { ...(p.lead || {}), ...updatedLead } } : p)
+    setStageWorkTick((t) => t + 1)
+  }
+  const handleChildRequirementSaved = async (updatedLead) => {
+    showToast("success", "Requirement completed. You can continue the stage flow now.")
+    updateOpenStageLead(updatedLead)
+    setChildModal({ type: "", lead: null })
+    await refreshAll()
+  }
+  const handleChildProposalSaved = async (updatedLead) => {
+    showToast("success", "Proposal created. You can continue the stage flow now.")
+    if (updatedLead && getLeadId(updatedLead)) updateOpenStageLead(updatedLead)
+    setStageWorkTick((t) => t + 1)
+    setChildModal({ type: "", lead: null })
+    await refreshAll()
+  }
+    const confirmDelete = async () => { const lead = deleteState.lead; setDeleteState((p) => ({ ...p, loading: true })); try { await apiDeleteLead(getLeadId(lead)); showToast("success", "Lead deleted."); setDeleteState({ open: false, lead: null, loading: false }); await refreshAll() } catch (e) { showToast("error", e.message); setDeleteState((p) => ({ ...p, loading: false })) } }
+  const handleStageSaved = async ({ pipelineStage } = {}) => {
+    showToast("success", pipelineStage ? `Lead moved to ${STAGE_LABELS[pipelineStage] || pipelineStage}.` : "Stage updated.")
+    await refreshAll()
+    return true
+  }
+  const exportExcel = () => { const rows = leads.map((lead) => { const row = {}; selectedCols.forEach((c) => row[COLUMN_LABELS[c] || c] = Array.isArray(getByPath(lead, c)) ? getByPath(lead, c).join(", ") : getByPath(lead, c) ?? ""); return row }); const ws = XLSX.utils.json_to_sheet(rows); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Leads"); XLSX.writeFile(wb, `businesshub-leads-${Date.now()}.xlsx`) }
+  const renderCell = (lead, col) => { const v = getByPath(lead, col); if (["status", "pipelineStage", "priority", "leadTemperature", "workQueuePriority", "nextActionType"].includes(col)) return <Badge value={v} />; if (["isOverdue"].includes(col)) return <Badge value={v ? "yes" : "no"} />; if (String(col).toLowerCase().includes("at") || ["createdAt", "updatedAt", "convertedAt"].includes(col)) return formatDate(v, true); if (col === "tags") return Array.isArray(v) ? v.join(", ") : v || "—"; if (typeof v === "object" && v?._id) return v.name || v._id; return v === undefined || v === null || v === "" ? "—" : String(v) }
+  const statCards = useMemo(() => {
+    const total = leads.length
+    const overdue = leads.filter((x) => x.isOverdue).length
+    const hot = leads.filter((x) => x.leadTemperature === "hot").length
+    const proposal = leads.filter((x) => x.pipelineStage === "proposal").length
+    return [{ label: "Loaded leads", value: total, icon: FiGrid }, { label: "Overdue", value: overdue, icon: FiAlertTriangle }, { label: "Hot leads", value: hot, icon: FiTrendingUp }, { label: "Proposal stage", value: proposal, icon: FiSend }, { label: "Queue pending", value: queueSummary?.pending ?? 0, icon: FiZap }, { label: "Unread alerts", value: notifications, icon: FiBell }]
+  }, [leads, queueSummary, notifications])
+  const filterLabels = {
+    status: "Status",
+    pipelineStage: "Stage",
+    priority: "Priority",
+    leadTemperature: "Temp",
+    workQueuePriority: "Queue",
+    isOverdue: "Overdue",
+    nextActionType: "Action",
+    purchaseType: "Purchase",
+    source: "Source",
+    tag: "Tag",
+    nextFollowUpFrom: "FU from",
+    nextFollowUpTo: "FU to",
+    lastContactedFrom: "LC from",
+    lastContactedTo: "LC to",
+  }
+  const filterChipValue = (key, value) => {
+    const v = String(value || "").trim()
+    if (!v) return ""
+    if (key === "pipelineStage") return STAGE_LABELS[v] || v
+    if (key === "isOverdue") return v === "true" ? "Yes" : v === "false" ? "No" : v
+    if (["nextFollowUpFrom", "nextFollowUpTo", "lastContactedFrom", "lastContactedTo"].includes(key)) return formatDate(v)
+    return v.replace(/_/g, " ")
+  }
+  const activeFilterEntries = Object.entries(filters)
+    .filter(([k, v]) => k !== "q" && String(v || "").trim())
+    .map(([key, value]) => ({ key, label: filterLabels[key] || key, value: filterChipValue(key, value) }))
+  const activeFilterCount = activeFilterEntries.length
+  const clearOnlyFilters = () => {
+    setFilters((p) => Object.fromEntries(Object.keys(p).map((k) => [k, k === "q" ? p.q : ""])))
+  }
+  const clearAllSearchAndFilters = () => {
+    setFilters(Object.fromEntries(Object.keys(filters).map((k) => [k, ""])))
+  }
+  return <div className={shell}>
+    <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: "14px", fontWeight: 700 } }} />
+    <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mb-5 rounded-3xl border border-gray-100 bg-white/90 p-4 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.45)] backdrop-blur sm:p-5">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
+                <FiTarget className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="truncate text-2xl font-black tracking-tight text-gray-950 sm:text-3xl">Leads</h1>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center xl:justify-end">
+            <div className="flex flex-wrap gap-2">
+              <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("notifications")}>
+                <FiBell />
+                Alerts
+                {notifications ? <span className="rounded-full bg-rose-600 px-2 py-0.5 text-xs text-white">{notifications}</span> : null}
+              </button>
+              <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("queue")}><FiZap />Queue</button>
+              <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("templates")}><FiFileText />Templates</button>
+              <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("assignment")}><FiUserCheck />Marketing team</button>
+            </div>
+            <button className={cn(btn, btnPrimary, "h-11 shrink-0 px-5")} onClick={() => setModal({ type: "create", lead: null })}>
+              <FiPlus />New Lead
+            </button>
+          </div>
+        </div>
+        <div className="mt-4 border-t border-gray-100 pt-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="w-full xl:flex-1">
+              <div className="flex min-h-[50px] w-full flex-wrap items-center gap-2 rounded-2xl border border-gray-200 bg-gray-50/80 px-3 py-1.5 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
+                <FiSearch className="h-4 w-4 shrink-0 text-gray-400" />
+                {activeFilterEntries.map((f) => (
+                  <button
+                    key={f.key}
+                    type="button"
+                    title="Remove filter"
+                    className={cn(chip, "max-w-[210px] bg-indigo-50 text-indigo-700 ring-indigo-600/10 hover:bg-indigo-100")}
+                    onClick={() => setFilters((p) => ({ ...p, [f.key]: "" }))}
+                  >
+                    <span className="truncate"><span className="text-indigo-500">{f.label}:</span> {String(f.value)}</span>
+                    <FiX className="h-3.5 w-3.5 shrink-0" />
+                  </button>
+                ))}
+                <input
+                  value={filters.q}
+                  onChange={(e) => setFilters((p) => ({ ...p, q: e.target.value }))}
+                  placeholder={activeFilterCount ? "Search with selected filters..." : "Search leads, company, phone, email..."}
+                  className="min-w-[180px] flex-1 border-0 bg-transparent px-1 py-2 text-sm font-medium outline-none placeholder:text-gray-400"
+                />
+                <button
+                  type="button"
+                  className={cn("inline-flex h-9 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-bold transition", activeFilterCount ? "bg-indigo-600 text-white hover:bg-indigo-700" : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100")}
+                  onClick={() => { setFilterDraft(filters); setFiltersOpen(true) }}
+                >
+                  <FiFilter className="h-4 w-4" />Filters
+                  {activeFilterCount ? <span className="rounded-full bg-white/20 px-1.5 text-xs">{activeFilterCount}</span> : null}
+                </button>
+                {(filters.q || activeFilterCount) ? (
+                  <button
+                    type="button"
+                    title="Clear search and filters"
+                    className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                    onClick={clearAllSearchAndFilters}
+                  >
+                    <FiX className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 xl:justify-end">
+              {activeFilterCount ? <button className={cn(btn, btnGhost, "px-3")} onClick={clearOnlyFilters}>Clear chips</button> : null}
+              <button className={cn(btn, btnGhost)} onClick={() => setColsOpen(true)}><FiColumns />Columns</button>
+              <button className={cn(btn, btnGhost)} onClick={exportExcel}><SiMicrosoftexcel className="text-emerald-600" />Export</button>
+              <button className={cn(btn, btnGhost)} onClick={refreshAll}><FiRefreshCcw />Refresh</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">{statCards.map(({ label, value, icon: Icon }) => <div key={label} className={cn(card, "p-4")}><div className="flex items-center justify-between"><div><p className="text-xs font-bold uppercase tracking-wide text-gray-500">{label}</p><p className="mt-1 text-2xl font-black text-gray-950">{value}</p></div><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700"><Icon className="h-5 w-5" /></div></div></div>)}</div>
+      {error ? <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">{error}</div> : null}
+      <div className={cn(card, "overflow-hidden")}>
+        <div className="h-[520px] overflow-auto lg:h-[600px] xl:h-[650px]">
+          <table className="min-w-[1200px] w-full border-separate border-spacing-0 text-left">
+            <thead className="sticky top-0 z-20 bg-gray-50 shadow-[0_1px_0_0_rgba(229,231,235,1)]">
+              <tr>
+                {selectedCols.map((col) => (
+                  <th
+                    key={col}
+                    className="whitespace-nowrap border-b border-gray-100 px-3 py-2.5 text-left text-xs font-black uppercase tracking-wide text-gray-600"
+                  >
+                    {COLUMN_LABELS[col] || col}
+                  </th>
+                ))}
+                <th className="sticky right-0 z-30 whitespace-nowrap border-b border-gray-100 bg-gray-50 px-3 py-2.5 text-right text-xs font-black uppercase tracking-wide text-gray-600 shadow-[-12px_0_18px_-18px_rgba(0,0,0,0.45)]">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+
+            <tbody className="divide-y divide-gray-100 bg-white">
+              {loading ? (
+                <tr>
+                  <td colSpan={selectedCols.length + 1} className="p-10 text-center">
+                    <FiLoader className="mx-auto h-6 w-6 animate-spin text-indigo-600" />
+                  </td>
+                </tr>
+              ) : leads.length ? (
+                leads.map((lead) => (
+                  <tr
+                    key={getLeadId(lead)}
+                    className={cn("transition hover:bg-gray-50/90", lead.isOverdue ? "bg-rose-50/30" : "")}
+                  >
+                    {selectedCols.map((col) => (
+                      <td
+                        key={col}
+                        className="max-w-[240px] whitespace-nowrap px-3 py-2 text-[15px] font-medium text-gray-800"
+                      >
+                        <div className="truncate">{renderCell(lead, col)}</div>
+                      </td>
+                    ))}
+                    <td className="sticky right-0 z-10 bg-white px-3 py-2 text-right shadow-[-12px_0_18px_-18px_rgba(0,0,0,0.45)]">
+                      <RowActionsMenu
+                        lead={lead}
+                        onAction={action}
+                        busy={busyId === getLeadId(lead)}
+                        converting={convertingId === getLeadId(lead)}
+                        canConvert={canConvert}
+                      />
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={selectedCols.length + 1} className="p-8">
+                    <EmptyState
+                      icon={<FiGrid className="h-5 w-5" />}
+                      title="No leads found"
+                      subtitle="Create a new lead or adjust filters."
+                    />
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex flex-col items-center justify-center gap-2 border-t border-gray-100 bg-white px-4 py-4 text-center">
+          <button
+            type="button"
+            className={cn(
+              btn,
+              hasMore
+                ? "bg-indigo-600 px-6 text-white shadow-sm hover:bg-indigo-700"
+                : "cursor-not-allowed border border-gray-200 bg-gray-100 px-6 text-gray-400",
+              "min-w-[170px] rounded-full"
+            )}
+            disabled={!hasMore || loadingMore || loading}
+            onClick={() => hasMore && fetchLeads({ reset: false })}
+            title={hasMore ? "Load more leads" : "No more leads available"}
+          >
+            {loadingMore ? <FiLoader className="h-4 w-4 animate-spin" /> : null}
+            {loadingMore ? "Loading..." : "See more"}
+          </button>
+          <p className="text-xs font-semibold text-gray-500">
+            {hasMore ? "Load more leads from the list." : leads.length ? "No more leads available." : "No lead data to load."}
+          </p>
+        </div>
+      </div>
+    </div>
+    <ModalShell open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Lead Filters" subtitle="Filter by lead, queue and follow-up fields" icon={<FiFilter className="h-5 w-5" />} maxWidthClass="max-w-4xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={() => { const empty = Object.fromEntries(Object.keys(filters).map((k)=>[k,"" ])); setFilterDraft(empty); setFilters(empty); setFiltersOpen(false) }}>Clear all</button><button className={cn(btn, btnPrimary)} onClick={() => { setFilters(filterDraft); setFiltersOpen(false) }}>Apply filters</button></div>}><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><Field label="Status"><select className={input} value={filterDraft.status} onChange={(e) => setFilterDraft((p) => ({ ...p, status: e.target.value }))}><option value="">All</option>{LEAD_STATUSES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Pipeline stage"><select className={input} value={filterDraft.pipelineStage} onChange={(e) => setFilterDraft((p) => ({ ...p, pipelineStage: e.target.value }))}><option value="">All</option>{PIPELINE_STAGES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Priority"><select className={input} value={filterDraft.priority} onChange={(e) => setFilterDraft((p) => ({ ...p, priority: e.target.value }))}><option value="">All</option>{PRIORITIES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Temperature"><select className={input} value={filterDraft.leadTemperature} onChange={(e) => setFilterDraft((p) => ({ ...p, leadTemperature: e.target.value }))}><option value="">All</option>{TEMPERATURES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Queue priority"><select className={input} value={filterDraft.workQueuePriority} onChange={(e) => setFilterDraft((p) => ({ ...p, workQueuePriority: e.target.value }))}><option value="">All</option>{WORK_PRIORITIES.map((x)=><option key={x}>{x}</option>)}</select></Field><Field label="Overdue"><select className={input} value={filterDraft.isOverdue} onChange={(e) => setFilterDraft((p) => ({ ...p, isOverdue: e.target.value }))}><option value="">All</option><option value="true">Overdue</option><option value="false">Not overdue</option></select></Field><Field label="Next action type"><input className={input} value={filterDraft.nextActionType} onChange={(e)=>setFilterDraft(p=>({...p,nextActionType:e.target.value}))}/></Field><Field label="Purchase type"><input className={input} value={filterDraft.purchaseType} onChange={(e) => setFilterDraft((p) => ({ ...p, purchaseType: e.target.value }))} /></Field><Field label="Source"><input className={input} value={filterDraft.source} onChange={(e) => setFilterDraft((p) => ({ ...p, source: e.target.value }))} /></Field><Field label="Tag"><input className={input} value={filterDraft.tag} onChange={(e) => setFilterDraft((p) => ({ ...p, tag: e.target.value }))} /></Field><Field label="Next follow-up from"><input type="date" className={input} value={filterDraft.nextFollowUpFrom} onChange={(e) => setFilterDraft((p) => ({ ...p, nextFollowUpFrom: e.target.value }))} /></Field><Field label="Next follow-up to"><input type="date" className={input} value={filterDraft.nextFollowUpTo} onChange={(e) => setFilterDraft((p) => ({ ...p, nextFollowUpTo: e.target.value }))} /></Field><Field label="Last contacted from"><input type="date" className={input} value={filterDraft.lastContactedFrom} onChange={(e) => setFilterDraft((p) => ({ ...p, lastContactedFrom: e.target.value }))} /></Field><Field label="Last contacted to"><input type="date" className={input} value={filterDraft.lastContactedTo} onChange={(e) => setFilterDraft((p) => ({ ...p, lastContactedTo: e.target.value }))} /></Field></div></ModalShell>
+    <ColumnPickerModal open={colsOpen} onClose={() => setColsOpen(false)} allowed={allowedCols} selected={selectedCols} onSave={saveColumns} />
+    <LeadFullViewModal open={Boolean(viewLeadId)} onClose={() => setViewLeadId("")} leadId={viewLeadId} initialTab={viewInitialTab} refreshTick={viewTick} onAction={(type, lead) => type === "refresh" ? refreshAll() : action(type, lead)} />
+    <LeadUpsertModal open={modal.type === "create"} onClose={() => setModal({ type: "", lead: null })} mode="create" users={assignees} onSaved={async () => { showToast("success", "Lead created."); await refreshAll() }} />
+    <LeadUpsertModal open={modal.type === "edit"} onClose={() => setModal({ type: "", lead: null })} mode="edit" initial={modal.lead} users={assignees} onSaved={async () => { showToast("success", "Lead updated."); await refreshAll() }} />
+    <NoteModal open={modal.type === "note"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Note added."); await refreshAll() }} />
+    <StageModal open={modal.type === "stage"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={handleStageSaved} refreshToken={stageWorkTick} onOpenRequirement={(lead) => setChildModal({ type: "requirement", lead })} onOpenProposal={(lead) => setChildModal({ type: "proposal", lead })} />
+    <StageModal open={modal.type === "nextStage"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} mode="next" lockStage targetStage={getNextPipelineStage(modal.lead)} onSaved={handleStageSaved} refreshToken={stageWorkTick} onOpenRequirement={(lead) => setChildModal({ type: "requirement", lead })} onOpenProposal={(lead) => setChildModal({ type: "proposal", lead })} />
+    <RequirementModal open={modal.type === "requirement"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Requirement updated."); await refreshAll() }} />
+    <RequirementModal open={childModal.type === "requirement"} onClose={() => setChildModal({ type: "", lead: null })} lead={childModal.lead} onSaved={handleChildRequirementSaved} />
+    <FollowUpModal open={modal.type === "followup"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Follow-up saved."); await refreshAll() }} />
+    <ActivityModal open={modal.type === "activity"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} users={assignees} onSaved={async () => { showToast("success", "Activity created."); await refreshAll() }} />
+    <ProposalModal open={modal.type === "proposal"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} users={assignees} onSaved={async () => { showToast("success", "Proposal created."); await refreshAll() }} />
+    <ProposalModal open={childModal.type === "proposal"} onClose={() => setChildModal({ type: "", lead: null })} lead={childModal.lead} users={assignees} onSaved={handleChildProposalSaved} />
+    <DealModal open={modal.type === "deal"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} users={assignees} onConvert={(lead) => action("convert", lead)} onSaved={async () => { showToast("success", "Deal created."); await refreshAll() }} />
+    <QuickActionModal open={modal.type === "quick"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Quick action saved."); await refreshAll() }} />
+    <AssignLeadModal open={modal.type === "assign"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Lead assigned."); await refreshAll() }} />
+    <ReasonModal open={modal.type === "leadWon"} onClose={() => setModal({ type: "", lead: null })} title="Mark lead won" subtitle={modal.lead?.contact?.name || ""} icon={<FiCheckCircle className="h-5 w-5" />} actionLabel="Mark won" onSubmit={async (payload) => { await apiLeadWon(getLeadId(modal.lead), payload); showToast("success", "Lead marked as won."); await refreshAll() }} />
+    <ReasonModal open={modal.type === "leadLost"} onClose={() => setModal({ type: "", lead: null })} title="Mark lead lost" subtitle={modal.lead?.contact?.name || ""} icon={<FiXCircle className="h-5 w-5" />} actionLabel="Mark lost" danger onSubmit={async (payload) => { await apiLeadLost(getLeadId(modal.lead), payload); showToast("success", "Lead marked as lost."); await refreshAll() }} />
+    <ConfirmDeleteModal open={deleteState.open} leadName={deleteState.lead?.contact?.name || ""} loading={deleteState.loading} onClose={() => setDeleteState({ open: false, lead: null, loading: false })} onConfirm={confirmDelete} />
+    <WorkQueuePanel open={panel === "queue"} onClose={() => setPanel("")} onToast={showToast} onChanged={refreshAll} />
+    <TemplatesPanel open={panel === "templates"} onClose={() => setPanel("")} onToast={showToast} />
+    <AssignmentPanel open={panel === "assignment"} onClose={() => setPanel("")} onToast={showToast} onChanged={refreshAll} />
+    <NotificationsPanel open={panel === "notifications"} onClose={() => setPanel("")} onToast={showToast} onChanged={refreshProductivity} />
+  </div>
 }

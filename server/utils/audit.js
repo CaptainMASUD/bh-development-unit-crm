@@ -2,11 +2,48 @@ import AuditLog from "../models/auditLog.model.js";
 import ActivityLog from "../models/activityLog.model.js";
 import ConversionLog from "../models/conversionLog.model.js";
 
-export const getReqMeta = (req) => ({
-  ip: String(req.headers["x-forwarded-for"] || req.ip || ""),
-  userAgent: String(req.headers["user-agent"] || ""),
-  requestId: String(req.headers["x-request-id"] || ""),
-});
+export const getReqMeta = (req) => {
+  return {
+    ip:
+      req.headers["x-forwarded-for"]?.split(",")?.[0]?.trim() ||
+      req.socket?.remoteAddress ||
+      "",
+    userAgent: req.headers["user-agent"] || "",
+    method: req.method || "",
+    path: req.originalUrl || req.url || "",
+  };
+};
+
+const normalizeAuditAction = (action = "") => {
+  const value = String(action || "").trim();
+
+  const map = {
+    stage_changed: "stage_change",
+    status_changed: "status_change",
+    converted: "convert",
+    completed: "complete",
+    cancelled: "cancel",
+    sent: "send",
+    accepted: "accept",
+    rejected: "reject",
+  };
+
+  return map[value] || value;
+};
+
+const normalizeActivityType = (type = "") => {
+  const value = String(type || "").trim();
+
+  const map = {
+    stage_change: "stage_changed",
+    status_change: "status_changed",
+    convert: "converted",
+    complete: "activity_completed",
+    cancel: "activity_cancelled",
+  };
+
+  return map[value] || value;
+};
 
 export const writeAudit = async ({
   session = null,
@@ -18,46 +55,94 @@ export const writeAudit = async ({
   after = null,
   meta = {},
 }) => {
-  const doc = {
-    actorId: actorId ?? null,
-    action,
-    entityType,
-    entityId,
-    before,
-    after,
-    meta,
-    createdAt: new Date(),
-  };
+  try {
+    if (!actorId || !action || !entityType || !entityId) return null;
 
-  if (session) return AuditLog.create([doc], { session });
-  return AuditLog.create(doc);
+    const payload = {
+      actorId,
+      action: normalizeAuditAction(action),
+      entityType,
+      entityId,
+      before,
+      after,
+      meta: {
+        ip: meta?.ip || "",
+        userAgent: meta?.userAgent || "",
+        method: meta?.method || "",
+        path: meta?.path || "",
+        oldStage: meta?.oldStage || "",
+        newStage: meta?.newStage || "",
+        oldStatus: meta?.oldStatus || "",
+        newStatus: meta?.newStatus || "",
+        reason: meta?.reason || "",
+        amount: Number(meta?.amount || 0),
+        extra: meta?.extra || null,
+      },
+    };
+
+    if (session) {
+      const [doc] = await AuditLog.create([payload], { session });
+      return doc;
+    }
+
+    return await AuditLog.create(payload);
+  } catch (err) {
+    console.error("Audit log failed:", err.message);
+    return null;
+  }
 };
 
 export const writeActivity = async ({
   session = null,
   leadId = null,
   customerId = null,
+  dealId = null,
+  orderId = null,
+  invoiceId = null,
+  proposalId = null,
   entityType,
   entityId,
   type,
   message = "",
-  meta = null,
   createdBy,
+  meta = {},
 }) => {
-  const doc = {
-    leadId,
-    customerId,
-    entityType,
-    entityId,
-    type,
-    message,
-    meta,
-    createdBy,
-    createdAt: new Date(),
-  };
+  try {
+    if (!entityType || !entityId || !type || !createdBy) return null;
 
-  if (session) return ActivityLog.create([doc], { session });
-  return ActivityLog.create(doc);
+    const payload = {
+      leadId,
+      customerId,
+      dealId,
+      orderId,
+      invoiceId,
+      proposalId,
+      entityType,
+      entityId,
+      type: normalizeActivityType(type),
+      message,
+      createdBy,
+      meta: {
+        oldStage: meta?.oldStage || "",
+        newStage: meta?.newStage || "",
+        oldStatus: meta?.oldStatus || "",
+        newStatus: meta?.newStatus || "",
+        reason: meta?.reason || "",
+        amount: Number(meta?.amount || 0),
+        extra: meta || null,
+      },
+    };
+
+    if (session) {
+      const [doc] = await ActivityLog.create([payload], { session });
+      return doc;
+    }
+
+    return await ActivityLog.create(payload);
+  } catch (err) {
+    console.error("Activity log failed:", err.message);
+    return null;
+  }
 };
 
 export const writeConversionLog = async ({
@@ -65,18 +150,28 @@ export const writeConversionLog = async ({
   leadId,
   customerId,
   convertedBy,
-  leadSnapshot,
-  customerSnapshot,
+  leadSnapshot = null,
+  customerSnapshot = null,
 }) => {
-  const doc = {
-    leadId,
-    customerId,
-    convertedBy,
-    convertedAt: new Date(),
-    leadSnapshot,
-    customerSnapshot,
-  };
+  try {
+    if (!leadId || !customerId || !convertedBy) return null;
 
-  if (session) return ConversionLog.create([doc], { session });
-  return ConversionLog.create(doc);
+    const payload = {
+      leadId,
+      customerId,
+      convertedBy,
+      leadSnapshot,
+      customerSnapshot,
+    };
+
+    if (session) {
+      const [doc] = await ConversionLog.create([payload], { session });
+      return doc;
+    }
+
+    return await ConversionLog.create(payload);
+  } catch (err) {
+    console.error("Conversion log failed:", err.message);
+    return null;
+  }
 };
