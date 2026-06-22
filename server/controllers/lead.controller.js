@@ -683,6 +683,7 @@ export const listLeads = async (req, res) => {
       cursor,
       limit,
       fields,
+      sort,
     } = req.query;
 
     const pageSize = clamp(parseInt(limit || "20", 10), 1, 100);
@@ -786,11 +787,17 @@ export const listLeads = async (req, res) => {
 
     let query = Lead.find(filter).select(projection).lean();
 
-    if (q && normalizeString(q)) {
+    if (q && normalizeString(q) && sort !== "newest") {
       query = query
         .find({ ...filter, $text: { $search: normalizeString(q) } })
         .select({ ...projection, score: { $meta: "textScore" } })
         .sort({ score: { $meta: "textScore" }, workQueueScore: -1, _id: -1 });
+    } else if (q && normalizeString(q)) {
+      query = query
+        .find({ ...filter, $text: { $search: normalizeString(q) } })
+        .sort({ createdAt: -1, _id: -1 });
+    } else if (sort === "newest") {
+      query = query.sort({ createdAt: -1, _id: -1 });
     } else {
       query = query.sort({ workQueueScore: -1, nextActionAt: 1, _id: -1 });
     }
@@ -1133,6 +1140,18 @@ export const updateLeadStage = async (req, res) => {
       return res.status(400).json({ message: "reason is required" });
     }
 
+    if (pipelineStage === "negotiation") {
+      return res.status(400).json({
+        message: "Negotiation starts automatically when a deal is created from a sent or accepted proposal.",
+      });
+    }
+
+    if (pipelineStage === "won") {
+      return res.status(400).json({
+        message: "A lead can only become won by winning its linked deal.",
+      });
+    }
+
     const set = {
       pipelineStage,
     };
@@ -1329,13 +1348,6 @@ export const updateLeadRequirement = async (req, res) => {
       return res.status(400).json({ message: "No requirement fields provided." });
     }
 
-    const nextStage =
-      before.pipelineStage === "new" || before.pipelineStage === "qualified"
-        ? "discovery"
-        : before.pipelineStage;
-
-    if (nextStage !== before.pipelineStage) set.pipelineStage = nextStage;
-
     Object.assign(
       set,
       buildLeadAutomationSet({
@@ -1346,7 +1358,7 @@ export const updateLeadRequirement = async (req, res) => {
           expectedValue !== undefined
             ? Math.max(Number(expectedValue || 0), 0)
             : before.requirement?.expectedValue || 0,
-        pipelineStage: set.pipelineStage || before.pipelineStage,
+        pipelineStage: before.pipelineStage,
         status: before.status,
         nextFollowUpAt: before.nextFollowUpAt,
         lastContactedAt: before.lastContactedAt,
@@ -1361,7 +1373,7 @@ export const updateLeadRequirement = async (req, res) => {
           note,
           type: "general",
           oldStage: before.pipelineStage || "",
-          newStage: set.pipelineStage || before.pipelineStage || "",
+          newStage: before.pipelineStage || "",
           oldStatus: before.status || "",
           newStatus: before.status || "",
           reason: "Requirement updated",
@@ -2084,12 +2096,12 @@ export const getLeadTimeline = async (req, res) => {
         .lean(),
 
       Proposal.find({ leadId: id })
-        .select("proposalNo title status grandTotal currency validTill sentAt acceptedAt rejectedAt followupDueAt createdAt")
+        .select("proposalNo title status items grandTotal currency validTill sentAt acceptedAt rejectedAt followupDueAt terms notes ownerId dealId createdAt")
         .sort({ createdAt: -1 })
         .lean(),
 
       Deal.find({ leadId: id })
-        .select("dealNo title stage grandTotal currency probability expectedRevenue dealHealth expectedCloseDate wonAt lostAt createdAt")
+        .select("dealNo title stage items subtotal discountTotal grandTotal currency probability expectedRevenue dealHealth expectedCloseDate proposalStatus proposalSentAt quotationValidTill requirementSnapshot ownerId notes nextDealAction nextDealActionAt stuckReason wonReason lostReason wonAt lostAt createdAt")
         .sort({ createdAt: -1 })
         .lean(),
 

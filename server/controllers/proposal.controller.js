@@ -198,7 +198,6 @@ const syncLeadForProposal = async ({ leadId, proposal, action, userId }) => {
   let reason = "Proposal updated";
 
   if (action === "created") {
-    set.pipelineStage = "proposal";
     set.nextAction = "Send proposal to client";
     set.nextActionType = "proposal";
     set.nextActionAt = proposal.validTill || null;
@@ -210,7 +209,6 @@ const syncLeadForProposal = async ({ leadId, proposal, action, userId }) => {
   }
 
   if (action === "sent") {
-    set.pipelineStage = "proposal";
     set.nextAction = "Follow up about proposal";
     set.nextActionType = "follow_up";
     set.nextActionAt = proposal.followupDueAt || null;
@@ -223,7 +221,6 @@ const syncLeadForProposal = async ({ leadId, proposal, action, userId }) => {
   }
 
   if (action === "accepted") {
-    set.pipelineStage = "negotiation";
     set.status = lead.status === "new" ? "contacted" : lead.status;
     set.nextAction = "Create deal from accepted proposal";
     set.nextActionType = "deal";

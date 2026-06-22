@@ -2,6 +2,7 @@
 import express from "express";
 import {
   createDeal,
+  createDealFromProposal,
   listDeals,
   getDealById,
   updateDeal,
@@ -28,6 +29,7 @@ router.use(protect, isMarketingOrAdmin);
    DEAL
 ========================= */
 router.post("/", createDeal);
+router.post("/from-proposal/:proposalId", createDealFromProposal);
 router.get("/", listDeals);
 router.get("/:id", getDealById);
 

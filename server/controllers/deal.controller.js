@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Deal from "../models/deal.model.js";
 import Lead from "../models/lead.model.js";
 import Proposal from "../models/proposal.model.js";
+import Customer from "../models/customer.model.js";
 import WorkQueue from "../models/workQueue.model.js";
 import Notification from "../models/notification.model.js";
 import { getReqMeta, writeAudit, writeActivity } from "../utils/audit.js";
@@ -52,6 +53,7 @@ const assertLeadAccessOrThrow = async ({ req, leadId }) => {
 };
 
 const DEAL_STAGES = ["new", "qualified", "proposal", "negotiation", "won", "lost"];
+const DEAL_READY_PROPOSAL_STATUSES = ["sent", "accepted"];
 
 const PROPOSAL_STATUSES = ["none", "draft", "sent", "accepted", "rejected", "expired"];
 
@@ -218,14 +220,9 @@ const syncLeadForDeal = async ({ leadId, deal, action, userId }) => {
   let reason = "Deal updated";
 
   if (action === "created") {
-    set.pipelineStage =
-      deal.stage === "proposal"
-        ? "proposal"
-        : deal.stage === "negotiation"
-        ? "negotiation"
-        : "qualified";
-
-    set.nextAction = "Work on this deal";
+    set.pipelineStage = "negotiation";
+    set.status = lead.status === "new" ? "contacted" : lead.status;
+    set.nextAction = "Negotiate inside the deal";
     set.nextActionType = "deal";
     set.nextActionAt = deal.nextDealActionAt || deal.expectedCloseDate || null;
     set.workQueuePriority = "high";
@@ -242,8 +239,8 @@ const syncLeadForDeal = async ({ leadId, deal, action, userId }) => {
     set.wonAt = deal.wonAt || new Date();
     set.isOverdue = false;
     set.overdueSince = null;
-    set.nextAction = "Convert won lead to customer";
-    set.nextActionType = "convert";
+    set.nextAction = "";
+    set.nextActionType = "";
     set.nextActionAt = null;
     set.workQueuePriority = "high";
     set.workQueueScore = 120;
@@ -296,6 +293,71 @@ const syncLeadForDeal = async ({ leadId, deal, action, userId }) => {
   );
 };
 
+const convertWonDealLeadToCustomer = async ({ deal, userId }) => {
+  if (!deal?.leadId) return { customer: null, lead: null };
+
+  const lead = await Lead.findById(deal.leadId);
+  if (!lead) return { customer: null, lead: null };
+
+  let customer = null;
+  const existingCustomerId = lead.customerId || lead.convertedCustomer || deal.customerId;
+
+  if (existingCustomerId) customer = await Customer.findById(existingCustomerId);
+  if (!customer) customer = await Customer.findOne({ leadId: lead._id });
+
+  if (!customer) {
+    customer = await Customer.create({
+      name: lead.contact?.name || lead.contact?.companyName || "Customer",
+      email: lead.contact?.email || "",
+      phone: lead.contact?.phone || "",
+      companyName: lead.contact?.companyName || "",
+      contactPerson: {
+        name: lead.contact?.name || lead.contact?.companyName || "Customer",
+        email: lead.contact?.email || "",
+        phone: lead.contact?.phone || "",
+      },
+      origin: "lead",
+      lifecycleStage: "active",
+      tags: lead.tags || [],
+      createdBy: userId,
+      assignedTo: lead.assignedTo ? [lead.assignedTo] : [userId],
+      leadId: lead._id,
+    });
+  }
+
+  const updatedLead = await Lead.findByIdAndUpdate(
+    lead._id,
+    {
+      $set: {
+        customerId: customer._id,
+        convertedCustomer: customer._id,
+        convertedAt: lead.convertedAt || new Date(),
+        pipelineStage: "won",
+        status: "confirmed",
+        isOverdue: false,
+        overdueSince: null,
+        nextAction: "",
+        nextActionType: "",
+        nextActionAt: null,
+        workQueueScore: 0,
+        workQueuePriority: "low",
+      },
+    },
+    { new: true, runValidators: true }
+  );
+
+  await Promise.all([
+    Deal.findByIdAndUpdate(deal._id, { $set: { customerId: customer._id } }),
+    deal.proposalId
+      ? Proposal.findByIdAndUpdate(deal.proposalId, {
+          $set: { customerId: customer._id, dealId: deal._id },
+        })
+      : Promise.resolve(),
+  ]);
+
+  return { customer, lead: updatedLead };
+};
+
 /* =======================
    CREATE DEAL
 ======================= */
@@ -308,7 +370,7 @@ export const createDeal = async (req, res) => {
       customerId = null,
       proposalId = null,
       title,
-      stage = "new",
+      stage = "negotiation",
       currency = "BDT",
       items = [],
       probability = 10,
@@ -326,7 +388,7 @@ export const createDeal = async (req, res) => {
 
     const safeLeadId = toObjectId(leadId);
     let safeCustomerId = toObjectId(customerId);
-    const safeProposalId = toObjectId(proposalId);
+    let safeProposalId = toObjectId(proposalId);
 
     let sourceLead = null;
 
@@ -339,9 +401,40 @@ export const createDeal = async (req, res) => {
       }
     }
 
-    if (!safeCustomerId) {
+    if (!safeLeadId || !sourceLead) {
       return res.status(400).json({
-        message: "Deal requires customerId. Convert lead to customer first or provide customerId.",
+        message: "Deal must be created from a lead after its proposal is sent.",
+      });
+    }
+
+    let sourceProposal = null;
+    if (safeProposalId) {
+      sourceProposal = await Proposal.findOne({
+        _id: safeProposalId,
+        leadId: safeLeadId,
+      }).lean();
+    } else {
+      sourceProposal = await Proposal.findOne({
+        leadId: safeLeadId,
+        status: { $in: DEAL_READY_PROPOSAL_STATUSES },
+        dealId: null,
+      })
+        .sort({ acceptedAt: -1, sentAt: -1, createdAt: -1 })
+        .lean();
+      safeProposalId = sourceProposal?._id || null;
+    }
+
+    if (!sourceProposal || !DEAL_READY_PROPOSAL_STATUSES.includes(sourceProposal.status)) {
+      return res.status(400).json({
+        message: "Send or accept a proposal before creating the deal.",
+      });
+    }
+
+    const existingDeal = await Deal.findOne({ proposalId: sourceProposal._id }).lean();
+    if (existingDeal) {
+      return res.status(409).json({
+        message: "A deal already exists for this proposal.",
+        deal: existingDeal,
       });
     }
 
@@ -349,9 +442,9 @@ export const createDeal = async (req, res) => {
       return res.status(400).json({ message: "title is required" });
     }
 
-    if (!DEAL_STAGES.includes(stage)) {
+    if (stage !== "negotiation") {
       return res.status(400).json({
-        message: `Invalid stage. Use: ${DEAL_STAGES.join(", ")}`,
+        message: "A deal created from a proposal must start in negotiation.",
       });
     }
 
@@ -361,7 +454,9 @@ export const createDeal = async (req, res) => {
       });
     }
 
-    const totals = calculateItems(items);
+    const totals = calculateItems(
+      Array.isArray(items) && items.length ? items : sourceProposal.items || []
+    );
     const safeProbability = Math.min(Math.max(Number(probability || 10), 0), 100);
     const safeExpectedCloseDate = validateDateOrNull(expectedCloseDate);
     const safeNextDealActionAt = validateDateOrNull(nextDealActionAt);
@@ -388,9 +483,10 @@ export const createDeal = async (req, res) => {
       expectedRevenue: getExpectedRevenue(grandTotal, safeProbability),
       probability: safeProbability,
       expectedCloseDate: safeExpectedCloseDate,
-      proposalStatus,
-      proposalSentAt: validateDateOrNull(proposalSentAt),
-      quotationValidTill: validateDateOrNull(quotationValidTill),
+      proposalStatus: sourceProposal.status,
+      proposalSentAt: sourceProposal.sentAt || validateDateOrNull(proposalSentAt),
+      quotationValidTill:
+        sourceProposal.validTill || validateDateOrNull(quotationValidTill),
       requirementSnapshot: {
         summary: normalizeString(requirementSnapshot?.summary),
         budgetMin: Math.max(Number(requirementSnapshot?.budgetMin || 0), 0),
@@ -401,10 +497,10 @@ export const createDeal = async (req, res) => {
       },
       ownerId: toObjectId(ownerId) || req.user._id,
       createdBy: req.user._id,
-      notes: normalizeString(notes),
+      notes: normalizeString(notes) || normalizeString(sourceProposal.notes),
 
       dealHealth: health,
-      nextDealAction: normalizeString(nextDealAction) || "Work on this deal",
+      nextDealAction: normalizeString(nextDealAction) || "Negotiate with the client",
       nextDealActionAt: safeNextDealActionAt || safeExpectedCloseDate,
       stuckReason: normalizeString(stuckReason),
       lastActivityAt: new Date(),
@@ -664,6 +760,10 @@ export const updateDeal = async (req, res) => {
       set.notes = normalizeString(req.body.notes);
     }
 
+    if (req.body?.ownerId !== undefined) {
+      set.ownerId = toObjectId(req.body.ownerId) || before.ownerId;
+    }
+
     if (req.body?.items !== undefined) {
       const totals = calculateItems(req.body.items);
       set.items = totals.items;
@@ -811,7 +911,7 @@ export const markDealWon = async (req, res) => {
           wonAt: new Date(),
           wonReason: normalizeString(reason),
           dealHealth: "healthy",
-          nextDealAction: "Convert lead/customer follow-up",
+          nextDealAction: "",
           nextDealActionAt: null,
           lastStageChangedAt: new Date(),
           lastActivityAt: new Date(),
@@ -821,6 +921,7 @@ export const markDealWon = async (req, res) => {
     );
 
     let updatedLead = null;
+    let customer = null;
 
     if (deal.leadId) {
       updatedLead = await syncLeadForDeal({
@@ -829,6 +930,13 @@ export const markDealWon = async (req, res) => {
         action: "won",
         userId: req.user._id,
       });
+
+      const conversion = await convertWonDealLeadToCustomer({
+        deal,
+        userId: req.user._id,
+      });
+      updatedLead = conversion.lead || updatedLead;
+      customer = conversion.customer;
     }
 
     await WorkQueue.updateMany(
@@ -863,9 +971,10 @@ export const markDealWon = async (req, res) => {
     });
 
     return res.json({
-      message: "Deal marked as won",
-      deal,
+      message: "Deal won and lead converted to customer",
+      deal: customer ? { ...deal.toObject(), customerId: customer._id } : deal,
       lead: updatedLead,
+      customer,
     });
   } catch (err) {
     const code = err.statusCode || 500;
@@ -1046,4 +1155,9 @@ export const deleteDeal = async (req, res) => {
       error: err.message,
     });
   }
+};
+
+export const createDealFromProposal = async (req, res) => {
+  req.body = { ...(req.body || {}), proposalId: req.params.proposalId };
+  return createDeal(req, res);
 };

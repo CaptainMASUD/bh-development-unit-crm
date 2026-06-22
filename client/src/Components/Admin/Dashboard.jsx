@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom"
 import { FaAngleDoubleLeft, FaAngleDoubleRight } from "react-icons/fa"
 import Sidebar from "./Sidebar"
 import { sections } from "./sections"
+import SessionExpiryGuard from "../Auth/SessionExpiredModal"
 
 export default function AdminDashboard() {
   const navigate = useNavigate()
@@ -108,6 +109,7 @@ export default function AdminDashboard() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden relative">
+      <SessionExpiryGuard />
       <Sidebar
         setActiveSection={setActiveSection}
         setActiveSubcategory={setActiveSubcategory}

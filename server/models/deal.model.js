@@ -45,14 +45,14 @@ const dealSchema = new mongoose.Schema(
     customerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Customer",
-      required: true,
+      default: null,
       index: true,
     },
 
     proposalId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Proposal",
-      default: null,
+      required: true,
       index: true,
     },
 
@@ -61,7 +61,7 @@ const dealSchema = new mongoose.Schema(
     stage: {
       type: String,
       enum: ["new", "qualified", "proposal", "negotiation", "won", "lost"],
-      default: "new",
+      default: "negotiation",
       index: true,
     },
 

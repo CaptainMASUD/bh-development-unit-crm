@@ -15,7 +15,9 @@ import RegisterForm from './Components/Register/Register';
 import MarketingDashboard from './Components/Marketing/Dashboard';
 import EcommerceHomePage from './Components/test/Admin';
 import CustomerServiceReport from './Components/Admin/ServiceReport';
+import { installSessionExpiryInterceptors } from './Components/Auth/sessionEvents';
 
+installSessionExpiryInterceptors();
 
 
 const router = createBrowserRouter([

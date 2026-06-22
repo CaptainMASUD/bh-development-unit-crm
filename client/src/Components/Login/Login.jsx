@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   FaUser,
   FaLock,
@@ -14,9 +14,10 @@ import {
 } from "react-icons/fa"
 import { motion, AnimatePresence } from "framer-motion"
 import { useDispatch, useSelector } from "react-redux"
-import { signInStart, signInSuccess, signInError } from "../../Redux/UserSlice/UserSlice"
+import { signInStart, signInSuccess, signInError, signOut } from "../../Redux/UserSlice/UserSlice"
 import { useNavigate } from "react-router-dom"
 import axios from "axios"
+import { getDashboardPathForRole, getJwtExpirationMs } from "../Auth/authRouting"
 
 export default function LoginForm() {
   const [email, setEmail] = useState("")
@@ -26,7 +27,25 @@ export default function LoginForm() {
 
   const dispatch = useDispatch()
   const navigate = useNavigate()
-  const { error, loading } = useSelector((state) => state.user)
+  const { currentUser, error, loading } = useSelector((state) => state.user)
+
+  useEffect(() => {
+    if (!currentUser?.isActive) return
+
+    const token = localStorage.getItem("token")
+    const expiresAt = getJwtExpirationMs(token)
+    const tokenIsValid = Boolean(token) && (expiresAt === null || expiresAt > Date.now())
+
+    if (!tokenIsValid) {
+      localStorage.removeItem("token")
+      localStorage.removeItem("user")
+      dispatch(signOut())
+      return
+    }
+
+    const dashboardPath = getDashboardPathForRole(currentUser.role)
+    if (dashboardPath) navigate(dashboardPath, { replace: true })
+  }, [currentUser, dispatch, navigate])
 
   const handleLogin = async (e) => {
     e.preventDefault()
@@ -52,23 +71,12 @@ export default function LoginForm() {
         if (token) localStorage.setItem("token", token)
 
         // ✅ admin + superadmin go to same route
-        if (user.role === "admin" || user.role === "superadmin") {
-          navigate("/admin")
-          return
-        }
-
-        if (user.role === "employee") {
-          navigate("/employee")
-          return
-        }
+        const dashboardPath = getDashboardPathForRole(user.role)
+        if (!dashboardPath) throw new Error("Invalid role received from server.")
+        navigate(dashboardPath, { replace: true })
+        return
 
         // ✅ NEW: marketing team route
-        if (user.role === "marketing_team") {
-          navigate("/marketing")
-          return
-        }
-
-        throw new Error("Invalid role received from server.")
       } else {
         throw new Error("Unexpected response from server.")
       }
