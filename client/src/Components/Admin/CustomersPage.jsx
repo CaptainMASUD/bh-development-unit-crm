@@ -27,6 +27,8 @@ import {
   FiAlertCircle,
   FiFilter,
   FiColumns,
+  FiEyeOff,
+  FiLock,
 } from "react-icons/fi"
 import { AlertTriangle, Loader2, Trash2, BriefcaseBusiness } from "lucide-react"
 
@@ -2040,11 +2042,18 @@ function ConfirmDeleteModal({
   onClose,
   onConfirm,
   extra,
+  requirePassword = false,
 }) {
   const closeBtnRef = useRef(null)
+  const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [passwordError, setPasswordError] = useState("")
 
   useEffect(() => {
     if (!open) return
+    setPassword("")
+    setShowPassword(false)
+    setPasswordError("")
     const t = setTimeout(() => closeBtnRef.current?.focus(), 50)
     return () => clearTimeout(t)
   }, [open])
@@ -2075,6 +2084,29 @@ function ConfirmDeleteModal({
             <h3 className="text-base font-bold text-gray-900">{title}</h3>
             <p className="text-sm text-gray-600 mt-1">{description}</p>
             {extra ? <div className="mt-3">{extra}</div> : null}
+            {requirePassword ? (
+              <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
+                  <FiLock className="h-4 w-4 text-indigo-600" />
+                  Confirm with your password
+                </div>
+                <p className="mt-1 text-xs text-gray-500">Enter your current admin password to continue.</p>
+                {passwordError ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-2.5 text-xs font-semibold text-red-700">{passwordError}</p> : null}
+                <div className="relative mt-3">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(event) => { setPassword(event.target.value); setPasswordError("") }}
+                    placeholder="Admin password"
+                    autoComplete="current-password"
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 pr-11 text-sm outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10"
+                  />
+                  <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-gray-500 hover:bg-gray-100" aria-label={showPassword ? "Hide password" : "Show password"}>
+                    {showPassword ? <FiEyeOff className="h-4 w-4" /> : <FiEye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
           <button
             ref={closeBtnRef}
@@ -2098,8 +2130,14 @@ function ConfirmDeleteModal({
           </button>
 
           <button
-            disabled={loading}
-            onClick={onConfirm}
+            disabled={loading || (requirePassword && password.length < 6)}
+            onClick={async () => {
+              try {
+                await onConfirm?.(password)
+              } catch (error) {
+                if (requirePassword) setPasswordError(error?.message || "Delete failed")
+              }
+            }}
             className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-red-600 text-white hover:bg-red-700 text-sm font-semibold disabled:opacity-60 focus:outline-none"
           >
             {loading ? (
@@ -2737,7 +2775,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     setDeleteModal((p) => ({ ...p, open: false }))
   }
 
-  const confirmDelete = async () => {
+  const confirmDelete = async (password) => {
     if (!deleteModal.customerId) return
     setDeleteLoading(true)
     try {
@@ -2745,6 +2783,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
         method: "DELETE",
         headers: getAuthHeaders(),
         credentials: "include",
+        body: JSON.stringify({ password }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.message || "Delete failed")
@@ -2752,8 +2791,6 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
       showToast("success", "Customer deleted.")
       setDeleteModal((p) => ({ ...p, open: false }))
       await fetchCustomersPage({ reset: true })
-    } catch (e) {
-      showToast("error", e?.message || "Delete failed")
     } finally {
       setDeleteLoading(false)
     }
@@ -3145,6 +3182,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
         loading={deleteLoading}
         onClose={closeDelete}
         onConfirm={confirmDelete}
+        requirePassword
       />
 
       <ConfirmDeleteModal

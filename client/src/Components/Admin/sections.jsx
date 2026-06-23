@@ -1,12 +1,12 @@
 // sections.js
-import React from "react"
 import { FaUsers, FaCog, FaInfoCircle, FaChartBar, FaUserFriends } from "react-icons/fa"
 import { LuLayoutDashboard } from "react-icons/lu"
-import { FiLayers, FiTarget } from "react-icons/fi"
+import { FiBriefcase, FiLayers, FiTarget } from "react-icons/fi"
 
 import Dashboard from "./DashboardContent"
 import Customers from "./CustomersPage"
 import AdminLead from "./AdminLeadPage"
+import AdminDealsPage from "./AdminDealsPage"
 import Users from "./UserContent"
 import ProfileSettings from "./ProfileSettings"
 import About from "./About"
@@ -38,6 +38,11 @@ const sections = {
   Leads: {
     icon: <FiTarget className="w-5 h-5" />,
     component: <AdminLead />,
+  },
+
+  Deals: {
+    icon: <FiBriefcase className="w-5 h-5" />,
+    component: <AdminDealsPage />,
   },
 
   "Workflow Setup": {

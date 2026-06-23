@@ -57,12 +57,14 @@ import {
   FiColumns,
   FiEdit2,
   FiEye,
+  FiEyeOff,
   FiFileText,
   FiFilter,
   FiFlag,
   FiGrid,
   FiInfo,
   FiLoader,
+  FiLock,
   FiMail,
   FiMoreVertical,
   FiPhoneCall,
@@ -575,7 +577,7 @@ const apiSetFollowUp = (id, payload) => apiJson(`${API_BASE}/leads/${id}/followu
 const apiLeadWon = (id, payload) => apiJson(`${API_BASE}/leads/${id}/won`, { method: "PATCH", body: JSON.stringify(payload) })
 const apiLeadLost = (id, payload) => apiJson(`${API_BASE}/leads/${id}/lost`, { method: "PATCH", body: JSON.stringify(payload) })
 const apiConvertLead = (id) => apiJson(`${API_BASE}/leads/${id}/convert`, { method: "POST" })
-const apiDeleteLead = (id) => apiJson(`${API_BASE}/leads/${id}`, { method: "DELETE" })
+const apiDeleteLead = (id, password) => apiJson(`${API_BASE}/leads/${id}`, { method: "DELETE", body: JSON.stringify({ password }) })
 const apiCreateActivity = (payload) => apiJson(`${API_BASE}/activities`, { method: "POST", body: JSON.stringify(payload) })
 const apiQuickAction = (payload) => apiJson(`${API_BASE}/activities/quick-action`, { method: "POST", body: JSON.stringify(payload) })
 const apiCompleteActivity = (id, payload) => apiJson(`${API_BASE}/activities/${id}/complete`, { method: "PATCH", body: JSON.stringify(payload) })
@@ -1705,8 +1707,36 @@ function ReasonModal({ open, onClose, title, subtitle, icon, actionLabel, danger
 }
 
 function ConfirmDeleteModal({ open, leadName, loading, onClose, onConfirm }) {
+  const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
+  const [error, setError] = useState("")
+  useEffect(() => {
+    if (!open) return
+    setPassword("")
+    setShowPassword(false)
+    setError("")
+  }, [open])
   if (!open) return null
-  return <ModalShell open={open} onClose={onClose} title="Delete lead" subtitle="This action cannot be undone." icon={<FiAlertTriangle className="h-5 w-5" />} maxWidthClass="max-w-md" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, "bg-rose-600 text-white hover:bg-rose-700")} onClick={onConfirm} disabled={loading}>{loading ? "Deleting..." : "Delete"}</button></div>}><p className="text-sm text-gray-600">Are you sure you want to delete <span className="font-bold text-gray-900">{leadName || "this lead"}</span>?</p></ModalShell>
+  const confirm = async () => {
+    setError("")
+    try {
+      await onConfirm?.(password)
+    } catch (err) {
+      setError(err?.message || "Delete failed")
+    }
+  }
+  return <ModalShell open={open} onClose={onClose} title="Delete lead?" subtitle="This action is permanent and cannot be undone." icon={<FiAlertTriangle className="h-5 w-5" />} maxWidthClass="max-w-md" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, "bg-rose-600 text-white hover:bg-rose-700")} onClick={confirm} disabled={loading || password.length < 6}>{loading ? "Deleting..." : "Delete lead"}</button></div>}>
+    <p className="text-sm text-gray-600">You are deleting <span className="font-bold text-gray-900">{leadName || "this lead"}</span>.</p>
+    <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+      <div className="flex items-center gap-2 text-sm font-bold text-gray-900"><FiLock className="h-4 w-4 text-indigo-600" />Confirm with your password</div>
+      <p className="mt-1 text-xs text-gray-500">Enter your current admin password to continue.</p>
+      {error ? <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-xs font-semibold text-rose-700">{error}</p> : null}
+      <div className="relative mt-3">
+        <input type={showPassword ? "text" : "password"} value={password} onChange={(event) => { setPassword(event.target.value); setError("") }} placeholder="Admin password" autoComplete="current-password" className={cn(input, "pr-11")} />
+        <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-gray-500 hover:bg-gray-100" aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? <FiEyeOff className="h-4 w-4" /> : <FiEye className="h-4 w-4" />}</button>
+      </div>
+    </div>
+  </ModalShell>
 }
 
 function QuickActionModal({ open, onClose, lead, onSaved }) {
@@ -2023,7 +2053,7 @@ function RecordList({ items = [], type, onComplete, onCancel, onSend, onAccept, 
   })}</div>
 }
 
-function RowActionsMenu({ lead, onAction, busy, converting, canConvert }) {
+function RowActionsMenu({ lead, onAction, busy, converting, canConvert, canAdminister }) {
   const [open, setOpen] = useState(false)
   const [menuStyle, setMenuStyle] = useState({ top: 0, left: 0, transformOrigin: "top right" })
   const ref = useRef(null)
@@ -2107,7 +2137,7 @@ function RowActionsMenu({ lead, onAction, busy, converting, canConvert }) {
     ? menuTimeline.deals.find((deal) => !["won", "lost"].includes(deal.stage))
     : null
   const isNegotiation = String(hydratedLead?.pipelineStage || "") === "negotiation"
-  const items = [["view", "View A-Z history", FiEye], ["quick", "Quick action", FiZap], ["assign", "Assign lead", FiUserCheck], ["edit", "Edit lead", FiEdit2], ["note", "Add note", FiFileText], ["nextStage", "Next stage", FiArrowRight], ["stage", "Manual stage", FiSliders], ["requirement", "Requirement", FiTarget], ["activity", "Create activity", FiActivity], ["followup", "Set follow-up", FiCalendar], ["contacted", "Mark contacted", FiPhoneCall], ...(proposalInfo.show ? [[proposalInfo.action, proposalInfo.label, FiFileText, proposalInfo.disabled, proposalInfo.helper]] : []), ["deal", "Create deal", FiBriefcase, checkingProposal || !eligibleProposal, checkingProposal ? "Checking proposals..." : "Send or accept a proposal first."], ...(isNegotiation ? [["dealWon", "Mark deal as won", FiCheckCircle, checkingProposal || !activeDeal, checkingProposal ? "Checking linked deal..." : activeDeal ? "This will convert the lead to a customer automatically." : "No active linked deal found."]] : []), ["lost", "Mark lost", FiXCircle]]
+  const items = [["view", "View A-Z history", FiEye], ["quick", "Quick action", FiZap], ...(canAdminister ? [["assign", "Assign lead", FiUserCheck]] : []), ["edit", "Edit lead", FiEdit2], ["note", "Add note", FiFileText], ["nextStage", "Next stage", FiArrowRight], ["stage", "Manual stage", FiSliders], ["requirement", "Requirement", FiTarget], ["activity", "Create activity", FiActivity], ["followup", "Set follow-up", FiCalendar], ["contacted", "Mark contacted", FiPhoneCall], ...(proposalInfo.show ? [[proposalInfo.action, proposalInfo.label, FiFileText, proposalInfo.disabled, proposalInfo.helper]] : []), ["deal", "Create deal", FiBriefcase, checkingProposal || !eligibleProposal, checkingProposal ? "Checking proposals..." : "Send or accept a proposal first."], ...(isNegotiation ? [["dealWon", "Mark deal as won", FiCheckCircle, checkingProposal || !activeDeal, checkingProposal ? "Checking linked deal..." : activeDeal ? "This will convert the lead to a customer automatically." : "No active linked deal found."]] : []), ["lost", "Mark lost", FiXCircle]]
 
   const menu = open && typeof document !== "undefined" ? createPortal(
     <AnimatePresence>
@@ -2125,8 +2155,10 @@ function RowActionsMenu({ lead, onAction, busy, converting, canConvert }) {
             const disabled = Boolean(forceDisabled) || (key === "convert" && (!canConvert || converted || converting)) || (key === "contacted" && busy) || (key === "won" && lead?.pipelineStage === "won") || (key === "lost" && lead?.pipelineStage === "lost") || (key === "nextStage" && !getNextPipelineStage(lead))
             return <button key={key} disabled={disabled} className={cn("flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50", key === "proposal" ? "bg-indigo-50/60 text-indigo-800" : key === "dealWon" ? "bg-emerald-50 text-emerald-800" : key === "manageProposal" ? "bg-gray-50 text-gray-900" : "text-gray-800")} onClick={() => { setOpen(false); onAction(key, key === "dealWon" ? { lead: hydratedLead, deal: activeDeal } : ["proposal", "manageProposal", "requirement", "deal", "nextStage", "stage"].includes(key) ? hydratedLead : lead) }}>{key === "contacted" && busy ? <FiLoader className="mt-0.5 h-4 w-4 animate-spin" /> : key === "convert" && converting ? <FiLoader className="mt-0.5 h-4 w-4 animate-spin" /> : <Icon className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" />}<span><span className="block text-sm font-semibold">{text}</span>{helper ? <span className="mt-0.5 block text-xs font-medium text-gray-500">{helper}</span> : null}</span></button>
           })}
-          <div className="my-1 border-t border-gray-100" />
-          <button className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-rose-700 transition hover:bg-rose-50" onClick={() => { setOpen(false); onAction("delete", lead) }}><FiTrash2 className="h-4 w-4" />Delete lead</button>
+          {canAdminister ? <>
+            <div className="my-1 border-t border-gray-100" />
+            <button className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-rose-700 transition hover:bg-rose-50" onClick={() => { setOpen(false); onAction("delete", lead) }}><FiTrash2 className="h-4 w-4" />Delete lead</button>
+          </> : null}
         </div>
       </motion.div>
     </AnimatePresence>,
@@ -2429,8 +2461,18 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
   const [notifications, setNotifications] = useState(0)
   const [assignees, setAssignees] = useState([])
   const abortRef = useRef(null)
-  const role = String(localStorage.getItem("role") || "").toLowerCase()
-  const canConvert = !role || ["admin", "superadmin", "marketing_team"].includes(role)
+  const role = useMemo(() => {
+    const directRole = localStorage.getItem("role")
+    if (directRole) return String(directRole).toLowerCase()
+    try {
+      const storedUser = JSON.parse(localStorage.getItem("user") || "null")
+      return String(storedUser?.role || "").toLowerCase()
+    } catch {
+      return ""
+    }
+  }, [])
+  const canConvert = ["admin", "superadmin", "marketing_team"].includes(role)
+  const canAdminister = ["admin", "superadmin"].includes(role)
   const showToast = (type, message) => {
     const safeMessage = message || "Something went wrong."
     if (type === "error") toast.error(safeMessage)
@@ -2441,6 +2483,10 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
   const fetchViewPrefs = async () => { try { const data = await apiGetViewPref(); const allowed = Array.isArray(data?.allowedColumns) && data.allowedColumns.length ? Array.from(new Set([...data.allowedColumns, ...FALLBACK_ALLOWED_COLUMNS])) : FALLBACK_ALLOWED_COLUMNS; const cols = Array.isArray(data?.columns) && data.columns.length ? data.columns : DEFAULT_COLUMNS; setAllowedCols(allowed); setSelectedCols(cols) } catch { setAllowedCols(FALLBACK_ALLOWED_COLUMNS); setSelectedCols(DEFAULT_COLUMNS) } }
   const fetchLeads = async ({ reset = false } = {}) => { abortRef.current?.abort?.(); const controller = new AbortController(); abortRef.current = controller; reset ? (setLoading(true), setLeads([]), setNextCursor(null), setHasMore(false)) : setLoadingMore(true); setError(""); try { const data = await apiListLeads({ limit: PAGE_SIZE, cursor: reset ? null : nextCursor, params: buildParams(), fields: fieldsParam, signal: controller.signal }); const items = normalizeApiList(data); setLeads((prev) => reset ? items : [...prev, ...items]); setNextCursor(data?.pageInfo?.nextCursor || null); setHasMore(Boolean(data?.pageInfo?.hasNextPage)) } catch (e) { if (e.name !== "AbortError") setError(e.message || "Failed to load leads") } finally { setLoading(false); setLoadingMore(false) } }
   const fetchAssignees = async () => {
+    if (!canAdminister) {
+      setAssignees([])
+      return
+    }
     try {
       const data = await apiAvailableAssignees({ role: "marketing_team" })
       setAssignees(Array.isArray(data?.users) ? data.users : normalizeApiList(data))
@@ -2485,8 +2531,9 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
       }
       return setModal({ type, lead: freshLead })
     }
-    if (["create", "edit", "note", "followup", "activity", "quick", "assign"].includes(type)) return setModal({ type, lead })
-    if (type === "delete") return setDeleteState({ open: true, lead, loading: false })
+    if (["create", "edit", "note", "followup", "activity", "quick"].includes(type)) return setModal({ type, lead })
+    if (type === "assign" && canAdminister) return setModal({ type, lead })
+    if (type === "delete" && canAdminister) return setDeleteState({ open: true, lead, loading: false })
     if (type === "won") return setModal({ type: "leadWon", lead })
     if (type === "lost") return setModal({ type: "leadLost", lead })
     if (type === "contacted") { setBusyId(getLeadId(lead)); try { await apiMarkContacted(getLeadId(lead), { note: "Marked contacted from list" }); showToast("success", "Lead marked contacted."); await refreshAll() } catch (e) { showToast("error", e.message) } finally { setBusyId("") } }
@@ -2521,7 +2568,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
     setChildModal({ type: "", lead: null })
     await refreshAll()
   }
-    const confirmDelete = async () => { const lead = deleteState.lead; setDeleteState((p) => ({ ...p, loading: true })); try { await apiDeleteLead(getLeadId(lead)); showToast("success", "Lead deleted."); setDeleteState({ open: false, lead: null, loading: false }); await refreshAll() } catch (e) { showToast("error", e.message); setDeleteState((p) => ({ ...p, loading: false })) } }
+    const confirmDelete = async (password) => { const lead = deleteState.lead; setDeleteState((p) => ({ ...p, loading: true })); try { await apiDeleteLead(getLeadId(lead), password); showToast("success", "Lead deleted."); setDeleteState({ open: false, lead: null, loading: false }); await refreshAll() } catch (e) { setDeleteState((p) => ({ ...p, loading: false })); throw e } }
   const handleStageSaved = async ({ pipelineStage } = {}) => {
     showToast("success", pipelineStage ? `Lead moved to ${STAGE_LABELS[pipelineStage] || pipelineStage}.` : "Stage updated.")
     await refreshAll()
@@ -2589,7 +2636,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
               </button>
               <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("queue")}><FiZap />Queue</button>
               <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("templates")}><FiFileText />Templates</button>
-              <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("assignment")}><FiUserCheck />Marketing team</button>
+              {canAdminister ? <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("assignment")}><FiUserCheck />Marketing team</button> : null}
             </div>
             <button className={cn(btn, btnPrimary, "h-11 shrink-0 px-5")} onClick={() => setModal({ type: "create", lead: null })}>
               <FiPlus />New Lead
@@ -2729,6 +2776,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
                         busy={busyId === getLeadId(lead)}
                         converting={convertingId === getLeadId(lead)}
                         canConvert={canConvert}
+                        canAdminister={canAdminister}
                       />
                     </td>
                   </tr>
@@ -2787,14 +2835,14 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
     <ProposalModal open={childModal.type === "proposal"} onClose={() => setChildModal({ type: "", lead: null })} lead={childModal.lead} users={assignees} onSaved={handleChildProposalSaved} />
     <DealModal open={modal.type === "deal"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} users={assignees} onSaved={async () => { showToast("success", "Deal created. Continue negotiation inside the deal."); await refreshAll() }} />
     <QuickActionModal open={modal.type === "quick"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Quick action saved."); await refreshAll() }} />
-    <AssignLeadModal open={modal.type === "assign"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Lead assigned."); await refreshAll() }} />
+    {canAdminister ? <AssignLeadModal open={modal.type === "assign"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Lead assigned."); await refreshAll() }} /> : null}
     <ReasonModal open={modal.type === "leadWon"} onClose={() => setModal({ type: "", lead: null })} title="Mark lead won" subtitle={modal.lead?.contact?.name || ""} icon={<FiCheckCircle className="h-5 w-5" />} actionLabel="Mark won" onSubmit={async (payload) => { await apiLeadWon(getLeadId(modal.lead), payload); showToast("success", "Lead marked as won."); await refreshAll() }} />
     <ReasonModal open={modal.type === "dealWon"} onClose={() => setModal({ type: "", lead: null, deal: null })} title="Mark deal as won" subtitle="The lead will be converted to a customer automatically." icon={<FiCheckCircle className="h-5 w-5" />} actionLabel="Win deal & convert" onSubmit={async (payload) => { const data = await apiDealWon(modal.deal?._id, payload); showToast("success", "Deal won. Lead converted to customer automatically."); onConvertedToCustomer?.(data?.customer || data); setModal({ type: "", lead: null, deal: null }); await refreshAll() }} />
     <ReasonModal open={modal.type === "leadLost"} onClose={() => setModal({ type: "", lead: null })} title="Mark lead lost" subtitle={modal.lead?.contact?.name || ""} icon={<FiXCircle className="h-5 w-5" />} actionLabel="Mark lost" danger onSubmit={async (payload) => { await apiLeadLost(getLeadId(modal.lead), payload); showToast("success", "Lead marked as lost."); await refreshAll() }} />
-    <ConfirmDeleteModal open={deleteState.open} leadName={deleteState.lead?.contact?.name || ""} loading={deleteState.loading} onClose={() => setDeleteState({ open: false, lead: null, loading: false })} onConfirm={confirmDelete} />
+    {canAdminister ? <ConfirmDeleteModal open={deleteState.open} leadName={deleteState.lead?.contact?.name || ""} loading={deleteState.loading} onClose={() => setDeleteState({ open: false, lead: null, loading: false })} onConfirm={confirmDelete} /> : null}
     <WorkQueuePanel open={panel === "queue"} onClose={() => setPanel("")} onToast={showToast} onChanged={refreshAll} />
     <TemplatesPanel open={panel === "templates"} onClose={() => setPanel("")} onToast={showToast} />
-    <AssignmentPanel open={panel === "assignment"} onClose={() => setPanel("")} onToast={showToast} onChanged={refreshAll} />
+    {canAdminister ? <AssignmentPanel open={panel === "assignment"} onClose={() => setPanel("")} onToast={showToast} onChanged={refreshAll} /> : null}
     <NotificationsPanel open={panel === "notifications"} onClose={() => setPanel("")} onToast={showToast} onChanged={refreshProductivity} />
   </div>
 }

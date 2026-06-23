@@ -27,6 +27,23 @@ const paymentSchema = new mongoose.Schema(
   { _id: true }
 );
 
+const invoiceItemSchema = new mongoose.Schema(
+  {
+    productId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Product",
+      default: null,
+      index: true,
+    },
+    nameSnapshot: { type: String, trim: true, default: "" },
+    qty: { type: Number, default: 1, min: 0 },
+    unitPrice: { type: Number, default: 0, min: 0 },
+    discount: { type: Number, default: 0, min: 0 },
+    lineTotal: { type: Number, default: 0, min: 0 },
+  },
+  { _id: true }
+);
+
 const invoiceSchema = new mongoose.Schema(
   {
     invoiceNo: { type: String, trim: true, default: "", index: true },
@@ -68,6 +85,9 @@ const invoiceSchema = new mongoose.Schema(
 
     currency: { type: String, default: "BDT", trim: true, index: true },
 
+    items: { type: [invoiceItemSchema], default: [] },
+    subtotal: { type: Number, default: 0, min: 0 },
+    discountTotal: { type: Number, default: 0, min: 0 },
     total: { type: Number, default: 0, min: 0 },
     paidTotal: { type: Number, default: 0, min: 0 },
     dueTotal: { type: Number, default: 0, min: 0, index: true },
@@ -99,6 +119,26 @@ invoiceSchema.index({ status: 1, dueAt: 1 });
 invoiceSchema.index({ dueTotal: 1, dueAt: 1 });
 
 invoiceSchema.pre("validate", function (next) {
+  if (Array.isArray(this.items) && this.items.length) {
+    let subtotal = 0;
+    let discountTotal = 0;
+
+    for (const item of this.items) {
+      const qty = Math.max(Number(item.qty || 0), 0);
+      const unitPrice = Math.max(Number(item.unitPrice || 0), 0);
+      const discount = Math.max(Number(item.discount || 0), 0);
+      const rawTotal = qty * unitPrice;
+
+      item.lineTotal = Math.max(rawTotal - discount, 0);
+      subtotal += rawTotal;
+      discountTotal += discount;
+    }
+
+    this.subtotal = subtotal;
+    this.discountTotal = discountTotal;
+    this.total = Math.max(subtotal - discountTotal, 0);
+  }
+
   const paidTotal = (this.payments || []).reduce((sum, p) => {
     return sum + Number(p.amount || 0);
   }, 0);

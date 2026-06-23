@@ -29,6 +29,7 @@ import leadRoutes from "./routes/lead.routes.js";
 import activityRoutes from "./routes/activity.routes.js";
 import proposalRoutes from "./routes/proposal.routes.js";
 import dealRoutes from "./routes/deal.routes.js";
+import invoiceRoutes from "./routes/invoice.routes.js";
 
 import workQueueRoutes from "./routes/workQueue.routes.js";
 import automationRoutes from "./routes/automation.routes.js";
@@ -83,6 +84,7 @@ app.use("/api/leads", leadRoutes);
 app.use("/api/activities", activityRoutes);
 app.use("/api/proposals", proposalRoutes);
 app.use("/api/deals", dealRoutes);
+app.use("/api/invoices", invoiceRoutes);
 
 /* =========================
    CRM PRODUCTIVITY MODULES - NEW

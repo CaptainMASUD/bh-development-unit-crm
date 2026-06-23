@@ -16,6 +16,7 @@ import {
   writeActivity,
   writeConversionLog,
 } from "../utils/audit.js";
+import { verifyAdminPassword } from "../utils/verifyAdminPassword.js";
 
 const invalidateDashboardCache = () => {
   try {
@@ -2231,6 +2232,8 @@ export const deleteLead = async (req, res) => {
       });
     }
 
+    await verifyAdminPassword(req);
+
     const before = await Lead.findById(id).lean();
     if (!before) return res.status(404).json({ message: "Lead not found" });
 
@@ -2266,8 +2269,8 @@ export const deleteLead = async (req, res) => {
       message: "Lead deleted",
     });
   } catch (err) {
-    return res.status(500).json({
-      message: "Failed to delete lead",
+    return res.status(err.statusCode || 500).json({
+      message: err.statusCode ? err.message : "Failed to delete lead",
       error: err.message,
     });
   }

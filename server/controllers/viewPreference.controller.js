@@ -26,12 +26,40 @@ const VIEW_ALLOWED_COLUMNS = {
     "createdAt",
     "updatedAt",
   ],
+  "deals.accounting": [
+    "title",
+    "dealNo",
+    "customer",
+    "leadNumber",
+    "stage",
+    "budgetMin",
+    "budgetMax",
+    "expectedValue",
+    "dealValue",
+    "invoiceTotal",
+    "paidAmount",
+    "dueAmount",
+    "invoiceStatus",
+    "invoiceNo",
+    "closeDate",
+  ],
 };
 
 // ✅ Default selected columns per view-key
 // By default show: Lead, Status, Stage, Priority, Follow-up
 const VIEW_DEFAULT_COLUMNS = {
   "leads.list": ["leadNumber", "status", "pipelineStage", "priority", "nextFollowUpAt"],
+  "deals.accounting": [
+    "title",
+    "dealNo",
+    "customer",
+    "stage",
+    "dealValue",
+    "invoiceTotal",
+    "paidAmount",
+    "dueAmount",
+    "invoiceStatus",
+  ],
 };
 
 const normalizeColumns = (cols, allowed) => {

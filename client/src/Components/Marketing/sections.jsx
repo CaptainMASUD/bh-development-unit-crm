@@ -8,8 +8,8 @@ import { FaInfoCircle } from "react-icons/fa"
 import { FiUsers } from "react-icons/fi"
 import { FiUser } from "react-icons/fi"
 
-import DashboardContent from "./DashboardContent"
-import LeadPage from "./LeadPage"
+import DashboardContent from "./LeadOperationsDashboard"
+import LeadPage from "../Admin/AdminLeadPage"
 import AboutPage from "./About"
 import MarketingTeamProfileSettings from "./ProfileSettings"
 

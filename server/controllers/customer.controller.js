@@ -6,6 +6,7 @@ import EngagementTemplate from "../models/engagementTemplate.model.js";
 
 // ✅ Dashboard cache invalidation (fix counts after create/delete/update)
 import { dashboardCache } from "../utils/cache.js";
+import { verifyAdminPassword } from "../utils/verifyAdminPassword.js";
 
 /* ------------------ helpers ------------------ */
 
@@ -1141,6 +1142,8 @@ export const deleteCustomer = async (req, res) => {
   try {
     if (!isAdminOrSuperAdmin(req)) return res.status(403).json({ message: "Not authorized." });
 
+    await verifyAdminPassword(req);
+
     const customer = await Customer.findByIdAndDelete(req.params.id).select("_id");
     if (!customer) return res.status(404).json({ message: "Customer not found." });
 
@@ -1148,8 +1151,8 @@ export const deleteCustomer = async (req, res) => {
 
     return res.status(200).json({ message: "Customer deleted." });
   } catch (err) {
-    return res.status(500).json({
-      message: "Server error in deleteCustomer.",
+    return res.status(err.statusCode || 500).json({
+      message: err.statusCode ? err.message : "Server error in deleteCustomer.",
       error: err.message,
     });
   }

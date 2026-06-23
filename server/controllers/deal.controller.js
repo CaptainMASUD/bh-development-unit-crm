@@ -5,6 +5,7 @@ import Proposal from "../models/proposal.model.js";
 import Customer from "../models/customer.model.js";
 import WorkQueue from "../models/workQueue.model.js";
 import Notification from "../models/notification.model.js";
+import Invoice from "../models/invoice.model.js";
 import { getReqMeta, writeAudit, writeActivity } from "../utils/audit.js";
 
 const toObjectId = (v) => {
@@ -15,6 +16,7 @@ const toObjectId = (v) => {
 };
 
 const normalizeString = (value = "") => String(value || "").trim();
+const normalizeLower = (value = "") => normalizeString(value).toLowerCase();
 
 const validateDateOrNull = (value) => {
   if (!value) return null;
@@ -600,7 +602,9 @@ export const listDeals = async (req, res) => {
       ownerId,
       dealHealth,
       q,
+      invoiceState,
       limit = 50,
+      page = 1,
     } = req.query || {};
 
     const filter = {};
@@ -621,23 +625,218 @@ export const listDeals = async (req, res) => {
     if (dealHealth) filter.dealHealth = dealHealth;
 
     const pageSize = Math.min(Math.max(parseInt(limit || "50", 10), 1), 100);
+    const pageNumber = Math.max(parseInt(page || "1", 10), 1);
+    const search = normalizeString(q);
+    const queryFilter = search
+      ? { ...filter, $text: { $search: search } }
+      : filter;
+    const accountingFilter = { ...queryFilter, stage: "won" };
 
-    let query = Deal.find(filter)
+    const normalizedInvoiceState = normalizeLower(invoiceState);
+    if (["paid", "due"].includes(normalizedInvoiceState)) {
+      const paidDealIds = await Invoice.distinct("dealId", {
+        dealId: { $ne: null },
+        status: { $ne: "void" },
+        total: { $gt: 0 },
+        dueTotal: { $lte: 0 },
+      });
+
+      queryFilter._id =
+        normalizedInvoiceState === "paid"
+          ? { $in: paidDealIds }
+          : { $nin: paidDealIds };
+    }
+    const summaryFilter = { ...filter };
+    delete summaryFilter.stage;
+
+    let query = Deal.find(queryFilter)
+      .select(
+        "dealNo leadId customerId proposalId title stage currency subtotal discountTotal grandTotal expectedRevenue probability dealHealth expectedCloseDate nextDealAction nextDealActionAt requirementSnapshot ownerId createdBy createdAt updatedAt"
+      )
+      .populate("leadId", "leadNumber contact pipelineStage status")
+      .populate("customerId", "name companyName email phone contactPerson")
+      .populate("proposalId", "proposalNo title status")
       .populate("createdBy", "name email role avatarUrl")
       .populate("ownerId", "name email role avatarUrl");
 
-    if (q && normalizeString(q)) {
+    if (search) {
       query = query
-        .find({ ...filter, $text: { $search: normalizeString(q) } })
         .select({ score: { $meta: "textScore" } })
         .sort({ score: { $meta: "textScore" }, _id: -1 });
     } else {
-      query = query.sort({ createdAt: -1 });
+      query = query.sort({ createdAt: -1, _id: -1 });
     }
 
-    const items = await query.limit(pageSize).lean();
+    const [items, total, stageSummary, accountingRows] = await Promise.all([
+      query.skip((pageNumber - 1) * pageSize).limit(pageSize).lean(),
+      Deal.countDocuments(queryFilter),
+      Deal.aggregate([
+        { $match: summaryFilter },
+        {
+          $group: {
+            _id: "$stage",
+            count: { $sum: 1 },
+            value: { $sum: "$grandTotal" },
+            expectedRevenue: { $sum: "$expectedRevenue" },
+          },
+        },
+      ]),
+      Deal.aggregate([
+        { $match: accountingFilter },
+        {
+          $lookup: {
+            from: "invoices",
+            let: { dealId: "$_id" },
+            pipeline: [
+              {
+                $match: {
+                  $expr: { $eq: ["$dealId", "$$dealId"] },
+                  status: { $ne: "void" },
+                },
+              },
+              { $sort: { createdAt: -1, _id: -1 } },
+              { $limit: 1 },
+              {
+                $project: {
+                  total: 1,
+                  paidTotal: 1,
+                  dueTotal: 1,
+                },
+              },
+            ],
+            as: "activeInvoice",
+          },
+        },
+        {
+          $set: {
+            activeInvoice: { $arrayElemAt: ["$activeInvoice", 0] },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            wonDeals: { $sum: 1 },
+            wonValue: { $sum: "$grandTotal" },
+            invoicedAmount: {
+              $sum: { $ifNull: ["$activeInvoice.total", 0] },
+            },
+            paidAmount: {
+              $sum: { $ifNull: ["$activeInvoice.paidTotal", 0] },
+            },
+            invoiceDueAmount: {
+              $sum: { $ifNull: ["$activeInvoice.dueTotal", 0] },
+            },
+            uninvoicedAmount: {
+              $sum: {
+                $cond: [
+                  { $ifNull: ["$activeInvoice._id", false] },
+                  0,
+                  "$grandTotal",
+                ],
+              },
+            },
+            paidDeals: {
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      { $ifNull: ["$activeInvoice._id", false] },
+                      { $lte: [{ $ifNull: ["$activeInvoice.dueTotal", 0] }, 0] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              },
+            },
+            dueDeals: {
+              $sum: {
+                $cond: [
+                  {
+                    $or: [
+                      { $not: [{ $ifNull: ["$activeInvoice._id", false] }] },
+                      { $gt: [{ $ifNull: ["$activeInvoice.dueTotal", 0] }, 0] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      ]),
+    ]);
 
-    return res.json({ items });
+    const dealIds = items.map((item) => item._id);
+    const invoices = dealIds.length
+      ? await Invoice.find({
+          dealId: { $in: dealIds },
+          status: { $ne: "void" },
+        })
+          .select(
+            "invoiceNo dealId status currency total paidTotal dueTotal issuedAt dueAt createdAt"
+          )
+          .sort({ createdAt: -1, _id: -1 })
+          .lean()
+      : [];
+
+    const invoiceByDeal = new Map();
+    for (const invoice of invoices) {
+      const key = String(invoice.dealId);
+      if (!invoiceByDeal.has(key)) invoiceByDeal.set(key, invoice);
+    }
+
+    const enrichedItems = items.map((item) => ({
+      ...item,
+      invoice: invoiceByDeal.get(String(item._id)) || null,
+    }));
+
+    const summary = {
+      total: 0,
+      totalValue: 0,
+      expectedRevenue: 0,
+      byStage: {},
+    };
+
+    const accountingBase = accountingRows[0] || {};
+    const accounting = {
+      wonDeals: Number(accountingBase.wonDeals || 0),
+      wonValue: Number(accountingBase.wonValue || 0),
+      invoicedAmount: Number(accountingBase.invoicedAmount || 0),
+      paidAmount: Number(accountingBase.paidAmount || 0),
+      invoiceDueAmount: Number(accountingBase.invoiceDueAmount || 0),
+      uninvoicedAmount: Number(accountingBase.uninvoicedAmount || 0),
+      paidDeals: Number(accountingBase.paidDeals || 0),
+      dueDeals: Number(accountingBase.dueDeals || 0),
+      outstandingAmount:
+        Number(accountingBase.invoiceDueAmount || 0) +
+        Number(accountingBase.uninvoicedAmount || 0),
+    };
+
+    for (const row of stageSummary) {
+      const stageKey = row._id || "unknown";
+      summary.byStage[stageKey] = {
+        count: row.count,
+        value: row.value,
+        expectedRevenue: row.expectedRevenue,
+      };
+      summary.total += row.count;
+      summary.totalValue += row.value;
+      summary.expectedRevenue += row.expectedRevenue;
+    }
+
+    return res.json({
+      items: enrichedItems,
+      summary,
+      accounting,
+      pageInfo: {
+        page: pageNumber,
+        limit: pageSize,
+        total,
+        hasNextPage: pageNumber * pageSize < total,
+      },
+    });
   } catch (err) {
     const code = err.statusCode || 500;
 
@@ -657,6 +856,9 @@ export const getDealById = async (req, res) => {
     if (!id) return res.status(400).json({ message: "Invalid deal id" });
 
     const deal = await Deal.findById(id)
+      .populate("leadId", "leadNumber contact pipelineStage status")
+      .populate("customerId", "name companyName email phone contactPerson")
+      .populate("proposalId", "proposalNo title status grandTotal currency")
       .populate("createdBy", "name email role avatarUrl")
       .populate("ownerId", "name email role avatarUrl")
       .lean();
@@ -667,7 +869,17 @@ export const getDealById = async (req, res) => {
       await assertLeadAccessOrThrow({ req, leadId: deal.leadId });
     }
 
-    return res.json({ deal });
+    const invoice = await Invoice.findOne({
+      dealId: id,
+      status: { $ne: "void" },
+    })
+      .select(
+        "invoiceNo status currency total paidTotal dueTotal issuedAt dueAt createdAt"
+      )
+      .sort({ createdAt: -1, _id: -1 })
+      .lean();
+
+    return res.json({ deal: { ...deal, invoice: invoice || null } });
   } catch (err) {
     const code = err.statusCode || 500;
 
