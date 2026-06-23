@@ -41,6 +41,18 @@ async function fetchDeadlineNotifications({ windowDays = 7, includeOverdue = tru
   return Array.isArray(data?.items) ? data.items : []
 }
 
+async function fetchInboxUnreadCount({ signal } = {}) {
+  const res = await fetch(`${API_BASE}/lead-messages/unread-count`, {
+    headers: getAuthHeaders(),
+    credentials: "include",
+    signal,
+  })
+
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || "Failed to fetch inbox count")
+  return Number(data?.unreadCount || 0)
+}
+
 const usePrefersReducedMotion = () => {
   const [reduced, setReduced] = useState(false)
   useEffect(() => {
@@ -504,13 +516,16 @@ export default function Sidebar({
       abortNotifRef.current = controller
 
       setNotifLoading(true)
-      const items = await fetchDeadlineNotifications({
-        windowDays: 7,
-        includeOverdue: true,
-        limit: 500,
-        signal: controller.signal,
-      })
-      setNotifCount7d(Array.isArray(items) ? items.length : 0)
+      const [items, inboxUnread] = await Promise.all([
+        fetchDeadlineNotifications({
+          windowDays: 7,
+          includeOverdue: true,
+          limit: 500,
+          signal: controller.signal,
+        }),
+        fetchInboxUnreadCount({ signal: controller.signal }),
+      ])
+      setNotifCount7d((Array.isArray(items) ? items.length : 0) + Number(inboxUnread || 0))
     } catch {
     } finally {
       setNotifLoading(false)
@@ -722,7 +737,7 @@ export default function Sidebar({
             }`}
           >
             <p className="text-sm font-bold leading-snug">
-              {notifCount7d} deadline{notifCount7d === 1 ? "" : "s"} within 7 days
+              {notifCount7d} notification{notifCount7d === 1 ? "" : "s"}
             </p>
             <p className={`text-xs mt-1 leading-relaxed ${isDarkMode ? "text-gray-300" : "text-gray-600"}`}>
               Click the bell to review and open the deadlines modal.

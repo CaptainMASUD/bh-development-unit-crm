@@ -25,6 +25,7 @@ import {
   FiChevronDown,
 } from "react-icons/fi"
 import { SiMicrosoftexcel } from "react-icons/si"
+import LeadInboxPanel from "../LeadInbox/LeadInboxPanel"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -1762,6 +1763,8 @@ function LeadDetails({ leadId, refreshTick, onBack, onEdit, onAddNote, onSetFoll
               )}
             </div>
           </div>
+
+          <LeadInboxPanel leadId={leadId} lead={lead} showToast={showToast} compact />
         </div>
 
         <div className="lg:col-span-5 space-y-6">

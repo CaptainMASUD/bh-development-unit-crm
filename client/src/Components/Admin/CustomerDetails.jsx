@@ -7,11 +7,11 @@ import {
   FiClipboard,
   FiRefreshCw,
   FiAlertCircle,
-  FiCheck,
   FiMail,
   FiPhone,
   FiMapPin,
 } from "react-icons/fi"
+import toast, { Toaster } from "react-hot-toast"
 import CustomerOverview from "./CustomerOverview"
 import CustomerCRM from "./CustomerCRM"
 
@@ -29,18 +29,6 @@ function getAuthHeaders() {
 }
 
 const cn = (...c) => c.filter(Boolean).join(" ")
-
-function Toast({ message }) {
-  if (!message) return null
-  return (
-    <div className="fixed top-5 right-5 z-[80]">
-      <div className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-gray-900 text-white shadow-2xl text-sm font-semibold">
-        <FiCheck className="w-4 h-4" />
-        {message}
-      </div>
-    </div>
-  )
-}
 
 function Badge({ children, tone = "gray" }) {
   const tones = {
@@ -144,7 +132,6 @@ export default function CustomerDetails({ customerId, onBack, initialTab = "over
   const [tab, setTab] = useState(initialTab === "crm" ? "crm" : "overview")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
-  const [toast, setToast] = useState("")
   const [customer, setCustomer] = useState(null)
 
   const [me, setMe] = useState(null)
@@ -155,9 +142,11 @@ export default function CustomerDetails({ customerId, onBack, initialTab = "over
 
   const [crmRefreshNonce, setCrmRefreshNonce] = useState(0)
 
-  const showToast = useCallback((msg) => {
-    setToast(msg)
-    window.setTimeout(() => setToast(""), 2000)
+  const showToast = useCallback((msg, type = "success") => {
+    const safeMessage = String(msg || "").trim()
+    if (!safeMessage) return
+    if (type === "error") toast.error(safeMessage)
+    else toast.success(safeMessage)
   }, [])
 
   const fetchCustomer = useCallback(
@@ -261,7 +250,7 @@ export default function CustomerDetails({ customerId, onBack, initialTab = "over
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-gray-50">
-      <Toast message={toast} />
+      <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: "14px", fontWeight: 700 } }} />
 
       <div className="relative">
         <div className="h-44 sm:h-56 w-full pointer-events-none relative overflow-hidden rounded-t-3xl">
@@ -389,7 +378,7 @@ export default function CustomerDetails({ customerId, onBack, initialTab = "over
               canManageCustomerFiles={canManageCustomerFiles}
               onSoftRefreshCustomer={() => fetchCustomer({ soft: true })}
               setPageError={setError}
-              showToast={setToast}
+              showToast={showToast}
             />
           ) : (
             <CustomerCRM
@@ -401,7 +390,7 @@ export default function CustomerDetails({ customerId, onBack, initialTab = "over
               refreshNonce={crmRefreshNonce}
               onSoftRefreshCustomer={() => fetchCustomer({ soft: true })}
               setPageError={setError}
-              showToast={setToast}
+              showToast={showToast}
             />
           )}
         </div>

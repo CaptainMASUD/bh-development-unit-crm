@@ -62,6 +62,37 @@ async function fetchAdminDeadlineNotifications({ windowDays = 365, includeOverdu
   return Array.isArray(data?.items) ? data.items : []
 }
 
+async function fetchInboxNotifications({ limit = 50 }) {
+  const qs = new URLSearchParams({ type: "lead", entityType: "Lead", limit: String(limit) })
+  const res = await fetch(`${API_BASE}/notifications/my?${qs.toString()}`, {
+    headers: getAuthHeaders(),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.message || "Failed to fetch inbox notifications")
+  return Array.isArray(data?.items) ? data.items : []
+}
+
+function InboxNotificationItem({ item, isDarkMode }) {
+  const created = safeDate(item?.createdAt)
+  return (
+    <div className={cx("w-full px-6 py-4 text-left", isDarkMode ? "hover:bg-white/5" : "hover:bg-gray-50")}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className={cx("truncate text-sm font-bold", isDarkMode ? "text-white" : "text-gray-900")}>{item?.title || "Inbox message"}</p>
+            {!item?.isRead ? <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white">New</span> : null}
+          </div>
+          <p className={cx("mt-1 line-clamp-2 text-sm", isDarkMode ? "text-gray-300" : "text-gray-600")}>{item?.message || "New lead inbox message"}</p>
+          <p className={cx("mt-2 text-xs font-semibold", isDarkMode ? "text-gray-400" : "text-gray-500")}>
+            {item?.createdBy?.name || "System"} · {created ? created.toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}
+          </p>
+        </div>
+        <Bell className={cx("mt-1 h-4 w-4 shrink-0", isDarkMode ? "text-indigo-200" : "text-indigo-600")} />
+      </div>
+    </div>
+  )
+}
+
 /**
  * ✅ Employee Tag + Icon + Names
  * Expects backend to return: item.assignees = [{ _id, name }]
@@ -187,6 +218,7 @@ export default function AdminNotificationModal({ open, onClose, isDarkMode, onOp
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [items, setItems] = useState([])
+  const [inboxItems, setInboxItems] = useState([])
   const [query, setQuery] = useState("")
   const [activeTab, setActiveTab] = useState("upcoming")
   const [nowMs, setNowMs] = useState(Date.now())
@@ -221,14 +253,19 @@ export default function AdminNotificationModal({ open, onClose, isDarkMode, onOp
     setLoading(true)
     setError("")
 
-    fetchAdminDeadlineNotifications({ windowDays: 365, includeOverdue: true, limit: 500 })
-      .then((arr) => {
+    Promise.all([
+      fetchAdminDeadlineNotifications({ windowDays: 365, includeOverdue: true, limit: 500 }),
+      fetchInboxNotifications({ limit: 80 }),
+    ])
+      .then(([arr, inbox]) => {
         if (!alive) return
         setItems(Array.isArray(arr) ? arr : [])
+        setInboxItems(Array.isArray(inbox) ? inbox : [])
       })
       .catch((e) => {
         if (!alive) return
         setItems([])
+        setInboxItems([])
         setError(e?.message || "Failed to load notifications.")
       })
       .finally(() => {
@@ -262,7 +299,8 @@ export default function AdminNotificationModal({ open, onClose, isDarkMode, onOp
   }, [items, query, nowMs])
 
   const counts = useMemo(() => {
-    const c = { upcoming: 0, d3: 0, d7: 0, overdue: 0, all: 0 }
+    const c = { inbox: 0, upcoming: 0, d3: 0, d7: 0, overdue: 0, all: 0 }
+    c.inbox = inboxItems.length
     for (const it of enriched) {
       c.all++
       if (isUpcoming(it._ms)) c.upcoming++
@@ -270,8 +308,18 @@ export default function AdminNotificationModal({ open, onClose, isDarkMode, onOp
       if (withinDays(it._ms, 7)) c.d7++
       if (isOverdue(it._ms)) c.overdue++
     }
+    c.all += c.inbox
     return c
-  }, [enriched])
+  }, [enriched, inboxItems.length])
+
+  const filteredInbox = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return (Array.isArray(inboxItems) ? inboxItems : []).filter((it) => {
+      if (!q) return true
+      const hay = `${it?.title || ""} ${it?.message || ""} ${it?.createdBy?.name || ""}`.toLowerCase()
+      return hay.includes(q)
+    })
+  }, [inboxItems, query])
 
   const filtered = useMemo(() => {
     let arr = [...enriched]
@@ -366,6 +414,7 @@ export default function AdminNotificationModal({ open, onClose, isDarkMode, onOp
 
             <div className="flex items-center gap-2 flex-wrap">
               {[
+                ["inbox", "Inbox", counts.inbox],
                 ["upcoming", "Upcoming", counts.upcoming],
                 ["d3", "3 Days", counts.d3],
                 ["d7", "7 Days", counts.d7],
@@ -415,6 +464,20 @@ export default function AdminNotificationModal({ open, onClose, isDarkMode, onOp
                 Loading notifications…
               </p>
             </div>
+          ) : activeTab === "inbox" ? (
+            filteredInbox.length === 0 ? (
+              <div className="p-12 text-center">
+                <div className={cx("mx-auto w-12 h-12 rounded-2xl flex items-center justify-center border", isDarkMode ? "bg-white/5 border-white/10" : "bg-gray-50 border-gray-200")}>
+                  <Bell className="w-5 h-5" />
+                </div>
+                <p className={cx("mt-3 text-sm font-semibold", isDarkMode ? "text-gray-100" : "text-gray-800")}>No inbox notifications</p>
+                <p className={cx("mt-1 text-xs", isDarkMode ? "text-gray-400" : "text-gray-500")}>New lead messages will appear here.</p>
+              </div>
+            ) : (
+              <div className={cx("divide-y", isDarkMode ? "divide-white/10" : "divide-gray-100")}>
+                {filteredInbox.map((it) => <InboxNotificationItem key={String(it._id)} item={it} isDarkMode={isDarkMode} />)}
+              </div>
+            )
           ) : filtered.length === 0 ? (
             <div className="p-12 text-center">
               <div

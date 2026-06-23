@@ -66,6 +66,7 @@ import {
   FiLoader,
   FiLock,
   FiMail,
+  FiMessageSquare,
   FiMoreVertical,
   FiPhoneCall,
   FiPlus,
@@ -86,6 +87,7 @@ import {
 } from "react-icons/fi"
 import { SiMicrosoftexcel } from "react-icons/si"
 import * as XLSX from "xlsx"
+import LeadInboxPanel from "../LeadInbox/LeadInboxPanel"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -1991,7 +1993,7 @@ function LeadNotesOverview({ lead, onAction }) {
   )
 }
 
-function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initialTab = "overview", isMarketing = false }) {
+function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initialTab = "overview", isMarketing = false, showToast }) {
   const [lead, setLead] = useState(null)
   const [timeline, setTimeline] = useState({ logs: [], activities: [], proposals: [], deals: [], queueItems: [] })
   const [tab, setTab] = useState(initialTab || "overview")
@@ -2000,6 +2002,7 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
   const [reasonModal, setReasonModal] = useState({ open: false })
   const [recordView, setRecordView] = useState({ open: false, type: "", record: null })
   const [recordEdit, setRecordEdit] = useState({ type: "", record: null })
+  const [inboxUnreadCount, setInboxUnreadCount] = useState(0)
   const load = useCallback(async () => {
     if (!open || !leadId) return
     setLoading(true); setErr("")
@@ -2007,6 +2010,14 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
   }, [open, leadId])
   useEffect(() => { if (open) setTab(initialTab || "overview") }, [open, initialTab, leadId])
   useEffect(() => { load() }, [load, refreshTick])
+  useEffect(() => {
+    if (!open || !leadId) return
+    let alive = true
+    apiJson(`${API_BASE}/lead-messages/unread-count?leadId=${encodeURIComponent(leadId)}`)
+      .then((data) => { if (alive) setInboxUnreadCount(Number(data?.unreadCount || 0)) })
+      .catch(() => { if (alive) setInboxUnreadCount(0) })
+    return () => { alive = false }
+  }, [open, leadId, refreshTick])
   const logs = timeline.logs || []
   const activities = timeline.activities || []
   const proposals = timeline.proposals || []
@@ -2018,8 +2029,9 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
     ["timeline", "Timeline", FiClock],
     ...(!isMarketing ? [["activities", "Activities", FiActivity]] : []),
     ...(showSalesTabs ? [["proposals", "Proposals", FiFileText], ["deals", "Deals", FiBriefcase]] : []),
-    ["queue", "Queue", FiZap],
     ["notes", "Notes", FiFileText],
+    ["inbox", "Inbox", FiMessageSquare, inboxUnreadCount],
+    ["queue", "Queue", FiZap],
   ]
   useEffect(() => {
     if (!lead) return
@@ -2029,7 +2041,7 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
   const closeReasonModal = () => setReasonModal({ open: false })
   return <><ModalShell open={open} onClose={onClose} title="Lead A-Z History" subtitle={lead?.contact?.name || "Full timeline, activities, proposals, deals and work queue"} icon={<FiEye className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex flex-wrap justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load}><FiRefreshCcw className="h-4 w-4" />Refresh</button>{lead ? (() => { const proposalInfo = getProposalShortcutInfo(lead, timeline); const eligibleProposal = (timeline.proposals || []).find((proposal) => ["sent", "accepted"].includes(proposal.status) && !proposal.dealId); return <><button className={cn(btn, btnPrimary)} disabled={!getNextPipelineStage(lead)} onClick={() => onAction?.("nextStage", lead)}><FiArrowRight />Next Stage</button><button className={cn(btn, btnSoft)} onClick={() => onAction?.("quick", lead)}><FiZap />Quick action</button>{proposalInfo.show ? <button className={cn(btn, proposalInfo.action === "proposal" ? btnPrimary : btnGhost)} disabled={proposalInfo.disabled} onClick={() => proposalInfo.action === "manageProposal" ? setTab("proposals") : onAction?.(proposalInfo.action, lead)}><FiFileText />{proposalInfo.label}</button> : null}<button className={cn(btn, btnGhost)} disabled={!eligibleProposal} title={eligibleProposal ? "Create deal from proposal" : "Send or accept a proposal first"} onClick={() => onAction?.("deal", lead)}><FiBriefcase />Create Deal</button></> })() : null}</div>}>
     {loading ? <div className="flex justify-center p-10"><FiLoader className="h-6 w-6 animate-spin text-indigo-600" /></div> : err ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : lead ? <>
-      <div className="mb-4 flex flex-wrap gap-2">{tabs.map(([k, name, Icon]) => <button key={k} className={cn(btn, tab === k ? btnPrimary : btnGhost, "px-3 py-2")} onClick={() => setTab(k)}><Icon className="h-4 w-4" />{name}</button>)}</div>
+      <div className="mb-4 flex flex-wrap gap-2">{tabs.map(([k, name, Icon, count]) => <button key={k} className={cn(btn, tab === k ? btnPrimary : btnGhost, "px-3 py-2")} onClick={() => setTab(k)}><Icon className="h-4 w-4" />{name}{count ? <span className={cn("ml-1 rounded-full px-2 py-0.5 text-[10px] font-black", tab === k ? "bg-white/20 text-white" : "bg-indigo-600 text-white")}>{count > 99 ? "99+" : count}</span> : null}</button>)}</div>
       {tab === "overview" && (
         <div className="space-y-4">
           <StageProgressController lead={lead} onNextStage={(item) => onAction?.("nextStage", item)} onMoveStage={(item) => onAction?.("stage", item)} />
@@ -2059,6 +2071,7 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
       {showSalesTabs && tab === "deals" && <RecordList items={deals} type="deal" onView={(record) => setRecordView({ open: true, type: "deal", record })} onEdit={(record) => setRecordEdit({ type: "deal", record })} onWon={(id) => openReasonModal({ title: "Mark deal as won", subtitle: "Winning the deal will automatically convert this lead to a customer.", icon: <FiCheckCircle className="h-5 w-5" />, actionLabel: "Win deal & convert", onSubmit: async ({ reason, note }) => { const data = await apiDealWon(id, { reason, note }); await load(); onAction?.("dealWon", data) } })} onLost={(id) => openReasonModal({ title: "Mark deal as lost", subtitle: lead?.contact?.name || "Add a clear loss reason.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Mark lost", danger: true, onSubmit: async ({ reason, note }) => { await apiDealLost(id, { reason, note }); await load(); onAction?.("refresh") } })} />}
       {tab === "queue" && <RecordList items={queueItems} type="queue" onDone={async (id) => { await apiQueueDone(id, { result: "Done from lead view" }); await load(); onAction?.("refresh") }} />}
       {tab === "notes" && <LeadNotesOverview lead={lead} onAction={onAction} />}
+      {tab === "inbox" && <LeadInboxPanel leadId={leadId} lead={lead} showToast={showToast} onUnreadChange={setInboxUnreadCount} />}
     </> : <EmptyState icon={<FiEye className="h-5 w-5" />} title="No lead selected" />}
   </ModalShell>
   <ReasonModal open={reasonModal.open} onClose={closeReasonModal} title={reasonModal.title} subtitle={reasonModal.subtitle} icon={reasonModal.icon || <FiInfo className="h-5 w-5" />} actionLabel={reasonModal.actionLabel || "Submit"} danger={reasonModal.danger} onSubmit={reasonModal.onSubmit} />
@@ -2859,7 +2872,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
     </div>
     <ModalShell open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Lead Filters" subtitle="Filter by lead, queue and follow-up fields" icon={<FiFilter className="h-5 w-5" />} maxWidthClass="max-w-4xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={() => { const empty = Object.fromEntries(Object.keys(filters).map((k)=>[k,"" ])); setFilterDraft(empty); setFilters(empty); setFiltersOpen(false) }}>Clear all</button><button className={cn(btn, btnPrimary)} onClick={() => { setFilters(filterDraft); setFiltersOpen(false) }}>Apply filters</button></div>}><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><Field label="Status"><select className={input} value={filterDraft.status} onChange={(e) => setFilterDraft((p) => ({ ...p, status: e.target.value }))}><option value="">All</option>{LEAD_STATUSES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Pipeline stage"><select className={input} value={filterDraft.pipelineStage} onChange={(e) => setFilterDraft((p) => ({ ...p, pipelineStage: e.target.value }))}><option value="">All</option>{PIPELINE_STAGES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Priority"><select className={input} value={filterDraft.priority} onChange={(e) => setFilterDraft((p) => ({ ...p, priority: e.target.value }))}><option value="">All</option>{PRIORITIES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Temperature"><select className={input} value={filterDraft.leadTemperature} onChange={(e) => setFilterDraft((p) => ({ ...p, leadTemperature: e.target.value }))}><option value="">All</option>{TEMPERATURES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Queue priority"><select className={input} value={filterDraft.workQueuePriority} onChange={(e) => setFilterDraft((p) => ({ ...p, workQueuePriority: e.target.value }))}><option value="">All</option>{WORK_PRIORITIES.map((x)=><option key={x}>{x}</option>)}</select></Field><Field label="Overdue"><select className={input} value={filterDraft.isOverdue} onChange={(e) => setFilterDraft((p) => ({ ...p, isOverdue: e.target.value }))}><option value="">All</option><option value="true">Overdue</option><option value="false">Not overdue</option></select></Field><Field label="Next action type"><input className={input} value={filterDraft.nextActionType} onChange={(e)=>setFilterDraft(p=>({...p,nextActionType:e.target.value}))}/></Field><Field label="Purchase type"><input className={input} value={filterDraft.purchaseType} onChange={(e) => setFilterDraft((p) => ({ ...p, purchaseType: e.target.value }))} /></Field><Field label="Source"><input className={input} value={filterDraft.source} onChange={(e) => setFilterDraft((p) => ({ ...p, source: e.target.value }))} /></Field><Field label="Tag"><input className={input} value={filterDraft.tag} onChange={(e) => setFilterDraft((p) => ({ ...p, tag: e.target.value }))} /></Field><Field label="Next follow-up from"><input type="date" className={input} value={filterDraft.nextFollowUpFrom} onChange={(e) => setFilterDraft((p) => ({ ...p, nextFollowUpFrom: e.target.value }))} /></Field><Field label="Next follow-up to"><input type="date" className={input} value={filterDraft.nextFollowUpTo} onChange={(e) => setFilterDraft((p) => ({ ...p, nextFollowUpTo: e.target.value }))} /></Field><Field label="Last contacted from"><input type="date" className={input} value={filterDraft.lastContactedFrom} onChange={(e) => setFilterDraft((p) => ({ ...p, lastContactedFrom: e.target.value }))} /></Field><Field label="Last contacted to"><input type="date" className={input} value={filterDraft.lastContactedTo} onChange={(e) => setFilterDraft((p) => ({ ...p, lastContactedTo: e.target.value }))} /></Field></div></ModalShell>
     <ColumnPickerModal open={colsOpen} onClose={() => setColsOpen(false)} allowed={allowedCols} selected={selectedCols} onSave={saveColumns} />
-    <LeadFullViewModal open={Boolean(viewLeadId)} onClose={() => setViewLeadId("")} leadId={viewLeadId} initialTab={viewInitialTab} refreshTick={viewTick} isMarketing={isMarketing} onAction={(type, lead) => type === "refresh" ? refreshAll() : action(type, lead)} />
+    <LeadFullViewModal open={Boolean(viewLeadId)} onClose={() => setViewLeadId("")} leadId={viewLeadId} initialTab={viewInitialTab} refreshTick={viewTick} isMarketing={isMarketing} showToast={showToast} onAction={(type, lead) => type === "refresh" ? refreshAll() : action(type, lead)} />
     <LeadUpsertModal open={modal.type === "create"} onClose={() => setModal({ type: "", lead: null })} mode="create" users={assignees} canAssignOwner={canAdminister} onSaved={async () => { showToast("success", "Lead created."); await refreshAll() }} />
     <LeadUpsertModal open={modal.type === "edit"} onClose={() => setModal({ type: "", lead: null })} mode="edit" initial={modal.lead} users={assignees} canAssignOwner={canAdminister} onSaved={async () => { showToast("success", "Lead updated."); await refreshAll() }} />
     <NoteModal open={modal.type === "note"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Note added."); await refreshAll() }} />

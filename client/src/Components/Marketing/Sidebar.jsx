@@ -39,21 +39,15 @@ function getAuthHeaders() {
   }
 }
 
-async function fetchDeadlineNotifications({ windowDays = 7, includeOverdue = true, limit = 500, signal }) {
-  const qs = new URLSearchParams({
-    windowDays: String(windowDays),
-    includeOverdue: String(includeOverdue),
-    limit: String(limit),
-  })
-
-  const res = await fetch(`${API_BASE}/notifications/deadlines?${qs.toString()}`, {
+async function fetchInboxUnreadCount({ signal } = {}) {
+  const res = await fetch(`${API_BASE}/lead-messages/unread-count`, {
     headers: getAuthHeaders(),
     signal,
   })
 
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Failed to fetch notifications")
-  return Array.isArray(data?.items) ? data.items : []
+  if (!res.ok) throw new Error(data?.message || "Failed to fetch inbox count")
+  return Number(data?.unreadCount || 0)
 }
 
 // ✅ fetch logged-in user profile (including avatarUrl)
@@ -539,13 +533,8 @@ export default function Sidebar({
       abortNotifRef.current = controller
 
       setNotifLoading(true)
-      const items = await fetchDeadlineNotifications({
-        windowDays: 7,
-        includeOverdue: true,
-        limit: 500,
-        signal: controller.signal,
-      })
-      setNotifCount7d(Array.isArray(items) ? items.length : 0)
+      const inboxUnread = await fetchInboxUnreadCount({ signal: controller.signal })
+      setNotifCount7d(Number(inboxUnread || 0))
     } catch {
       // ignore
     } finally {
@@ -685,10 +674,10 @@ export default function Sidebar({
             }`}
           >
             <p className="text-sm font-bold leading-snug">
-              {notifCount7d} deadline{notifCount7d === 1 ? "" : "s"} within 7 days
+              {notifCount7d} notification{notifCount7d === 1 ? "" : "s"}
             </p>
             <p className={`text-xs mt-1 leading-relaxed ${isDarkMode ? "text-gray-300" : "text-gray-600"}`}>
-              Click the bell to review and open the deadlines modal.
+              Click the bell to review inbox messages.
             </p>
 
             <div
