@@ -1,33 +1,37 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useSelector } from "react-redux"
-import { useNavigate } from "react-router-dom"
+import { useLocation, useNavigate } from "react-router-dom"
 import { FaAngleDoubleLeft, FaAngleDoubleRight } from "react-icons/fa"
 import Sidebar from "./Sidebar"
 import { sections } from "./sections"
 import SessionExpiryGuard from "../Auth/SessionExpiredModal"
+import { buildDashboardRouteMap, matchDashboardRoute } from "../Navigation/dashboardRoutes"
 
 export default function MarketingDashboard() {
   const navigate = useNavigate()
+  const location = useLocation()
   const currentUserRedux = useSelector((state) => state.user?.currentUser)
-
-  const [activeSection, setActiveSection] = useState("Dashboard")
-  const [activeSubcategory, setActiveSubcategory] = useState("")
+  const routeMap = useMemo(() => buildDashboardRouteMap("/marketing", sections), [])
+  const routeState = useMemo(
+    () => matchDashboardRoute(location.pathname, "/marketing", routeMap),
+    [location.pathname, routeMap]
+  )
+  const activeSection = routeState.section
+  const activeSubcategory = routeState.subcategory
+  const pendingSectionRef = useRef(activeSection)
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
-
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window === "undefined") return true
     const savedTheme = localStorage.getItem("theme")
     return savedTheme ? savedTheme === "dark" : true
   })
-
   const [currentUser, setCurrentUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
 
-  // init isMobile safely
   useEffect(() => {
     const update = () => setIsMobile(window.innerWidth < 768)
     update()
@@ -35,12 +39,10 @@ export default function MarketingDashboard() {
     return () => window.removeEventListener("resize", update)
   }, [])
 
-  // if switching to desktop, close mobile sidebar
   useEffect(() => {
     if (!isMobile) setIsSidebarOpen(false)
   }, [isMobile])
 
-  // resolve user from redux or localStorage
   useEffect(() => {
     if (currentUserRedux) {
       setCurrentUser(currentUserRedux)
@@ -50,8 +52,7 @@ export default function MarketingDashboard() {
 
     try {
       const stored = localStorage.getItem("user")
-      const parsed = stored ? JSON.parse(stored) : null
-      setCurrentUser(parsed)
+      setCurrentUser(stored ? JSON.parse(stored) : null)
     } catch {
       setCurrentUser(null)
     } finally {
@@ -59,29 +60,52 @@ export default function MarketingDashboard() {
     }
   }, [currentUserRedux])
 
-  // protect route (marketing team only)
   useEffect(() => {
     if (!authChecked) return
     if (!currentUser || currentUser.role !== "marketing_team" || !currentUser.isActive) {
-      navigate("/login")
+      navigate("/login", { replace: true })
     }
   }, [authChecked, currentUser, navigate])
 
-  const toggleSidebar = () => setIsSidebarOpen((s) => !s)
+  useEffect(() => {
+    pendingSectionRef.current = activeSection
+  }, [activeSection])
+
+  const toggleSidebar = () => setIsSidebarOpen((value) => !value)
+  const closeMobileSidebar = () => {
+    if (isMobile) setIsSidebarOpen(false)
+  }
+
+  const setActiveSection = (section) => {
+    pendingSectionRef.current = section
+    navigate(routeMap.reverse[`${section}::`] || "/marketing")
+    closeMobileSidebar()
+  }
+
+  const setActiveSubcategory = (subcategory) => {
+    if (!subcategory) return
+    const section = pendingSectionRef.current || activeSection
+    navigate(
+      routeMap.reverse[`${section}::${subcategory}`] ||
+        routeMap.reverse[`${section}::`] ||
+        "/marketing"
+    )
+    closeMobileSidebar()
+  }
 
   const content = useMemo(() => {
     const section = sections[activeSection]
     if (!section) return null
-    return section.component || section.subcategories?.[activeSubcategory] || null
+    if (section.subcategories) {
+      return section.subcategories[activeSubcategory] || Object.values(section.subcategories)[0] || null
+    }
+    return section.component || null
   }, [activeSection, activeSubcategory])
 
-  // optional: don't render until auth checked (prevents flash)
-  if (!authChecked) {
-    return <div className="h-screen w-full bg-gray-50" />
-  }
+  if (!authChecked) return <div className="h-screen w-full bg-gray-50" />
 
   return (
-    <div className="flex h-screen w-full overflow-hidden relative">
+    <div className="relative flex h-screen w-full overflow-hidden">
       <SessionExpiryGuard />
       <Sidebar
         setActiveSection={setActiveSection}
@@ -96,14 +120,11 @@ export default function MarketingDashboard() {
         setIsDarkMode={setIsDarkMode}
       />
 
-      <main className="flex-1 h-screen overflow-auto p-5 transition-colors">
-        {content}
-      </main>
+      <main className="h-screen flex-1 overflow-auto p-5 transition-colors">{content}</main>
 
-      {/* Mobile sidebar toggle */}
       {isMobile && (
         <button
-          className={`fixed top-4 z-50 p-2 bg-indigo-600 text-white rounded-full shadow-md transition-all duration-300 ${
+          className={`fixed top-4 z-50 rounded-full bg-indigo-600 p-2 text-white shadow-md transition-all duration-300 ${
             isSidebarOpen ? "left-[260px]" : "left-4"
           }`}
           onClick={toggleSidebar}

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { FiRefreshCw, FiSearch, FiChevronLeft, FiChevronRight, FiUsers, FiX, FiAlertTriangle } from "react-icons/fi"
+import toast, { Toaster } from "react-hot-toast"
 import CustomerCRM from "./CustomerCRM"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
@@ -135,17 +136,6 @@ async function fetchAssignedEmployeesApi(customerId, customerObj = null, signal)
 }
 
 /* =================== UI PIECES =================== */
-function Toast({ message }) {
-  if (!message) return null
-  return (
-    <div className="fixed top-4 right-4 z-[90]">
-      <div className="rounded-2xl bg-gray-900 text-white px-4 py-3 shadow-2xl border border-white/10 text-sm font-semibold">
-        {message}
-      </div>
-    </div>
-  )
-}
-
 function RoleHint({ isEmployee }) {
   return (
     <div
@@ -258,14 +248,13 @@ function ClientRow({ active, customer, onClick }) {
 }
 
 /* =================== MAIN =================== */
-export default function CustomerCRMInner() {
+export default function CustomerCRMInner({ openCustomerId, onSelectCustomer }) {
   const [pageError, setPageError] = useState("")
-  const [toast, setToast] = useState("")
 
   const [customers, setCustomers] = useState([])
   const [customersLoading, setCustomersLoading] = useState(false)
   const [query, setQuery] = useState("")
-  const [selectedCustomerId, setSelectedCustomerId] = useState("")
+  const [selectedCustomerId, setSelectedCustomerId] = useState(() => String(openCustomerId || ""))
 
   const [customerLoading, setCustomerLoading] = useState(false)
   const [customer, setCustomer] = useState(null)
@@ -292,7 +281,16 @@ export default function CustomerCRMInner() {
   const customerAbortRef = useRef(null)
   const queryDebounceRef = useRef(null)
 
-  const showToast = useCallback((msg) => setToast(String(msg || "")), [])
+  const showToast = useCallback((msg, type = "success") => {
+    const safeMessage = String(msg || "").trim()
+    if (!safeMessage) return
+    if (type === "error") toast.error(safeMessage)
+    else toast.success(safeMessage)
+  }, [])
+
+  useEffect(() => {
+    if (openCustomerId) setSelectedCustomerId(String(openCustomerId))
+  }, [openCustomerId])
 
   const loadCustomers = useCallback(
     async ({ q = query } = {}) => {
@@ -388,7 +386,6 @@ export default function CustomerCRMInner() {
     setRefreshNonce((n) => n + 1)
     await loadSelectedCustomer(selectedCustomerId)
     showToast("Refreshed")
-    setTimeout(() => showToast(""), 1600)
   }
 
   const selectedCustomer = useMemo(() => {
@@ -404,7 +401,9 @@ export default function CustomerCRMInner() {
 
   const clearSearch = () => setQuery("")
   const selectCustomer = (id) => {
-    setSelectedCustomerId(String(id || ""))
+    const customerId = String(id || "")
+    setSelectedCustomerId(customerId)
+    onSelectCustomer?.(customerId)
     setMobileDrawerOpen(false)
   }
 
@@ -568,7 +567,7 @@ export default function CustomerCRMInner() {
 
   return (
     <div className="w-full">
-      <Toast message={toast} />
+      <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: "14px", fontWeight: 700 } }} />
 
       {/* Mobile drawer */}
       {mobileDrawerOpen ? (
@@ -624,10 +623,7 @@ export default function CustomerCRMInner() {
                   refreshNonce={refreshNonce}
                   onSoftRefreshCustomer={onSoftRefreshCustomer}
                   setPageError={setPageError}
-                  showToast={(msg) => {
-                    showToast(msg)
-                    setTimeout(() => showToast(""), 1400)
-                  }}
+                  showToast={showToast}
                 />
               )}
             </div>

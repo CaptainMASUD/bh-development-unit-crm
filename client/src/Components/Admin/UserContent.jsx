@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
+import toast, { Toaster } from "react-hot-toast"
 import {
   FiUsers,
   FiSearch,
@@ -14,7 +15,6 @@ import {
   FiEdit3,
   FiTrash2,
   FiAlertCircle,
-  FiCheckCircle,
   FiShield,
   FiEye,
   FiEyeOff,
@@ -83,38 +83,6 @@ function Pill({ tone = "indigo", label, value }) {
     <div className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl ring-1 ${tones[tone]}`}>
       <span className="text-sm font-semibold">{label}</span>
       <span className="text-sm font-extrabold">{value}</span>
-    </div>
-  )
-}
-
-function Toast({ type = "success", message, onClose }) {
-  if (!message) return null
-  const styles =
-    type === "error"
-      ? "bg-red-50 border-red-200 text-red-700"
-      : "bg-green-50 border-green-200 text-green-700"
-  const Icon = type === "error" ? FiAlertCircle : FiCheckCircle
-
-  return (
-    <div className="fixed top-4 right-4 z-[60] max-w-sm w-[92vw] sm:w-auto">
-      <motion.div
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -8 }}
-        className={`rounded-2xl border p-3 shadow-lg ${styles}`}
-      >
-        <div className="flex items-start gap-3">
-          <Icon className="w-5 h-5 mt-0.5" />
-          <p className="text-sm font-semibold flex-1">{message}</p>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg hover:bg-black/5 active:scale-95 transition"
-            aria-label="Close toast"
-          >
-            <FiX className="w-4 h-4" />
-          </button>
-        </div>
-      </motion.div>
     </div>
   )
 }
@@ -759,7 +727,6 @@ export default function UsersAdminPanel() {
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, item: null })
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
 
-  const [toast, setToast] = useState({ type: "success", message: "" })
   const [me, setMe] = useState(null)
 
   const abortRef = useRef(null)
@@ -785,9 +752,9 @@ export default function UsersAdminPanel() {
   }, [searchTerm])
 
   const showToast = (type, message) => {
-    setToast({ type, message })
-    window.clearTimeout(showToast._t)
-    showToast._t = window.setTimeout(() => setToast({ type: "success", message: "" }), 2200)
+    const safeMessage = message || "Something went wrong."
+    if (type === "error") toast.error(safeMessage)
+    else toast.success(safeMessage)
   }
 
   // load me
@@ -954,11 +921,7 @@ export default function UsersAdminPanel() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
-      <AnimatePresence>
-        {toast.message && (
-          <Toast type={toast.type} message={toast.message} onClose={() => setToast({ type: "success", message: "" })} />
-        )}
-      </AnimatePresence>
+      <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: "14px", fontWeight: 700 } }} />
 
       {/* ✅ UPDATED delete confirm (password required) */}
       <AnimatePresence>
@@ -1107,7 +1070,7 @@ export default function UsersAdminPanel() {
           </select>
         </div>
 
-        <div className="lg:col-span-3 flex items-center justify-between">
+        <div className="lg:col-span-3 flex items-center">
           <div className="text-sm text-gray-500">
             Loaded <span className="font-semibold text-gray-900">{list.length}</span>{" "}
             {typeof count === "number" ? (
@@ -1119,18 +1082,6 @@ export default function UsersAdminPanel() {
             {sortMode === "az" || sortMode === "za" ? <span className="ml-2 text-gray-400">• sorted locally</span> : null}
           </div>
 
-          {hasMore ? (
-            <button
-              onClick={() => fetchUsers({ reset: false })}
-              disabled={isLoadingMore || isLoading}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-60"
-            >
-              <FiRefreshCcw className={`w-4 h-4 ${isLoadingMore ? "animate-spin" : ""}`} />
-              Load more
-            </button>
-          ) : (
-            <span className="text-sm text-gray-400">No more</span>
-          )}
         </div>
       </div>
 
@@ -1288,6 +1239,19 @@ export default function UsersAdminPanel() {
             <RowSkeleton />
             <RowSkeleton />
           </>
+        ) : null}
+
+        {hasMore ? (
+          <div className="flex justify-center pt-3">
+            <button
+              onClick={() => fetchUsers({ reset: false })}
+              disabled={isLoadingMore || isLoading}
+              className="inline-flex min-w-[150px] items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 font-semibold text-white shadow-sm transition hover:bg-indigo-700 active:scale-[0.99] disabled:opacity-60"
+            >
+              <FiPlus className={`h-4 w-4 ${isLoadingMore ? "animate-spin" : ""}`} />
+              {isLoadingMore ? "Loading..." : "Load more"}
+            </button>
+          </div>
         ) : null}
       </div>
     </div>

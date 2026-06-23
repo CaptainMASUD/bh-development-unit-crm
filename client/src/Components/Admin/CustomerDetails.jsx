@@ -140,7 +140,7 @@ function ContactCard({ icon, label, value, href }) {
  * ✅ NEW PROP: initialTab ("overview" | "crm")
  * - "overview" is now shown as "Tasks" in UI
  */
-export default function CustomerDetails({ customerId, onBack, initialTab = "overview" }) {
+export default function CustomerDetails({ customerId, onBack, initialTab = "overview", onTabChange }) {
   const [tab, setTab] = useState(initialTab === "crm" ? "crm" : "overview")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
@@ -199,6 +199,12 @@ export default function CustomerDetails({ customerId, onBack, initialTab = "over
     setTab(initialTab === "crm" ? "crm" : "overview")
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId, initialTab])
+
+  const selectTab = (nextTab) => {
+    const normalizedTab = nextTab === "crm" ? "crm" : "overview"
+    setTab(normalizedTab)
+    onTabChange?.(normalizedTab)
+  }
 
   useEffect(() => {
     setCustomer(null)
@@ -353,13 +359,13 @@ export default function CustomerDetails({ customerId, onBack, initialTab = "over
                 active={tab === "overview"}
                 icon={<FiUsers />}
                 label="overview"
-                onClick={() => setTab("overview")}
+                onClick={() => selectTab("overview")}
               />
               <TabBtn
                 active={tab === "crm"}
                 icon={<FiClipboard />}
                 label="CRM"
-                onClick={() => setTab("crm")}
+                onClick={() => selectTab("crm")}
               />
             </div>
 

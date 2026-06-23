@@ -29,9 +29,9 @@ const router = createBrowserRouter([
       { path: '*', element: <NotFoundPremium /> },
       { path: '/', element: <Home /> },
       { path: '/login', element: <Home /> },
-      { path: 'admin', element: <Dashboard /> },
-      { path: 'employee', element: <EmployeeDashboard /> },
-      { path: 'marketing', element: <MarketingDashboard /> },
+      { path: 'admin/*', element: <Dashboard /> },
+      { path: 'employee/*', element: <EmployeeDashboard /> },
+      { path: 'marketing/*', element: <MarketingDashboard /> },
       { path: 'crm', element: <RegisterForm /> },
   
       

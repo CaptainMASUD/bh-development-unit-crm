@@ -12,6 +12,7 @@ import React, {
 } from "react"
 import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "framer-motion"
+import toast, { Toaster } from "react-hot-toast"
 import {
   FiUsers,
   FiSearch,
@@ -77,38 +78,6 @@ function normalizeAssignedToArray(assignedTo) {
 
 function normalizeStatus(s) {
   return String(s || "").trim().toLowerCase()
-}
-
-function Toast({ open, type = "success", message, onClose }) {
-  if (!open) return null
-  const styles =
-    type === "error"
-      ? "bg-rose-50 border-rose-200 text-rose-700"
-      : "bg-green-50 border-green-200 text-green-700"
-  const Icon = type === "error" ? FiAlertCircle : FiCheck
-
-  return (
-    <div className="fixed top-4 right-4 z-[60] max-w-sm w-[92vw] sm:w-auto">
-      <motion.div
-        initial={{ opacity: 0, y: -8 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -8 }}
-        className={cn("rounded-2xl border p-3 shadow-lg", styles)}
-      >
-        <div className="flex items-start gap-3">
-          <Icon className="w-5 h-5 mt-0.5" />
-          <p className="text-sm font-semibold flex-1">{message}</p>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg hover:bg-black/5 focus:outline-none"
-            aria-label="Close toast"
-          >
-            <FiX className="w-4 h-4" />
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  )
 }
 
 function ModalShell({
@@ -2082,15 +2051,14 @@ function ConfirmDeleteModal({
           </div>
           <div className="min-w-0 flex-1">
             <h3 className="text-base font-bold text-gray-900">{title}</h3>
-            <p className="text-sm text-gray-600 mt-1">{description}</p>
+            {!requirePassword ? <p className="text-sm text-gray-600 mt-1">{description}</p> : null}
             {extra ? <div className="mt-3">{extra}</div> : null}
             {requirePassword ? (
               <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
                 <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
                   <FiLock className="h-4 w-4 text-indigo-600" />
-                  Confirm with your password
+                  Admin password
                 </div>
-                <p className="mt-1 text-xs text-gray-500">Enter your current admin password to continue.</p>
                 {passwordError ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-2.5 text-xs font-semibold text-red-700">{passwordError}</p> : null}
                 <div className="relative mt-3">
                   <input
@@ -2456,7 +2424,14 @@ function JobUpsertModal({
    MAIN PAGE
 ========================= */
 
-export default function AdminCustomersPage({ openCustomerId, onCustomerOpened }) {
+export default function AdminCustomersPage({
+  openCustomerId,
+  onCustomerOpened,
+  routeCustomerId,
+  routeCustomerTab = "overview",
+  onNavigateCustomer,
+  onBackToCustomers,
+}) {
   const PAGE_SIZE = 25
 
   const [customers, setCustomers] = useState([])
@@ -2480,15 +2455,10 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
 
   const [viewChoice, setViewChoice] = useState({ open: false, customer: null })
 
-  const [toast, setToast] = useState({ open: false, type: "success", message: "" })
-  const toastTimerRef = useRef(null)
   const showToast = useCallback((type, message) => {
-    setToast({ open: true, type, message })
-    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
-    toastTimerRef.current = window.setTimeout(
-      () => setToast({ open: false, type: "success", message: "" }),
-      2200
-    )
+    const safeMessage = message || "Something went wrong."
+    if (type === "error") toast.error(safeMessage)
+    else toast.success(safeMessage)
   }, [])
 
   const abortRef = useRef(null)
@@ -2566,6 +2536,19 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     setSelectedCustomerTab("overview")
     onCustomerOpened?.()
   }, [openCustomerId, onCustomerOpened])
+
+  useEffect(() => {
+    if (routeCustomerId) {
+      setSelectedCustomerId(routeCustomerId)
+      setSelectedCustomerTab(routeCustomerTab === "crm" ? "crm" : "overview")
+      return
+    }
+
+    if (onNavigateCustomer) {
+      setSelectedCustomerId(null)
+      setSelectedCustomerTab("overview")
+    }
+  }, [routeCustomerId, routeCustomerTab, onNavigateCustomer])
 
   const fetchEngagementTemplates = async () => {
     setTplLoading(true)
@@ -2996,7 +2979,12 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
     (filterSubEngagementIds?.length || 0) > 0
 
   const openCustomerWithTab = (customerId, tabKey) => {
-    setSelectedCustomerTab(tabKey === "crm" ? "crm" : "overview")
+    const nextTab = tabKey === "crm" ? "crm" : "overview"
+    if (onNavigateCustomer) {
+      onNavigateCustomer(customerId, nextTab)
+      return
+    }
+    setSelectedCustomerTab(nextTab)
     setSelectedCustomerId(customerId)
   }
 
@@ -3151,7 +3139,14 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
       <CustomerDetails
         customerId={selectedCustomerId}
         initialTab={selectedCustomerTab}
+        onTabChange={(tabKey) => {
+          if (onNavigateCustomer) onNavigateCustomer(selectedCustomerId, tabKey)
+        }}
         onBack={() => {
+          if (onBackToCustomers) {
+            onBackToCustomers()
+            return
+          }
           setSelectedCustomerId(null)
           setSelectedCustomerTab("overview")
           fetchCustomersPage({ reset: true })
@@ -3165,14 +3160,7 @@ export default function AdminCustomersPage({ openCustomerId, onCustomerOpened })
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
-      <AnimatePresence>
-        <Toast
-          open={toast.open}
-          type={toast.type}
-          message={toast.message}
-          onClose={() => setToast({ open: false, type: "success", message: "" })}
-        />
-      </AnimatePresence>
+      <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: "14px", fontWeight: 700 } }} />
 
       <ConfirmDeleteModal
         open={deleteModal.open}

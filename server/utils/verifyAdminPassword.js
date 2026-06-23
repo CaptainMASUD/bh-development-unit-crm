@@ -19,7 +19,7 @@ export const verifyAdminPassword = async (req) => {
   const passwordMatches = await user.comparePassword(password);
   if (!passwordMatches) {
     const error = new Error("Incorrect admin password.");
-    error.statusCode = 401;
+    error.statusCode = 400;
     throw error;
   }
 

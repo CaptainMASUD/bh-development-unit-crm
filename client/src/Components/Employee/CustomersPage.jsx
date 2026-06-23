@@ -607,7 +607,11 @@ function FiltersModal({
    MAIN PAGE
 ========================= */
 
-export default function CustomersPage() {
+export default function CustomersPage({
+  routeCustomerId,
+  onNavigateCustomer,
+  onBackToCustomers,
+}) {
   const PAGE_SIZE = 200 // you can change
 
   const [customers, setCustomers] = useState([])
@@ -620,6 +624,14 @@ export default function CustomersPage() {
   const [debounced, setDebounced] = useState("")
 
   const [selectedCustomerId, setSelectedCustomerId] = useState(null)
+
+  useEffect(() => {
+    if (routeCustomerId) {
+      setSelectedCustomerId(routeCustomerId)
+      return
+    }
+    if (onNavigateCustomer) setSelectedCustomerId(null)
+  }, [routeCustomerId, onNavigateCustomer])
 
   // engagement filters (applied)
   const [engagementTemplates, setEngagementTemplates] = useState([])
@@ -906,6 +918,10 @@ export default function CustomersPage() {
       <CustomerDetails
         customerId={selectedCustomerId}
         onBack={() => {
+          if (onBackToCustomers) {
+            onBackToCustomers()
+            return
+          }
           setSelectedCustomerId(null)
           fetchCustomers()
         }}
@@ -1123,7 +1139,10 @@ export default function CustomersPage() {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <button
-                          onClick={() => setSelectedCustomerId(c._id)}
+                          onClick={() => {
+                            if (onNavigateCustomer) onNavigateCustomer(c._id)
+                            else setSelectedCustomerId(c._id)
+                          }}
                           className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 shadow-[0_10px_26px_-18px_rgba(79,70,229,0.9)] active:scale-[0.99] transition"
                         >
                           <FiEye className="w-4 h-4" />

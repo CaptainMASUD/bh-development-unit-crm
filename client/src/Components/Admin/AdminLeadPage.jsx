@@ -1726,11 +1726,9 @@ function ConfirmDeleteModal({ open, leadName, loading, onClose, onConfirm }) {
       setError(err?.message || "Delete failed")
     }
   }
-  return <ModalShell open={open} onClose={onClose} title="Delete lead?" subtitle="This action is permanent and cannot be undone." icon={<FiAlertTriangle className="h-5 w-5" />} maxWidthClass="max-w-md" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, "bg-rose-600 text-white hover:bg-rose-700")} onClick={confirm} disabled={loading || password.length < 6}>{loading ? "Deleting..." : "Delete lead"}</button></div>}>
-    <p className="text-sm text-gray-600">You are deleting <span className="font-bold text-gray-900">{leadName || "this lead"}</span>.</p>
-    <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-      <div className="flex items-center gap-2 text-sm font-bold text-gray-900"><FiLock className="h-4 w-4 text-indigo-600" />Confirm with your password</div>
-      <p className="mt-1 text-xs text-gray-500">Enter your current admin password to continue.</p>
+  return <ModalShell open={open} onClose={onClose} title={`Delete ${leadName || "lead"}?`} subtitle="" icon={<FiAlertTriangle className="h-5 w-5" />} maxWidthClass="max-w-md" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, "bg-rose-600 text-white hover:bg-rose-700")} onClick={confirm} disabled={loading || password.length < 6}>{loading ? "Deleting..." : "Delete"}</button></div>}>
+    <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+      <div className="flex items-center gap-2 text-sm font-bold text-gray-900"><FiLock className="h-4 w-4 text-indigo-600" />Admin password</div>
       {error ? <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-xs font-semibold text-rose-700">{error}</p> : null}
       <div className="relative mt-3">
         <input type={showPassword ? "text" : "password"} value={password} onChange={(event) => { setPassword(event.target.value); setError("") }} placeholder="Admin password" autoComplete="current-password" className={cn(input, "pr-11")} />
@@ -1746,23 +1744,15 @@ function QuickActionModal({ open, onClose, lead, onSaved }) {
   const [err, setErr] = useState("")
   useEffect(() => { if (open) { setErr(""); setForm({ action: "call_done", note: "", outcome: "", nextAction: lead?.nextAction || "", nextActionDate: "" }) } }, [open, lead])
   const submit = async () => { setErr(""); setLoading(true); try { await apiQuickAction({ leadId: getLeadId(lead), ...form, nextActionDate: form.nextActionDate ? new Date(form.nextActionDate).toISOString() : null }); onSaved?.(); onClose?.() } catch (e) { setErr(e?.message || "Quick action failed") } finally { setLoading(false) } }
-  const quickChannel = form.action.includes("whatsapp") ? "whatsapp" : form.action.includes("email") ? "email" : form.action.includes("meeting") ? "meeting" : form.action.includes("proposal") ? "proposal_note" : form.action.includes("call") ? "call_note" : "general"
-  const quickPurpose = form.action.includes("followup") ? "follow_up" : form.action.includes("proposal") ? "proposal_sent" : form.action.includes("not_interested") ? "lost_reason" : "general"
   return <ModalShell open={open} onClose={onClose} title="Quick action" subtitle={lead?.contact?.name || ""} icon={<FiZap className="h-5 w-5" />} maxWidthClass="max-w-3xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : "Run action"}</button></div>}>
     {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
-    <div className="grid gap-4">
-      <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-3 text-sm font-semibold text-amber-800">
-        Quick actions are for fast activity logging. Use the real Proposal modal/tab to create, send, accept or reject proposal records.
-      </div>
+    <div className="grid gap-3">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{QUICK_ACTIONS.map(([key, text, Icon]) => {
-        const isProposalLog = ["proposal_requested", "proposal_sent"].includes(key)
-        const helper = key === "proposal_requested" ? "Logs that client asked for a proposal." : key === "proposal_sent" ? "Only logs activity; does not update proposal status." : ""
-        return <button key={key} type="button" className={cn("flex items-start gap-3 rounded-2xl border p-3 text-left transition", form.action === key ? "border-indigo-300 bg-indigo-50 text-indigo-700" : isProposalLog ? "border-amber-100 bg-amber-50/40 text-amber-900 hover:bg-amber-50" : "border-gray-100 bg-white text-gray-800 hover:bg-gray-50")} onClick={() => setForm((p) => ({ ...p, action: key }))}>
-          <Icon className="mt-0.5 h-4 w-4 shrink-0" />
-          <span><span className="block text-sm font-bold">{text}</span>{helper ? <span className="mt-0.5 block text-xs font-semibold opacity-75">{helper}</span> : null}</span>
+        return <button key={key} type="button" className={cn("flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition", form.action === key ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "border-gray-100 bg-white text-gray-800 hover:bg-gray-50")} onClick={() => setForm((p) => ({ ...p, action: key }))}>
+          <Icon className="h-4 w-4 shrink-0" />
+          <span className="text-sm font-bold">{text}</span>
         </button>
       })}</div>
-      <TemplateUseBox lead={lead} channel={quickChannel} purpose={quickPurpose} label="Insert quick-action template" onApply={(text) => setForm((p) => ({ ...p, note: appendTemplateText(p.note, text) }))} />
       <Field label="Note"><textarea className={cn(input, "min-h-[90px]")} value={form.note} onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))} /></Field>
       <Field label="Outcome"><input className={input} value={form.outcome} onChange={(e) => setForm((p) => ({ ...p, outcome: e.target.value }))} /></Field>
       <Field label="Next action"><input className={input} value={form.nextAction} onChange={(e) => setForm((p) => ({ ...p, nextAction: e.target.value }))} /></Field>
