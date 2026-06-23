@@ -2157,6 +2157,10 @@ export const updateLeadAccess = async (req, res) => {
       ? req.body.removeUserIds
       : [];
 
+    const allowedUserIds = Array.isArray(req.body?.allowedUserIds)
+      ? req.body.allowedUserIds
+      : null;
+
     const lockOwner = req.body?.lockOwner;
 
     const normalizeIds = (arr) => {
@@ -2179,10 +2183,17 @@ export const updateLeadAccess = async (req, res) => {
     const addIds = normalizeIds(addUserIds);
     const remIds = normalizeIds(removeUserIds);
 
-    const set = new Set((lead.allowedUsers || []).map((x) => String(x)));
+    const exactAllowedIds = allowedUserIds === null
+      ? null
+      : normalizeIds(allowedUserIds);
+    const set = new Set(
+      (exactAllowedIds || lead.allowedUsers || []).map((x) => String(x))
+    );
 
-    for (const a of addIds) set.add(String(a));
-    for (const r of remIds) set.delete(String(r));
+    if (exactAllowedIds === null) {
+      for (const a of addIds) set.add(String(a));
+      for (const r of remIds) set.delete(String(r));
+    }
 
     lead.allowedUsers = Array.from(set).map(
       (s) => new mongoose.Types.ObjectId(s)

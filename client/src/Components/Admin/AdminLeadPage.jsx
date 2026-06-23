@@ -569,6 +569,7 @@ const apiGetLead = (id, signal) => apiJson(`${API_BASE}/leads/${id}`, { signal }
 const apiGetLeadTimeline = (id, signal) => apiJson(`${API_BASE}/leads/${id}/timeline`, { signal })
 const apiCreateLead = (payload) => apiJson(`${API_BASE}/leads`, { method: "POST", body: JSON.stringify(payload) })
 const apiUpdateLead = (id, payload) => apiJson(`${API_BASE}/leads/${id}`, { method: "PUT", body: JSON.stringify(payload) })
+const apiUpdateLeadAccess = (id, payload) => apiJson(`${API_BASE}/leads/${id}/access`, { method: "PATCH", body: JSON.stringify(payload) })
 const apiAddLeadNote = (id, payload) => apiJson(`${API_BASE}/leads/${id}/notes`, { method: "POST", body: JSON.stringify(payload) })
 const apiUpdateLeadStage = (id, payload) => apiJson(`${API_BASE}/leads/${id}/stage`, { method: "PATCH", body: JSON.stringify(payload) })
 const apiUpdateRequirement = (id, payload) => apiJson(`${API_BASE}/leads/${id}/requirement`, { method: "PATCH", body: JSON.stringify(payload) })
@@ -952,7 +953,7 @@ function appendTemplateText(current, text) {
   return current?.trim() ? `${current.trim()}\n\n${clean}` : clean
 }
 
-function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved, users = [] }) {
+function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved, users = [], canAssignOwner = true }) {
   const [form, setForm] = useState({ name: "", email: "", phone: "", companyName: "", source: "", priority: "medium", leadTemperature: "warm", leadScore: 0, purchaseType: "", tags: "", website: "", industry: "", address: "", assignedTo: "", nextFollowUpAt: "", requirementSummary: "", expectedSolution: "", painPoints: "", budgetMin: "", budgetMax: "", expectedValue: "", timeline: "", decisionMaker: "" })
   const [purchaseTypes, setPurchaseTypes] = useState([])
   const [addPtOpen, setAddPtOpen] = useState(false)
@@ -983,7 +984,7 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved, use
           <Field label="Contact name *"><input className={input} value={form.name} onChange={update("name")} /></Field><Field label="Company name *"><input className={input} value={form.companyName} onChange={update("companyName")} /></Field><Field label="Email"><input className={input} value={form.email} onChange={update("email")} /></Field><Field label="Phone"><input className={input} value={form.phone} onChange={update("phone")} /></Field>
           <Field label="Priority"><select className={input} value={form.priority} onChange={update("priority")}>{PRIORITIES.map((x) => <option key={x} value={x}>{x}</option>)}</select></Field><Field label="Lead temperature"><select className={input} value={form.leadTemperature} onChange={update("leadTemperature")}>{TEMPERATURES.map((x) => <option key={x} value={x}>{x}</option>)}</select></Field><Field label="Lead score"><input className={input} type="number" min="0" max="100" value={form.leadScore} onChange={update("leadScore")} /></Field>
           <Field label="Purchase type"><div className="flex gap-2"><select className={cn(input, "flex-1")} value={form.purchaseType} onChange={update("purchaseType")}><option value="">Select purchase type</option>{purchaseTypes.map((pt) => <option key={pt.key || pt._id} value={pt.key || pt.name}>{pt.name || pt.key}</option>)}</select><button type="button" className={cn(btn, btnGhost, "px-3")} onClick={() => setAddPtOpen(true)}><FiPlus className="h-4 w-4" /></button></div></Field>
-          <Field label="Source"><input className={input} value={form.source} onChange={update("source")} /></Field><Field label="Next follow-up"><input type="datetime-local" className={input} value={form.nextFollowUpAt} onChange={update("nextFollowUpAt")} /></Field><Field label="Tags"><input className={input} value={form.tags} onChange={update("tags")} /></Field><UserSelect label="Assign owner" value={form.assignedTo} users={users} onChange={(val) => setForm((p) => ({ ...p, assignedTo: val }))} placeholder="Use current user" />
+          <Field label="Source"><input className={input} value={form.source} onChange={update("source")} /></Field><Field label="Next follow-up"><input type="datetime-local" className={input} value={form.nextFollowUpAt} onChange={update("nextFollowUpAt")} /></Field><Field label="Tags"><input className={input} value={form.tags} onChange={update("tags")} /></Field>{canAssignOwner ? <UserSelect label="Assign owner" value={form.assignedTo} users={users} onChange={(val) => setForm((p) => ({ ...p, assignedTo: val }))} placeholder="Use current user" /> : null}
           <div className="md:col-span-2 rounded-2xl border border-gray-100 p-4"><p className="mb-3 text-sm font-bold text-gray-900">Company info</p><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><Field label="Website"><input className={input} value={form.website} onChange={update("website")} /></Field><Field label="Industry"><input className={input} value={form.industry} onChange={update("industry")} /></Field><div className="md:col-span-2"><Field label="Address"><input className={input} value={form.address} onChange={update("address")} /></Field></div></div></div>
           <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4"><p className="mb-3 text-sm font-bold text-gray-900">Requirement / discovery</p><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><div className="md:col-span-2"><Field label="Requirement summary"><textarea className={cn(input, "min-h-[90px]")} value={form.requirementSummary} onChange={update("requirementSummary")} /></Field></div><div className="md:col-span-2"><Field label="Expected solution"><textarea className={cn(input, "min-h-[80px]")} value={form.expectedSolution} onChange={update("expectedSolution")} /></Field></div><Field label="Pain points"><input className={input} value={form.painPoints} onChange={update("painPoints")} /></Field><Field label="Decision maker"><input className={input} value={form.decisionMaker} onChange={update("decisionMaker")} /></Field><Field label="Budget min"><input className={input} type="number" value={form.budgetMin} onChange={update("budgetMin")} /></Field><Field label="Budget max"><input className={input} type="number" value={form.budgetMax} onChange={update("budgetMax")} /></Field><Field label="Expected value"><input className={input} type="number" value={form.expectedValue} onChange={update("expectedValue")} /></Field><Field label="Timeline"><input className={input} value={form.timeline} onChange={update("timeline")} /></Field></div></div>
         </div>
@@ -1772,7 +1773,8 @@ function QuickActionModal({ open, onClose, lead, onSaved }) {
 
 function AssignLeadModal({ open, onClose, lead, onSaved }) {
   const [users, setUsers] = useState([])
-  const [assignedTo, setAssignedTo] = useState("")
+  const [primaryOwner, setPrimaryOwner] = useState("")
+  const [selectedUsers, setSelectedUsers] = useState([])
   const [lockOwner, setLockOwner] = useState(true)
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState("")
@@ -1780,21 +1782,39 @@ function AssignLeadModal({ open, onClose, lead, onSaved }) {
   useEffect(() => {
     if (!open) return
     setErr("")
-    setAssignedTo(typeof lead?.assignedTo === "string" ? lead.assignedTo : lead?.assignedTo?._id || "")
     setLockOwner(true)
-    apiAvailableAssignees({ role: "marketing_team" })
-      .then((d) => setUsers(normalizeApiList(d)))
+    Promise.all([
+      apiAvailableAssignees({ role: "marketing_team" }),
+      apiGetLead(getLeadId(lead)).catch(() => lead),
+    ])
+      .then(([usersData, leadData]) => {
+        const freshLead = leadData?.lead || leadData?.data || leadData || lead
+        const ownerId = typeof freshLead?.assignedTo === "string" ? freshLead.assignedTo : freshLead?.assignedTo?._id || ""
+        const accessIds = (freshLead?.allowedUsers || []).map((user) => String(user?._id || user))
+        setUsers(normalizeApiList(usersData))
+        setPrimaryOwner(ownerId)
+        setSelectedUsers(Array.from(new Set([ownerId, ...accessIds].filter(Boolean))))
+        setLockOwner(Boolean(freshLead?.ownerLocked ?? true))
+      })
       .catch(() => setUsers([]))
   }, [open, lead])
 
-  const selectedUser = users.find((u) => String(u._id || u.id) === String(assignedTo))
+  const toggleUser = (userId) => setSelectedUsers((previous) => previous.includes(userId) ? previous.filter((id) => id !== userId) : [...previous, userId])
+  const assignedTo = primaryOwner
+  const setAssignedTo = (userId) => {
+    setPrimaryOwner(userId)
+    if (userId) setSelectedUsers((previous) => previous.includes(userId) ? previous : [...previous, userId])
+  }
+  const selectedUser = users.find((user) => String(user._id || user.id) === String(primaryOwner))
 
   const submit = async () => {
     setErr("")
-    if (!assignedTo) return setErr("Select a marketing team member first.")
+    if (!selectedUsers.length) return setErr("Select at least one marketing team member.")
+    if (!primaryOwner || !selectedUsers.includes(primaryOwner)) return setErr("Choose one selected member as the primary owner.")
     setLoading(true)
     try {
-      await apiManualAssign({ leadId: getLeadId(lead), assignedTo, lockOwner })
+      await apiManualAssign({ leadId: getLeadId(lead), assignedTo: primaryOwner, lockOwner })
+      await apiUpdateLeadAccess(getLeadId(lead), { allowedUserIds: selectedUsers.filter((id) => id !== primaryOwner), lockOwner })
       onSaved?.()
       onClose?.()
     } catch (e) {
@@ -1830,6 +1850,21 @@ function AssignLeadModal({ open, onClose, lead, onSaved }) {
           <div className="rounded-xl bg-white p-3"><p className="font-semibold text-gray-500">Pending queue</p><p className="mt-1 font-bold text-gray-900">{selectedUser.currentPendingWorkQueueCount || 0}</p></div>
         </div>
       </div> : null}
+
+      <div>
+        <p className="mb-2 text-sm font-bold text-gray-900">Additional team access</p>
+        <div className="grid max-h-[260px] gap-2 overflow-y-auto rounded-2xl border border-gray-100 bg-gray-50 p-3 sm:grid-cols-2">
+          {users.map((user) => {
+            const userId = String(user._id || user.id)
+            const selected = selectedUsers.includes(userId)
+            return <button key={userId} type="button" onClick={() => toggleUser(userId)} className={cn("flex items-center gap-3 rounded-2xl border p-3 text-left transition", selected ? "border-indigo-200 bg-indigo-50" : "border-gray-100 bg-white hover:bg-gray-50")}>
+              <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border", selected ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-200 bg-white text-transparent")}><FiCheck className="h-4 w-4" /></span>
+              <span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold text-gray-900">{user.name || user.email}</span><span className="block truncate text-xs text-gray-500">{primaryOwner === userId ? "Primary owner" : user.email || "Marketing team"}</span></span>
+            </button>
+          })}
+        </div>
+        <p className="mt-2 text-xs text-gray-500">Selected members can open and work on this lead. Choose the primary owner above.</p>
+      </div>
 
       <label className="flex items-start gap-3 rounded-2xl border border-gray-100 bg-white p-4 text-sm text-gray-700">
         <input type="checkbox" className="mt-1" checked={lockOwner} onChange={(e) => setLockOwner(e.target.checked)} />
@@ -1966,7 +2001,7 @@ function LeadNotesOverview({ lead, onAction }) {
   )
 }
 
-function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initialTab = "overview" }) {
+function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initialTab = "overview", isMarketing = false }) {
   const [lead, setLead] = useState(null)
   const [timeline, setTimeline] = useState({ logs: [], activities: [], proposals: [], deals: [], queueItems: [] })
   const [tab, setTab] = useState(initialTab || "overview")
@@ -1987,7 +2022,19 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
   const proposals = timeline.proposals || []
   const deals = timeline.deals || []
   const queueItems = timeline.queueItems || []
-  const tabs = [["overview", "Overview", FiInfo], ["timeline", "Timeline", FiClock], ["activities", "Activities", FiActivity], ["proposals", "Proposals", FiFileText], ["deals", "Deals", FiBriefcase], ["queue", "Queue", FiZap], ["notes", "Notes", FiFileText]]
+  const showSalesTabs = getStageIndex(lead?.pipelineStage) >= getStageIndex("discovery")
+  const tabs = [
+    ["overview", "Overview", FiInfo],
+    ["timeline", "Timeline", FiClock],
+    ...(!isMarketing ? [["activities", "Activities", FiActivity]] : []),
+    ...(showSalesTabs ? [["proposals", "Proposals", FiFileText], ["deals", "Deals", FiBriefcase]] : []),
+    ["queue", "Queue", FiZap],
+    ["notes", "Notes", FiFileText],
+  ]
+  useEffect(() => {
+    if (!lead) return
+    if (!tabs.some(([key]) => key === tab)) setTab("overview")
+  }, [lead, tab, isMarketing, showSalesTabs])
   const openReasonModal = (config) => setReasonModal({ open: true, ...config })
   const closeReasonModal = () => setReasonModal({ open: false })
   return <><ModalShell open={open} onClose={onClose} title="Lead A-Z History" subtitle={lead?.contact?.name || "Full timeline, activities, proposals, deals and work queue"} icon={<FiEye className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex flex-wrap justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load}><FiRefreshCcw className="h-4 w-4" />Refresh</button>{lead ? (() => { const proposalInfo = getProposalShortcutInfo(lead, timeline); const eligibleProposal = (timeline.proposals || []).find((proposal) => ["sent", "accepted"].includes(proposal.status) && !proposal.dealId); return <><button className={cn(btn, btnPrimary)} disabled={!getNextPipelineStage(lead)} onClick={() => onAction?.("nextStage", lead)}><FiArrowRight />Next Stage</button><button className={cn(btn, btnSoft)} onClick={() => onAction?.("quick", lead)}><FiZap />Quick action</button>{proposalInfo.show ? <button className={cn(btn, proposalInfo.action === "proposal" ? btnPrimary : btnGhost)} disabled={proposalInfo.disabled} onClick={() => proposalInfo.action === "manageProposal" ? setTab("proposals") : onAction?.(proposalInfo.action, lead)}><FiFileText />{proposalInfo.label}</button> : null}<button className={cn(btn, btnGhost)} disabled={!eligibleProposal} title={eligibleProposal ? "Create deal from proposal" : "Send or accept a proposal first"} onClick={() => onAction?.("deal", lead)}><FiBriefcase />Create Deal</button></> })() : null}</div>}>
@@ -2017,9 +2064,9 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
         </div>
       )}
       {tab === "timeline" && <div className="space-y-3">{[...logs, ...activities, ...proposals, ...deals, ...queueItems].sort((a,b)=>new Date(b.createdAt||b.sentAt||0)-new Date(a.createdAt||a.sentAt||0)).map((x, i) => <TimelineCard key={`${x._id || i}`} item={x} />)}{!logs.length && !activities.length && !proposals.length && !deals.length && !queueItems.length ? <EmptyState icon={<FiClock />} title="No history yet" /> : null}</div>}
-      {tab === "activities" && <RecordList items={activities} type="activity" onComplete={async (id) => { await apiCompleteActivity(id, { outcome: "Completed from UI" }); await load(); onAction?.("refresh") }} onCancel={async (id) => { await apiCancelActivity(id, { reason: "Cancelled from UI" }); await load(); onAction?.("refresh") }} />}
-      {tab === "proposals" && <RecordList items={proposals} type="proposal" onView={(record) => setRecordView({ open: true, type: "proposal", record })} onEdit={(record) => setRecordEdit({ type: "proposal", record })} onSend={async (id) => { await apiSendProposal(id); await load(); onAction?.("refresh") }} onAccept={async (id) => { await apiAcceptProposal(id); await load(); onAction?.("refresh") }} onReject={(id) => openReasonModal({ title: "Reject proposal", subtitle: lead?.contact?.name || "Add a clear reason before rejecting.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Reject proposal", danger: true, onSubmit: async ({ reason, note }) => { await apiRejectProposal(id, { rejectReason: reason, note }); await load(); onAction?.("refresh") } })} />}
-      {tab === "deals" && <RecordList items={deals} type="deal" onView={(record) => setRecordView({ open: true, type: "deal", record })} onEdit={(record) => setRecordEdit({ type: "deal", record })} onWon={(id) => openReasonModal({ title: "Mark deal as won", subtitle: "Winning the deal will automatically convert this lead to a customer.", icon: <FiCheckCircle className="h-5 w-5" />, actionLabel: "Win deal & convert", onSubmit: async ({ reason, note }) => { const data = await apiDealWon(id, { reason, note }); await load(); onAction?.("dealWon", data) } })} onLost={(id) => openReasonModal({ title: "Mark deal as lost", subtitle: lead?.contact?.name || "Add a clear loss reason.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Mark lost", danger: true, onSubmit: async ({ reason, note }) => { await apiDealLost(id, { reason, note }); await load(); onAction?.("refresh") } })} />}
+      {!isMarketing && tab === "activities" && <RecordList items={activities} type="activity" onComplete={async (id) => { await apiCompleteActivity(id, { outcome: "Completed from UI" }); await load(); onAction?.("refresh") }} onCancel={async (id) => { await apiCancelActivity(id, { reason: "Cancelled from UI" }); await load(); onAction?.("refresh") }} />}
+      {showSalesTabs && tab === "proposals" && <RecordList items={proposals} type="proposal" onView={(record) => setRecordView({ open: true, type: "proposal", record })} onEdit={(record) => setRecordEdit({ type: "proposal", record })} onSend={async (id) => { await apiSendProposal(id); await load(); onAction?.("refresh") }} onAccept={async (id) => { await apiAcceptProposal(id); await load(); onAction?.("refresh") }} onReject={(id) => openReasonModal({ title: "Reject proposal", subtitle: lead?.contact?.name || "Add a clear reason before rejecting.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Reject proposal", danger: true, onSubmit: async ({ reason, note }) => { await apiRejectProposal(id, { rejectReason: reason, note }); await load(); onAction?.("refresh") } })} />}
+      {showSalesTabs && tab === "deals" && <RecordList items={deals} type="deal" onView={(record) => setRecordView({ open: true, type: "deal", record })} onEdit={(record) => setRecordEdit({ type: "deal", record })} onWon={(id) => openReasonModal({ title: "Mark deal as won", subtitle: "Winning the deal will automatically convert this lead to a customer.", icon: <FiCheckCircle className="h-5 w-5" />, actionLabel: "Win deal & convert", onSubmit: async ({ reason, note }) => { const data = await apiDealWon(id, { reason, note }); await load(); onAction?.("dealWon", data) } })} onLost={(id) => openReasonModal({ title: "Mark deal as lost", subtitle: lead?.contact?.name || "Add a clear loss reason.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Mark lost", danger: true, onSubmit: async ({ reason, note }) => { await apiDealLost(id, { reason, note }); await load(); onAction?.("refresh") } })} />}
       {tab === "queue" && <RecordList items={queueItems} type="queue" onDone={async (id) => { await apiQueueDone(id, { result: "Done from lead view" }); await load(); onAction?.("refresh") }} />}
       {tab === "notes" && <LeadNotesOverview lead={lead} onAction={onAction} />}
     </> : <EmptyState icon={<FiEye className="h-5 w-5" />} title="No lead selected" />}
@@ -2473,6 +2520,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
   }, [])
   const canConvert = ["admin", "superadmin", "marketing_team"].includes(role)
   const canAdminister = ["admin", "superadmin"].includes(role)
+  const isMarketing = role === "marketing_team"
   const showToast = (type, message) => {
     const safeMessage = message || "Something went wrong."
     if (type === "error") toast.error(safeMessage)
@@ -2821,9 +2869,9 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
     </div>
     <ModalShell open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Lead Filters" subtitle="Filter by lead, queue and follow-up fields" icon={<FiFilter className="h-5 w-5" />} maxWidthClass="max-w-4xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={() => { const empty = Object.fromEntries(Object.keys(filters).map((k)=>[k,"" ])); setFilterDraft(empty); setFilters(empty); setFiltersOpen(false) }}>Clear all</button><button className={cn(btn, btnPrimary)} onClick={() => { setFilters(filterDraft); setFiltersOpen(false) }}>Apply filters</button></div>}><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><Field label="Status"><select className={input} value={filterDraft.status} onChange={(e) => setFilterDraft((p) => ({ ...p, status: e.target.value }))}><option value="">All</option>{LEAD_STATUSES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Pipeline stage"><select className={input} value={filterDraft.pipelineStage} onChange={(e) => setFilterDraft((p) => ({ ...p, pipelineStage: e.target.value }))}><option value="">All</option>{PIPELINE_STAGES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Priority"><select className={input} value={filterDraft.priority} onChange={(e) => setFilterDraft((p) => ({ ...p, priority: e.target.value }))}><option value="">All</option>{PRIORITIES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Temperature"><select className={input} value={filterDraft.leadTemperature} onChange={(e) => setFilterDraft((p) => ({ ...p, leadTemperature: e.target.value }))}><option value="">All</option>{TEMPERATURES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Queue priority"><select className={input} value={filterDraft.workQueuePriority} onChange={(e) => setFilterDraft((p) => ({ ...p, workQueuePriority: e.target.value }))}><option value="">All</option>{WORK_PRIORITIES.map((x)=><option key={x}>{x}</option>)}</select></Field><Field label="Overdue"><select className={input} value={filterDraft.isOverdue} onChange={(e) => setFilterDraft((p) => ({ ...p, isOverdue: e.target.value }))}><option value="">All</option><option value="true">Overdue</option><option value="false">Not overdue</option></select></Field><Field label="Next action type"><input className={input} value={filterDraft.nextActionType} onChange={(e)=>setFilterDraft(p=>({...p,nextActionType:e.target.value}))}/></Field><Field label="Purchase type"><input className={input} value={filterDraft.purchaseType} onChange={(e) => setFilterDraft((p) => ({ ...p, purchaseType: e.target.value }))} /></Field><Field label="Source"><input className={input} value={filterDraft.source} onChange={(e) => setFilterDraft((p) => ({ ...p, source: e.target.value }))} /></Field><Field label="Tag"><input className={input} value={filterDraft.tag} onChange={(e) => setFilterDraft((p) => ({ ...p, tag: e.target.value }))} /></Field><Field label="Next follow-up from"><input type="date" className={input} value={filterDraft.nextFollowUpFrom} onChange={(e) => setFilterDraft((p) => ({ ...p, nextFollowUpFrom: e.target.value }))} /></Field><Field label="Next follow-up to"><input type="date" className={input} value={filterDraft.nextFollowUpTo} onChange={(e) => setFilterDraft((p) => ({ ...p, nextFollowUpTo: e.target.value }))} /></Field><Field label="Last contacted from"><input type="date" className={input} value={filterDraft.lastContactedFrom} onChange={(e) => setFilterDraft((p) => ({ ...p, lastContactedFrom: e.target.value }))} /></Field><Field label="Last contacted to"><input type="date" className={input} value={filterDraft.lastContactedTo} onChange={(e) => setFilterDraft((p) => ({ ...p, lastContactedTo: e.target.value }))} /></Field></div></ModalShell>
     <ColumnPickerModal open={colsOpen} onClose={() => setColsOpen(false)} allowed={allowedCols} selected={selectedCols} onSave={saveColumns} />
-    <LeadFullViewModal open={Boolean(viewLeadId)} onClose={() => setViewLeadId("")} leadId={viewLeadId} initialTab={viewInitialTab} refreshTick={viewTick} onAction={(type, lead) => type === "refresh" ? refreshAll() : action(type, lead)} />
-    <LeadUpsertModal open={modal.type === "create"} onClose={() => setModal({ type: "", lead: null })} mode="create" users={assignees} onSaved={async () => { showToast("success", "Lead created."); await refreshAll() }} />
-    <LeadUpsertModal open={modal.type === "edit"} onClose={() => setModal({ type: "", lead: null })} mode="edit" initial={modal.lead} users={assignees} onSaved={async () => { showToast("success", "Lead updated."); await refreshAll() }} />
+    <LeadFullViewModal open={Boolean(viewLeadId)} onClose={() => setViewLeadId("")} leadId={viewLeadId} initialTab={viewInitialTab} refreshTick={viewTick} isMarketing={isMarketing} onAction={(type, lead) => type === "refresh" ? refreshAll() : action(type, lead)} />
+    <LeadUpsertModal open={modal.type === "create"} onClose={() => setModal({ type: "", lead: null })} mode="create" users={assignees} canAssignOwner={canAdminister} onSaved={async () => { showToast("success", "Lead created."); await refreshAll() }} />
+    <LeadUpsertModal open={modal.type === "edit"} onClose={() => setModal({ type: "", lead: null })} mode="edit" initial={modal.lead} users={assignees} canAssignOwner={canAdminister} onSaved={async () => { showToast("success", "Lead updated."); await refreshAll() }} />
     <NoteModal open={modal.type === "note"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Note added."); await refreshAll() }} />
     <StageModal open={modal.type === "stage"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={handleStageSaved} refreshToken={stageWorkTick} onOpenRequirement={(lead) => setChildModal({ type: "requirement", lead })} onOpenProposal={(lead) => setChildModal({ type: "proposal", lead })} />
     <StageModal open={modal.type === "nextStage"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} mode="next" lockStage targetStage={getNextPipelineStage(modal.lead)} onSaved={handleStageSaved} refreshToken={stageWorkTick} onOpenRequirement={(lead) => setChildModal({ type: "requirement", lead })} onOpenProposal={(lead) => setChildModal({ type: "proposal", lead })} />
