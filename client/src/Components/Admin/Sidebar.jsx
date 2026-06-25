@@ -15,6 +15,87 @@ import { Bell } from "lucide-react"
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const NOTIF_BADGE_COLOR = "#5850EC"
 
+const SIDEBAR_GROUPS = [
+  {
+    title: "CRM",
+    matchers: [
+      "dashboard",
+      "client",
+      "customer",
+      "lead",
+      "deal",
+      "pipeline",
+      "workflow setup",
+      "report",
+      "analytics",
+      "marketing",
+      "campaign",
+    ],
+  },
+  {
+    title: "Task",
+    matchers: [
+      "task",
+      "work queue",
+      "job",
+      "follow",
+      "activity",
+      "calendar",
+      "workflow procedure",
+      "procedure",
+    ],
+  },
+  {
+    title: "Payroll",
+    matchers: [
+      "payroll",
+      "employee",
+      "employees",
+      "staff",
+      "salary",
+      "attendance",
+      "leave",
+      "accounting",
+      "invoice",
+      "income",
+      "expense",
+      "payable",
+      "receivable",
+      "ledger",
+    ],
+  },
+  {
+    title: "System Access",
+    matchers: [
+      "user",
+      "admin",
+      "role",
+      "permission",
+      "department",
+      "position",
+      "access",
+      "profile settings",
+      "settings",
+      "software version",
+    ],
+  },
+  { title: "Others", matchers: [] },
+]
+
+const normalizeSectionLabel = (value) => String(value || "").trim().toLowerCase()
+
+const getSidebarGroupForSection = (section) => {
+  const name = normalizeSectionLabel(section)
+
+  for (const group of SIDEBAR_GROUPS) {
+    if (group.title === "Others") continue
+    if (group.matchers.some((matcher) => name.includes(matcher))) return group.title
+  }
+
+  return "Others"
+}
+
+
 function getAuthHeaders() {
   const token = localStorage.getItem("token")
   return {
@@ -208,7 +289,7 @@ const SubMenuInline = memo(function SubMenuInline({
       aria-label={`${section} submenu`}
       onKeyDown={onKeyDown}
     >
-      <div className="pl-3 py-2 space-y-1">
+      <div className="pl-2 py-1.5 space-y-0.5">
         {Object.keys(subcategories).map((subcategory) => {
           const isActive = activeSection === section && activeSubcategory === subcategory
           return (
@@ -216,7 +297,7 @@ const SubMenuInline = memo(function SubMenuInline({
               key={subcategory}
               ref={setBtnRef}
               onClick={() => handleSubcategoryClick(section, subcategory)}
-              className={`group w-full flex items-center px-4 py-2.5 rounded-xl text-sm relative ${
+              className={`group w-full flex items-center px-3 py-2 rounded-lg text-[13px] relative ${
                 reducedMotion ? "" : "transition-all duration-200"
               } focus:outline-none focus:ring-2 focus:ring-purple-500/60 ${
                 isActive
@@ -236,7 +317,7 @@ const SubMenuInline = memo(function SubMenuInline({
                     reducedMotion ? "" : "transition-all duration-300"
                   } ${isActive ? "opacity-100 scale-100" : "opacity-0 scale-0"}`}
                 />
-                <span className="ml-3 relative z-10">{subcategory}</span>
+                <span className="ml-2 relative z-10">{subcategory}</span>
               </div>
             </button>
           )
@@ -612,6 +693,18 @@ export default function Sidebar({
     })
   }, [orderedSectionKeys, safeSections, searchTerm])
 
+  const groupedSectionBlocks = useMemo(() => {
+    const groupMap = new Map(SIDEBAR_GROUPS.map((group) => [group.title, { ...group, sections: [] }]))
+
+    filteredSectionKeys.forEach((section) => {
+      const groupTitle = getSidebarGroupForSection(section)
+      const group = groupMap.get(groupTitle) || groupMap.get("Others")
+      group.sections.push(section)
+    })
+
+    return SIDEBAR_GROUPS.map((group) => groupMap.get(group.title)).filter((group) => group?.sections?.length)
+  }, [filteredSectionKeys])
+
   const shouldRingBell = !reducedMotion && notifCount7d > 0 && showBellTip && !isMobileViewport
   const initials = getInitials(user?.username)
 
@@ -942,7 +1035,7 @@ export default function Sidebar({
                   placeholder="Search…"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className={`w-full pl-10 pr-10 py-2.5 rounded-2xl ${reducedMotion ? "" : "transition-all duration-200"} ${
+                  className={`w-full pl-10 pr-10 py-2.5 rounded-xl text-sm ${reducedMotion ? "" : "transition-all duration-200"} ${
                     isDarkMode
                       ? "bg-gray-800/60 focus:bg-gray-800 text-white placeholder-gray-400"
                       : "bg-gray-100/60 focus:bg-gray-100 text-gray-900 placeholder-gray-500"
@@ -990,104 +1083,122 @@ export default function Sidebar({
 
         <nav
           aria-label="Primary"
-          className={`flex-1 overflow-y-auto ${navPad} pt-2 space-y-2 scrollbar-thin ${
+          className={`flex-1 overflow-y-auto ${navPad} pt-1 space-y-3 scrollbar-thin ${
             isDarkMode ? "scrollbar-thumb-purple-500 scrollbar-track-transparent" : "scrollbar-thumb-purple-400 scrollbar-track-gray-100"
           }`}
           onScroll={() => {
             if (compact && flyout.open) closeFlyout()
           }}
         >
-          {filteredSectionKeys.map((section) => {
-            const def = safeSections[section]
-            if (!def) return null
-
-            const hasSubs = !!def.subcategories
-            const isActiveSection = activeSection === section && !activeSubcategory
-            const isExpanded = expandedSection === section
-            const controlsId = hasSubs ? `submenu-${section.replace(/\s+/g, "_")}` : undefined
-
-            return (
-              <div key={section} className="select-none">
-                <button
-                  onClick={(e) => handleSectionClick(section, e.currentTarget)}
-                  onMouseEnter={(e) => {
-                    if (!isMobileViewport && compact && hasSubs) {
-                      if (openTimerRef.current) clearTimeout(openTimerRef.current)
-                      openTimerRef.current = setTimeout(() => openFlyout(section, e.currentTarget), 120)
-                    }
-                  }}
-                  onMouseLeave={() => {
-                    if (openTimerRef.current) clearTimeout(openTimerRef.current)
-                  }}
-                  onFocus={(e) => {
-                    if (!isMobileViewport && compact && hasSubs) openFlyout(section, e.currentTarget)
-                  }}
-                  onKeyDown={(e) => handleKeyToggle(e, section, e.currentTarget)}
-                  className={`group w-full flex items-center ${
-                    compact ? "justify-center px-3 py-3" : "justify-between px-4 py-3"
-                  } rounded-2xl ${reducedMotion ? "" : "transition-all duration-200 ease-in-out"} relative overflow-hidden border ${
-                    activeSection === section
-                      ? isDarkMode
-                        ? "bg-white/8 border-white/10 text-white"
-                        : "bg-gray-900/5 border-gray-200 text-gray-900"
-                      : isDarkMode
-                      ? "border-transparent text-gray-300 hover:text-white hover:bg-white/5"
-                      : "border-transparent text-gray-700 hover:text-gray-900 hover:bg-gray-100"
-                  } focus:outline-none focus:ring-2 focus:ring-purple-500/60`}
-                  aria-expanded={hasSubs && !compact ? isExpanded : undefined}
-                  aria-controls={hasSubs && !compact ? controlsId : undefined}
-                  aria-current={isActiveSection ? "page" : undefined}
-                  title={section}
-                  type="button"
+          {groupedSectionBlocks.map((group) => (
+            <div key={group.title} className={compact ? "space-y-1" : "space-y-1.5"}>
+              {!compact ? (
+                <div
+                  className={`px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-[0.18em] ${
+                    isDarkMode ? "text-gray-500" : "text-gray-400"
+                  }`}
                 >
-                  {activeSection === section ? (
-                    <span
-                      className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-8 rounded-r-full bg-gradient-to-b from-indigo-500 via-purple-500 to-pink-500"
-                      aria-hidden="true"
-                    />
-                  ) : null}
+                  {group.title}
+                </div>
+              ) : group.title !== "Others" ? (
+                <div className="mx-auto my-2 h-px w-8 bg-white/10" aria-hidden="true" />
+              ) : null}
 
-                  <div className={`flex items-center ${compact ? "justify-center" : "gap-3"} relative z-10`}>
-                    <span
-                      className={`text-[18px] ${reducedMotion ? "" : "transition-transform duration-200"} ${
-                        activeSection === section ? "scale-110" : "group-hover:scale-105"
-                      }`}
+              {group.sections.map((section) => {
+                const def = safeSections[section]
+                if (!def) return null
+
+                const hasSubs = !!def.subcategories
+                const isActiveSection = activeSection === section && !activeSubcategory
+                const isExpanded = expandedSection === section
+                const controlsId = hasSubs ? `submenu-${section.replace(/\s+/g, "_")}` : undefined
+
+                return (
+                  <div key={section} className="select-none">
+                    <button
+                      onClick={(e) => handleSectionClick(section, e.currentTarget)}
+                      onMouseEnter={(e) => {
+                        if (!isMobileViewport && compact && hasSubs) {
+                          if (openTimerRef.current) clearTimeout(openTimerRef.current)
+                          openTimerRef.current = setTimeout(() => openFlyout(section, e.currentTarget), 120)
+                        }
+                      }}
+                      onMouseLeave={() => {
+                        if (openTimerRef.current) clearTimeout(openTimerRef.current)
+                      }}
+                      onFocus={(e) => {
+                        if (!isMobileViewport && compact && hasSubs) openFlyout(section, e.currentTarget)
+                      }}
+                      onKeyDown={(e) => handleKeyToggle(e, section, e.currentTarget)}
+                      className={`group w-full flex items-center ${
+                        compact ? "justify-center px-2.5 py-2.5" : "justify-between px-3 py-2.5"
+                      } rounded-xl text-sm ${reducedMotion ? "" : "transition-all duration-200 ease-in-out"} relative overflow-hidden border ${
+                        activeSection === section
+                          ? isDarkMode
+                            ? "bg-white/8 border-white/10 text-white shadow-[0_10px_26px_-22px_rgba(124,58,237,0.9)]"
+                            : "bg-gray-900/5 border-gray-200 text-gray-900 shadow-sm"
+                          : isDarkMode
+                          ? "border-transparent text-gray-300 hover:text-white hover:bg-white/5"
+                          : "border-transparent text-gray-700 hover:text-gray-900 hover:bg-gray-100"
+                      } focus:outline-none focus:ring-2 focus:ring-purple-500/60`}
+                      aria-expanded={hasSubs && !compact ? isExpanded : undefined}
+                      aria-controls={hasSubs && !compact ? controlsId : undefined}
+                      aria-current={isActiveSection ? "page" : undefined}
+                      title={section}
+                      type="button"
                     >
-                      {def.icon}
-                    </span>
-                    {!compact ? <span className="font-medium">{section}</span> : null}
+                      {activeSection === section ? (
+                        <span
+                          className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r-full bg-gradient-to-b from-indigo-500 via-purple-500 to-pink-500"
+                          aria-hidden="true"
+                        />
+                      ) : null}
+
+                      <div className={`flex items-center ${compact ? "justify-center" : "gap-2.5"} relative z-10 min-w-0`}>
+                        <span
+                          className={`text-[16px] shrink-0 ${reducedMotion ? "" : "transition-transform duration-200"} ${
+                            activeSection === section ? "scale-105" : "group-hover:scale-105"
+                          }`}
+                        >
+                          {def.icon}
+                        </span>
+                        {!compact ? <span className="font-medium truncate">{section}</span> : null}
+                      </div>
+
+                      {hasSubs && !compact ? (
+                        <FaChevronDown
+                          className={`${reducedMotion ? "" : "transition-transform duration-300"} relative z-10 text-xs ${
+                            isExpanded ? "rotate-180" : ""
+                          }`}
+                          aria-hidden
+                        />
+                      ) : null}
+                    </button>
+
+                    {hasSubs && !compact ? (
+                      <SubMenuInline
+                        subcategories={def.subcategories}
+                        section={section}
+                        activeSection={activeSection}
+                        activeSubcategory={activeSubcategory}
+                        handleSubcategoryClick={handleSubcategoryClick}
+                        isExpanded={isExpanded}
+                        height={subMenuHeights[section]}
+                        isDarkMode={isDarkMode}
+                        subMenuRef={getSubmenuRef(section)}
+                        reducedMotion={reducedMotion}
+                      />
+                    ) : null}
                   </div>
-
-                  {hasSubs && !compact ? (
-                    <FaChevronDown
-                      className={`${reducedMotion ? "" : "transition-transform duration-300"} relative z-10 ${isExpanded ? "rotate-180" : ""}`}
-                      aria-hidden
-                    />
-                  ) : null}
-                </button>
-
-                {hasSubs && !compact ? (
-                  <SubMenuInline
-                    subcategories={def.subcategories}
-                    section={section}
-                    activeSection={activeSection}
-                    activeSubcategory={activeSubcategory}
-                    handleSubcategoryClick={handleSubcategoryClick}
-                    isExpanded={isExpanded}
-                    height={subMenuHeights[section]}
-                    isDarkMode={isDarkMode}
-                    subMenuRef={getSubmenuRef(section)}
-                    reducedMotion={reducedMotion}
-                  />
-                ) : null}
-              </div>
-            )
-          })}
+                )
+              })}
+            </div>
+          ))}
         </nav>
 
         <button
           onClick={handleLogout}
-          className={`group ${navPad} py-4 flex items-center ${compact ? "justify-center" : "justify-center gap-3"} ${
+          className={`group ${navPad} py-3.5 flex items-center ${compact ? "justify-center" : "justify-center gap-3"} ${
             reducedMotion ? "" : "transition-all duration-200"
           } border-t relative overflow-hidden ${
             isDarkMode ? "border-white/10 text-gray-300 hover:text-white hover:bg-white/5" : "border-gray-200 text-gray-700 hover:text-gray-900 hover:bg-gray-50"

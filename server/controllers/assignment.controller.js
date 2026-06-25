@@ -854,13 +854,20 @@ export const listAvailableAssignees = async (req, res) => {
       };
     }
 
-    const users = await User.find(filter)
+    const usersRaw = await User.find(filter)
       .select(
-        "name email role avatarUrl teamRole dailyLeadLimit currentOpenLeadCount currentPendingWorkQueueCount workStatus lastAssignedLeadAt"
+        "name email role avatarUrl teamRole dailyLeadLimit currentOpenLeadCount currentPendingWorkQueueCount workStatus lastAssignedLeadAt permissionGroup"
       )
+      .populate("permissionGroup", "name permissions isActive")
       .sort({ currentOpenLeadCount: 1, lastAssignedLeadAt: 1 })
       .limit(100)
       .lean();
+
+    const users = usersRaw.filter(
+      (user) =>
+        user.role === "marketing_team" ||
+        user.permissionGroup?.permissions?.includes?.("leads:view")
+    );
 
     return res.json({ users });
   } catch (err) {

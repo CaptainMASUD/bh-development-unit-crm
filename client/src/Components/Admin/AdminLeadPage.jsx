@@ -41,6 +41,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { createPortal } from "react-dom"
 import toast, { Toaster } from "react-hot-toast"
+import { hasPermission, PERMISSIONS } from "../Auth/permissions"
 import {
   FiActivity,
   FiAlertCircle,
@@ -1776,7 +1777,7 @@ function AssignLeadModal({ open, onClose, lead, onSaved }) {
     setErr("")
     setLockOwner(true)
     Promise.all([
-      apiAvailableAssignees({ role: "marketing_team" }),
+      apiAvailableAssignees(),
       apiGetLead(getLeadId(lead)).catch(() => lead),
     ])
       .then(([usersData, leadData]) => {
@@ -1801,7 +1802,7 @@ function AssignLeadModal({ open, onClose, lead, onSaved }) {
 
   const submit = async () => {
     setErr("")
-    if (!selectedUsers.length) return setErr("Select at least one marketing team member.")
+    if (!selectedUsers.length) return setErr("Select at least one employee with lead access.")
     if (!primaryOwner || !selectedUsers.includes(primaryOwner)) return setErr("Choose one selected member as the primary owner.")
     setLoading(true)
     try {
@@ -1837,7 +1838,7 @@ function AssignLeadModal({ open, onClose, lead, onSaved }) {
           <Badge value={selectedUser.workStatus || "available"} />
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-600 sm:grid-cols-3">
-          <div className="rounded-xl bg-white p-3"><p className="font-semibold text-gray-500">Role</p><p className="mt-1 font-bold text-gray-900">{selectedUser.role || "marketing_team"}</p></div>
+          <div className="rounded-xl bg-white p-3"><p className="font-semibold text-gray-500">Access</p><p className="mt-1 font-bold text-gray-900">{selectedUser.permissionGroup?.name || selectedUser.role || "employee"}</p></div>
           <div className="rounded-xl bg-white p-3"><p className="font-semibold text-gray-500">Open leads</p><p className="mt-1 font-bold text-gray-900">{selectedUser.currentOpenLeadCount || 0}</p></div>
           <div className="rounded-xl bg-white p-3"><p className="font-semibold text-gray-500">Pending queue</p><p className="mt-1 font-bold text-gray-900">{selectedUser.currentPendingWorkQueueCount || 0}</p></div>
         </div>
@@ -1863,7 +1864,7 @@ function AssignLeadModal({ open, onClose, lead, onSaved }) {
         <span><span className="block font-bold text-gray-900">Lock this lead to selected person</span><span className="mt-1 block text-xs text-gray-500">Recommended for manual assignment, so the lead does not move to another owner accidentally.</span></span>
       </label>
 
-      {!users.length ? <EmptyState icon={<FiUserCheck className="h-5 w-5" />} title="No available marketing team users" subtitle="Only active, available users with marketing_team role are shown here." /> : null}
+      {!users.length ? <EmptyState icon={<FiUserCheck className="h-5 w-5" />} title="No available lead assignees" subtitle="Only active, available employees with lead access are shown here." /> : null}
     </div>
   </ModalShell>
 }
@@ -2103,7 +2104,7 @@ function RecordList({ items = [], type, onComplete, onCancel, onSend, onAccept, 
   })}</div>
 }
 
-function RowActionsMenu({ lead, onAction, busy, converting, canConvert, canAdminister }) {
+function RowActionsMenu({ lead, onAction, busy, converting, canConvert, canAdminister, canManageLeads }) {
   const [open, setOpen] = useState(false)
   const [menuStyle, setMenuStyle] = useState({ top: 0, left: 0, transformOrigin: "top right" })
   const ref = useRef(null)
@@ -2187,7 +2188,10 @@ function RowActionsMenu({ lead, onAction, busy, converting, canConvert, canAdmin
     ? menuTimeline.deals.find((deal) => !["won", "lost"].includes(deal.stage))
     : null
   const isNegotiation = String(hydratedLead?.pipelineStage || "") === "negotiation"
-  const items = [["view", "View A-Z history", FiEye], ["quick", "Quick action", FiZap], ...(canAdminister ? [["assign", "Assign lead", FiUserCheck]] : []), ["edit", "Edit lead", FiEdit2], ["note", "Add note", FiFileText], ["nextStage", "Next stage", FiArrowRight], ["stage", "Manual stage", FiSliders], ["requirement", "Requirement", FiTarget], ["activity", "Create activity", FiActivity], ["followup", "Set follow-up", FiCalendar], ["contacted", "Mark contacted", FiPhoneCall], ...(proposalInfo.show ? [[proposalInfo.action, proposalInfo.label, FiFileText, proposalInfo.disabled, proposalInfo.helper]] : []), ["deal", "Create deal", FiBriefcase, checkingProposal || !eligibleProposal, checkingProposal ? "Checking proposals..." : "Send or accept a proposal first."], ...(isNegotiation ? [["dealWon", "Mark deal as won", FiCheckCircle, checkingProposal || !activeDeal, checkingProposal ? "Checking linked deal..." : activeDeal ? "This will convert the lead to a customer automatically." : "No active linked deal found."]] : []), ["lost", "Mark lost", FiXCircle]]
+  const manageItems = canManageLeads
+    ? [["quick", "Quick action", FiZap], ...(canAdminister ? [["assign", "Assign lead", FiUserCheck]] : []), ["edit", "Edit lead", FiEdit2], ["note", "Add note", FiFileText], ["nextStage", "Next stage", FiArrowRight], ["stage", "Manual stage", FiSliders], ["requirement", "Requirement", FiTarget], ["activity", "Create activity", FiActivity], ["followup", "Set follow-up", FiCalendar], ["contacted", "Mark contacted", FiPhoneCall], ...(proposalInfo.show ? [[proposalInfo.action, proposalInfo.label, FiFileText, proposalInfo.disabled, proposalInfo.helper]] : []), ["deal", "Create deal", FiBriefcase, checkingProposal || !eligibleProposal, checkingProposal ? "Checking proposals..." : "Send or accept a proposal first."], ...(isNegotiation ? [["dealWon", "Mark deal as won", FiCheckCircle, checkingProposal || !activeDeal, checkingProposal ? "Checking linked deal..." : activeDeal ? "This will convert the lead to a customer automatically." : "No active linked deal found."]] : []), ["lost", "Mark lost", FiXCircle]]
+    : []
+  const items = [["view", "View A-Z history", FiEye], ...manageItems]
 
   const menu = open && typeof document !== "undefined" ? createPortal(
     <AnimatePresence>
@@ -2334,7 +2338,7 @@ function AssignmentPanel({ open, onClose, onToast }) {
   const load = async () => {
     setLoading(true)
     try {
-      const data = await apiAvailableAssignees({ role: "marketing_team" })
+      const data = await apiAvailableAssignees()
       setUsers(normalizeApiList(data))
     } catch (e) {
       onToast?.("error", e.message)
@@ -2355,7 +2359,7 @@ function AssignmentPanel({ open, onClose, onToast }) {
           <div className="min-w-0 flex-1">
             <p className="truncate font-bold text-gray-900">{u.name || "Marketing user"}</p>
             <p className="truncate text-xs text-gray-500">{u.email || "—"}</p>
-            <div className="mt-2 flex flex-wrap gap-2"><Badge value={u.role || "marketing_team"} /><Badge value={u.workStatus || "available"} /></div>
+            <div className="mt-2 flex flex-wrap gap-2"><Badge value={u.permissionGroup?.name || u.role || "employee"} /><Badge value={u.workStatus || "available"} /></div>
           </div>
         </div>
         <div className="mt-4 grid grid-cols-3 gap-2 text-center">
@@ -2364,7 +2368,7 @@ function AssignmentPanel({ open, onClose, onToast }) {
           <div className="rounded-xl bg-gray-50 p-3"><p className="text-xs font-semibold text-gray-500">Limit</p><p className="mt-1 text-lg font-black text-gray-900">{u.dailyLeadLimit || "∞"}</p></div>
         </div>
       </div>)}
-    </div> : <EmptyState icon={<FiUserCheck className="h-5 w-5" />} title="No available marketing team users" subtitle="Only active, available marketing_team users can receive leads in this simplified flow." />}
+    </div> : <EmptyState icon={<FiUserCheck className="h-5 w-5" />} title="No available lead assignees" subtitle="Only active, available employees with lead access can receive leads." />}
   </ModalShell>
 }
 
@@ -2511,19 +2515,25 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
   const [notifications, setNotifications] = useState(0)
   const [assignees, setAssignees] = useState([])
   const abortRef = useRef(null)
+  const currentUser = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("user") || "null")
+    } catch {
+      return null
+    }
+  }, [])
   const role = useMemo(() => {
     const directRole = localStorage.getItem("role")
     if (directRole) return String(directRole).toLowerCase()
-    try {
-      const storedUser = JSON.parse(localStorage.getItem("user") || "null")
-      return String(storedUser?.role || "").toLowerCase()
-    } catch {
-      return ""
-    }
-  }, [])
-  const canConvert = ["admin", "superadmin", "marketing_team"].includes(role)
+    return String(currentUser?.role || "").toLowerCase()
+  }, [currentUser])
   const canAdminister = ["admin", "superadmin"].includes(role)
-  const isMarketing = role === "marketing_team"
+  const canManageLeads =
+    canAdminister ||
+    role === "marketing_team" ||
+    hasPermission(currentUser, PERMISSIONS.LEADS_MANAGE)
+  const canConvert = canManageLeads
+  const isMarketing = role === "marketing_team" || role === "employee"
   const showToast = (type, message) => {
     const safeMessage = message || "Something went wrong."
     if (type === "error") toast.error(safeMessage)
@@ -2539,7 +2549,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
       return
     }
     try {
-      const data = await apiAvailableAssignees({ role: "marketing_team" })
+      const data = await apiAvailableAssignees()
       setAssignees(Array.isArray(data?.users) ? data.users : normalizeApiList(data))
     } catch {
       setAssignees([])
@@ -2560,6 +2570,11 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
     }
   }
   const action = async (type, lead) => {
+    const viewOnlyActions = ["view", "refresh"]
+    if (!canManageLeads && !viewOnlyActions.includes(type)) {
+      showToast("error", "You only have permission to view leads.")
+      return
+    }
     if (type === "dealWon") return setModal({ type: "dealWon", lead: lead?.lead, deal: lead?.deal })
     if (type === "view" || type === "manageProposal") { setViewInitialTab(type === "manageProposal" ? "proposals" : "overview"); return setViewLeadId(getLeadId(lead)) }
     if (["requirement", "proposal", "deal", "stage", "nextStage"].includes(type)) {
@@ -2685,13 +2700,13 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
                 Alerts
                 {notifications ? <span className="rounded-full bg-rose-600 px-2 py-0.5 text-xs text-white">{notifications}</span> : null}
               </button>
-              <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("queue")}><FiZap />Queue</button>
-              <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("templates")}><FiFileText />Templates</button>
+              {canManageLeads ? <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("queue")}><FiZap />Queue</button> : null}
+              {canManageLeads ? <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("templates")}><FiFileText />Templates</button> : null}
               {canAdminister ? <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("assignment")}><FiUserCheck />Marketing team</button> : null}
             </div>
-            <button className={cn(btn, btnPrimary, "h-11 shrink-0 px-5")} onClick={() => setModal({ type: "create", lead: null })}>
+            {canManageLeads ? <button className={cn(btn, btnPrimary, "h-11 shrink-0 px-5")} onClick={() => setModal({ type: "create", lead: null })}>
               <FiPlus />New Lead
-            </button>
+            </button> : null}
           </div>
         </div>
         <div className="mt-4 border-t border-gray-100 pt-4">
@@ -2828,6 +2843,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
                         converting={convertingId === getLeadId(lead)}
                         canConvert={canConvert}
                         canAdminister={canAdminister}
+                        canManageLeads={canManageLeads}
                       />
                     </td>
                   </tr>

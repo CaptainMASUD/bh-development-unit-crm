@@ -1,13 +1,18 @@
 // sections.js
 import { FaUsers, FaCog, FaInfoCircle, FaChartBar, FaUserFriends } from "react-icons/fa"
 import { LuLayoutDashboard } from "react-icons/lu"
-import { FiBriefcase, FiLayers, FiTarget } from "react-icons/fi"
+import { FiBriefcase, FiCalendar, FiCreditCard, FiDollarSign, FiLayers, FiTarget } from "react-icons/fi"
 
 import Dashboard from "./DashboardContent"
 import Customers from "./CustomersPage"
 import AdminLead from "./AdminLeadPage"
 import AdminDealsPage from "./AdminDealsPage"
 import Users from "./UserContent"
+import Employee from "./Employee"
+import Attendance from "./Attendance"
+import AdminSalaryPage from "./AdminSalaryPage"
+import PayrollManager from "./PayrollManager"
+import EmployeeLoans from "./EmployeeLoans"
 import ProfileSettings from "./ProfileSettings"
 import About from "./About"
 
@@ -18,6 +23,7 @@ import PurchaseTypePage from "./PurchaseTypePage"
 import CustomerCRMInner from "./CustomerCRMInner"
 import ClientReport from "./ClientReport"
 import AdminEmployeeReportPage from "./EmployeeReportPage"
+import AccessControl from "./AccessControl"
 
 
 
@@ -66,6 +72,36 @@ const sections = {
   Users: {
     icon: <FaUsers className="w-5 h-5" />,
     component: <Users />,
+  },
+
+  Employee: {
+    icon: <FaUsers className="w-5 h-5" />,
+    component: <Employee />,
+  },
+
+  Attendance: {
+    icon: <FiCalendar className="w-5 h-5" />,
+    component: <Attendance />,
+  },
+
+  Salary: {
+    icon: <FiDollarSign className="w-5 h-5" />,
+    component: <AdminSalaryPage />,
+  },
+
+  "Payroll Manager": {
+    icon: <FiDollarSign className="w-5 h-5" />,
+    component: <PayrollManager />,
+  },
+
+  "Employee Loans": {
+    icon: <FiCreditCard className="w-5 h-5" />,
+    component: <EmployeeLoans />,
+  },
+
+  "Access Control": {
+    icon: <FiLayers className="w-5 h-5" />,
+    component: <AccessControl />,
   },
 
   "Profile Settings": {

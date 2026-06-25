@@ -8,16 +8,27 @@ import Sidebar from "./Sidebar"
 import { sections } from "./sections"
 import SessionExpiryGuard from "../Auth/SessionExpiredModal"
 import { buildDashboardRouteMap, matchDashboardRoute } from "../Navigation/dashboardRoutes"
+import { filterSectionsByPermission } from "../Auth/permissions"
 
 export default function EmployeeDashboard() {
   const navigate = useNavigate()
   const location = useLocation()
   const currentUserRedux = useSelector((state) => state.user?.currentUser)
-  const routeMap = useMemo(() => buildDashboardRouteMap("/employee", sections), [])
+  const [currentUser, setCurrentUser] = useState(null)
+  const [authChecked, setAuthChecked] = useState(false)
+  const allowedSections = useMemo(
+    () => filterSectionsByPermission(sections, currentUser || currentUserRedux),
+    [currentUser, currentUserRedux]
+  )
+  const routeMap = useMemo(() => buildDashboardRouteMap("/employee", allowedSections), [allowedSections])
   const routeState = useMemo(
     () => matchDashboardRoute(location.pathname, "/employee", routeMap),
     [location.pathname, routeMap]
   )
+  const defaultEmployeePath = useMemo(() => {
+    if (routeMap.routes?.["/employee"]) return "/employee"
+    return Object.keys(routeMap.routes || {})[0] || "/employee"
+  }, [routeMap])
   const activeSection = routeState.section
   const activeSubcategory = routeState.subcategory
   const pendingSectionRef = useRef(activeSection)
@@ -29,9 +40,6 @@ export default function EmployeeDashboard() {
     const savedTheme = localStorage.getItem("theme")
     return savedTheme ? savedTheme === "dark" : true
   })
-  const [currentUser, setCurrentUser] = useState(null)
-  const [authChecked, setAuthChecked] = useState(false)
-
   useEffect(() => {
     const update = () => setIsMobile(window.innerWidth < 768)
     update()
@@ -68,6 +76,30 @@ export default function EmployeeDashboard() {
   }, [authChecked, currentUser, navigate])
 
   useEffect(() => {
+    if (!authChecked || !currentUser || currentUser.role !== "employee" || !currentUser.isActive) return
+
+    const cleanPath = location.pathname.replace(/\/+$/, "") || "/"
+    const isCustomerDetailPath = cleanPath.startsWith("/employee/customers/")
+    const routeIsAllowed =
+      Boolean(routeMap.routes?.[cleanPath]) ||
+      (isCustomerDetailPath && Boolean(allowedSections.Customers))
+    const sectionIsAllowed = Boolean(allowedSections[activeSection])
+
+    if (!routeIsAllowed || !sectionIsAllowed) {
+      navigate(defaultEmployeePath, { replace: true })
+    }
+  }, [
+    activeSection,
+    allowedSections,
+    authChecked,
+    currentUser,
+    defaultEmployeePath,
+    location.pathname,
+    navigate,
+    routeMap,
+  ])
+
+  useEffect(() => {
     pendingSectionRef.current = activeSection
   }, [activeSection])
 
@@ -94,13 +126,13 @@ export default function EmployeeDashboard() {
   }
 
   const activeView = useMemo(() => {
-    const section = sections[activeSection]
+    const section = allowedSections[activeSection]
     if (!section) return null
     if (section.subcategories) {
       return section.subcategories[activeSubcategory] || Object.values(section.subcategories)[0] || null
     }
     return section.component || null
-  }, [activeSection, activeSubcategory])
+  }, [activeSection, activeSubcategory, allowedSections])
 
   const content = useMemo(() => {
     if (!activeView) return null
@@ -130,7 +162,7 @@ export default function EmployeeDashboard() {
       <Sidebar
         setActiveSection={setActiveSection}
         setActiveSubcategory={setActiveSubcategory}
-        sections={sections}
+        sections={allowedSections}
         activeSection={activeSection}
         activeSubcategory={activeSubcategory}
         isMobile={isMobile}

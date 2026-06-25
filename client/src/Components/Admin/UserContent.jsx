@@ -334,7 +334,7 @@ async function deleteAvatarByAdmin(userId) {
   return data
 }
 
-function UserModal({ open, mode, role, initial, onClose, onSaved, showToast }) {
+function UserModal({ open, mode, role, initial, accessLists, onClose, onSaved, showToast }) {
   const isEdit = mode === "edit"
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState("")
@@ -348,6 +348,9 @@ function UserModal({ open, mode, role, initial, onClose, onSaved, showToast }) {
     email: "",
     password: "",
     isActive: true,
+    department: "",
+    position: "",
+    permissionGroup: "",
   })
 
   useEffect(() => {
@@ -367,6 +370,9 @@ function UserModal({ open, mode, role, initial, onClose, onSaved, showToast }) {
       email: initial?.email || "",
       password: "",
       isActive: typeof initial?.isActive === "boolean" ? initial.isActive : true,
+      department: initial?.department?._id || initial?.department || "",
+      position: initial?.position?._id || initial?.position || "",
+      permissionGroup: initial?.permissionGroup?._id || initial?.permissionGroup || "",
     })
 
     setAvatarFile(null)
@@ -406,6 +412,13 @@ function UserModal({ open, mode, role, initial, onClose, onSaved, showToast }) {
         email,
         isActive: !!form.isActive,
         ...(form.password ? { password: form.password } : {}),
+        ...(role === "employee"
+          ? {
+              department: form.department || null,
+              position: form.position || null,
+              permissionGroup: form.permissionGroup || null,
+            }
+          : {}),
       }
 
       const base =
@@ -413,8 +426,6 @@ function UserModal({ open, mode, role, initial, onClose, onSaved, showToast }) {
           ? "superadmins"
           : role === "admin"
           ? "admins"
-          : role === "marketing_team"
-          ? "marketing-team"
           : "employees"
 
       const url = isEdit ? `${API_BASE}/users/${base}/${initial._id}` : `${API_BASE}/users/${base}`
@@ -469,6 +480,13 @@ function UserModal({ open, mode, role, initial, onClose, onSaved, showToast }) {
   if (!open) return null
 
   const currentAvatarUrl = avatarPreview || initial?.avatarUrl || ""
+  const isEmployeeRole = role === "employee"
+  const departments = accessLists?.departments || []
+  const positions = (accessLists?.positions || []).filter((position) => {
+    if (!form.department) return true
+    return String(position.department?._id || position.department) === String(form.department)
+  })
+  const permissionGroups = accessLists?.permissionGroups || []
 
   return (
     <div
@@ -631,6 +649,59 @@ function UserModal({ open, mode, role, initial, onClose, onSaved, showToast }) {
                   </Field>
                 </div>
 
+                {isEmployeeRole ? (
+                  <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-4 rounded-2xl border border-gray-100 bg-gray-50 p-4">
+                    <Field label="Department">
+                      <select
+                        value={form.department}
+                        onChange={(e) =>
+                          setForm((p) => ({ ...p, department: e.target.value, position: "" }))
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      >
+                        <option value="">Select department</option>
+                        {departments.map((department) => (
+                          <option key={department._id} value={department._id}>
+                            {department.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+
+                    <Field label="Position">
+                      <select
+                        value={form.position}
+                        onChange={(e) => setForm((p) => ({ ...p, position: e.target.value }))}
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      >
+                        <option value="">Select position</option>
+                        {positions.map((position) => (
+                          <option key={position._id} value={position._id}>
+                            {position.title}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+
+                    <Field label="Permission Group">
+                      <select
+                        value={form.permissionGroup}
+                        onChange={(e) =>
+                          setForm((p) => ({ ...p, permissionGroup: e.target.value }))
+                        }
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      >
+                        <option value="">Select access</option>
+                        {permissionGroups.map((group) => (
+                          <option key={group._id} value={group._id}>
+                            {group.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+                ) : null}
+
                 {/* ✅ UPDATED: smooth toggle here */}
                 <div className="md:col-span-2 flex items-center justify-between rounded-2xl border border-gray-100 bg-gray-50 p-4">
                   <div className="flex items-center gap-3">
@@ -693,7 +764,7 @@ function RowSkeleton() {
 }
 
 export default function UsersAdminPanel() {
-  const [tab, setTab] = useState("employees") // employees | marketing_team | admins | superadmins
+  const [tab, setTab] = useState("employees") // employees | admins | superadmins
 
   const [list, setList] = useState([])
   const [count, setCount] = useState(0)
@@ -728,6 +799,11 @@ export default function UsersAdminPanel() {
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
 
   const [me, setMe] = useState(null)
+  const [accessLists, setAccessLists] = useState({
+    departments: [],
+    positions: [],
+    permissionGroups: [],
+  })
 
   const abortRef = useRef(null)
   const isSuperAdmin = me?.role === "superadmin"
@@ -735,7 +811,6 @@ export default function UsersAdminPanel() {
   const tabConfig = useMemo(() => {
     return {
       employees: { endpoint: "employees", listKey: "employees", modalRole: "employee" },
-      marketing_team: { endpoint: "marketing-team", listKey: "marketing", modalRole: "marketing_team" },
       admins: { endpoint: "admins", listKey: "admins", modalRole: "admin" },
       superadmins: { endpoint: "superadmins", listKey: "superadmins", modalRole: "superadmin" },
     }
@@ -768,6 +843,37 @@ export default function UsersAdminPanel() {
         })
         const data = await res.json().catch(() => ({}))
         if (res.ok) setMe(data?.user || null)
+      } catch {}
+    })()
+  }, [])
+
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const [departmentsRes, positionsRes, groupsRes] = await Promise.all([
+          fetch(`${API_BASE}/access-control/departments`, {
+            headers: getAuthHeadersJson(),
+            credentials: "include",
+          }),
+          fetch(`${API_BASE}/access-control/positions`, {
+            headers: getAuthHeadersJson(),
+            credentials: "include",
+          }),
+          fetch(`${API_BASE}/access-control/permission-groups`, {
+            headers: getAuthHeadersJson(),
+            credentials: "include",
+          }),
+        ])
+        const [departments, positions, groups] = await Promise.all([
+          departmentsRes.json().catch(() => ({})),
+          positionsRes.json().catch(() => ({})),
+          groupsRes.json().catch(() => ({})),
+        ])
+        setAccessLists({
+          departments: departments.departments || [],
+          positions: positions.positions || [],
+          permissionGroups: groups.permissionGroups || [],
+        })
       } catch {}
     })()
   }, [])
@@ -964,6 +1070,7 @@ export default function UsersAdminPanel() {
             mode={modalMode}
             role={modalRole}
             initial={selected}
+            accessLists={accessLists}
             showToast={showToast}
             onClose={() => setModalOpen(false)}
             onSaved={() => {
@@ -985,7 +1092,7 @@ export default function UsersAdminPanel() {
               <div>
                 <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">User Management</h1>
                 <p className="text-sm text-gray-500">
-                  {me?.role === "superadmin" ? "Super Admins + Admins + Employees + Marketing Team" : "Admins + Employees + Marketing Team"}
+                  {me?.role === "superadmin" ? "Super Admins + Admins + Employees" : "Admins + Employees"}
                 </p>
               </div>
             </div>
@@ -1018,7 +1125,6 @@ export default function UsersAdminPanel() {
           {/* Tabs */}
           <div className="mt-4 flex flex-wrap gap-2">
             <SegTab active={tab === "employees"} onClick={() => setTab("employees")} icon={<FiUser className="w-4 h-4" />} label="Employees" />
-            <SegTab active={tab === "marketing_team"} onClick={() => setTab("marketing_team")} icon={<FiUsers className="w-4 h-4" />} label="Marketing Team" />
             <SegTab active={tab === "admins"} onClick={() => setTab("admins")} icon={<FiShield className="w-4 h-4" />} label="Admins" />
             {me?.role === "superadmin" ? (
               <SegTab active={tab === "superadmins"} onClick={() => setTab("superadmins")} icon={<FiShield className="w-4 h-4" />} label="Super Admins" />
@@ -1158,6 +1264,20 @@ export default function UsersAdminPanel() {
                             Created <span className="font-semibold text-gray-700">{formatDate(u?.createdAt)}</span>
                           </span>
                         </div>
+
+                        {u?.role === "employee" ? (
+                          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                            <span className="rounded-full bg-sky-50 px-2.5 py-1 font-semibold text-sky-700 ring-1 ring-sky-600/10">
+                              {u?.department?.name || "No department"}
+                            </span>
+                            <span className="rounded-full bg-violet-50 px-2.5 py-1 font-semibold text-violet-700 ring-1 ring-violet-600/10">
+                              {u?.position?.title || "No position"}
+                            </span>
+                            <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700 ring-1 ring-emerald-600/10">
+                              {u?.permissionGroup?.name || "No access group"}
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
 

@@ -19,7 +19,11 @@ import {
   deleteCustomerJob,
 } from "../controllers/customer.controller.js";
 
-import { protect, isAdminOrSuperAdmin } from "../middleware/auth.middleware.js";
+import {
+  protect,
+  isAdminOrSuperAdmin,
+  requirePermission,
+} from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 router.use(protect);
@@ -29,17 +33,7 @@ router.use(protect);
  * Option A (recommended): Only employee/admin/superadmin can use /customers at all.
  * - If you DO want marketing (assigned) to view customers, remove the marketing check below.
  */
-const blockMarketingAccessCustomers = (req, res, next) => {
-  const role = String(req.user?.role || "").toLowerCase();
-
-  // support both naming styles used in your codebase
-  if (role === "marketing" || role === "marketing_team") {
-    return res.status(403).json({ message: "Marketing team cannot access customers module." });
-  }
-  return next();
-};
-
-router.use(blockMarketingAccessCustomers);
+router.use(requirePermission("customers:view"));
 
 /* =========================
    ✅ EMPLOYEES (assign helper)

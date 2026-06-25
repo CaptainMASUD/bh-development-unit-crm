@@ -1,11 +1,19 @@
 // ===============================
-// ✅ controllers/user.controller.js  (FULL UPDATED)
-// ✅ Your existing code + Avatar endpoints
-// ✅ NEW: Admin/Superadmin must confirm THEIR OWN password before deleting ANY user
-//     (employee / marketing_team / admin / superadmin)
+// ✅ controllers/user.controller.js (FULL UPDATED)
+// ✅ Existing user controller + Department/Position/PermissionGroup
+// ✅ NEW: Employee profile fields: employeeId, phone, address, job type, salary type
+// ✅ NEW: Auto SalaryProfile create/update during employee create/update
+// ✅ NEW: Position default salary can auto-fill employee salary
+// ✅ NEW: Admin can override salary when creating/updating employee
+// ✅ Admin/Superadmin must confirm THEIR OWN password before deleting ANY user
 //     Body: { password: "YOUR_PASSWORD" }
 // ===============================
+
 import User from "../models/user.model.js";
+import Department from "../models/department.model.js";
+import Position from "../models/position.model.js";
+import PermissionGroup from "../models/permissionGroup.model.js";
+import SalaryProfile from "../models/salaryProfile.model.js";
 import { uploadCloudinary, deleteCloudinary } from "../utils/cloudinary.js";
 
 /* =========================
@@ -26,25 +34,28 @@ const denyIfTargetIsSuperAdmin = (targetUser, req, res) => {
 };
 
 /* =========================
-   ✅ PASSWORD CONFIRMATION (NEW)
-   Admin/Superadmin must confirm their own password for deletes.
-   Works with: DELETE requests that include JSON body: { password }
+   PASSWORD CONFIRMATION
 ========================= */
 const requireRequesterPassword = async (req, res) => {
   try {
     const password = String(req.body?.password || "");
+
     if (!password) {
-      res.status(400).json({ message: "Password is required to delete this user." });
+      res
+        .status(400)
+        .json({ message: "Password is required to delete this user." });
       return false;
     }
 
     const requester = await User.findById(req.user?._id).select("+password");
+
     if (!requester) {
       res.status(401).json({ message: "Unauthorized." });
       return false;
     }
 
     const ok = await requester.comparePassword(password);
+
     if (!ok) {
       res.status(401).json({ message: "Password is incorrect." });
       return false;
@@ -64,7 +75,8 @@ const requireRequesterPassword = async (req, res) => {
    OPTIMIZATION HELPERS
 ========================= */
 const LIST_PROJECTION =
-  "_id name email role isActive avatarUrl createdAt updatedAt";
+  "_id name email role employeeId phone alternatePhone gender dateOfBirth address emergencyContact joiningDate leavingDate employmentType salaryType employeeStatus isActive avatarUrl department position permissionGroup teamRole dailyLeadLimit isAvailableForAssignment workStatus managerId createdAt updatedAt";
+
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
@@ -93,24 +105,460 @@ const buildSearchFilter = (qRaw) => {
   const isEmailish = q.includes("@");
   const rx = isEmailish ? new RegExp(safe, "i") : new RegExp(`^${safe}`, "i");
 
-  return { $or: [{ name: rx }, { email: rx }] };
+  return {
+    $or: [
+      { name: rx },
+      { email: rx },
+      { employeeId: new RegExp(safe, "i") },
+      { phone: new RegExp(safe, "i") },
+    ],
+  };
 };
 
-// cursor = base64url(JSON.stringify({ ts: createdAtISO, id: _id }))
+const clean = (value) => String(value ?? "").trim();
+
+const normalizeOptionalObjectId = (value) => {
+  const cleanValue = clean(value);
+  return cleanValue ? cleanValue : null;
+};
+
+const roundMoney = (value) => {
+  const n = Number(value || 0);
+  return Math.round(n * 100) / 100;
+};
+
+const normalizeDate = (value) => {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const normalizeEmploymentType = (value) => {
+  const raw = clean(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (!raw) return undefined;
+
+  const map = {
+    fulltime: "full_time",
+    full_time: "full_time",
+    parttime: "part_time",
+    part_time: "part_time",
+    half_time: "part_time",
+    halftime: "part_time",
+    intern: "intern",
+    internship: "intern",
+    contract: "contract",
+    contractual: "contract",
+  };
+
+  return map[raw] || raw;
+};
+
+const normalizeSalaryType = (value) => {
+  const raw = clean(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (!raw) return undefined;
+
+  const map = {
+    fixed: "fixed",
+    monthly: "fixed",
+    salary: "fixed",
+    hourly: "hourly",
+    per_hour: "hourly",
+    commission: "commission",
+    commision: "commission",
+  };
+
+  return map[raw] || raw;
+};
+
+const normalizeGender = (value) => {
+  const raw = clean(value).toLowerCase();
+  if (!raw) return "";
+  if (["male", "female", "other"].includes(raw)) return raw;
+  return "";
+};
+
+const normalizeEmployeeStatus = (value) => {
+  const raw = clean(value).toLowerCase().replace(/[\s-]+/g, "_");
+  if (!raw) return undefined;
+  if (["active", "probation", "on_leave", "resigned", "terminated"].includes(raw)) {
+    return raw;
+  }
+  return undefined;
+};
+
+const normalizeAddress = (value) => {
+  if (value === undefined) return undefined;
+
+  if (typeof value === "string") {
+    return {
+      line1: "",
+      line2: "",
+      city: "",
+      state: "",
+      postalCode: "",
+      country: "Bangladesh",
+      fullAddress: clean(value),
+    };
+  }
+
+  if (!value || typeof value !== "object") {
+    return {
+      line1: "",
+      line2: "",
+      city: "",
+      state: "",
+      postalCode: "",
+      country: "Bangladesh",
+      fullAddress: "",
+    };
+  }
+
+  return {
+    line1: clean(value.line1),
+    line2: clean(value.line2),
+    city: clean(value.city),
+    state: clean(value.state),
+    postalCode: clean(value.postalCode),
+    country: clean(value.country || "Bangladesh"),
+    fullAddress: clean(value.fullAddress),
+  };
+};
+
+const normalizeEmergencyContact = (value) => {
+  if (value === undefined) return undefined;
+
+  if (!value || typeof value !== "object") {
+    return { name: "", phone: "", relation: "", address: "" };
+  }
+
+  return {
+    name: clean(value.name),
+    phone: clean(value.phone),
+    relation: clean(value.relation),
+    address: clean(value.address),
+  };
+};
+
+const buildEmployeeProfilePayload = (body = {}, { isCreate = false } = {}) => {
+  const payload = {};
+
+  if (body.employeeId !== undefined || body.employeeCode !== undefined) {
+    const employeeId = clean(body.employeeId ?? body.employeeCode).toUpperCase();
+    payload.employeeId = employeeId || undefined;
+  }
+
+  if (body.phone !== undefined) payload.phone = clean(body.phone);
+  if (body.alternatePhone !== undefined) payload.alternatePhone = clean(body.alternatePhone);
+
+  if (body.gender !== undefined) payload.gender = normalizeGender(body.gender);
+
+  if (body.dateOfBirth !== undefined) {
+    payload.dateOfBirth = normalizeDate(body.dateOfBirth);
+  }
+
+  const address = normalizeAddress(body.address);
+  if (address !== undefined) payload.address = address;
+
+  const emergencyContact = normalizeEmergencyContact(body.emergencyContact);
+  if (emergencyContact !== undefined) payload.emergencyContact = emergencyContact;
+
+  if (body.joiningDate !== undefined || isCreate) {
+    const joiningDate = normalizeDate(body.joiningDate);
+    payload.joiningDate = joiningDate === undefined ? new Date() : joiningDate;
+  }
+
+  if (body.leavingDate !== undefined) {
+    payload.leavingDate = normalizeDate(body.leavingDate);
+  }
+
+  if (body.employmentType !== undefined || body.jobType !== undefined || isCreate) {
+    const employmentType = normalizeEmploymentType(
+      body.employmentType ?? body.jobType ?? "full_time"
+    );
+
+    payload.employmentType = employmentType || "full_time";
+  }
+
+  if (body.salaryType !== undefined || isCreate) {
+    const salaryType = normalizeSalaryType(body.salaryType ?? "fixed");
+    payload.salaryType = salaryType || "fixed";
+  }
+
+  if (body.employeeStatus !== undefined) {
+    const employeeStatus = normalizeEmployeeStatus(body.employeeStatus);
+    if (employeeStatus) payload.employeeStatus = employeeStatus;
+  } else if (isCreate) {
+    payload.employeeStatus = "active";
+  }
+
+  return payload;
+};
+
+/* =========================
+   POPULATE HELPERS
+========================= */
+const USER_POPULATE = [
+  { path: "department", select: "name isActive" },
+  {
+    path: "position",
+    select:
+      "title department isActive defaultSalaryEnabled defaultSalaryType defaultCurrency defaultBasicSalary defaultWorkingDaysPerMonth defaultWorkingHoursPerDay defaultComponents defaultRules",
+  },
+  { path: "permissionGroup", select: "name permissions isActive" },
+  { path: "managerId", select: "name email role employeeId phone isActive avatarUrl" },
+];
+
+const populateUserQuery = (query) => query.populate(USER_POPULATE);
+
+const validateEmployeeAccessRefs = async ({
+  department,
+  position,
+  permissionGroup,
+}) => {
+  const departmentId = department || null;
+  const positionId = position || null;
+  const permissionGroupId = permissionGroup || null;
+
+  if (departmentId) {
+    const dep = await Department.exists({ _id: departmentId });
+    if (!dep) return { ok: false, message: "Department not found." };
+  }
+
+  if (positionId) {
+    const pos = await Position.findById(positionId).select("department").lean();
+
+    if (!pos) return { ok: false, message: "Position not found." };
+
+    if (departmentId && String(pos.department) !== String(departmentId)) {
+      return {
+        ok: false,
+        message: "Selected position does not belong to the selected department.",
+      };
+    }
+  }
+
+  if (permissionGroupId) {
+    const group = await PermissionGroup.exists({ _id: permissionGroupId });
+    if (!group) return { ok: false, message: "Permission group not found." };
+  }
+
+  return { ok: true };
+};
+
+/* =========================
+   SALARY PROFILE HELPERS
+========================= */
+const normalizeSalaryComponent = (item = {}) => {
+  return {
+    name: clean(item.name),
+    type: clean(item.type),
+    calculationType: clean(item.calculationType || "fixed"),
+    value: roundMoney(item.value),
+    basedOn: clean(item.basedOn || "basicSalary"),
+    isRecurring: typeof item.isRecurring === "boolean" ? item.isRecurring : true,
+    isTaxable: typeof item.isTaxable === "boolean" ? item.isTaxable : false,
+    isActive: typeof item.isActive === "boolean" ? item.isActive : true,
+    note: clean(item.note),
+  };
+};
+
+const normalizeSalaryComponents = (components = []) => {
+  if (!Array.isArray(components)) return [];
+
+  return components
+    .map(normalizeSalaryComponent)
+    .filter((item) => item.name && ["earning", "deduction"].includes(item.type));
+};
+
+/**
+ * Your SalaryProfile model previously used monthly/daily/hourly.
+ * Employee User.salaryType uses fixed/hourly/commission for business meaning.
+ * This keeps SalaryProfile compatible until you update SalaryProfile to support commission directly.
+ */
+const mapEmployeeSalaryTypeToProfileType = (salaryType) => {
+  if (salaryType === "hourly") return "hourly";
+  return "monthly";
+};
+
+const buildSalaryProfileInputFromRequest = (body = {}, employee = null) => {
+  const input =
+    body.salaryProfile && typeof body.salaryProfile === "object"
+      ? { ...body.salaryProfile }
+      : {};
+
+  const rootSalaryType = normalizeSalaryType(body.salaryType ?? employee?.salaryType);
+
+  if (rootSalaryType && input.salaryType === undefined) {
+    input.salaryType = mapEmployeeSalaryTypeToProfileType(rootSalaryType);
+  }
+
+  if (body.basicSalary !== undefined && input.basicSalary === undefined) {
+    input.basicSalary = body.basicSalary;
+  }
+
+  if (body.workingDaysPerMonth !== undefined && input.workingDaysPerMonth === undefined) {
+    input.workingDaysPerMonth = body.workingDaysPerMonth;
+  }
+
+  if (body.workingHoursPerDay !== undefined && input.workingHoursPerDay === undefined) {
+    input.workingHoursPerDay = body.workingHoursPerDay;
+  }
+
+  if (body.currency !== undefined && input.currency === undefined) {
+    input.currency = body.currency;
+  }
+
+  return input;
+};
+
+const buildEmployeeSalaryProfilePayload = async ({
+  employee,
+  salaryProfileInput,
+  createSalaryProfile,
+}) => {
+  if (createSalaryProfile === false) {
+    return { ok: true, payload: null };
+  }
+
+  const input =
+    salaryProfileInput && typeof salaryProfileInput === "object"
+      ? salaryProfileInput
+      : {};
+
+  const hasCustomSalaryInput = Object.keys(input).length > 0;
+
+  let positionDefault = null;
+
+  if (employee.position) {
+    positionDefault = await Position.findById(employee.position).lean();
+  }
+
+  const hasPositionDefault =
+    positionDefault?.defaultSalaryEnabled === true &&
+    Number(positionDefault?.defaultBasicSalary || 0) > 0;
+
+  if (!hasCustomSalaryInput && !hasPositionDefault) {
+    return { ok: true, payload: null };
+  }
+
+  const basicSalary =
+    input.basicSalary !== undefined
+      ? roundMoney(input.basicSalary)
+      : roundMoney(positionDefault?.defaultBasicSalary || 0);
+
+  if (basicSalary <= 0) {
+    return {
+      ok: false,
+      message: "Basic salary is required to create salary profile.",
+    };
+  }
+
+  const payload = {
+    employee: employee._id,
+    department: employee.department || null,
+    position: employee.position || null,
+
+    salaryType:
+      input.salaryType || positionDefault?.defaultSalaryType || "monthly",
+
+    currency: String(input.currency || positionDefault?.defaultCurrency || "BDT")
+      .trim()
+      .toUpperCase(),
+
+    basicSalary,
+
+    workingDaysPerMonth:
+      input.workingDaysPerMonth !== undefined
+        ? Number(input.workingDaysPerMonth)
+        : Number(positionDefault?.defaultWorkingDaysPerMonth || 26),
+
+    workingHoursPerDay:
+      input.workingHoursPerDay !== undefined
+        ? Number(input.workingHoursPerDay)
+        : Number(positionDefault?.defaultWorkingHoursPerDay || 8),
+
+    components: Array.isArray(input.components)
+      ? normalizeSalaryComponents(input.components)
+      : normalizeSalaryComponents(positionDefault?.defaultComponents || []),
+
+    rules:
+      input.rules !== undefined ? input.rules || {} : positionDefault?.defaultRules || {},
+
+    effectiveFrom: input.effectiveFrom ? new Date(input.effectiveFrom) : new Date(),
+
+    isActive: true,
+
+    note:
+      input.note !== undefined
+        ? clean(input.note)
+        : hasCustomSalaryInput
+        ? "Salary profile created during employee creation."
+        : "Salary profile created from position default.",
+  };
+
+  return { ok: true, payload };
+};
+
+const createOrReplaceActiveSalaryProfile = async ({
+  employee,
+  salaryProfileInput,
+  createSalaryProfile,
+  requesterId,
+}) => {
+  const built = await buildEmployeeSalaryProfilePayload({
+    employee,
+    salaryProfileInput,
+    createSalaryProfile,
+  });
+
+  if (!built.ok) return built;
+
+  if (!built.payload) {
+    return { ok: true, salaryProfile: null };
+  }
+
+  await SalaryProfile.updateMany(
+    { employee: employee._id, isActive: true },
+    {
+      $set: {
+        isActive: false,
+        effectiveTo: built.payload.effectiveFrom || new Date(),
+        updatedBy: requesterId || null,
+      },
+    }
+  );
+
+  const salaryProfile = await SalaryProfile.create({
+    ...built.payload,
+    createdBy: requesterId || null,
+    updatedBy: requesterId || null,
+  });
+
+  return { ok: true, salaryProfile };
+};
+
+/* =========================
+   CURSOR HELPERS
+========================= */
 const encodeCursor = (doc) => {
   if (!doc?._id || !doc?.createdAt) return null;
+
   const payload = {
     ts: new Date(doc.createdAt).toISOString(),
     id: String(doc._id),
   };
+
   return Buffer.from(JSON.stringify(payload)).toString("base64url");
 };
 
 const decodeCursor = (cursor) => {
   if (!cursor) return null;
+
   try {
     const raw = Buffer.from(String(cursor), "base64url").toString("utf8");
     const obj = JSON.parse(raw);
+
     if (!obj?.ts || !obj?.id) return null;
 
     const ts = new Date(obj.ts);
@@ -127,7 +575,6 @@ const buildCursorFilter = ({ cursorObj, sort }) => {
 
   const { ts, id } = cursorObj;
 
-  // newest: createdAt desc, _id desc
   if (sort === "newest") {
     return {
       $or: [
@@ -137,7 +584,6 @@ const buildCursorFilter = ({ cursorObj, sort }) => {
     };
   }
 
-  // oldest: createdAt asc, _id asc
   return {
     $or: [
       { createdAt: { $gt: ts } },
@@ -149,21 +595,23 @@ const buildCursorFilter = ({ cursorObj, sort }) => {
 const parseSort = (v) =>
   String(v || "newest") === "oldest" ? "oldest" : "newest";
 
-/**
- * Generic list builder:
- * GET ?q=&active=true|false|all&limit=&cursor=&sort=newest|oldest
- */
 const listUsersByRole = async (req, res, role, responseKey) => {
   try {
     const limit = parseLimit(req.query.limit);
     const sort = parseSort(req.query.sort);
-    const active = String(req.query.active ?? "all"); // all | true | false
+    const active = String(req.query.active ?? "all");
     const cursorObj = decodeCursor(req.query.cursor);
 
     const filter = { role };
 
     if (active === "true") filter.isActive = true;
     else if (active === "false") filter.isActive = false;
+
+    if (req.query.department) filter.department = req.query.department;
+    if (req.query.position) filter.position = req.query.position;
+    if (req.query.employmentType) filter.employmentType = normalizeEmploymentType(req.query.employmentType);
+    if (req.query.salaryType) filter.salaryType = normalizeSalaryType(req.query.salaryType);
+    if (req.query.employeeStatus) filter.employeeStatus = normalizeEmployeeStatus(req.query.employeeStatus);
 
     const searchFilter = buildSearchFilter(req.query.q);
     if (searchFilter) Object.assign(filter, searchFilter);
@@ -176,7 +624,7 @@ const listUsersByRole = async (req, res, role, responseKey) => {
         ? { createdAt: -1, _id: -1 }
         : { createdAt: 1, _id: 1 };
 
-    const rows = await User.find(filter)
+    const rows = await populateUserQuery(User.find(filter))
       .select(LIST_PROJECTION)
       .sort(sortSpec)
       .limit(limit + 1)
@@ -202,7 +650,7 @@ const listUsersByRole = async (req, res, role, responseKey) => {
 };
 
 /* =========================
-   ✅ AVATAR HELPERS
+   AVATAR HELPERS
 ========================= */
 const requireImageFile = (req, res) => {
   if (!req.file?.buffer) {
@@ -211,16 +659,18 @@ const requireImageFile = (req, res) => {
       .json({ message: "Avatar image file is required (field: avatar)." });
     return false;
   }
+
   if (!req.file.mimetype?.startsWith("image/")) {
     res.status(400).json({ message: "Only image files are allowed." });
     return false;
   }
+
   return true;
 };
 
 const uploadAvatarAndReplace = async (userDoc, fileBuffer) => {
-  // Upload new first (safer). Then delete old.
   const uploaded = await uploadCloudinary(fileBuffer);
+
   if (!uploaded?.secure_url || !uploaded?.public_id) return null;
 
   const oldPublicId = userDoc.avatarPublicId;
@@ -241,12 +691,20 @@ const uploadAvatarAndReplace = async (userDoc, fileBuffer) => {
    ADMIN: EMPLOYEES
 ========================= */
 export const createEmployee = async (req, res) => {
+  let createdEmployeeId = null;
+
   try {
-    const name = String(req.body.name ?? "").trim();
-    const email = String(req.body.email ?? "").trim().toLowerCase();
+    const name = clean(req.body.name);
+    const email = clean(req.body.email).toLowerCase();
     const password = String(req.body.password ?? "");
+
     const isActive =
       typeof req.body.isActive === "boolean" ? req.body.isActive : true;
+
+    const department = normalizeOptionalObjectId(req.body.department);
+    const position = normalizeOptionalObjectId(req.body.position);
+    const permissionGroup = normalizeOptionalObjectId(req.body.permissionGroup);
+    const managerId = normalizeOptionalObjectId(req.body.managerId);
 
     if (!name || !email || !password) {
       return res
@@ -254,19 +712,80 @@ export const createEmployee = async (req, res) => {
         .json({ message: "Name, email, password are required." });
     }
 
+    const refsOk = await validateEmployeeAccessRefs({
+      department,
+      position,
+      permissionGroup,
+    });
+
+    if (!refsOk.ok) {
+      return res.status(400).json({ message: refsOk.message });
+    }
+
+    const employeeProfile = buildEmployeeProfilePayload(req.body, {
+      isCreate: true,
+    });
+
     const employee = await User.create({
       name,
       email,
       password,
       role: "employee",
       isActive,
+      department,
+      position,
+      permissionGroup,
+      managerId,
+      ...employeeProfile,
+
+      dailyLeadLimit: Number(req.body.dailyLeadLimit || 0),
+
+      isAvailableForAssignment:
+        typeof req.body.isAvailableForAssignment === "boolean"
+          ? req.body.isAvailableForAssignment
+          : true,
+
+      workStatus: req.body.workStatus || "available",
+      teamRole: req.body.teamRole || "",
     });
 
-    const safe = await User.findById(employee._id)
+    createdEmployeeId = employee._id;
+
+    const salaryProfileInput = buildSalaryProfileInputFromRequest(req.body, employee);
+
+    const salaryResult = await createOrReplaceActiveSalaryProfile({
+      employee,
+      salaryProfileInput,
+      createSalaryProfile: req.body.createSalaryProfile,
+      requesterId: req.user?._id || null,
+    });
+
+    if (!salaryResult.ok) {
+      await User.findByIdAndDelete(createdEmployeeId);
+      return res.status(400).json({ message: salaryResult.message });
+    }
+
+    const safe = await populateUserQuery(User.findById(employee._id))
       .select(LIST_PROJECTION)
       .lean();
-    return res.status(201).json({ message: "Employee created.", employee: safe });
+
+    const salaryProfile = salaryResult.salaryProfile
+      ? await SalaryProfile.findById(salaryResult.salaryProfile._id).lean()
+      : null;
+
+    return res.status(201).json({
+      message: "Employee created.",
+      employee: safe,
+      salaryProfile,
+    });
   } catch (err) {
+    if (createdEmployeeId) {
+      try {
+        await SalaryProfile.deleteMany({ employee: createdEmployeeId });
+        await User.findByIdAndDelete(createdEmployeeId);
+      } catch {}
+    }
+
     const dup = handleMongoDuplicateKey(err);
     if (dup) return res.status(409).json(dup);
 
@@ -283,15 +802,25 @@ export const getEmployees = async (req, res) => {
 
 export const getEmployeeById = async (req, res) => {
   try {
-    const employee = await User.findOne({
-      _id: req.params.id,
-      role: "employee",
-    })
+    const employee = await populateUserQuery(
+      User.findOne({
+        _id: req.params.id,
+        role: { $in: ["employee", "marketing_team"] },
+      })
+    )
       .select(LIST_PROJECTION)
       .lean();
-    if (!employee) return res.status(404).json({ message: "Employee not found." });
 
-    return res.status(200).json({ employee });
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found." });
+    }
+
+    const salaryProfile = await SalaryProfile.findOne({
+      employee: employee._id,
+      isActive: true,
+    }).lean();
+
+    return res.status(200).json({ employee, salaryProfile });
   } catch (err) {
     return res.status(500).json({
       message: "Server error in getEmployeeById.",
@@ -307,21 +836,27 @@ export const updateEmployee = async (req, res) => {
     const wantsPassword = password !== undefined && String(password).length > 0;
 
     const employee = wantsPassword
-      ? await User.findOne({ _id: req.params.id, role: "employee" }).select(
-          "+password"
-        )
-      : await User.findOne({ _id: req.params.id, role: "employee" });
+      ? await User.findOne({
+          _id: req.params.id,
+          role: { $in: ["employee", "marketing_team"] },
+        }).select("+password")
+      : await User.findOne({
+          _id: req.params.id,
+          role: { $in: ["employee", "marketing_team"] },
+        });
 
-    if (!employee) return res.status(404).json({ message: "Employee not found." });
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found." });
+    }
 
     if (email !== undefined) {
-      const e = String(email ?? "").trim().toLowerCase();
+      const e = clean(email).toLowerCase();
       if (!e) return res.status(400).json({ message: "Email cannot be empty." });
       employee.email = e;
     }
 
     if (name !== undefined) {
-      const n = String(name ?? "").trim();
+      const n = clean(name);
       if (!n) return res.status(400).json({ message: "Name cannot be empty." });
       employee.name = n;
     }
@@ -329,12 +864,112 @@ export const updateEmployee = async (req, res) => {
     if (typeof isActive === "boolean") employee.isActive = isActive;
     if (wantsPassword) employee.password = String(password);
 
+    const nextDepartment =
+      req.body.department !== undefined
+        ? normalizeOptionalObjectId(req.body.department)
+        : employee.department;
+
+    const nextPosition =
+      req.body.position !== undefined
+        ? normalizeOptionalObjectId(req.body.position)
+        : employee.position;
+
+    const nextPermissionGroup =
+      req.body.permissionGroup !== undefined
+        ? normalizeOptionalObjectId(req.body.permissionGroup)
+        : employee.permissionGroup;
+
+    const refsOk = await validateEmployeeAccessRefs({
+      department: nextDepartment,
+      position: nextPosition,
+      permissionGroup: nextPermissionGroup,
+    });
+
+    if (!refsOk.ok) {
+      return res.status(400).json({ message: refsOk.message });
+    }
+
+    if (req.body.department !== undefined) employee.department = nextDepartment;
+    if (req.body.position !== undefined) employee.position = nextPosition;
+    if (req.body.permissionGroup !== undefined) {
+      employee.permissionGroup = nextPermissionGroup;
+    }
+
+    if (req.body.managerId !== undefined) {
+      employee.managerId = normalizeOptionalObjectId(req.body.managerId);
+    }
+
+    const employeeProfile = buildEmployeeProfilePayload(req.body, {
+      isCreate: false,
+    });
+
+    Object.assign(employee, employeeProfile);
+
+    if (req.body.dailyLeadLimit !== undefined) {
+      employee.dailyLeadLimit = Number(req.body.dailyLeadLimit || 0);
+    }
+
+    if (typeof req.body.isAvailableForAssignment === "boolean") {
+      employee.isAvailableForAssignment = req.body.isAvailableForAssignment;
+    }
+
+    if (req.body.workStatus !== undefined) {
+      employee.workStatus = req.body.workStatus || "available";
+    }
+
+    if (req.body.teamRole !== undefined) {
+      employee.teamRole = req.body.teamRole || "";
+    }
+
+    if (employee.role === "marketing_team") {
+      employee.role = "employee";
+    }
+
     await employee.save();
 
-    const safe = await User.findById(employee._id)
+    let salaryProfile = null;
+
+    if (
+      req.body.salaryProfile !== undefined ||
+      req.body.createSalaryProfile === true ||
+      req.body.basicSalary !== undefined ||
+      req.body.salaryType !== undefined ||
+      req.body.currency !== undefined
+    ) {
+      const salaryProfileInput = buildSalaryProfileInputFromRequest(req.body, employee);
+
+      const salaryResult = await createOrReplaceActiveSalaryProfile({
+        employee,
+        salaryProfileInput,
+        createSalaryProfile: req.body.createSalaryProfile,
+        requesterId: req.user?._id || null,
+      });
+
+      if (!salaryResult.ok) {
+        return res.status(400).json({ message: salaryResult.message });
+      }
+
+      if (salaryResult.salaryProfile) {
+        salaryProfile = await SalaryProfile.findById(
+          salaryResult.salaryProfile._id
+        ).lean();
+      }
+    } else {
+      salaryProfile = await SalaryProfile.findOne({
+        employee: employee._id,
+        isActive: true,
+      }).lean();
+    }
+
+    const safe = await populateUserQuery(User.findById(employee._id))
       .select(LIST_PROJECTION)
       .lean();
-    return res.status(200).json({ message: "Employee updated.", employee: safe });
+
+    return res.status(200).json({
+      message: "Employee updated.",
+      employee: safe,
+      salaryProfile,
+    });
   } catch (err) {
     const dup = handleMongoDuplicateKey(err);
     if (dup) return res.status(409).json(dup);
@@ -348,14 +983,23 @@ export const updateEmployee = async (req, res) => {
 
 export const deleteEmployee = async (req, res) => {
   try {
-    // ✅ require admin/superadmin password confirmation
     const ok = await requireRequesterPassword(req, res);
     if (!ok) return;
 
-    const employee = await User.findOne({ _id: req.params.id, role: "employee" });
-    if (!employee) return res.status(404).json({ message: "Employee not found." });
+    const employee = await User.findOne({
+      _id: req.params.id,
+      role: { $in: ["employee", "marketing_team"] },
+    });
 
-    if (employee.avatarPublicId) await deleteCloudinary(employee.avatarPublicId);
+    if (!employee) {
+      return res.status(404).json({ message: "Employee not found." });
+    }
+
+    if (employee.avatarPublicId) {
+      await deleteCloudinary(employee.avatarPublicId);
+    }
+
+    await SalaryProfile.deleteMany({ employee: employee._id });
     await employee.deleteOne();
 
     return res.status(200).json({ message: "Employee deleted." });
@@ -369,12 +1013,16 @@ export const deleteEmployee = async (req, res) => {
 
 /* =========================
    ADMIN: MARKETING TEAM
+   NOTE: Kept for backward compatibility.
+   New system should create marketing users as:
+   role: employee + department: marketing
 ========================= */
 export const createMarketingTeam = async (req, res) => {
   try {
-    const name = String(req.body.name ?? "").trim();
-    const email = String(req.body.email ?? "").trim().toLowerCase();
+    const name = clean(req.body.name);
+    const email = clean(req.body.email).toLowerCase();
     const password = String(req.body.password ?? "");
+
     const isActive =
       typeof req.body.isActive === "boolean" ? req.body.isActive : true;
 
@@ -395,6 +1043,7 @@ export const createMarketingTeam = async (req, res) => {
     const safe = await User.findById(marketing._id)
       .select(LIST_PROJECTION)
       .lean();
+
     return res
       .status(201)
       .json({ message: "Marketing team user created.", marketing: safe });
@@ -460,13 +1109,13 @@ export const updateMarketingTeam = async (req, res) => {
     }
 
     if (email !== undefined) {
-      const e = String(email ?? "").trim().toLowerCase();
+      const e = clean(email).toLowerCase();
       if (!e) return res.status(400).json({ message: "Email cannot be empty." });
       marketing.email = e;
     }
 
     if (name !== undefined) {
-      const n = String(name ?? "").trim();
+      const n = clean(name);
       if (!n) return res.status(400).json({ message: "Name cannot be empty." });
       marketing.name = n;
     }
@@ -479,6 +1128,7 @@ export const updateMarketingTeam = async (req, res) => {
     const safe = await User.findById(marketing._id)
       .select(LIST_PROJECTION)
       .lean();
+
     return res
       .status(200)
       .json({ message: "Marketing team user updated.", marketing: safe });
@@ -495,7 +1145,6 @@ export const updateMarketingTeam = async (req, res) => {
 
 export const deleteMarketingTeam = async (req, res) => {
   try {
-    // ✅ require admin/superadmin password confirmation
     const ok = await requireRequesterPassword(req, res);
     if (!ok) return;
 
@@ -503,13 +1152,18 @@ export const deleteMarketingTeam = async (req, res) => {
       _id: req.params.id,
       role: "marketing_team",
     });
+
     if (!marketing) {
       return res
         .status(404)
         .json({ message: "Marketing team user not found." });
     }
 
-    if (marketing.avatarPublicId) await deleteCloudinary(marketing.avatarPublicId);
+    if (marketing.avatarPublicId) {
+      await deleteCloudinary(marketing.avatarPublicId);
+    }
+
+    await SalaryProfile.deleteMany({ employee: marketing._id });
     await marketing.deleteOne();
 
     return res.status(200).json({ message: "Marketing team user deleted." });
@@ -526,9 +1180,10 @@ export const deleteMarketingTeam = async (req, res) => {
 ========================= */
 export const createAdmin = async (req, res) => {
   try {
-    const name = String(req.body.name ?? "").trim();
-    const email = String(req.body.email ?? "").trim().toLowerCase();
+    const name = clean(req.body.name);
+    const email = clean(req.body.email).toLowerCase();
     const password = String(req.body.password ?? "");
+
     const isActive =
       typeof req.body.isActive === "boolean" ? req.body.isActive : true;
 
@@ -549,6 +1204,7 @@ export const createAdmin = async (req, res) => {
     const safe = await User.findById(admin._id)
       .select(LIST_PROJECTION)
       .lean();
+
     return res.status(201).json({ message: "Admin created.", admin: safe });
   } catch (err) {
     const dup = handleMongoDuplicateKey(err);
@@ -570,7 +1226,10 @@ export const getAdminById = async (req, res) => {
     const admin = await User.findOne({ _id: req.params.id, role: "admin" })
       .select(LIST_PROJECTION)
       .lean();
-    if (!admin) return res.status(404).json({ message: "Admin not found." });
+
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found." });
+    }
 
     return res.status(200).json({ admin });
   } catch (err) {
@@ -594,7 +1253,9 @@ export const updateAdmin = async (req, res) => {
       ? await User.findById(req.params.id).select("+password")
       : await User.findById(req.params.id);
 
-    if (!target) return res.status(404).json({ message: "User not found." });
+    if (!target) {
+      return res.status(404).json({ message: "User not found." });
+    }
 
     if (denyIfTargetIsSuperAdmin(target, req, res)) return;
 
@@ -605,13 +1266,13 @@ export const updateAdmin = async (req, res) => {
     }
 
     if (email !== undefined) {
-      const e = String(email ?? "").trim().toLowerCase();
+      const e = clean(email).toLowerCase();
       if (!e) return res.status(400).json({ message: "Email cannot be empty." });
       target.email = e;
     }
 
     if (name !== undefined) {
-      const n = String(name ?? "").trim();
+      const n = clean(name);
       if (!n) return res.status(400).json({ message: "Name cannot be empty." });
       target.name = n;
     }
@@ -624,6 +1285,7 @@ export const updateAdmin = async (req, res) => {
     const safe = await User.findById(target._id)
       .select(LIST_PROJECTION)
       .lean();
+
     return res.status(200).json({ message: "Admin updated.", admin: safe });
   } catch (err) {
     const dup = handleMongoDuplicateKey(err);
@@ -642,16 +1304,20 @@ export const deleteAdmin = async (req, res) => {
       return res.status(403).json({ message: "Not authorized." });
     }
 
-    // ✅ require password confirmation
     const ok = await requireRequesterPassword(req, res);
     if (!ok) return;
 
     if (String(req.user?._id) === String(req.params.id)) {
-      return res.status(400).json({ message: "You cannot delete your own account." });
+      return res
+        .status(400)
+        .json({ message: "You cannot delete your own account." });
     }
 
     const target = await User.findById(req.params.id);
-    if (!target) return res.status(404).json({ message: "User not found." });
+
+    if (!target) {
+      return res.status(404).json({ message: "User not found." });
+    }
 
     if (denyIfTargetIsSuperAdmin(target, req, res)) return;
 
@@ -661,7 +1327,10 @@ export const deleteAdmin = async (req, res) => {
         .json({ message: "This endpoint can delete only admin accounts." });
     }
 
-    if (target.avatarPublicId) await deleteCloudinary(target.avatarPublicId);
+    if (target.avatarPublicId) {
+      await deleteCloudinary(target.avatarPublicId);
+    }
+
     await target.deleteOne();
 
     return res.status(200).json({ message: "Admin deleted." });
@@ -684,9 +1353,10 @@ export const createSuperAdmin = async (req, res) => {
         .json({ message: "Only super admin can create super admins." });
     }
 
-    const name = String(req.body.name ?? "").trim();
-    const email = String(req.body.email ?? "").trim().toLowerCase();
+    const name = clean(req.body.name);
+    const email = clean(req.body.email).toLowerCase();
     const password = String(req.body.password ?? "");
+
     const isActive =
       typeof req.body.isActive === "boolean" ? req.body.isActive : true;
 
@@ -707,6 +1377,7 @@ export const createSuperAdmin = async (req, res) => {
     const safe = await User.findById(superadmin._id)
       .select(LIST_PROJECTION)
       .lean();
+
     return res
       .status(201)
       .json({ message: "Super admin created.", superadmin: safe });
@@ -728,6 +1399,7 @@ export const getSuperAdmins = async (req, res) => {
         .status(403)
         .json({ message: "Only super admin can view super admins." });
     }
+
     return listUsersByRole(req, res, "superadmin", "superadmins");
   } catch (err) {
     return res.status(500).json({
@@ -752,8 +1424,9 @@ export const getSuperAdminById = async (req, res) => {
       .select(LIST_PROJECTION)
       .lean();
 
-    if (!superadmin)
+    if (!superadmin) {
       return res.status(404).json({ message: "Super admin not found." });
+    }
 
     return res.status(200).json({ superadmin });
   } catch (err) {
@@ -785,17 +1458,18 @@ export const updateSuperAdmin = async (req, res) => {
           role: "superadmin",
         });
 
-    if (!superadmin)
+    if (!superadmin) {
       return res.status(404).json({ message: "Super admin not found." });
+    }
 
     if (email !== undefined) {
-      const e = String(email ?? "").trim().toLowerCase();
+      const e = clean(email).toLowerCase();
       if (!e) return res.status(400).json({ message: "Email cannot be empty." });
       superadmin.email = e;
     }
 
     if (name !== undefined) {
-      const n = String(name ?? "").trim();
+      const n = clean(name);
       if (!n) return res.status(400).json({ message: "Name cannot be empty." });
       superadmin.name = n;
     }
@@ -808,6 +1482,7 @@ export const updateSuperAdmin = async (req, res) => {
     const safe = await User.findById(superadmin._id)
       .select(LIST_PROJECTION)
       .lean();
+
     return res
       .status(200)
       .json({ message: "Super admin updated.", superadmin: safe });
@@ -830,7 +1505,6 @@ export const deleteSuperAdmin = async (req, res) => {
         .json({ message: "Only super admin can delete super admins." });
     }
 
-    // ✅ require password confirmation
     const ok = await requireRequesterPassword(req, res);
     if (!ok) return;
 
@@ -844,13 +1518,17 @@ export const deleteSuperAdmin = async (req, res) => {
       _id: req.params.id,
       role: "superadmin",
     });
-    if (!superadmin)
-      return res.status(404).json({ message: "Super admin not found." });
 
-    if (superadmin.avatarPublicId)
+    if (!superadmin) {
+      return res.status(404).json({ message: "Super admin not found." });
+    }
+
+    if (superadmin.avatarPublicId) {
       await deleteCloudinary(superadmin.avatarPublicId);
+    }
 
     await superadmin.deleteOne();
+
     return res.status(200).json({ message: "Super admin deleted." });
   } catch (err) {
     return res.status(500).json({
@@ -865,10 +1543,14 @@ export const deleteSuperAdmin = async (req, res) => {
 ========================= */
 export const getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id)
+    const user = await populateUserQuery(User.findById(req.user._id))
       .select(LIST_PROJECTION)
       .lean();
-    if (!user) return res.status(404).json({ message: "User not found." });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
     return res.status(200).json({ user });
   } catch (err) {
     return res.status(500).json({
@@ -883,19 +1565,35 @@ export const updateMe = async (req, res) => {
     const { name, email, currentPassword, newPassword } = req.body;
 
     const user = await User.findById(req.user._id).select("+password");
-    if (!user) return res.status(404).json({ message: "User not found." });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
 
     if (name !== undefined) {
-      const n = String(name).trim();
+      const n = clean(name);
       if (!n) return res.status(400).json({ message: "Name cannot be empty." });
       user.name = n;
     }
 
     if (email !== undefined) {
-      const e = String(email).trim().toLowerCase();
+      const e = clean(email).toLowerCase();
       if (!e) return res.status(400).json({ message: "Email cannot be empty." });
       user.email = e;
     }
+
+    // Users can update only basic contact/profile fields for themselves.
+    const selfProfile = buildEmployeeProfilePayload(
+      {
+        phone: req.body.phone,
+        alternatePhone: req.body.alternatePhone,
+        address: req.body.address,
+        emergencyContact: req.body.emergencyContact,
+      },
+      { isCreate: false }
+    );
+
+    Object.assign(user, selfProfile);
 
     const wantsPasswordChange =
       newPassword !== undefined && String(newPassword).length > 0;
@@ -908,8 +1606,12 @@ export const updateMe = async (req, res) => {
       }
 
       const ok = await user.comparePassword(String(currentPassword));
-      if (!ok)
-        return res.status(401).json({ message: "Current password is incorrect." });
+
+      if (!ok) {
+        return res
+          .status(401)
+          .json({ message: "Current password is incorrect." });
+      }
 
       if (String(newPassword).length < 6) {
         return res
@@ -922,9 +1624,10 @@ export const updateMe = async (req, res) => {
 
     await user.save();
 
-    const safe = await User.findById(user._id)
+    const safe = await populateUserQuery(User.findById(user._id))
       .select(LIST_PROJECTION)
       .lean();
+
     return res.status(200).json({ message: "Profile updated.", user: safe });
   } catch (err) {
     const dup = handleMongoDuplicateKey(err);
@@ -938,21 +1641,28 @@ export const updateMe = async (req, res) => {
 };
 
 /* =========================
-   ✅ AVATAR ENDPOINTS
+   AVATAR ENDPOINTS
 ========================= */
-// PATCH /api/users/me/avatar (form-data: avatar)
 export const updateMyAvatar = async (req, res) => {
   try {
     if (!requireImageFile(req, res)) return;
 
     const user = await User.findById(req.user._id);
-    if (!user) return res.status(404).json({ message: "User not found." });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
 
     const uploaded = await uploadAvatarAndReplace(user, req.file.buffer);
-    if (!uploaded)
-      return res.status(500).json({ message: "Failed to upload avatar." });
 
-    const safe = await User.findById(user._id).select(LIST_PROJECTION).lean();
+    if (!uploaded) {
+      return res.status(500).json({ message: "Failed to upload avatar." });
+    }
+
+    const safe = await populateUserQuery(User.findById(user._id))
+      .select(LIST_PROJECTION)
+      .lean();
+
     return res.status(200).json({ message: "Avatar updated.", user: safe });
   } catch (err) {
     return res.status(500).json({
@@ -962,19 +1672,27 @@ export const updateMyAvatar = async (req, res) => {
   }
 };
 
-// DELETE /api/users/me/avatar
 export const deleteMyAvatar = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
-    if (!user) return res.status(404).json({ message: "User not found." });
 
-    if (user.avatarPublicId) await deleteCloudinary(user.avatarPublicId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found." });
+    }
+
+    if (user.avatarPublicId) {
+      await deleteCloudinary(user.avatarPublicId);
+    }
 
     user.avatarUrl = "";
     user.avatarPublicId = "";
+
     await user.save();
 
-    const safe = await User.findById(user._id).select(LIST_PROJECTION).lean();
+    const safe = await populateUserQuery(User.findById(user._id))
+      .select(LIST_PROJECTION)
+      .lean();
+
     return res.status(200).json({ message: "Avatar removed.", user: safe });
   } catch (err) {
     return res.status(500).json({
@@ -984,24 +1702,32 @@ export const deleteMyAvatar = async (req, res) => {
   }
 };
 
-// PATCH /api/users/:id/avatar (admin/superadmin)
 export const adminUpdateUserAvatar = async (req, res) => {
   try {
     if (!isAdminOrSuperAdmin(req)) {
       return res.status(403).json({ message: "Not authorized." });
     }
+
     if (!requireImageFile(req, res)) return;
 
     const target = await User.findById(req.params.id);
-    if (!target) return res.status(404).json({ message: "User not found." });
+
+    if (!target) {
+      return res.status(404).json({ message: "User not found." });
+    }
 
     if (denyIfTargetIsSuperAdmin(target, req, res)) return;
 
     const uploaded = await uploadAvatarAndReplace(target, req.file.buffer);
-    if (!uploaded)
-      return res.status(500).json({ message: "Failed to upload avatar." });
 
-    const safe = await User.findById(target._id).select(LIST_PROJECTION).lean();
+    if (!uploaded) {
+      return res.status(500).json({ message: "Failed to upload avatar." });
+    }
+
+    const safe = await populateUserQuery(User.findById(target._id))
+      .select(LIST_PROJECTION)
+      .lean();
+
     return res.status(200).json({ message: "Avatar updated.", user: safe });
   } catch (err) {
     return res.status(500).json({
@@ -1011,7 +1737,6 @@ export const adminUpdateUserAvatar = async (req, res) => {
   }
 };
 
-// DELETE /api/users/:id/avatar (admin/superadmin)
 export const adminDeleteUserAvatar = async (req, res) => {
   try {
     if (!isAdminOrSuperAdmin(req)) {
@@ -1019,17 +1744,26 @@ export const adminDeleteUserAvatar = async (req, res) => {
     }
 
     const target = await User.findById(req.params.id);
-    if (!target) return res.status(404).json({ message: "User not found." });
+
+    if (!target) {
+      return res.status(404).json({ message: "User not found." });
+    }
 
     if (denyIfTargetIsSuperAdmin(target, req, res)) return;
 
-    if (target.avatarPublicId) await deleteCloudinary(target.avatarPublicId);
+    if (target.avatarPublicId) {
+      await deleteCloudinary(target.avatarPublicId);
+    }
 
     target.avatarUrl = "";
     target.avatarPublicId = "";
+
     await target.save();
 
-    const safe = await User.findById(target._id).select(LIST_PROJECTION).lean();
+    const safe = await populateUserQuery(User.findById(target._id))
+      .select(LIST_PROJECTION)
+      .lean();
+
     return res.status(200).json({ message: "Avatar removed.", user: safe });
   } catch (err) {
     return res.status(500).json({
@@ -1039,12 +1773,19 @@ export const adminDeleteUserAvatar = async (req, res) => {
   }
 };
 
+/* =========================
+   SEARCH MARKETING USERS
+   NOTE: kept for old CRM flow.
+========================= */
 export const searchMarketingUsers = async (req, res) => {
   try {
     const q = String(req.query.q || "").trim().toLowerCase();
     const limit = Math.min(Number(req.query.limit || 25), 50);
 
-    const filter = { isActive: true, role: "marketing_team" };
+    const filter = {
+      isActive: true,
+      $or: [{ role: "marketing_team" }, { role: "employee", teamRole: "marketing" }],
+    };
 
     if (q) {
       filter.nameLower = {
@@ -1053,7 +1794,11 @@ export const searchMarketingUsers = async (req, res) => {
     }
 
     const users = await User.find(filter)
-      .select("name email role")
+      .select("name email role employeeId phone teamRole department position employmentType salaryType")
+      .populate([
+        { path: "department", select: "name" },
+        { path: "position", select: "title" },
+      ])
       .sort({ nameLower: 1, _id: -1 })
       .limit(limit)
       .lean();

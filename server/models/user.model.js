@@ -1,8 +1,33 @@
 // ===============================
 // ✅ models/user.model.js (FULL UPDATED)
+// ✅ Employee profile fields added
+// ✅ Job type + salary type + contact/address fields
 // ===============================
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
+
+const addressSchema = new mongoose.Schema(
+  {
+    line1: { type: String, trim: true, default: "" },
+    line2: { type: String, trim: true, default: "" },
+    city: { type: String, trim: true, default: "" },
+    state: { type: String, trim: true, default: "" },
+    postalCode: { type: String, trim: true, default: "" },
+    country: { type: String, trim: true, default: "Bangladesh" },
+    fullAddress: { type: String, trim: true, default: "" },
+  },
+  { _id: false }
+);
+
+const emergencyContactSchema = new mongoose.Schema(
+  {
+    name: { type: String, trim: true, default: "" },
+    phone: { type: String, trim: true, default: "" },
+    relation: { type: String, trim: true, default: "" },
+    address: { type: String, trim: true, default: "" },
+  },
+  { _id: false }
+);
 
 const userSchema = new mongoose.Schema(
   {
@@ -27,11 +52,102 @@ const userSchema = new mongoose.Schema(
       select: false,
     },
 
+    /**
+     * Keep marketing_team temporarily for old data/backward compatibility.
+     * New users should normally be:
+     * role: employee + department + position + permissionGroup
+     */
     role: {
       type: String,
       enum: ["superadmin", "admin", "employee", "marketing_team"],
       default: "employee",
       required: true,
+      index: true,
+    },
+
+    // ===============================
+    // ✅ Employee identity/contact fields
+    // ===============================
+    employeeId: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      sparse: true,
+      unique: true,
+      index: true,
+      default: undefined,
+    },
+
+    phone: { type: String, trim: true, default: "", index: true },
+    alternatePhone: { type: String, trim: true, default: "" },
+
+    gender: {
+      type: String,
+      enum: ["", "male", "female", "other"],
+      default: "",
+      index: true,
+    },
+
+    dateOfBirth: { type: Date, default: null },
+    address: { type: addressSchema, default: () => ({}) },
+    emergencyContact: { type: emergencyContactSchema, default: () => ({}) },
+
+    // ===============================
+    // ✅ Company job fields
+    // ===============================
+    department: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Department",
+      default: null,
+      index: true,
+    },
+
+    position: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Position",
+      default: null,
+      index: true,
+    },
+
+    permissionGroup: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PermissionGroup",
+      default: null,
+      index: true,
+    },
+
+    managerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+
+    joiningDate: { type: Date, default: null, index: true },
+    leavingDate: { type: Date, default: null },
+
+    employmentType: {
+      type: String,
+      enum: ["full_time", "part_time", "intern", "contract"],
+      default: "full_time",
+      index: true,
+    },
+
+    /**
+     * This is the employee's salary mode for quick filtering/display.
+     * Actual salary amount/rules stay in SalaryProfile.
+     */
+    salaryType: {
+      type: String,
+      enum: ["fixed", "hourly", "commission"],
+      default: "fixed",
+      index: true,
+    },
+
+    employeeStatus: {
+      type: String,
+      enum: ["active", "probation", "on_leave", "resigned", "terminated"],
+      default: "active",
       index: true,
     },
 
@@ -43,11 +159,6 @@ const userSchema = new mongoose.Schema(
     // ===============================
     // ✅ CRM Work Queue / Assignment Fields
     // ===============================
-
-    /**
-     * Maximum leads this user should receive per day.
-     * 0 means unlimited.
-     */
     dailyLeadLimit: {
       type: Number,
       default: 0,
@@ -55,10 +166,6 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
 
-    /**
-     * Internal team role for CRM workflow.
-     * This is different from auth role.
-     */
     teamRole: {
       type: String,
       enum: ["", "admin", "manager", "sales", "marketing", "support"],
@@ -66,28 +173,18 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
 
-    /**
-     * If false, auto-assignment will skip this user.
-     */
     isAvailableForAssignment: {
       type: Boolean,
       default: true,
       index: true,
     },
 
-    /**
-     * Used for round-robin / least-loaded assignment tracking.
-     */
     lastAssignedLeadAt: {
       type: Date,
       default: null,
       index: true,
     },
 
-    /**
-     * Optional workload tracking.
-     * This can be updated by controller/automation later.
-     */
     currentOpenLeadCount: {
       type: Number,
       default: 0,
@@ -102,23 +199,10 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
 
-    /**
-     * User availability status for CRM operation.
-     */
     workStatus: {
       type: String,
       enum: ["available", "busy", "offline", "on_leave"],
       default: "available",
-      index: true,
-    },
-
-    /**
-     * Optional manager/team ownership.
-     */
-    managerId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      default: null,
       index: true,
     },
   },
@@ -130,9 +214,10 @@ const userSchema = new mongoose.Schema(
 ================================ */
 userSchema.index({ role: 1, createdAt: -1, _id: -1 });
 userSchema.index({ role: 1, isActive: 1, createdAt: -1, _id: -1 });
-
-/* ✅ Fast autocomplete index */
 userSchema.index({ role: 1, isActive: 1, nameLower: 1, _id: -1 });
+userSchema.index({ department: 1, position: 1, isActive: 1 });
+userSchema.index({ employmentType: 1, salaryType: 1, isActive: 1 });
+userSchema.index({ employeeStatus: 1, isActive: 1 });
 
 /* ✅ CRM assignment indexes */
 userSchema.index({
@@ -172,11 +257,25 @@ userSchema.pre("save", function (next) {
 });
 
 /* ===============================
-   ✅ Normalize nameLower
+   ✅ Normalize fields
 ================================ */
 userSchema.pre("save", function (next) {
   if (this.isModified("name")) {
-    this.nameLower = String(this.name || "").trim().toLowerCase();
+    this.name = String(this.name || "").trim();
+    this.nameLower = this.name.toLowerCase();
+  }
+
+  if (this.isModified("email")) {
+    this.email = String(this.email || "").trim().toLowerCase();
+  }
+
+  if (this.isModified("employeeId") && this.employeeId) {
+    this.employeeId = String(this.employeeId || "").trim().toUpperCase();
+  }
+
+  if (this.isModified("phone")) this.phone = String(this.phone || "").trim();
+  if (this.isModified("alternatePhone")) {
+    this.alternatePhone = String(this.alternatePhone || "").trim();
   }
 
   next();
@@ -192,26 +291,39 @@ userSchema.pre("findOneAndUpdate", function (next) {
   const nextName = $set.name ?? update.name;
 
   if (nextName !== undefined) {
-    const nl = String(nextName || "").trim().toLowerCase();
+    const name = String(nextName || "").trim();
 
     update.$set = {
       ...(update.$set || {}),
-      name: String(nextName || "").trim(),
-      nameLower: nl,
+      name,
+      nameLower: name.toLowerCase(),
     };
 
     if (update.name !== undefined) delete update.name;
   }
 
-  if ($set.email !== undefined || update.email !== undefined) {
-    const nextEmail = $set.email ?? update.email;
+  const nextEmail = $set.email ?? update.email;
 
+  if (nextEmail !== undefined) {
     update.$set = {
       ...(update.$set || {}),
       email: String(nextEmail || "").trim().toLowerCase(),
     };
 
     if (update.email !== undefined) delete update.email;
+  }
+
+  const nextEmployeeId = $set.employeeId ?? update.employeeId;
+
+  if (nextEmployeeId !== undefined) {
+    const employeeId = String(nextEmployeeId || "").trim().toUpperCase();
+
+    update.$set = {
+      ...(update.$set || {}),
+      employeeId: employeeId || undefined,
+    };
+
+    if (update.employeeId !== undefined) delete update.employeeId;
   }
 
   this.setUpdate(update);
@@ -250,7 +362,11 @@ userSchema.methods.isEmployee = function () {
 };
 
 userSchema.methods.isMarketing = function () {
-  return this.role === "marketing_team";
+  return (
+    this.role === "marketing_team" ||
+    this.teamRole === "marketing" ||
+    this.permissionGroup?.permissions?.includes?.("leads:view")
+  );
 };
 
 userSchema.methods.canReceiveAutoAssignedLead = function () {

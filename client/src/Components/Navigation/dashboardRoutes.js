@@ -55,5 +55,5 @@ export function matchDashboardRoute(pathname, basePath, routeMap) {
     }
   }
 
-  return routeMap.routes[basePath] || { section: "Dashboard", subcategory: "" }
+  return routeMap.routes[basePath] || Object.values(routeMap.routes || {})[0] || { section: "", subcategory: "" }
 }

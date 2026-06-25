@@ -1,6 +1,12 @@
 import jwt from "jsonwebtoken"
 import User from "../models/user.model.js"
 
+const USER_POPULATE = [
+  { path: "department", select: "name isActive" },
+  { path: "position", select: "title department isActive" },
+  { path: "permissionGroup", select: "name permissions isActive" },
+]
+
 const signToken = (userId) => {
   return jwt.sign({ id: userId }, process.env.ACCESS_TOKEN_SECRET, {
     expiresIn: process.env.ACCESS_TOKEN_EXPIREY || "7d",
@@ -15,7 +21,7 @@ export const login = async (req, res) => {
       return res.status(400).json({ message: "Email and password are required." })
     }
 
-    const user = await User.findOne({ email }).select("+password")
+    const user = await User.findOne({ email }).select("+password").populate(USER_POPULATE)
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials." })
     }
@@ -57,10 +63,10 @@ export const register = async (req, res) => {
     }
 
     // ✅ Added marketing_team
-    const allowedRoles = ["superadmin", "admin", "employee", "marketing_team"]
+    const allowedRoles = ["superadmin", "admin", "employee"]
     if (!allowedRoles.includes(role)) {
       return res.status(400).json({
-        message: 'role must be "superadmin", "admin", "employee" or "marketing_team".',
+        message: 'role must be "superadmin", "admin" or "employee".',
       })
     }
 

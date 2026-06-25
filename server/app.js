@@ -6,7 +6,7 @@ const app = express();
 
 app.use(
   cors({
-    origin: ["https://businesshub-crm.vercel.app", "http://localhost:5173",],
+    origin: ["https://businesshub-crm.vercel.app", "http://localhost:5173"],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
@@ -51,6 +51,11 @@ import customerViewPreferenceRoutes from "./routes/customerViewPreference.routes
 
 import employeeReportRoutes from "./routes/employeeReport.route.js";
 import employeeReportViewPreferenceRoutes from "./routes/employeeReportViewPreference.route.js";
+import accessControlRoutes from "./routes/accessControl.routes.js";
+import salaryProfileRoutes from "./routes/salaryProfile.routes.js";
+import attendanceRoutes from "./routes/attendance.routes.js";
+import payrollRoutes from "./routes/payroll.routes.js";
+import employeeLoanRoutes from "./routes/employeeLoan.routes.js";
 
 /* =========================
    HEALTH CHECK
@@ -67,6 +72,26 @@ app.get("/api/health", (req, res) => {
 ========================= */
 app.use("/api/view-preferences/employee-report", employeeReportViewPreferenceRoutes);
 app.use("/api/employeeReport", employeeReportRoutes);
+
+/* =========================
+   SALARY PROFILES
+========================= */
+app.use("/api/salary-profiles", salaryProfileRoutes);
+
+/* =========================
+   ATTENDANCE
+========================= */
+app.use("/api/attendance", attendanceRoutes);
+
+/* =========================
+   EMPLOYEE LOANS
+========================= */
+app.use("/api/employee-loans", employeeLoanRoutes);
+
+/* =========================
+   PAYROLL
+========================= */
+app.use("/api/payroll", payrollRoutes);
 
 /* =========================
    CUSTOMER VIEW PREFERENCES
@@ -125,6 +150,7 @@ app.use("/api", reportRoutes);
 ========================= */
 app.use("/api/upload", uploadRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/access-control", accessControlRoutes);
 
 app.use("/api/view-preferences", viewPreferenceRoutes);
 app.use("/api/purchase-types", purchaseTypeRoutes);

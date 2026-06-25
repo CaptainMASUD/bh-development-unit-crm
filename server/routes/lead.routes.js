@@ -22,6 +22,7 @@ import {
   protect,
   isMarketingOrAdmin,
   isAdminOrSuperAdmin,
+  requirePermission,
 } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
@@ -35,37 +36,37 @@ router.use(protect, isMarketingOrAdmin);
 /* =========================
    BASIC LEAD CRUD
 ========================= */
-router.post("/", createLead);
+router.post("/", requirePermission("leads:manage"), createLead);
 router.get("/", listLeads);
 router.get("/:id", getLeadById);
-router.put("/:id", updateLead);
+router.put("/:id", requirePermission("leads:manage"), updateLead);
 
 /* =========================
    CRM SALES FLOW
 ========================= */
 
 // notes
-router.post("/:id/notes", addLeadNote);
+router.post("/:id/notes", requirePermission("leads:manage"), addLeadNote);
 
 // stage movement
-router.patch("/:id/stage", updateLeadStage);
+router.patch("/:id/stage", requirePermission("leads:manage"), updateLeadStage);
 
 // requirement / discovery
-router.patch("/:id/requirement", updateLeadRequirement);
+router.patch("/:id/requirement", requirePermission("leads:manage"), updateLeadRequirement);
 
 // contact / follow-up
-router.patch("/:id/contacted", markContacted);
-router.patch("/:id/followup", setFollowUp);
+router.patch("/:id/contacted", requirePermission("leads:manage"), markContacted);
+router.patch("/:id/followup", requirePermission("leads:manage"), setFollowUp);
 
 // won / lost
-router.patch("/:id/won", markLeadWon);
-router.patch("/:id/lost", markLeadLost);
+router.patch("/:id/won", requirePermission("leads:manage"), markLeadWon);
+router.patch("/:id/lost", requirePermission("leads:manage"), markLeadLost);
 
 // timeline
 router.get("/:id/timeline", getLeadTimeline);
 
 // convert lead to customer
-router.post("/:id/convert", convertLead);
+router.post("/:id/convert", requirePermission("leads:manage"), convertLead);
 
 /* =========================
    ADMIN ACCESS CONTROL

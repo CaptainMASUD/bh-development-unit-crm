@@ -2,8 +2,7 @@ export function getDashboardPathForRole(role) {
   const normalizedRole = String(role || "").toLowerCase()
 
   if (normalizedRole === "admin" || normalizedRole === "superadmin") return "/admin"
-  if (normalizedRole === "employee") return "/employee"
-  if (normalizedRole === "marketing_team") return "/marketing"
+  if (normalizedRole === "employee" || normalizedRole === "marketing_team") return "/employee"
 
   return ""
 }

@@ -9,7 +9,6 @@ import {
   FaEyeSlash,
   FaUserShield,
   FaUserTie,
-  FaBullhorn,
 } from "react-icons/fa"
 import { RiShieldStarFill } from "react-icons/ri"
 import { useNavigate } from "react-router-dom"
@@ -39,7 +38,7 @@ export default function RegisterForm() {
         name,
         email,
         password,
-        role, // supports: employee | admin | superadmin | marketing_team
+        role,
       })
 
       if (res.status === 201 || res.status === 200) {
@@ -164,7 +163,7 @@ export default function RegisterForm() {
                 <label className="text-sm font-medium text-gray-300 block pl-1">Role</label>
 
                 {/* ✅ 4 roles now */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <button
                     type="button"
                     onClick={() => setRole("employee")}
@@ -176,20 +175,6 @@ export default function RegisterForm() {
                   >
                     <FaUserTie />
                     Employee
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setRole("marketing_team")}
-                    className={`flex items-center justify-center gap-2 py-3 rounded-lg border transition-all duration-300 ${
-                      role === "marketing_team"
-                        ? "bg-emerald-600/20 border-emerald-500 text-white"
-                        : "bg-gray-800/50 border-gray-700 text-gray-300 hover:text-white"
-                    }`}
-                    title="Marketing Team"
-                  >
-                    <FaBullhorn />
-                    Marketing
                   </button>
 
                   <button

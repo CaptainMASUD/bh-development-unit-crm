@@ -24,7 +24,10 @@ export const protect = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
 
-    const user = await User.findById(decoded.id);
+    const user = await User.findById(decoded.id).populate({
+      path: "permissionGroup",
+      select: "name permissions isActive",
+    });
 
     if (!user) {
       return res.status(401).json({ message: "Not authorized. User not found." });
@@ -86,9 +89,13 @@ export const isMarketingTeam = (req, res, next) => {
 
 // ✅ Marketing Team OR Admin OR Super Admin
 export const isMarketingOrAdmin = (req, res, next) => {
-  if (!["marketing_team", "admin", "superadmin"].includes(req.user?.role)) {
+  const permissions = req.user?.permissionGroup?.permissions || [];
+  if (
+    !["marketing_team", "admin", "superadmin"].includes(req.user?.role) &&
+    !(req.user?.role === "employee" && permissions.includes("leads:view"))
+  ) {
     return res.status(403).json({
-      message: "Marketing/Admin access required.",
+      message: "Lead access required.",
     });
   }
   next();
@@ -100,4 +107,18 @@ export const isEmployeeOrMarketing = (req, res, next) => {
     return res.status(403).json({ message: "Staff access required." });
   }
   next();
+};
+
+export const requirePermission = (permission) => (req, res, next) => {
+  if (["admin", "superadmin"].includes(req.user?.role)) return next();
+  if (req.user?.role === "marketing_team" && String(permission).startsWith("leads:")) {
+    return next();
+  }
+
+  const permissions = req.user?.permissionGroup?.permissions || [];
+  if (!permissions.includes(permission)) {
+    return res.status(403).json({ message: "Permission denied." });
+  }
+
+  return next();
 };
