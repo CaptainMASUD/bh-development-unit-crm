@@ -10,6 +10,7 @@ import React, {
   Fragment,
   memo,
 } from "react"
+import { createPortal } from "react-dom"
 import { AnimatePresence, motion } from "framer-motion"
 import {
   FiEye,
@@ -17,6 +18,7 @@ import {
   FiTrash2,
   FiUserCheck,
   FiChevronDown,
+  FiMoreVertical,
   FiPlus,
   FiRefreshCcw,
   FiAlertCircle,
@@ -276,6 +278,7 @@ function JobUpsertModal({
   initialJob,
   parentJobId,
   onSaved,
+  onToast,
 }) {
   const assignedUsers = normalizeAssignedToArray(customer?.assignedTo)
   const assigneeOptions = useMemo(
@@ -292,10 +295,8 @@ function JobUpsertModal({
   const [form, setForm] = useState({
     title: "",
     status: "active",
-    code: "",
     startAt: "",
     endAt: "",
-    assignedTo: [],
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
@@ -307,21 +308,15 @@ function JobUpsertModal({
       setForm({
         title: String(initialJob?.title || ""),
         status: String(initialJob?.status || "active"),
-        code: String(initialJob?.code || ""),
         startAt: toLocalInputValue(initialJob?.startAt),
         endAt: toLocalInputValue(initialJob?.endAt),
-        assignedTo: Array.isArray(initialJob?.assignedTo)
-          ? initialJob.assignedTo.map(String)
-          : [],
       })
     } else {
       setForm({
         title: "",
         status: "active",
-        code: "",
         startAt: "",
         endAt: "",
-        assignedTo: [],
       })
     }
   }, [open, mode, initialJob])
@@ -329,7 +324,12 @@ function JobUpsertModal({
   const submit = async () => {
     if (!customer?._id) return
     const title = String(form.title || "").trim()
-    if (!title) return setError("Job title is required.")
+    if (!title) {
+      const message = "Job title is required."
+      setError(message)
+      onToast?.("error", message)
+      return
+    }
 
     setSaving(true)
     setError("")
@@ -337,12 +337,8 @@ function JobUpsertModal({
       const payload = {
         title,
         status: String(form.status || "active"),
-        code: String(form.code || "").trim(),
         startAt: form.startAt ? new Date(form.startAt).toISOString() : null,
         endAt: form.endAt ? new Date(form.endAt).toISOString() : null,
-        assignedTo: Array.isArray(form.assignedTo)
-          ? form.assignedTo.map(String)
-          : [],
         ...(mode === "create" && parentJobId
           ? { parentJobId: String(parentJobId) }
           : {}),
@@ -361,7 +357,9 @@ function JobUpsertModal({
       onSaved?.()
       onClose?.()
     } catch (e) {
-      setError(e?.message || "Save failed")
+      const message = e?.message || "Save failed"
+      setError(message)
+      onToast?.("error", message)
     } finally {
       setSaving(false)
     }
@@ -370,7 +368,7 @@ function JobUpsertModal({
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative w-full max-w-2xl rounded-2xl bg-white border border-gray-100 shadow-2xl overflow-hidden">
         <div className="p-5 border-b border-gray-100 flex items-center justify-between">
@@ -387,7 +385,7 @@ function JobUpsertModal({
                   : "Create Job"}
               </p>
               <p className="text-sm text-gray-600">
-                {customer?.name ? `Customer: ${customer.name}` : ""}
+                {customer?.name ? `Client: ${customer.name}` : ""}
               </p>
             </div>
           </div>
@@ -442,20 +440,6 @@ function JobUpsertModal({
 
             <div>
               <label className="block text-sm font-semibold text-gray-800 mb-1.5">
-                Code (optional)
-              </label>
-              <input
-                value={form.code}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, code: e.target.value }))
-                }
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                placeholder="e.g. JOB-001"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-800 mb-1.5">
                 Start (optional)
               </label>
               <input
@@ -482,37 +466,6 @@ function JobUpsertModal({
               />
             </div>
 
-            <div className="md:col-span-2">
-              <label className="block text-sm font-semibold text-gray-800 mb-1.5">
-                Assignees (optional)
-              </label>
-              <select
-                multiple
-                value={form.assignedTo}
-                onChange={(e) => {
-                  const selected = Array.from(e.target.selectedOptions).map(
-                    (o) => o.value
-                  )
-                  setForm((p) => ({ ...p, assignedTo: selected }))
-                }}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-xl bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              >
-                {assigneeOptions.length ? (
-                  assigneeOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))
-                ) : (
-                  <option value="" disabled>
-                    No assignees yet
-                  </option>
-                )}
-              </select>
-              <p className="text-xs text-gray-500 mt-1">
-                Tip: Hold Ctrl/Command to select multiple.
-              </p>
-            </div>
           </div>
         </div>
 
@@ -661,17 +614,6 @@ function JobsDropdownPanel({
 
                         <JobStatusBadge status={job?.status} />
 
-                        {job?.code ? (
-                          <span
-                            className={cn(
-                              chip,
-                              "bg-gray-50 text-gray-700 ring-gray-200"
-                            )}
-                          >
-                            Code: {job.code}
-                          </span>
-                        ) : null}
-
                         {hasChildren ? (
                           <span
                             className={cn(
@@ -812,7 +754,7 @@ function JobsDropdownPanel({
                 Jobs & Sub-jobs
               </p>
               <p className="text-xs text-gray-500 truncate">
-                Customer:{" "}
+                Client:{" "}
                 <span className="font-semibold text-gray-700">
                   {customer?.name || "—"}
                 </span>
@@ -880,12 +822,195 @@ function JobsDropdownPanel({
   )
 }
 
+function ClientJobsModal({
+  open,
+  customer,
+  state,
+  onClose,
+  onRefresh,
+  onCreateRoot,
+  onCreateSub,
+  onEdit,
+  onDelete,
+  onGoToCRM,
+}) {
+  if (!open || !customer) return null
+
+  return createPortal(
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[9998]" role="dialog" aria-modal="true">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+          onClick={onClose}
+        />
+        <div className="absolute inset-0 overflow-y-auto p-4 sm:p-6">
+          <motion.div
+            initial={{ opacity: 0, y: 18, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 18, scale: 0.98 }}
+            transition={{ duration: 0.16 }}
+            className="mx-auto mt-8 w-full max-w-5xl overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_30px_80px_-30px_rgba(15,23,42,0.6)]"
+          >
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-100 bg-white px-5 py-4">
+              <div className="flex items-center gap-3">
+                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white">
+                  <BriefcaseBusiness className="h-5 w-5" />
+                </span>
+                <div>
+                  <h2 className="text-lg font-extrabold text-gray-950">Client Jobs</h2>
+                  <p className="text-sm font-medium text-gray-500">{customer?.name || "Selected client"}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition hover:bg-gray-50"
+                aria-label="Close jobs modal"
+              >
+                <FiX className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="max-h-[calc(100vh-12rem)] overflow-y-auto bg-gray-50">
+              <JobsDropdownPanel
+                customer={customer}
+                state={state}
+                onRefresh={onRefresh}
+                onCreateRoot={onCreateRoot}
+                onCreateSub={onCreateSub}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onGoToCRM={onGoToCRM}
+              />
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    </AnimatePresence>,
+    document.body
+  )
+}
+
+function ClientRowActionsMenu({ client, onView, onJobs, onEdit, onAssign, onDelete }) {
+  const [open, setOpen] = useState(false)
+  const [menuStyle, setMenuStyle] = useState({ top: 0, left: 0, transformOrigin: "top right" })
+  const ref = useRef(null)
+  const buttonRef = useRef(null)
+  const menuRef = useRef(null)
+
+  const updateMenuPosition = useCallback(() => {
+    if (typeof window === "undefined" || !buttonRef.current) return
+    const rect = buttonRef.current.getBoundingClientRect()
+    const menuWidth = 240
+    const estimatedHeight = 230
+    const gap = 8
+    const shouldOpenUp = window.innerHeight - rect.bottom < estimatedHeight
+    const top = shouldOpenUp
+      ? Math.max(12, rect.top - estimatedHeight - gap)
+      : Math.min(rect.bottom + gap, window.innerHeight - 12)
+    const left = Math.min(Math.max(12, rect.right - menuWidth), Math.max(12, window.innerWidth - menuWidth - 12))
+    setMenuStyle({ top, left, transformOrigin: shouldOpenUp ? "bottom right" : "top right" })
+  }, [])
+
+  const toggleMenu = () => {
+    if (!open) updateMenuPosition()
+    setOpen((value) => !value)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    updateMenuPosition()
+    const closeOnOutside = (event) => {
+      if (ref.current?.contains(event.target) || menuRef.current?.contains(event.target)) return
+      setOpen(false)
+    }
+    const reposition = () => updateMenuPosition()
+    document.addEventListener("mousedown", closeOnOutside)
+    window.addEventListener("resize", reposition)
+    window.addEventListener("scroll", reposition, true)
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside)
+      window.removeEventListener("resize", reposition)
+      window.removeEventListener("scroll", reposition, true)
+    }
+  }, [open, updateMenuPosition])
+
+  const menuItems = [
+    ["jobs", "View jobs", BriefcaseBusiness, onJobs],
+    ["edit", "Edit client", FiEdit2, onEdit],
+    ["assign", "Assign employee", FiUserCheck, onAssign],
+    ["delete", "Delete client", FiTrash2, onDelete, "danger"],
+  ]
+
+  const menu = open
+    ? createPortal(
+        <AnimatePresence>
+          <motion.div
+            ref={menuRef}
+            initial={{ opacity: 0, y: 8, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.98 }}
+            transition={{ duration: 0.14 }}
+            style={{ top: menuStyle.top, left: menuStyle.left, transformOrigin: menuStyle.transformOrigin }}
+            className="fixed z-[9999] w-60 overflow-hidden rounded-2xl border border-gray-100 bg-white p-2 shadow-[0_24px_60px_-20px_rgba(15,23,42,0.45)]"
+          >
+            {menuItems.map(([key, labelText, Icon, handler, tone]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  handler?.(client)
+                }}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold transition",
+                  tone === "danger" ? "text-rose-700 hover:bg-rose-50" : "text-gray-800 hover:bg-gray-50"
+                )}
+              >
+                <Icon className={cn("h-4 w-4", tone === "danger" ? "text-rose-600" : "text-gray-500")} />
+                {labelText}
+              </button>
+            ))}
+          </motion.div>
+        </AnimatePresence>,
+        document.body
+      )
+    : null
+
+  return (
+    <div ref={ref} className="relative flex items-center justify-end gap-2">
+      <button
+        type="button"
+        className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+        onClick={() => onView?.(client)}
+      >
+        <FiEye className="h-4 w-4" />
+        View
+      </button>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+        onClick={toggleMenu}
+        aria-label="More client actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <FiMoreVertical className="h-4 w-4" />
+      </button>
+      {menu}
+    </div>
+  )
+}
+
 /* =========================
    COLUMN DEFINITIONS (IMPORTANT)
    Keys MUST match backend allowed keys
 ========================= */
 const COLUMN_DEFS = [
-  { key: "name", label: "Customer Name" },
+  { key: "name", label: "Client Name" },
   { key: "companyName", label: "Company" },
   { key: "email", label: "Email" },
   { key: "phone", label: "Phone" },
@@ -897,7 +1022,7 @@ const COLUMN_DEFS = [
   { key: "contactPerson.designation", label: "Contact Designation" },
 
   { key: "status", label: "Status" },
-  { key: "customerType", label: "Customer Type" },
+  { key: "customerType", label: "Client Type" },
   { key: "lifecycleStage", label: "Lifecycle Stage" },
   { key: "origin", label: "Origin" },
 
@@ -950,6 +1075,7 @@ export default function CustomerTable({
   const [expandedCustomerId, setExpandedCustomerId] = useState(null)
   const [closingCustomerId, setClosingCustomerId] = useState(null)
   const [jobsByCustomerId, setJobsByCustomerId] = useState({})
+  const [jobsModalCustomer, setJobsModalCustomer] = useState(null)
   const jobsAbortRef = useRef({})
 
   const [jobUpsert, setJobUpsert] = useState({
@@ -1079,6 +1205,17 @@ export default function CustomerTable({
     [expandedCustomerId, jobsByCustomerId, loadJobsForCustomer]
   )
 
+  const openJobsModal = useCallback(
+    (customer) => {
+      const cid = String(customer?._id || "")
+      if (!cid) return
+      setJobsModalCustomer(customer)
+      const has = jobsByCustomerId[cid]?.jobsTree || jobsByCustomerId[cid]?.loading
+      if (!has) loadJobsForCustomer(cid)
+    },
+    [jobsByCustomerId, loadJobsForCustomer]
+  )
+
   const openCreateRootJob = (customer) => {
     setJobUpsert({
       open: true,
@@ -1153,45 +1290,14 @@ export default function CustomerTable({
   const renderCell = (c, colKey, isExpanded, isClosing) => {
     if (colKey === "actions") {
       return (
-        <div
-          className="flex items-center justify-end gap-2"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            onClick={() => onViewCustomer?.(c)}
-            className={cn(btn, btnPrimary, "px-4 py-2")}
-          >
-            <FiEye className="w-4 h-4" />
-            View
-          </button>
-
-          <button
-            onClick={() => onEditCustomer?.(c)}
-            className={iconBtn}
-            title="Edit"
-            aria-label="Edit"
-          >
-            <FiEdit2 className="w-4 h-4 text-gray-700" />
-          </button>
-
-          <button
-            onClick={() => onAssignCustomer?.(c)}
-            className={iconBtn}
-            title="Assign"
-            aria-label="Assign"
-          >
-            <FiUserCheck className="w-4 h-4 text-gray-700" />
-          </button>
-
-          <button
-            onClick={() => onDeleteCustomer?.(c)}
-            className={cn(iconBtn, btnDanger)}
-            title="Delete"
-            aria-label="Delete"
-          >
-            <FiTrash2 className="w-4 h-4 text-rose-600" />
-          </button>
-        </div>
+        <ClientRowActionsMenu
+          client={c}
+          onView={onViewCustomer}
+          onJobs={openJobsModal}
+          onEdit={onEditCustomer}
+          onAssign={onAssignCustomer}
+          onDelete={onDeleteCustomer}
+        />
       )
     }
 
@@ -1214,14 +1320,14 @@ export default function CustomerTable({
 
             <span
               className={cn(
-                "inline-flex items-center gap-1.5 text-xs font-bold",
+                "hidden",
                 "px-2 py-1 rounded-full border",
                 isExpanded
                   ? "bg-indigo-50 border-indigo-100 text-indigo-700"
                   : "bg-white border-gray-200 text-gray-600"
               )}
             >
-              {isExpanded ? "Hide jobs" : "Show jobs"}{" "}
+              {null}
               <FiChevronDown
                 className={cn(
                   "w-3.5 h-3.5 transition",
@@ -1237,7 +1343,7 @@ export default function CustomerTable({
             ) : null}
           </div>
 
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="hidden">
             {c?.companyName ? `Company: ${c.companyName}` : "Company: —"} •{" "}
             {c?.contactPerson?.name
               ? `Contact: ${c.contactPerson.name}`
@@ -1323,6 +1429,7 @@ export default function CustomerTable({
             mode={jobUpsert.mode}
             initialJob={jobUpsert.initialJob}
             parentJobId={jobUpsert.parentJobId}
+            onToast={onToast}
             onClose={() =>
               setJobUpsert({
                 open: false,
@@ -1345,12 +1452,31 @@ export default function CustomerTable({
       </AnimatePresence>
 
       {/* ✅ Smooth scroll container */}
-      <div className="max-h-[65vh] overflow-y-auto [scrollbar-gutter:stable] overscroll-contain">
-        <table className="w-full">
-          <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-100">
+      <ClientJobsModal
+        open={Boolean(jobsModalCustomer)}
+        customer={jobsModalCustomer}
+        state={
+          jobsByCustomerId[String(jobsModalCustomer?._id || "")] || {
+            loading: false,
+            error: "",
+            jobsTree: [],
+          }
+        }
+        onClose={() => setJobsModalCustomer(null)}
+        onRefresh={() => jobsModalCustomer?._id && loadJobsForCustomer(String(jobsModalCustomer._id))}
+        onCreateRoot={() => jobsModalCustomer && openCreateRootJob(jobsModalCustomer)}
+        onCreateSub={(parentJob) => jobsModalCustomer && openCreateSubJob(jobsModalCustomer, parentJob)}
+        onEdit={(job) => jobsModalCustomer && openEditJob(jobsModalCustomer, job)}
+        onDelete={(job) => jobsModalCustomer && askDeleteJob(jobsModalCustomer, job)}
+        onGoToCRM={() => jobsModalCustomer?._id && onGoToCustomerCRM?.(String(jobsModalCustomer._id))}
+      />
+
+      <div className="h-[620px] overflow-auto [scrollbar-gutter:stable] overscroll-auto">
+        <table className="w-full min-w-[1120px] text-left">
+          <thead className="sticky top-0 z-10 border-b border-gray-200 bg-gray-50">
             <tr>
               {/* fixed No. column */}
-              <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">
+              <th className="w-20 px-6 py-4 text-left text-xs font-black uppercase tracking-wide text-gray-500">
                 No.
               </th>
 
@@ -1363,8 +1489,8 @@ export default function CustomerTable({
                   <th
                     key={String(k)}
                     className={cn(
-                      "px-6 py-4 text-sm font-semibold text-gray-600",
-                      alignRight ? "text-right" : "text-left"
+                      "px-6 py-4 text-xs font-black uppercase tracking-wide text-gray-500",
+                      alignRight ? "sticky right-0 z-20 bg-gray-50 text-right shadow-[-18px_0_30px_-28px_rgba(15,23,42,0.8)]" : "text-left"
                     )}
                   >
                     {label}
@@ -1391,15 +1517,11 @@ export default function CustomerTable({
                   String(expandedCustomerId || "") === String(c?._id || "")
                 const isClosing =
                   String(closingCustomerId || "") === String(c?._id || "")
-                const showPanelRow = isExpanded || isClosing
+                const showPanelRow = false
 
                 return (
                   <Fragment key={String(c?._id || `cust-${index}`)}>
-                    <tr
-                      className={cn(subtleHover, "cursor-pointer")}
-                      onClick={() => toggleRowDropdown(c)}
-                      title="Click row to open jobs"
-                    >
+                    <tr className={subtleHover}>
                       <td className="px-6 py-4 text-sm text-gray-600">
                         {index + 1}
                       </td>
@@ -1409,7 +1531,9 @@ export default function CustomerTable({
                           key={String(colKey)}
                           className={cn(
                             "px-6 py-4",
-                            colKey === "actions" ? "text-right" : "text-left"
+                            colKey === "actions"
+                              ? "sticky right-0 z-10 bg-white text-right shadow-[-18px_0_30px_-28px_rgba(15,23,42,0.8)]"
+                              : "text-left"
                           )}
                         >
                           {renderCell(c, colKey, isExpanded, isClosing)}
@@ -1458,8 +1582,8 @@ export default function CustomerTable({
                   className="px-6 py-12 text-center text-gray-500"
                 >
                   {debounced
-                    ? "No customers match your search."
-                    : "No customers found."}
+                    ? "No clients match your search."
+                    : "No clients found."}
                 </td>
               </tr>
             )}
@@ -1495,7 +1619,7 @@ export default function CustomerTable({
                 ? "Clear search to load more"
                 : hasMore
                 ? "Load next page"
-                : "No more customers"
+                : "No more clients"
             }
           >
             {isLoadingMore ? <Loader2 className="w-4 h-4 animate-spin" /> : null}

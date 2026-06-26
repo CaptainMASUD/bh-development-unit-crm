@@ -702,7 +702,7 @@ function FiltersModal({
             </div>
 
             <div className="p-4 space-y-4">
-              <Field label="Customer Status">
+              <Field label="Client Status">
                 <select
                   value={String(draftStatus || "")}
                   onChange={(e) => setDraftStatus(String(e.target.value || ""))}
@@ -845,7 +845,7 @@ function FiltersModal({
  */
 const CUSTOMER_COLUMN_LABELS = {
   // base
-  name: "Customer Name",
+  name: "Client Name",
   companyName: "Company",
   email: "Email",
   phone: "Phone",
@@ -859,7 +859,7 @@ const CUSTOMER_COLUMN_LABELS = {
 
   // statuses
   status: "Status",
-  customerType: "Customer Type",
+  customerType: "Client Type",
   lifecycleStage: "Lifecycle Stage",
   origin: "Origin",
 
@@ -1202,7 +1202,7 @@ function ColumnsModal({
           </div>
 
           <div className="mt-3 p-3 rounded-2xl border border-gray-100 bg-gray-50/60 text-xs text-gray-600">
-            Tip: “Customer Name” and “Actions” are required, so they always stay visible (CRUD won’t disappear).
+            Tip: “Client Name” and “Actions” are required, so they always stay visible (CRUD won’t disappear).
           </div>
         </div>
       </div>
@@ -1214,7 +1214,7 @@ function ColumnsModal({
    CUSTOMER UPSERT MODAL
 ========================= */
 
-function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved }) {
+function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved, showToast }) {
   const currentYear = new Date().getFullYear()
 
   const [form, setForm] = useState({
@@ -1354,8 +1354,18 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
   const update = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }))
 
   const submit = async () => {
-    if (!form.name.trim()) return setError("Customer name is required.")
-    if (!form.cpName.trim()) return setError("Contact person name is required.")
+    if (!form.name.trim()) {
+      const message = "Client name is required."
+      setError(message)
+      showToast?.("error", message)
+      return
+    }
+    if (!form.cpName.trim()) {
+      const message = "Contact person name is required."
+      setError(message)
+      showToast?.("error", message)
+      return
+    }
 
     const hasEngType = !!String(form.engagementTemplateId || "").trim()
     const yearNum = Number(form.engagementYear)
@@ -1363,11 +1373,24 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
       Number.isFinite(yearNum) && String(form.engagementYear || "").trim() !== ""
 
     if (mode === "create") {
-      if (!hasYear) return setError("Engagement year is required.")
-      if (!hasEngType) return setError("Engagement type is required.")
+      if (!hasYear) {
+        const message = "Engagement year is required."
+        setError(message)
+        showToast?.("error", message)
+        return
+      }
+      if (!hasEngType) {
+        const message = "Engagement type is required."
+        setError(message)
+        showToast?.("error", message)
+        return
+      }
     } else {
       if ((hasYear && !hasEngType) || (hasEngType && !hasYear)) {
-        return setError("To update engagement, select BOTH Year and Type.")
+        const message = "To update engagement, select BOTH Year and Type."
+        setError(message)
+        showToast?.("error", message)
+        return
       }
     }
 
@@ -1447,7 +1470,9 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
       onSaved?.()
       onClose?.()
     } catch (e) {
-      setError(e?.message || "Save failed")
+      const message = e?.message || "Save failed"
+      setError(message)
+      showToast?.("error", message)
     } finally {
       setIsSubmitting(false)
     }
@@ -1457,8 +1482,8 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
     <ModalShell
       open={open}
       onClose={onClose}
-      title={mode === "edit" ? "Edit Customer" : "Create Customer"}
-      subtitle="Customer details"
+      title={mode === "edit" ? "Edit Client" : "Create Client"}
+      subtitle="Client details"
       icon={
         mode === "edit" ? (
           <FiEdit2 className="w-5 h-5" />
@@ -1494,17 +1519,17 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
       {detailLoading ? (
         <div className="mb-5 p-3 rounded-xl bg-gray-50 border border-gray-200 text-gray-700 text-sm flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" />
-          Loading customer details...
+          Loading client details...
         </div>
       ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Field label="Customer Name *">
+        <Field label="Client Name *">
           <input
             value={form.name}
             onChange={update("name")}
             className={input}
-            placeholder="Customer name"
+            placeholder="Client name"
           />
         </Field>
 
@@ -1558,7 +1583,7 @@ function CustomerUpsertModal({ open, onClose, mode = "create", initial, onSaved 
           </select>
         </Field>
 
-        <Field label="Customer Type">
+        <Field label="Client Type">
           <select
             value={form.customerType}
             onChange={update("customerType")}
@@ -1798,8 +1823,8 @@ function AssignModal({ open, onClose, customer, onAssign }) {
     <ModalShell
       open={open}
       onClose={onClose}
-      title="Assign Customer"
-      subtitle={customer?.name ? `Customer: ${customer.name}` : ""}
+      title="Assign Client"
+      subtitle={customer?.name ? `Client: ${customer.name}` : ""}
       icon={<FiUserCheck className="w-5 h-5" />}
       maxWidthClass="max-w-2xl"
       footer={
@@ -2054,13 +2079,13 @@ function ConfirmDeleteModal({
             {!requirePassword ? <p className="text-sm text-gray-600 mt-1">{description}</p> : null}
             {extra ? <div className="mt-3">{extra}</div> : null}
             {requirePassword ? (
-              <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-4">
-                <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
+              <div className="mt-4">
+                <label className="flex items-center gap-2 text-sm font-bold text-gray-900">
                   <FiLock className="h-4 w-4 text-indigo-600" />
                   Admin password
-                </div>
-                {passwordError ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-2.5 text-xs font-semibold text-red-700">{passwordError}</p> : null}
-                <div className="relative mt-3">
+                </label>
+                {passwordError ? <p className="mt-2 rounded-xl border border-red-200 bg-red-50 p-2.5 text-xs font-semibold text-red-700">{passwordError}</p> : null}
+                <div className="relative mt-2">
                   <input
                     type={showPassword ? "text" : "password"}
                     value={password}
@@ -2132,7 +2157,7 @@ function ViewChoiceModal({ open, onClose, customerName, onPick }) {
     <ModalShell
       open={open}
       onClose={onClose}
-      title="Open Customer"
+      title="Open Client"
       subtitle={
         customerName
           ? `Choose what to open for: ${customerName}`
@@ -2319,7 +2344,7 @@ function JobUpsertModal({
           ? "Create Sub-job"
           : "Create Job"
       }
-      subtitle={customer?.name ? `Customer: ${customer.name}` : ""}
+      subtitle={customer?.name ? `Client: ${customer.name}` : ""}
       icon={<BriefcaseBusiness className="w-5 h-5" />}
       maxWidthClass="max-w-2xl"
       footer={
@@ -2771,9 +2796,12 @@ export default function AdminCustomersPage({
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data?.message || "Delete failed")
 
-      showToast("success", "Customer deleted.")
+      showToast("success", "Client deleted.")
       setDeleteModal((p) => ({ ...p, open: false }))
       await fetchCustomersPage({ reset: true })
+    } catch (e) {
+      showToast("error", e?.message || "Delete failed")
+      throw e
     } finally {
       setDeleteLoading(false)
     }
@@ -2787,7 +2815,11 @@ export default function AdminCustomersPage({
       body: JSON.stringify({ employeeIds }),
     })
     const data = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(data?.message || "Assign failed")
+    if (!res.ok) {
+      const message = data?.message || "Assign failed"
+      showToast("error", message)
+      throw new Error(message)
+    }
     showToast("success", employeeIds.length ? "Assigned successfully." : "Assignment cleared.")
     await fetchCustomersPage({ reset: true })
   }
@@ -3164,7 +3196,7 @@ export default function AdminCustomersPage({
 
       <ConfirmDeleteModal
         open={deleteModal.open}
-        title="Delete customer?"
+        title="Delete client?"
         description={`This will permanently delete "${deleteModal.customerName}". This cannot be undone.`}
         confirmText="Delete"
         loading={deleteLoading}
@@ -3358,7 +3390,11 @@ export default function AdminCustomersPage({
             open={showCreate}
             mode="create"
             onClose={() => setShowCreate(false)}
-            onSaved={() => fetchCustomersPage({ reset: true })}
+            showToast={showToast}
+            onSaved={() => {
+              showToast("success", "Client created.")
+              fetchCustomersPage({ reset: true })
+            }}
           />
         )}
       </AnimatePresence>
@@ -3370,7 +3406,11 @@ export default function AdminCustomersPage({
             mode="edit"
             initial={editCustomer}
             onClose={() => setEditCustomer(null)}
-            onSaved={() => fetchCustomersPage({ reset: true })}
+            showToast={showToast}
+            onSaved={() => {
+              showToast("success", "Client updated.")
+              fetchCustomersPage({ reset: true })
+            }}
           />
         )}
       </AnimatePresence>

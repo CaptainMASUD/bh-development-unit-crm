@@ -88,7 +88,7 @@ export default function CustomerHead({
   localSearchHint = true,
 }) {
   const placeholder = useMemo(() => {
-    return appliedFilterChips.length ? "Search…" : "Search customer, company, phone, contact, assigned…"
+    return appliedFilterChips.length ? "Search..." : "Search client, company, phone, contact, assigned..."
   }, [appliedFilterChips.length])
 
   const columnsBadgeText = useMemo(() => {
@@ -112,8 +112,8 @@ export default function CustomerHead({
                 </div>
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Customers</h1>
-                <p className="text-sm text-gray-500">Fast list • Jobs dropdown</p>
+                <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Clients</h1>
+                <p className="text-sm text-gray-500">Clean list with client job actions</p>
               </div>
             </div>
 
@@ -256,7 +256,7 @@ export default function CustomerHead({
 
             <div className="text-sm text-gray-600">
               Showing <span className="font-bold text-gray-900">{showingCount}</span>{" "}
-              {debounced ? "result(s)" : "customer(s)"}
+              {debounced ? "result(s)" : "client(s)"}
             </div>
           </div>
         </div>

@@ -112,7 +112,7 @@ function LoadingRows() {
   )
 }
 
-export default function LeadOperationsDashboard() {
+export default function LeadOperationsDashboard({ embedded = false }) {
   const [leads, setLeads] = useState([])
   const [queueSummary, setQueueSummary] = useState({})
   const [unreadAlerts, setUnreadAlerts] = useState(0)
@@ -183,8 +183,9 @@ export default function LeadOperationsDashboard() {
   }, [leads])
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white p-1 sm:p-3">
-      <div className="mx-auto max-w-[1500px]">
+    <div className={embedded ? "space-y-5" : "min-h-screen bg-gradient-to-b from-gray-50 to-white p-1 sm:p-3"}>
+      <div className={embedded ? "space-y-5" : "mx-auto max-w-[1500px]"}>
+        {!embedded && (
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className={`${card} mb-5 p-5 sm:p-6`}>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
@@ -215,6 +216,7 @@ export default function LeadOperationsDashboard() {
             </div>
           </div>
         </motion.div>
+        )}
 
         {error ? (
           <div className="mb-5 flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">

@@ -244,7 +244,7 @@ function ChartCard({ title, subtitle, icon, children }) {
 
 const CHART_COLORS = ["#6366F1", "#F59E0B", "#22C55E", "#6B7280", "#EF4444"]
 
-export default function DashboardContent() {
+export default function DashboardContent({ embedded = false }) {
   const [customers, setCustomers] = useState([])
   const [count, setCount] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
@@ -358,8 +358,9 @@ export default function DashboardContent() {
   }, [taskStats.pending, taskStats.inProgress, taskStats.done])
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+    <div className={embedded ? "space-y-6" : "min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8"}>
       {/* Header */}
+      {!embedded && (
       <motion.div initial={{ opacity: 0, y: -14 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
         <div className={`${premiumCard} p-6`}>
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
@@ -369,14 +370,14 @@ export default function DashboardContent() {
               </div>
               <div>
                 <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Dashboard</h1>
-                <p className="text-sm text-gray-500">Customers and task activity at a glance</p>
+                <p className="text-sm text-gray-500">Clients and task activity at a glance</p>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
               <Pill
                 icon={<FiDatabase className="w-4 h-4" />}
-                label="Customers"
+                label="Clients"
                 value={isLoading && customers.length === 0 ? "—" : customerStats.total}
                 tone="indigo"
               />
@@ -394,6 +395,7 @@ export default function DashboardContent() {
           </div>
         </div>
       </motion.div>
+      )}
 
       {/* Error */}
       {error && (
@@ -409,16 +411,16 @@ export default function DashboardContent() {
 
       {/* Stats */}
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        <StatCard icon={<FiUsers className="w-5 h-5" />} title="Total Customers" value={isLoading && customers.length === 0 ? "—" : customerStats.total} hint="All customers visible to you" tone="indigo" />
+        <StatCard icon={<FiUsers className="w-5 h-5" />} title="Total Clients" value={isLoading && customers.length === 0 ? "—" : customerStats.total} hint="All clients visible to you" tone="indigo" />
         <StatCard icon={<FiClock className="w-5 h-5" />} title="In Progress" value={isLoading && customers.length === 0 ? "—" : customerStats.inProgress} hint="Currently being handled" tone="yellow" />
-        <StatCard icon={<FiCheckCircle className="w-5 h-5" />} title="Completed" value={isLoading && customers.length === 0 ? "—" : customerStats.complete} hint="Finished customers" tone="green" />
+        <StatCard icon={<FiCheckCircle className="w-5 h-5" />} title="Completed" value={isLoading && customers.length === 0 ? "—" : customerStats.complete} hint="Finished clients" tone="green" />
         <StatCard icon={<FiUser className="w-5 h-5" />} title="Assigned to You" value={isLoading && customers.length === 0 ? "—" : customerStats.assignedToMe} hint="Your active ownership" tone="gray" />
       </motion.div>
 
       {/* Charts (Task Activity removed) */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-6">
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="xl:col-span-1">
-          <ChartCard title="Customer Status" subtitle="Distribution of customers" icon={<FiUsers className="w-5 h-5" />}>
+          <ChartCard title="Client Status" subtitle="Distribution of clients" icon={<FiUsers className="w-5 h-5" />}>
             <div className="h-64">
               {isLoading && customers.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-sm text-gray-500">Loading…</div>
@@ -476,7 +478,7 @@ export default function DashboardContent() {
                 <IconBadge icon={<FiClipboard className="w-5 h-5" />} tone="indigo" />
                 <div>
                   <h2 className="text-lg font-extrabold text-gray-900 tracking-tight">Task Overview</h2>
-                  <p className="text-sm text-gray-500">Across your customers</p>
+                  <p className="text-sm text-gray-500">Across your clients</p>
                 </div>
               </div>
             </div>

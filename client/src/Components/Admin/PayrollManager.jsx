@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import toast, { Toaster } from "react-hot-toast"
 import {
   FiCheck,
@@ -12,6 +13,7 @@ import {
   FiEye,
   FiFileText,
   FiFilter,
+  FiMoreVertical,
   FiPlus,
   FiRefreshCcw,
   FiSearch,
@@ -161,7 +163,7 @@ function Modal({ open, title, subtitle, icon, children, footer, onClose, maxWidt
           <button aria-label="Close" type="button" className="fixed inset-0 bg-black/40 backdrop-blur-md" onClick={onClose} />
           <div className={`relative w-full overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_30px_80px_-35px_rgba(0,0,0,0.75)] ${maxWidth}`}>
             <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-100 bg-white p-4 sm:p-5">
-              <div className="flex min-w-0 items-center gap-3">
+              <div className="flex min-w-0 items-center gap-4">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">{icon}</div>
                 <div className="min-w-0">
                   <h2 className="truncate text-base font-extrabold text-gray-900 sm:text-lg">{title}</h2>
@@ -357,6 +359,36 @@ export default function PayrollManager() {
     if (filters.month) list.push({ key: "month", label: "Month", value: monthName(filters.month) })
     return list
   }, [departments, filters, positions])
+
+  const hasClearableSearchOrFilters = useMemo(() => {
+    const defaultYear = now.getFullYear()
+    const defaultMonth = now.getMonth() + 1
+
+    return Boolean(
+      query.trim() ||
+        filters.employee ||
+        filters.department ||
+        filters.position ||
+        filters.status ||
+        (filters.year && Number(filters.year) !== defaultYear) ||
+        (filters.month && Number(filters.month) !== defaultMonth)
+    )
+  }, [filters, now, query])
+
+  const clearSearchAndExtraFilters = () => {
+    const next = {
+      employee: null,
+      department: "",
+      position: "",
+      status: "",
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+    }
+
+    setQuery("")
+    setFilters(next)
+    setFilterDraft(next)
+  }
 
   const summary = useMemo(() => {
     const totalNet = payrolls.reduce((sum, item) => sum + Number(item.netPayable || 0), 0)
@@ -722,61 +754,93 @@ export default function PayrollManager() {
     <div className={shell}>
       <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: "14px", fontWeight: 700 } }} />
       <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8">
-        <div className={`${card} mb-5 overflow-visible p-4 sm:p-5`}>
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
-                  <FiDollarSign className="h-5 w-5" />
-                </div>
-                <div>
-                  <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Payroll</h1>
-                </div>
+        <div className={`${card} mb-5 p-4 sm:p-5`}>
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
+                <FiDollarSign className="h-5 w-5" />
               </div>
-
-              <div className="mt-5 flex flex-wrap gap-2">
-                {[
-                  ["payrolls", "Payrolls", FiFileText],
-                  ["calculate", "Calculate", FiDollarSign],
-                  ["bulk", "Bulk Run", FiUsers],
-                ].map(([key, text, Icon]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => setTab(key)}
-                    className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-extrabold transition ${tab === key ? "bg-indigo-600 text-white shadow-sm" : "bg-gray-50 text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"}`}
-                  >
-                    <Icon className="h-4 w-4" /> {text}
-                  </button>
-                ))}
+              <div>
+                <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Payroll Manager</h1>
+                <p className="mt-1 text-sm font-semibold text-gray-500">
+                  Manage payroll records, salary calculations, bulk runs and payment actions.
+                </p>
               </div>
             </div>
 
-            <div className="w-full max-w-3xl">
-              <div className="flex min-h-[44px] w-full flex-wrap items-center gap-2 rounded-2xl border border-gray-200 bg-[#f8fafc] px-3 py-1.5 transition focus-within:border-indigo-300 focus-within:ring-4 focus-within:ring-indigo-500/10">
+            <div className="flex flex-wrap gap-2">
+              <button className={`${btn} ${btnGhost}`} onClick={() => loadPayrolls(page)} type="button">
+                <FiRefreshCcw className={loading ? "animate-spin" : ""} />
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="w-full max-w-4xl">
+              <div className="flex min-h-[46px] w-full flex-wrap items-center gap-2 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-3 py-1.5 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
                 <FiSearch className="h-4 w-4 shrink-0 text-gray-400" />
+
                 {activeFilters.map((filter) => (
-                  <button key={filter.key} type="button" className="inline-flex max-w-[160px] items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-extrabold text-indigo-700 ring-1 ring-indigo-600/10 hover:bg-indigo-100" onClick={() => clearSingleFilter(filter.key)}>
-                    <span className="truncate"><span className="text-indigo-500">{filter.label}:</span> {filter.value}</span>
+                  <button
+                    key={filter.key}
+                    type="button"
+                    className="inline-flex max-w-[170px] items-center gap-2 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-extrabold text-indigo-700 ring-1 ring-indigo-600/10 transition hover:bg-indigo-100"
+                    onClick={() => clearSingleFilter(filter.key)}
+                    title="Remove filter"
+                  >
+                    <span className="truncate">
+                      <span className="text-indigo-500">{filter.label}:</span> {filter.value}
+                    </span>
                     <FiX className="h-3.5 w-3.5 shrink-0" />
                   </button>
                 ))}
-                <input className="min-w-[150px] flex-1 border-0 bg-transparent px-1 py-2 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:outline-none focus:ring-0" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search payroll" type="text" />
-                <button type="button" className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-extrabold transition ${activeFilters.length ? "bg-indigo-600 text-white hover:bg-indigo-700" : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"}`} onClick={() => { setFilterDraft(filters); setFiltersOpen(true) }}>
-                  <FiFilter className="h-4 w-4" /> Filters {activeFilters.length ? <span className="rounded-full bg-white/20 px-1.5 text-xs">{activeFilters.length}</span> : null}
-                </button>
-                {(query || activeFilters.length) ? <button type="button" className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700" onClick={resetFilters}><FiX className="h-4 w-4" /></button> : null}
-              </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <MiniStat label="Records" value={summary.records} />
-                <MiniStat label="Net Total" value={money(summary.totalNet)} tone="indigo" />
-                <MiniStat label="Paid" value={money(summary.totalPaid)} tone="emerald" />
-                <MiniStat label="Pending" value={summary.pending} tone="amber" />
+                <input
+                  className="min-w-[150px] flex-1 border-0 bg-transparent px-1 py-2 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:outline-none focus:ring-0"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={activeFilters.length ? "Search payroll..." : "Search payroll records..."}
+                  type="text"
+                />
+
+                <button
+                  type="button"
+                  className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-extrabold transition ${
+                    activeFilters.length
+                      ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                      : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
+                  }`}
+                  onClick={() => {
+                    setFilterDraft(filters)
+                    setFiltersOpen(true)
+                  }}
+                >
+                  <FiFilter className="h-4 w-4" />
+                  Filters
+                  {activeFilters.length ? <span className="rounded-full bg-white/20 px-1.5 text-xs">{activeFilters.length}</span> : null}
+                </button>
+
+                {hasClearableSearchOrFilters ? (
+                  <button
+                    type="button"
+                    className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                    onClick={clearSearchAndExtraFilters}
+                    title="Clear search and extra filters"
+                  >
+                    <FiX className="h-4 w-4" />
+                  </button>
+                ) : null}
               </div>
             </div>
+
+            <p className="text-sm font-bold text-gray-500">
+              Showing <span className="text-gray-900">{filteredPayrolls.length}</span> payroll record{filteredPayrolls.length === 1 ? "" : "s"}
+            </p>
           </div>
         </div>
+
+        <PayrollTabBar tab={tab} onChange={setTab} />
 
         {tab === "payrolls" && (
           <PayrollTable
@@ -877,15 +941,55 @@ export default function PayrollManager() {
   )
 }
 
+function PayrollTabBar({ tab, onChange }) {
+  const tabs = [
+    ["payrolls", "Payrolls", FiFileText],
+    ["calculate", "Calculate", FiDollarSign],
+    ["bulk", "Bulk Run", FiUsers],
+  ]
+
+  return (
+    <div className={`${card} mb-6 overflow-x-auto px-2 py-2`}>
+      <div className="flex min-w-max items-center gap-2">
+        {tabs.map(([key, text, Icon]) => {
+          const active = tab === key
+
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onChange(key)}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-5 py-3 text-sm font-black transition ${
+                active
+                  ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/20"
+                  : "text-gray-700 hover:bg-gray-50"
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              {text}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function MiniStat({ label, value, tone = "gray" }) {
   const styles = {
-    gray: "bg-gray-50 text-gray-900 ring-gray-100",
-    indigo: "bg-indigo-50 text-indigo-700 ring-indigo-600/10",
-    emerald: "bg-emerald-50 text-emerald-700 ring-emerald-600/10",
-    amber: "bg-amber-50 text-amber-700 ring-amber-600/10",
-    rose: "bg-rose-50 text-rose-700 ring-rose-600/10",
-  }
-  return <div className={`rounded-2xl px-3 py-2 ring-1 ${styles[tone]}`}><p className="text-xs font-bold opacity-70">{label}</p><p className="truncate text-lg font-black">{value}</p></div>
+    gray: "border-gray-100 bg-white text-gray-950",
+    indigo: "border-indigo-100 bg-indigo-50/50 text-indigo-950",
+    emerald: "border-emerald-100 bg-emerald-50/50 text-emerald-950",
+    amber: "border-amber-100 bg-amber-50/50 text-amber-950",
+    rose: "border-rose-100 bg-rose-50/50 text-rose-950",
+  }[tone] || "border-gray-100 bg-white text-gray-950"
+
+  return (
+    <div className={`rounded-xl border px-3.5 py-3 ${styles}`}>
+      <p className="truncate text-[11px] font-black uppercase tracking-wide text-gray-500">{label}</p>
+      <p className="mt-1 truncate text-base font-black">{value}</p>
+    </div>
+  )
 }
 
 function SectionHeader({ icon, title, subtitle }) {
@@ -902,6 +1006,129 @@ function DepartmentSelect({ value, departments, onChange }) {
 
 function PositionSelect({ value, positions, onChange }) {
   return <select className={input} value={value} onChange={(e) => onChange(e.target.value)}><option value="">All Positions</option>{positions.map((x) => <option key={x._id} value={x._id}>{x.title}</option>)}</select>
+}
+
+function PayrollActionMenu({ payroll, readPayroll, approvePayroll, setPayModal, openMenuId, setOpenMenuId }) {
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const buttonRef = useRef(null)
+  const canManage = payroll?.status !== "paid" && payroll?.status !== "cancelled"
+  const open = openMenuId === payroll?._id
+
+  const close = useCallback(() => setOpenMenuId(null), [setOpenMenuId])
+
+  const runAction = useCallback(
+    (action) => {
+      close()
+      window.requestAnimationFrame(() => action?.())
+    },
+    [close]
+  )
+
+  useEffect(() => {
+    if (!open) return
+
+    const updatePosition = () => {
+      const rect = buttonRef.current?.getBoundingClientRect()
+      if (!rect) return
+
+      const width = 210
+      const height = canManage ? 154 : 74
+      const gap = 8
+      const left = Math.min(window.innerWidth - width - 12, Math.max(12, rect.right - width))
+      const openAbove = rect.bottom + height + gap > window.innerHeight
+      const top = openAbove ? Math.max(12, rect.top - height - gap) : Math.min(window.innerHeight - height - 12, rect.bottom + gap)
+
+      setPosition({ top, left })
+    }
+
+    updatePosition()
+
+    const closeMenu = () => close()
+    const onKey = (event) => event.key === "Escape" && close()
+
+    window.addEventListener("click", closeMenu)
+    window.addEventListener("keydown", onKey)
+    window.addEventListener("scroll", updatePosition, true)
+    window.addEventListener("resize", updatePosition)
+
+    return () => {
+      window.removeEventListener("click", closeMenu)
+      window.removeEventListener("keydown", onKey)
+      window.removeEventListener("scroll", updatePosition, true)
+      window.removeEventListener("resize", updatePosition)
+    }
+  }, [canManage, close, open])
+
+  const itemClass =
+    "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-bold text-gray-700 transition hover:bg-gray-50"
+
+  const menu =
+    open && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            style={{ position: "fixed", top: position.top, left: position.left, width: 210 }}
+            className="z-[9999] rounded-2xl border border-gray-200 bg-white p-2 shadow-[0_22px_60px_-24px_rgba(15,23,42,0.65)] ring-1 ring-black/5"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button type="button" className={itemClass} onClick={() => runAction(() => readPayroll(payroll))}>
+              <FiEye className="h-4 w-4 text-indigo-600" />
+              View details
+            </button>
+
+            {canManage ? (
+              <>
+                <button type="button" className={itemClass} onClick={() => runAction(() => approvePayroll(payroll))}>
+                  <FiCheckCircle className="h-4 w-4 text-emerald-600" />
+                  Approve
+                </button>
+                <button
+                  type="button"
+                  className={itemClass}
+                  onClick={() =>
+                    runAction(() =>
+                      setPayModal({
+                        open: true,
+                        payroll,
+                        paymentMethod: payroll.paymentMethod || "cash",
+                        paymentDate: dateInput(),
+                        transactionRef: payroll.transactionRef || "",
+                      })
+                    )
+                  }
+                >
+                  <FiCreditCard className="h-4 w-4 text-amber-600" />
+                  Mark paid
+                </button>
+              </>
+            ) : null}
+          </div>,
+          document.body
+        )
+      : null
+
+  return (
+    <div className="flex items-center justify-end gap-2" onClick={(event) => event.stopPropagation()}>
+      <button type="button" className={`${btn} ${btnPrimary} h-10 px-4 py-2`} onClick={() => readPayroll(payroll)}>
+        <FiEye className="h-4 w-4" />
+        View
+      </button>
+
+      <button
+        ref={buttonRef}
+        type="button"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 transition hover:bg-gray-50"
+        onClick={(event) => {
+          event.stopPropagation()
+          setOpenMenuId(open ? null : payroll._id)
+        }}
+        title="More actions"
+      >
+        <FiMoreVertical className="h-4 w-4" />
+      </button>
+
+      {menu}
+    </div>
+  )
 }
 
 function PayrollTable({
@@ -923,23 +1150,13 @@ function PayrollTable({
   setBulkCancelModal,
   bulkActionLoading,
 }) {
+  const [openMenuId, setOpenMenuId] = useState(null)
   const allVisibleSelected = payrolls.length > 0 && payrolls.every((payroll) => selectedIds.includes(payroll._id))
   const eligibleSelected = selectedPayrolls.filter((payroll) => !["paid", "cancelled"].includes(payroll.status))
+  const headings = ["Employee", "Payslip No", "Period", "Gross", "Deductions", "Net Payable", "Status", "Actions"]
 
   return (
-    <section className={`${card} overflow-hidden`}>
-      <div className="flex flex-col gap-3 border-b border-gray-100 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
-        <div>
-          <h2 className="text-lg font-extrabold text-gray-900">Payroll Records</h2>
-          <p className="mt-1 text-sm font-semibold text-gray-500">
-            View, select, approve, pay, cancel, and review payslips.
-          </p>
-        </div>
-        <button className={`${btn} ${btnGhost}`} onClick={() => loadPayrolls(page)} type="button">
-          <FiRefreshCcw className={loading ? "animate-spin" : ""} /> Refresh
-        </button>
-      </div>
-
+    <section className={`${card} overflow-hidden bg-white`}>
       {selectedPayrolls.length ? (
         <div className="flex flex-col gap-3 border-b border-indigo-100 bg-indigo-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div>
@@ -963,11 +1180,11 @@ function PayrollTable({
         </div>
       ) : null}
 
-      <div className="overflow-x-auto">
+      <div className="h-[620px] overflow-auto">
         <table className="w-full min-w-[1240px] border-separate border-spacing-0 text-left">
-          <thead>
+          <thead className="sticky top-0 z-20 bg-gray-50/95">
             <tr>
-              <th className="w-[58px] border-b border-gray-200 bg-gray-50 px-5 py-4">
+              <th className="w-[58px] border-b border-gray-200 bg-gray-50/95 px-5 py-4">
                 <input
                   type="checkbox"
                   checked={allVisibleSelected}
@@ -977,24 +1194,35 @@ function PayrollTable({
                   title="Select all visible payrolls"
                 />
               </th>
-              {["Employee", "Payslip No", "Period", "Gross", "Deductions", "Net Payable", "Status", "Actions"].map((heading) => (
-                <th key={heading} className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-extrabold uppercase tracking-[0.06em] text-gray-600">
+              {headings.map((heading) => (
+                <th
+                  key={heading}
+                  className={`border-b border-gray-200 bg-gray-50/95 px-5 py-4 text-xs font-black uppercase tracking-[0.08em] text-gray-600 ${
+                    heading === "Actions"
+                      ? "sticky right-0 z-30 min-w-[210px] bg-gray-50 text-right shadow-[-18px_0_35px_-34px_rgba(15,23,42,0.8)]"
+                      : ""
+                  }`}
+                >
                   {heading}
                 </th>
               ))}
             </tr>
           </thead>
+
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={9} className="px-5 py-12 text-center text-sm font-bold text-gray-500">Loading payrolls...</td>
+                <td colSpan={9} className="bg-white px-5 py-16 text-center">
+                  <FiRefreshCcw className="mx-auto h-6 w-6 animate-spin text-indigo-600" />
+                </td>
               </tr>
             ) : payrolls.length ? (
               payrolls.map((payroll) => {
                 const checked = selectedIds.includes(payroll._id)
+
                 return (
-                  <tr key={payroll._id} className={`group align-top ${checked ? "bg-indigo-50/40" : ""}`}>
-                    <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40">
+                  <tr key={payroll._id} className={`group align-top transition ${checked ? "bg-indigo-50/40" : "bg-white hover:bg-indigo-50/30"}`}>
+                    <td className="border-b border-gray-100 px-5 py-4">
                       <input
                         type="checkbox"
                         checked={checked}
@@ -1003,41 +1231,49 @@ function PayrollTable({
                         title="Select payroll"
                       />
                     </td>
-                    <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40">
+
+                    <td className="border-b border-gray-100 px-5 py-4">
                       <div className="flex items-center gap-3">
                         <Avatar employee={payroll.employee} />
                         <div className="min-w-0">
-                          <p className="truncate text-base font-extrabold text-gray-900">{payroll.employee?.name || "Unknown employee"}</p>
+                          <p className="truncate text-base font-black text-gray-950">{payroll.employee?.name || "Unknown employee"}</p>
                           <p className="truncate text-sm font-semibold text-gray-500">{payroll.employee?.position?.title || payroll.employee?.email || "Employee"}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40">
+
+                    <td className="border-b border-gray-100 px-5 py-4">
                       <span className="inline-flex rounded-full bg-gray-50 px-3 py-1.5 text-xs font-black text-gray-700 ring-1 ring-gray-200">
                         {payrollDisplayId(payroll)}
                       </span>
                     </td>
-                    <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40">
-                      <p className="text-sm font-extrabold text-gray-900">{monthName(payroll.month)} {payroll.year}</p>
+
+                    <td className="border-b border-gray-100 px-5 py-4">
+                      <p className="text-sm font-black text-gray-900">{monthName(payroll.month)} {payroll.year}</p>
                       <p className="mt-1 text-xs font-semibold text-gray-500">{formatDate(payroll.periodStart)} - {formatDate(payroll.periodEnd)}</p>
                     </td>
-                    <td className="border-b border-gray-100 px-5 py-4 text-sm font-extrabold text-gray-800 group-hover:bg-indigo-50/40">{money(payroll.grossSalary, payroll.currency)}</td>
-                    <td className="border-b border-gray-100 px-5 py-4 text-sm font-extrabold text-rose-600 group-hover:bg-indigo-50/40">{money(payroll.totalDeductions, payroll.currency)}</td>
-                    <td className="border-b border-gray-100 px-5 py-4 text-sm font-black text-emerald-700 group-hover:bg-indigo-50/40">{money(payroll.netPayable, payroll.currency)}</td>
-                    <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40"><StatusBadge status={payroll.status} /></td>
-                    <td className="border-b border-gray-100 px-5 py-4 text-right group-hover:bg-indigo-50/40">
-                      <div className="flex justify-end gap-2">
-                        <button className="rounded-xl p-2.5 text-indigo-600 transition hover:bg-indigo-50" onClick={() => readPayroll(payroll)} title="View"><FiEye /></button>
-                        {payroll.status !== "paid" && payroll.status !== "cancelled" ? <button className="rounded-xl p-2.5 text-emerald-600 transition hover:bg-emerald-50" onClick={() => approvePayroll(payroll)} title="Approve"><FiCheckCircle /></button> : null}
-                        {payroll.status !== "paid" && payroll.status !== "cancelled" ? <button className="rounded-xl p-2.5 text-amber-600 transition hover:bg-amber-50" onClick={() => setPayModal({ open: true, payroll, paymentMethod: payroll.paymentMethod || "cash", paymentDate: dateInput(), transactionRef: payroll.transactionRef || "" })} title="Pay"><FiCreditCard /></button> : null}
-                      </div>
+
+                    <td className="border-b border-gray-100 px-5 py-4 text-sm font-black text-gray-800">{money(payroll.grossSalary, payroll.currency)}</td>
+                    <td className="border-b border-gray-100 px-5 py-4 text-sm font-black text-rose-600">{money(payroll.totalDeductions, payroll.currency)}</td>
+                    <td className="border-b border-gray-100 px-5 py-4 text-sm font-black text-emerald-700">{money(payroll.netPayable, payroll.currency)}</td>
+                    <td className="border-b border-gray-100 px-5 py-4"><StatusBadge status={payroll.status} /></td>
+
+                    <td className="sticky right-0 z-10 min-w-[210px] border-b border-gray-100 bg-white px-5 py-3 text-right shadow-[-18px_0_35px_-34px_rgba(15,23,42,0.8)] group-hover:bg-white">
+                      <PayrollActionMenu
+                        payroll={payroll}
+                        readPayroll={readPayroll}
+                        approvePayroll={approvePayroll}
+                        setPayModal={setPayModal}
+                        openMenuId={openMenuId}
+                        setOpenMenuId={setOpenMenuId}
+                      />
                     </td>
                   </tr>
                 )
               })
             ) : (
               <tr>
-                <td colSpan={9} className="px-5 py-14 text-center">
+                <td colSpan={9} className="bg-white px-5 py-16 text-center">
                   <FiFileText className="mx-auto h-8 w-8 text-gray-300" />
                   <p className="mt-3 text-sm font-extrabold text-gray-900">No payroll records found</p>
                   <p className="mt-1 text-sm font-semibold text-gray-500">Calculate payroll or adjust filters.</p>
@@ -1047,6 +1283,7 @@ function PayrollTable({
           </tbody>
         </table>
       </div>
+
       <div className="flex flex-col gap-3 border-t border-gray-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm font-bold text-gray-600">Page {page} of {totalPages}</p>
         <div className="flex gap-2">
@@ -1083,6 +1320,7 @@ function PayrollPreviewCard({ payroll }) {
           <MiniStat label="Loan Deduction" value={money(loanTotal, payroll.currency)} tone={loanTotal > 0 ? "amber" : "gray"} />
           <MiniStat label="Payable Days" value={payroll.attendanceSummary?.payableDays || 0} />
         </div>
+        <RosterSummaryCard payroll={payroll} compact />
         <LoanDeductionNotice payroll={payroll} />
       </div>
     </div>
@@ -1132,6 +1370,46 @@ function LoanDeductionNotice({ payroll }) {
   )
 }
 
+function RosterSummaryCard({ payroll, compact = false }) {
+  const roster = payroll?.rosterSummary || {}
+  if (!roster || (!roster.rosteredDays && !roster.workingDays && !roster.schedule?.length)) return null
+
+  return (
+    <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-sm font-black text-indigo-900">Roster calculation included</p>
+          <p className="mt-1 text-xs font-bold text-indigo-700">
+            Payroll is using roster context for scheduled shifts, off days, holidays, attendance gaps, and late days.
+          </p>
+        </div>
+        <span className="w-fit rounded-full bg-white px-2.5 py-1 text-xs font-black text-indigo-700 ring-1 ring-indigo-600/10">
+          {roster.rosteredDays || 0} shift day(s)
+        </span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-6">
+        <MiniStat label="Working" value={roster.workingDays || 0} tone="indigo" />
+        <MiniStat label="Attended" value={roster.attendedDays || 0} tone="emerald" />
+        <MiniStat label="Roster Absent" value={roster.rosterAbsentDays || 0} tone={roster.rosterAbsentDays ? "rose" : "gray"} />
+        <MiniStat label="Late" value={roster.lateDays || 0} tone={roster.lateDays ? "amber" : "gray"} />
+        <MiniStat label="Weekly Off" value={roster.weeklyOffDays || 0} />
+        <MiniStat label="Holiday" value={roster.holidayDays || 0} />
+      </div>
+      {!compact && Array.isArray(roster.schedule) && roster.schedule.length ? (
+        <div className="mt-3 max-h-48 overflow-y-auto rounded-2xl bg-white ring-1 ring-indigo-100">
+          {roster.schedule.slice(0, 31).map((day) => (
+            <div key={day.date} className="flex items-center justify-between gap-3 border-b border-indigo-50 px-3 py-2 last:border-b-0">
+              <span className="text-xs font-extrabold text-gray-700">{day.date}</span>
+              <span className="truncate text-xs font-bold text-gray-500">{day.shift?.name || day.expectedStatus || "Unassigned"}</span>
+              <span className="text-xs font-black text-indigo-700">{day.attendanceStatus || "-"}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function FilterModal({ open, onClose, filterDraft, setFilterDraft, apply, clear, departments, positions, update }) {
   return <Modal open={open} title="Payroll Filters" subtitle="Filter by employee, department, position, month, and status." icon={<FiFilter className="h-5 w-5" />} onClose={onClose} footer={<div className="flex justify-end gap-2"><button className={`${btn} ${btnGhost}`} type="button" onClick={clear}>Clear</button><button className={`${btn} ${btnPrimary}`} type="button" onClick={apply}>Apply Filters</button></div>}><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><div className="md:col-span-2"><Field title="Employee"><EmployeeSearch value={filterDraft.employee} onSelect={(employee) => update("employee", employee)} /></Field></div><Field title="Year"><input className={input} type="number" value={filterDraft.year} onChange={(e) => update("year", e.target.value)} /></Field><Field title="Month"><select className={input} value={filterDraft.month} onChange={(e) => update("month", e.target.value)}><option value="">All Months</option>{MONTHS.map((name, index) => <option key={name} value={index + 1}>{name}</option>)}</select></Field><Field title="Department"><DepartmentSelect value={filterDraft.department} departments={departments} onChange={(value) => update("department", value)} /></Field><Field title="Position"><PositionSelect value={filterDraft.position} positions={positions} onChange={(value) => update("position", value)} /></Field><Field title="Status"><select className={input} value={filterDraft.status} onChange={(e) => update("status", e.target.value)}>{STATUSES.map((x) => <option key={x || "all"} value={x}>{x ? pretty(x) : "All Status"}</option>)}</select></Field></div></Modal>
 }
@@ -1143,7 +1421,7 @@ function DetailFooter({ payroll, approvePayroll, setPayModal, setCancelModal, de
 function PayslipView({ payroll }) {
   const employee = payroll.employee || {}
   const attendance = payroll.attendanceSummary || {}
-  return <div className="bg-white"><div className="rounded-2xl border border-gray-100 bg-white p-5"><div className="flex flex-col gap-4 border-b border-gray-100 pb-5 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[0.15em] text-indigo-600">Business Hub CRM</p><h3 className="mt-1 text-2xl font-black text-gray-900">Payslip</h3><p className="mt-1 text-sm font-bold text-gray-500">Salary slip for {monthName(payroll.month)} {payroll.year}</p></div><div className="text-left sm:text-right"><StatusBadge status={payroll.status} /><p className="mt-2 text-xs font-bold text-gray-500">Payslip No</p><p className="text-sm font-black text-gray-900">{payrollDisplayId(payroll)}</p></div></div><div className="grid grid-cols-1 gap-4 py-5 lg:grid-cols-3"><div className="lg:col-span-2"><div className="flex items-center gap-3 rounded-2xl bg-gray-50 p-4 ring-1 ring-gray-100"><Avatar employee={employee} className="h-12 w-12" /><div className="min-w-0"><p className="truncate text-lg font-black text-gray-900">{employee.name || "Employee"}</p><p className="truncate text-sm font-bold text-gray-500">{employee.email || "No email"}</p><p className="truncate text-sm font-bold text-gray-500">{employee.department?.name || "No department"} • {employee.position?.title || "No position"}</p></div></div></div><div className="rounded-2xl bg-indigo-50 p-4 ring-1 ring-indigo-600/10"><p className="text-xs font-bold text-indigo-500">Net Payable</p><p className="mt-1 text-3xl font-black text-indigo-700">{money(payroll.netPayable, payroll.currency)}</p></div></div><div className="grid grid-cols-2 gap-3 border-b border-gray-100 pb-5 md:grid-cols-4"><MiniStat label="Basic" value={money(payroll.basicSalary, payroll.currency)} /><MiniStat label="Gross" value={money(payroll.grossSalary, payroll.currency)} /><MiniStat label="Deductions" value={money(payroll.totalDeductions, payroll.currency)} tone="rose" /><MiniStat label="Loan Deduction" value={money(getLoanDeductionTotal(payroll), payroll.currency)} tone={getLoanDeductionTotal(payroll) > 0 ? "amber" : "gray"} /></div><div className="mt-5"><LoanDeductionNotice payroll={payroll} /></div><div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2"><PayrollComponentTable title="Earnings" items={payroll.earnings || []} total={payroll.totalEarnings} currency={payroll.currency} /><PayrollComponentTable title="Deductions" items={payroll.deductions || []} total={payroll.totalDeductions} currency={payroll.currency} danger /></div><div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4"><h4 className="text-base font-black text-gray-900">Attendance Summary</h4><div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4"><InfoLine label="Present" value={attendance.presentDays || 0} /><InfoLine label="Late" value={attendance.lateDays || 0} /><InfoLine label="Absent" value={attendance.absentDays || 0} /><InfoLine label="Half Day" value={attendance.halfDays || 0} /><InfoLine label="Paid Leave" value={attendance.paidLeaveDays || 0} /><InfoLine label="Unpaid Leave" value={attendance.unpaidLeaveDays || 0} /><InfoLine label="Payable Days" value={attendance.payableDays || 0} /><InfoLine label="Overtime Hours" value={attendance.approvedOvertimeHours || 0} /></div></div></div></div>
+  return <div className="bg-white"><div className="rounded-2xl border border-gray-100 bg-white p-5"><div className="flex flex-col gap-4 border-b border-gray-100 pb-5 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[0.15em] text-indigo-600">Business Hub CRM</p><h3 className="mt-1 text-2xl font-black text-gray-900">Payslip</h3><p className="mt-1 text-sm font-bold text-gray-500">Salary slip for {monthName(payroll.month)} {payroll.year}</p></div><div className="text-left sm:text-right"><StatusBadge status={payroll.status} /><p className="mt-2 text-xs font-bold text-gray-500">Payslip No</p><p className="text-sm font-black text-gray-900">{payrollDisplayId(payroll)}</p></div></div><div className="grid grid-cols-1 gap-4 py-5 lg:grid-cols-3"><div className="lg:col-span-2"><div className="flex items-center gap-3 rounded-2xl bg-gray-50 p-4 ring-1 ring-gray-100"><Avatar employee={employee} className="h-12 w-12" /><div className="min-w-0"><p className="truncate text-lg font-black text-gray-900">{employee.name || "Employee"}</p><p className="truncate text-sm font-bold text-gray-500">{employee.email || "No email"}</p><p className="truncate text-sm font-bold text-gray-500">{employee.department?.name || "No department"} • {employee.position?.title || "No position"}</p></div></div></div><div className="rounded-2xl bg-indigo-50 p-4 ring-1 ring-indigo-600/10"><p className="text-xs font-bold text-indigo-500">Net Payable</p><p className="mt-1 text-3xl font-black text-indigo-700">{money(payroll.netPayable, payroll.currency)}</p></div></div><div className="grid grid-cols-2 gap-3 border-b border-gray-100 pb-5 md:grid-cols-4"><MiniStat label="Basic" value={money(payroll.basicSalary, payroll.currency)} /><MiniStat label="Gross" value={money(payroll.grossSalary, payroll.currency)} /><MiniStat label="Deductions" value={money(payroll.totalDeductions, payroll.currency)} tone="rose" /><MiniStat label="Loan Deduction" value={money(getLoanDeductionTotal(payroll), payroll.currency)} tone={getLoanDeductionTotal(payroll) > 0 ? "amber" : "gray"} /></div><div className="mt-5"><RosterSummaryCard payroll={payroll} /></div><div className="mt-5"><LoanDeductionNotice payroll={payroll} /></div><div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2"><PayrollComponentTable title="Earnings" items={payroll.earnings || []} total={payroll.totalEarnings} currency={payroll.currency} /><PayrollComponentTable title="Deductions" items={payroll.deductions || []} total={payroll.totalDeductions} currency={payroll.currency} danger /></div><div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4"><h4 className="text-base font-black text-gray-900">Attendance Summary</h4><div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4"><InfoLine label="Present" value={attendance.presentDays || 0} /><InfoLine label="Late" value={attendance.lateDays || 0} /><InfoLine label="Absent" value={attendance.absentDays || 0} /><InfoLine label="Half Day" value={attendance.halfDays || 0} /><InfoLine label="Paid Leave" value={attendance.paidLeaveDays || 0} /><InfoLine label="Unpaid Leave" value={attendance.unpaidLeaveDays || 0} /><InfoLine label="Payable Days" value={attendance.payableDays || 0} /><InfoLine label="Overtime Hours" value={attendance.approvedOvertimeHours || 0} /></div></div></div></div>
 }
 
 function PayrollComponentTable({ title, items, total, currency, danger = false }) {

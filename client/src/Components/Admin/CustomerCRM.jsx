@@ -1800,18 +1800,10 @@ export default function CustomerCRM({
     return () => clearInterval(id)
   }, [])
 
-  const toastTimerRef = useRef(null)
-  const pushToast = (msg, ms = 2500) => {
+  const pushToast = (msg, type = "success") => {
     if (!showToast) return
-    showToast(msg)
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    toastTimerRef.current = setTimeout(() => showToast(""), ms)
+    showToast(msg, type)
   }
-  useEffect(() => {
-    return () => {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
-    }
-  }, [])
 
   const [templates, setTemplates] = useState([])
   const [openTaskIds, setOpenTaskIds] = useState(() => new Set())
@@ -2051,7 +2043,9 @@ export default function CustomerCRM({
       pushToast("Job created")
       setJobModal({ open: false, mode: "root", parentJobId: null })
     } catch (e) {
-      setPageError?.(e?.message || "Failed to create job.")
+      const message = e?.message || "Failed to create job."
+      setPageError?.(message)
+      pushToast(message, "error")
     } finally {
       setJobSaving(false)
     }
@@ -2089,13 +2083,17 @@ export default function CustomerCRM({
     if (!isAdmin) return
 
     if (!canAssign || cAssignees.length === 0) {
-      setPageError?.("Select at least 1 assignee.")
+      const message = "Select at least 1 assignee."
+      setPageError?.(message)
+      pushToast(message, "error")
       return
     }
 
     const inTemplateMode = !!cTemplateId
     if (!inTemplateMode && !String(cTitle || "").trim()) {
-      setPageError?.("Title is required.")
+      const message = "Title is required."
+      setPageError?.(message)
+      pushToast(message, "error")
       return
     }
 
@@ -2131,7 +2129,9 @@ export default function CustomerCRM({
       pushToast("Task created")
       setCreateOpen(false)
     } catch (e) {
-      setPageError?.(e?.message || "Failed to create task.")
+      const message = e?.message || "Failed to create task."
+      setPageError?.(message)
+      pushToast(message, "error")
     } finally {
       setCreateSaving(false)
     }
@@ -2178,10 +2178,12 @@ export default function CustomerCRM({
       try {
         await patchTaskStatus({ customerId, taskId: editingTaskId, status: eStatus })
         await resetTasks()
-        pushToast("Updated")
+        pushToast("Task status updated")
         setEditOpen(false)
       } catch (e) {
-        setPageError?.(e?.message || "Failed to update.")
+        const message = e?.message || "Failed to update."
+        setPageError?.(message)
+        pushToast(message, "error")
       } finally {
         setEditSaving(false)
       }
@@ -2189,13 +2191,17 @@ export default function CustomerCRM({
     }
 
     if (!canAssign || eAssignees.length === 0) {
-      setPageError?.("Select at least 1 assignee.")
+      const message = "Select at least 1 assignee."
+      setPageError?.(message)
+      pushToast(message, "error")
       return
     }
 
     const inTemplateMode = !!eTemplateId
     if (!inTemplateMode && !String(eTitle || "").trim()) {
-      setPageError?.("Title is required.")
+      const message = "Title is required."
+      setPageError?.(message)
+      pushToast(message, "error")
       return
     }
 
@@ -2223,7 +2229,9 @@ export default function CustomerCRM({
       pushToast("Task updated")
       setEditOpen(false)
     } catch (e) {
-      setPageError?.(e?.message || "Failed to update task.")
+      const message = e?.message || "Failed to update task."
+      setPageError?.(message)
+      pushToast(message, "error")
     } finally {
       setEditSaving(false)
     }
@@ -2249,7 +2257,9 @@ export default function CustomerCRM({
       await resetTasks()
       pushToast("Task moved")
     } catch (e) {
-      setPageError?.(e?.message || "Failed to move task.")
+      const message = e?.message || "Failed to move task."
+      setPageError?.(message)
+      pushToast(message, "error")
     } finally {
       setMovingTaskId("")
     }
@@ -2265,7 +2275,9 @@ export default function CustomerCRM({
       await resetTasks()
       pushToast("Status updated")
     } catch (e) {
-      setPageError?.(e?.message || "Failed to update status.")
+      const message = e?.message || "Failed to update status."
+      setPageError?.(message)
+      pushToast(message, "error")
     }
   }
 
@@ -2323,7 +2335,9 @@ export default function CustomerCRM({
       await resetTasks()
       pushToast("Uploaded")
     } catch (e) {
-      setPageError?.(e?.message || "Upload failed.")
+      const message = e?.message || "Upload failed."
+      setPageError?.(message)
+      pushToast(message, "error")
     } finally {
       setSubtitleBusyKey("")
     }
@@ -2348,7 +2362,9 @@ export default function CustomerCRM({
       await resetTasks()
       pushToast("Note added")
     } catch (e) {
-      setPageError?.(e?.message || "Failed to add note.")
+      const message = e?.message || "Failed to add note."
+      setPageError?.(message)
+      pushToast(message, "error")
     } finally {
       setSubtitleBusyKey("")
     }
@@ -2371,7 +2387,9 @@ export default function CustomerCRM({
       await resetTasks()
       pushToast("Renamed")
     } catch (e) {
-      setPageError?.(e?.message || "Rename failed.")
+      const message = e?.message || "Rename failed."
+      setPageError?.(message)
+      pushToast(message, "error")
     } finally {
       setSubtitleBusyKey("")
     }
@@ -2402,7 +2420,7 @@ export default function CustomerCRM({
         setDeletingTaskId(payload.taskId)
         await deleteTaskApi({ customerId, taskId: payload.taskId })
         await resetTasks()
-        pushToast("Task deleted", 2500)
+        pushToast("Task deleted")
       }
 
       if (payload.kind === "job") {
@@ -2410,7 +2428,7 @@ export default function CustomerCRM({
         await deleteJobApi({ customerId, jobId: payload.jobId, force: !!payload.force })
         await fetchJobs()
         await resetTasks()
-        pushToast("Job deleted", 2500)
+        pushToast("Job deleted")
         if (String(selectedJobId) === String(payload.jobId)) setSelectedJobId("")
       }
 
@@ -2420,7 +2438,7 @@ export default function CustomerCRM({
         setSubtitleBusyKey(key)
         await deleteSubtitleFileApi({ customerId, taskId, subtitleId, fileId })
         await resetTasks()
-        pushToast("File deleted", 2500)
+        pushToast("File deleted")
         setSubtitleBusyKey("")
       }
 
@@ -2436,7 +2454,9 @@ export default function CustomerCRM({
           payload: { kind: "job", jobId: payload.jobId, force: true },
         })
       } else {
-        setPageError?.(e?.message || "Delete failed.")
+        const message = e?.message || "Delete failed."
+        setPageError?.(message)
+        pushToast(message, "error")
       }
     } finally {
       setDeleteLoading(false)

@@ -46,9 +46,9 @@ export function matchDashboardRoute(pathname, basePath, routeMap) {
       customerId: segments[1],
     }
   }
-  if (basePath === "/employee" && segments[0] === "customers" && segments[1]) {
+  if (basePath === "/employee" && ["customers", "clients"].includes(segments[0]) && segments[1]) {
     return {
-      section: "Customers",
+      section: "Clients",
       subcategory: "",
       customerId: segments[1],
       customerTab: "overview",

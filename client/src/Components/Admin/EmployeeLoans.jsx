@@ -305,18 +305,17 @@ function Badge({ value }) {
 
 function FilterChip({ label, value, onClear }) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700">
+    <button
+      type="button"
+      onClick={onClear}
+      className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+      title={`Remove ${label} filter`}
+      aria-label={`Remove ${label} filter`}
+    >
       <span className="text-indigo-400">{label}:</span>
-      <span className="max-w-[220px] truncate">{value}</span>
-      <button
-        type="button"
-        onClick={onClear}
-        className="rounded-full p-0.5 text-indigo-600 transition hover:bg-indigo-100 hover:text-indigo-800"
-        aria-label={`Clear ${label}`}
-      >
-        <FiX className="h-3.5 w-3.5" />
-      </button>
-    </span>
+      <span className="max-w-[180px] truncate sm:max-w-[220px]">{value}</span>
+      <FiX className="h-3.5 w-3.5 shrink-0 text-indigo-600" />
+    </button>
   )
 }
 
@@ -1381,8 +1380,15 @@ function HeaderSearchFilters({
   onOpenFilters,
 }) {
   return (
-    <div className="mt-5 w-full lg:max-w-[46%]">
-      <div className="flex min-h-[44px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-white px-2.5 py-1.5 transition focus-within:border-transparent focus-within:ring-2 focus-within:ring-indigo-500/35">
+    <div
+      className={cn(
+        "w-full transition-all duration-200",
+        activeFilterCount
+          ? "lg:min-w-[520px] lg:max-w-[72%] lg:flex-[0_1_72%]"
+          : "lg:max-w-[46%] lg:flex-[0_1_46%]"
+      )}
+    >
+      <div className="flex min-h-[42px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
         <FiSearch className="h-4 w-4 shrink-0 text-gray-400" />
 
         {filters.q.trim() ? (
@@ -1406,22 +1412,12 @@ function HeaderSearchFilters({
         ) : null}
 
         <input
-          className="min-w-[120px] flex-1 border-0 bg-transparent px-1 py-1 text-sm outline-none placeholder:text-gray-400"
+          className="min-w-[110px] flex-1 border-0 bg-transparent px-1 py-1 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:outline-none focus:ring-0"
           value={filters.q}
           onChange={(event) => updateFilter("q", event.target.value)}
           placeholder={activeFilterCount ? "Search..." : "Search loan no..."}
+          type="text"
         />
-
-        {activeFilterCount ? (
-          <button
-            type="button"
-            onClick={resetFilters}
-            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-2.5 text-xs font-bold text-gray-600 transition hover:bg-gray-50"
-          >
-            <FiX className="h-3.5 w-3.5" />
-            Clear
-          </button>
-        ) : null}
 
         <button
           type="button"
@@ -1429,18 +1425,29 @@ function HeaderSearchFilters({
           className={cn(
             "inline-flex h-8 shrink-0 items-center gap-2 rounded-xl px-2.5 text-xs font-black transition",
             activeFilterCount
-              ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/20"
-              : "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+              ? "bg-indigo-600 text-white hover:bg-indigo-700"
+              : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
           )}
         >
           <FiFilter className="h-3.5 w-3.5" />
           Filters
           {activeFilterCount ? (
-            <span className="rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] font-black text-white">
+            <span className="rounded-full bg-white/20 px-1.5 text-[10px]">
               {activeFilterCount}
             </span>
           ) : null}
         </button>
+
+        {activeFilterCount ? (
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+            title="Clear search and filters"
+          >
+            <FiX className="h-4 w-4" />
+          </button>
+        ) : null}
       </div>
     </div>
   )
@@ -1984,45 +1991,38 @@ export default function AdminEmployeeLoansPage() {
       <Toaster position="top-right" />
 
       <div className="mx-auto max-w-[1600px] space-y-5 p-4 sm:p-6 lg:p-8">
-        <section className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-[0_14px_45px_-30px_rgba(0,0,0,0.45)]">
-          <div className="p-5 sm:p-7">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-              <div className="min-w-0">
-
-                <div className="flex min-w-0 items-center gap-4">
-                  <div className="hidden h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20 sm:flex">
-                    <FiCreditCard className="h-6 w-6" />
-                  </div>
-
-                  <div className="min-w-0">
-                    <h1 className="text-2xl font-black tracking-tight text-gray-900 sm:text-3xl">
-                      Employee Loan
-                    </h1>
-                   
-                  </div>
-                </div>
+        <section className={`${card} mb-5 p-4 sm:p-5`}>
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
+                <FiCreditCard className="h-5 w-5" />
               </div>
-
-              <div className="flex flex-col gap-2 sm:flex-row xl:justify-end">
-                <button type="button" className={cn(btn, btnGhost)} onClick={refreshAll} disabled={loading || employeeLoading}>
-                  <FiRefreshCcw className={cn("h-4 w-4", loading ? "animate-spin" : "")} />
-                  Refresh
-                </button>
-                <button type="button" className={cn(btn, btnGhost)} onClick={() => setColumnModalOpen(true)} disabled={prefLoading}>
-                  <FiColumns className="h-4 w-4" />
-                  Columns
-                </button>
-                <button type="button" className={cn(btn, btnGhost)} onClick={exportLoans}>
-                  <SiMicrosoftexcel className="h-4 w-4" />
-                  Export
-                </button>
-                <button type="button" className={cn(btn, btnPrimary)} onClick={openCreate}>
-                  <FiPlus className="h-4 w-4" />
-                  New loan
-                </button>
+              <div className="min-w-0">
+                <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Employee Loans</h1>
               </div>
             </div>
 
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className={cn(btn, btnGhost)} onClick={refreshAll} disabled={loading || employeeLoading}>
+                <FiRefreshCcw className={cn("h-4 w-4", loading ? "animate-spin" : "")} />
+                Refresh
+              </button>
+              <button type="button" className={cn(btn, btnGhost)} onClick={() => setColumnModalOpen(true)} disabled={prefLoading}>
+                <FiColumns className="h-4 w-4" />
+                Columns
+              </button>
+              <button type="button" className={cn(btn, btnGhost)} onClick={exportLoans}>
+                <SiMicrosoftexcel className="h-4 w-4" />
+                Export
+              </button>
+              <button type="button" className={cn(btn, btnPrimary)} onClick={openCreate}>
+                <FiPlus className="h-4 w-4" />
+                New Loan
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <HeaderSearchFilters
               filters={filters}
               updateFilter={updateFilter}
@@ -2033,6 +2033,9 @@ export default function AdminEmployeeLoansPage() {
               onOpenFilters={() => setFilterModalOpen(true)}
             />
 
+            <p className="text-sm font-bold text-gray-500">
+              Showing <span className="text-gray-900">{sortedLoans.length}</span> of <span className="text-gray-900">{pagination.total}</span> loans
+            </p>
           </div>
         </section>
 

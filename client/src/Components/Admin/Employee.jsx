@@ -1,13 +1,16 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import toast, { Toaster } from "react-hot-toast"
 import {
-  FiBriefcase,
   FiCamera,
+  FiClock,
   FiEdit3,
+  FiEye,
   FiFilter,
   FiLock,
+  FiMoreVertical,
   FiPlus,
   FiRefreshCcw,
   FiSearch,
@@ -31,6 +34,10 @@ const btnGhost = "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50
 const btnDanger = "bg-rose-600 text-white hover:bg-rose-700"
 const input =
   "h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-transparent focus:ring-2 focus:ring-indigo-500/40"
+
+function cn(...classes) {
+  return classes.filter(Boolean).join(" ")
+}
 
 function authHeaders() {
   const token = localStorage.getItem("token")
@@ -140,6 +147,217 @@ function StatusBadge({ active, label }) {
   )
 }
 
+function EmployeeDetailsModal({ open, employee, onClose, onEdit, onDelete }) {
+  if (!open) return null
+
+  return (
+    <Modal
+      open={open}
+      title="Employee Details"
+      subtitle={employee?.employeeId || employee?.email || "Employee profile"}
+      icon={<FiEye className="h-5 w-5" />}
+      onClose={onClose}
+      maxWidthClass="max-w-4xl"
+      footer={
+        <div className="flex flex-col justify-between gap-2 sm:flex-row">
+          <button className={`${btn} ${btnGhost}`} type="button" onClick={onClose}>
+            Close
+          </button>
+
+          {employee ? (
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <button
+                className={`${btn} ${btnPrimary}`}
+                type="button"
+                onClick={() => {
+                  onClose?.()
+                  onEdit?.(employee)
+                }}
+              >
+                <FiEdit3 className="h-4 w-4" />
+                Edit
+              </button>
+              <button
+                className={`${btn} ${btnDanger}`}
+                type="button"
+                onClick={() => {
+                  onClose?.()
+                  onDelete?.(employee)
+                }}
+              >
+                <FiTrash2 className="h-4 w-4" />
+                Delete
+              </button>
+            </div>
+          ) : null}
+        </div>
+      }
+    >
+      {!employee ? (
+        <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center text-sm font-semibold text-gray-500">
+          No employee selected.
+        </div>
+      ) : (
+        <div className="space-y-5">
+          <div className={`${card} p-5`}>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+              <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gray-100 ring-1 ring-gray-200">
+                {employee.avatarUrl ? (
+                  <img src={employee.avatarUrl} alt={employee.name || "Employee"} className="h-full w-full object-cover" />
+                ) : (
+                  <FiUser className="h-8 w-8 text-gray-500" />
+                )}
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="truncate text-xl font-extrabold text-gray-900">{employee.name || "Unnamed employee"}</p>
+                    <p className="mt-1 truncate text-sm font-semibold text-gray-500">{employee.email || "No email"}</p>
+                    {employee.employeeId ? <p className="mt-2 text-sm font-bold text-indigo-600">{employee.employeeId}</p> : null}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <StatusBadge active={employee.isActive !== false} label={employee.isActive !== false ? "Enabled" : "Disabled"} />
+                    <span className="inline-flex w-fit rounded-full bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                      {pretty(employee.employeeStatus || "active")}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {[
+              ["Phone", employee.phone || "—"],
+              ["Department", employee.department?.name || "Not assigned"],
+              ["Designation", employee.position?.title || "Not assigned"],
+              ["Access Group", employee.permissionGroup?.name || "No access group"],
+              ["Employment Type", pretty(employee.employmentType || "full_time")],
+              ["Salary Type", `${pretty(employee.salaryType || "fixed")} Salary`],
+              ["Work Status", pretty(employee.workStatus || "available")],
+              ["Daily Lead Limit", employee.dailyLeadLimit || 0],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-2xl border border-gray-100 bg-gray-50/80 p-4">
+                <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-gray-400">{label}</p>
+                <p className="mt-1.5 text-sm font-extrabold text-gray-900">{value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+function EmployeeActionMenu({ employee, openMenuId, setOpenMenuId, onView, onEdit, onDelete }) {
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const buttonRef = useRef(null)
+  const open = openMenuId === employee?._id
+
+  const close = useCallback(() => setOpenMenuId(null), [setOpenMenuId])
+
+  const runAction = useCallback(
+    (action) => {
+      close()
+      window.requestAnimationFrame(() => action?.(employee))
+    },
+    [close, employee]
+  )
+
+  useEffect(() => {
+    if (!open) return
+
+    const updatePosition = () => {
+      const rect = buttonRef.current?.getBoundingClientRect()
+      if (!rect) return
+
+      const width = 190
+      const height = 154
+      const gap = 8
+      const left = Math.min(window.innerWidth - width - 12, Math.max(12, rect.right - width))
+      const openAbove = rect.bottom + height + gap > window.innerHeight
+      const top = openAbove ? Math.max(12, rect.top - height - gap) : Math.min(window.innerHeight - height - 12, rect.bottom + gap)
+
+      setPosition({ top, left })
+    }
+
+    updatePosition()
+
+    const closeMenu = () => close()
+    const onKey = (event) => event.key === "Escape" && close()
+
+    window.addEventListener("click", closeMenu)
+    window.addEventListener("keydown", onKey)
+    window.addEventListener("scroll", updatePosition, true)
+    window.addEventListener("resize", updatePosition)
+
+    return () => {
+      window.removeEventListener("click", closeMenu)
+      window.removeEventListener("keydown", onKey)
+      window.removeEventListener("scroll", updatePosition, true)
+      window.removeEventListener("resize", updatePosition)
+    }
+  }, [close, open])
+
+  const itemClass =
+    "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-bold text-gray-700 transition hover:bg-gray-50"
+
+  const menu =
+    open && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            style={{ position: "fixed", top: position.top, left: position.left, width: 190 }}
+            className="z-[9999] rounded-2xl border border-gray-100 bg-white p-2 shadow-[0_16px_38px_-24px_rgba(15,23,42,0.45)] ring-1 ring-black/5"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button type="button" className={itemClass} onClick={() => runAction(onView)}>
+              <FiEye className="h-4 w-4 text-indigo-600" />
+              View details
+            </button>
+            <button type="button" className={itemClass} onClick={() => runAction(onEdit)}>
+              <FiEdit3 className="h-4 w-4 text-gray-600" />
+              Edit employee
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-bold text-rose-700 transition hover:bg-rose-50"
+              onClick={() => runAction(onDelete)}
+            >
+              <FiTrash2 className="h-4 w-4" />
+              Delete employee
+            </button>
+          </div>,
+          document.body
+        )
+      : null
+
+  return (
+    <div className="flex items-center justify-end gap-2" onClick={(event) => event.stopPropagation()}>
+      <button type="button" className={`${btn} ${btnPrimary} h-10 px-3 py-2 shadow-sm shadow-indigo-600/15`} onClick={() => onView?.(employee)}>
+        <FiEye className="h-4 w-4" />
+        View
+      </button>
+
+      <button
+        ref={buttonRef}
+        type="button"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 transition hover:bg-gray-50"
+        onClick={(event) => {
+          event.stopPropagation()
+          setOpenMenuId(open ? null : employee._id)
+        }}
+        title="More actions"
+      >
+        <FiMoreVertical className="h-4 w-4" />
+      </button>
+
+      {menu}
+    </div>
+  )
+}
+
+
 const emptyForm = {
   name: "",
   email: "",
@@ -151,11 +369,21 @@ const emptyForm = {
   permissionGroup: "",
   employmentType: "full_time",
   salaryType: "fixed",
+  salaryProfileType: "monthly",
+  currency: "BDT",
+  basicSalary: "",
+  workingDaysPerMonth: 26,
+  workingHoursPerDay: 8,
   employeeStatus: "active",
   isActive: true,
   isAvailableForAssignment: true,
   workStatus: "available",
   dailyLeadLimit: 0,
+  rosterShift: "",
+  rosterType: "weekly",
+  rosterStartDate: new Date().toISOString().slice(0, 10),
+  rosterEndDate: "",
+  rosterWeekdays: [0, 1, 2, 3, 4],
 }
 
 function getId(value) {
@@ -168,11 +396,48 @@ function pretty(value) {
     .replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
+const dayOptions = [
+  ["0", "Sun"],
+  ["1", "Mon"],
+  ["2", "Tue"],
+  ["3", "Wed"],
+  ["4", "Thu"],
+  ["5", "Fri"],
+  ["6", "Sat"],
+]
+
+function WeekdayPicker({ value = [], onChange }) {
+  const selected = new Set((value || []).map(Number))
+  return (
+    <div className="flex flex-wrap gap-2">
+      {dayOptions.map(([raw, label]) => {
+        const day = Number(raw)
+        const active = selected.has(day)
+        return (
+          <button
+            key={raw}
+            type="button"
+            className={`rounded-xl px-3 py-2 text-xs font-extrabold ring-1 transition ${
+              active
+                ? "bg-indigo-600 text-white ring-indigo-600"
+                : "bg-white text-gray-600 ring-gray-200 hover:bg-gray-50"
+            }`}
+            onClick={() => onChange(active ? value.filter((item) => Number(item) !== day) : [...value, day])}
+          >
+            {label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function Employee() {
   const [employees, setEmployees] = useState([])
   const [departments, setDepartments] = useState([])
   const [positions, setPositions] = useState([])
   const [permissionGroups, setPermissionGroups] = useState([])
+  const [shifts, setShifts] = useState([])
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(false)
@@ -197,6 +462,8 @@ export default function Employee() {
   const [avatarObjectUrl, setAvatarObjectUrl] = useState("")
   const [avatarRemove, setAvatarRemove] = useState(false)
   const [deleteState, setDeleteState] = useState({ open: false, employee: null, password: "", loading: false })
+  const [detailsState, setDetailsState] = useState({ open: false, employee: null })
+  const [openMenuId, setOpenMenuId] = useState(null)
   const abortRef = useRef(null)
   const avatarInputRef = useRef(null)
 
@@ -205,6 +472,16 @@ export default function Employee() {
     return positions.filter((position) => String(getId(position.department)) === String(form.department))
   }, [form.department, positions])
 
+  const selectedPosition = useMemo(
+    () => positions.find((position) => String(position._id) === String(form.position)) || null,
+    [form.position, positions]
+  )
+
+  const selectedShift = useMemo(
+    () => shifts.find((shift) => String(shift._id) === String(form.rosterShift)) || null,
+    [form.rosterShift, shifts]
+  )
+
   const filterPositionOptions = useMemo(() => {
     if (!filters.department) return positions
     return positions.filter((position) => String(getId(position.department)) === String(filters.department))
@@ -212,14 +489,16 @@ export default function Employee() {
 
   const loadAccessLists = async () => {
     try {
-      const [departmentsRes, positionsRes, groupsRes] = await Promise.all([
+      const [departmentsRes, positionsRes, groupsRes, shiftsRes] = await Promise.all([
         api("/access-control/departments"),
         api("/access-control/positions"),
         api("/access-control/permission-groups"),
+        api("/roster/shifts"),
       ])
       setDepartments(departmentsRes.departments || [])
       setPositions(positionsRes.positions || [])
       setPermissionGroups(groupsRes.permissionGroups || [])
+      setShifts(shiftsRes.shifts || [])
     } catch (error) {
       toast.error(error.message || "Failed to load access lists")
     }
@@ -284,11 +563,32 @@ export default function Employee() {
   }, [debouncedQuery, filters])
 
   const updateForm = (key, value) => {
-    setForm((prev) => ({
-      ...prev,
-      [key]: value,
-      ...(key === "department" ? { position: "" } : {}),
-    }))
+    setForm((prev) => {
+      const next = {
+        ...prev,
+        [key]: value,
+        ...(key === "department" ? { position: "" } : {}),
+      }
+
+      if (key === "position") {
+        const position = positions.find((item) => String(item._id) === String(value))
+        next.salaryProfileType = position?.defaultSalaryType || "monthly"
+        next.currency = position?.defaultCurrency || "BDT"
+        next.basicSalary = position?.defaultBasicSalary ? String(position.defaultBasicSalary) : ""
+        next.workingDaysPerMonth = position?.defaultWorkingDaysPerMonth || 26
+        next.workingHoursPerDay = position?.defaultWorkingHoursPerDay || 8
+      }
+
+      if (key === "department") {
+        next.salaryProfileType = "monthly"
+        next.currency = "BDT"
+        next.basicSalary = ""
+        next.workingDaysPerMonth = 26
+        next.workingHoursPerDay = 8
+      }
+
+      return next
+    })
   }
 
   useEffect(() => {
@@ -341,6 +641,23 @@ export default function Employee() {
     const formData = new FormData()
     formData.append("avatar", file)
     return apiFormData(`/users/${employeeId}/avatar`, formData, { method: "PATCH" })
+  }
+
+  const assignEmployeeRoster = async (employeeId) => {
+    if (!employeeId || !form.rosterShift) return null
+    return api("/roster/assignments", {
+      method: "POST",
+      body: JSON.stringify({
+        employee: employeeId,
+        shift: form.rosterShift,
+        rosterType: form.rosterType || "weekly",
+        startDate: form.rosterStartDate || new Date().toISOString().slice(0, 10),
+        endDate: form.rosterEndDate || null,
+        weekdays: Array.isArray(form.rosterWeekdays) ? form.rosterWeekdays.map(Number) : [],
+        isActive: true,
+        note: "Assigned from employee panel.",
+      }),
+    })
   }
 
   const openCreate = () => {
@@ -406,7 +723,16 @@ export default function Employee() {
       isAvailableForAssignment: Boolean(form.isAvailableForAssignment),
       workStatus: form.workStatus,
       dailyLeadLimit: Number(form.dailyLeadLimit || 0),
-      createSalaryProfile: Boolean(form.position),
+      createSalaryProfile: Boolean(form.position && Number(form.basicSalary || 0) > 0),
+      salaryProfile: form.position && Number(form.basicSalary || 0) > 0
+        ? {
+            salaryType: form.salaryProfileType || "monthly",
+            currency: form.currency || "BDT",
+            basicSalary: Number(form.basicSalary || 0),
+            workingDaysPerMonth: Number(form.workingDaysPerMonth || 26),
+            workingHoursPerDay: Number(form.workingHoursPerDay || 8),
+          }
+        : undefined,
     }
 
     setSaving(true)
@@ -425,7 +751,11 @@ export default function Employee() {
         await api(`/users/${editing._id}/avatar`, { method: "DELETE" })
       }
 
-      toast.success(editing?._id ? "Employee updated" : "Employee created")
+      if (form.rosterShift && employeeId) {
+        await assignEmployeeRoster(employeeId)
+      }
+
+      toast.success(form.rosterShift ? "Employee saved and roster assigned" : editing?._id ? "Employee updated" : "Employee created")
       closeModal({ force: true })
       loadEmployees({ reset: true })
     } catch (error) {
@@ -532,6 +862,7 @@ export default function Employee() {
                 </p>
               </div>
             </div>
+
             <div className="flex flex-wrap gap-2">
               <button className={`${btn} ${btnGhost}`} onClick={() => loadEmployees({ reset: true })}>
                 <FiRefreshCcw className={loading ? "animate-spin" : ""} />
@@ -543,64 +874,68 @@ export default function Employee() {
               </button>
             </div>
           </div>
-        </div>
 
-        <div className={`${card} mb-5 p-3 sm:p-4`}>
-          <div className="w-full sm:max-w-[460px] md:max-w-[520px] lg:max-w-[580px] xl:max-w-[620px]">
-            <div className="flex min-h-[44px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-gray-50/80 px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(99,102,241,0.10)]">
-              <FiSearch className="h-4 w-4 shrink-0 text-gray-400" />
+          <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className={activeFilterCount ? "w-full xl:max-w-[72%]" : "w-full sm:max-w-[460px] md:max-w-[520px] lg:max-w-[580px] xl:max-w-[620px]"}>
+              <div className="flex min-h-[44px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-gray-50/80 px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(99,102,241,0.10)]">
+                <FiSearch className="h-4 w-4 shrink-0 text-gray-400" />
 
-              {activeFilterEntries.map((filter) => (
-                <button
-                  key={filter.key}
-                  type="button"
-                  className="inline-flex max-w-[115px] items-center gap-1 rounded-full bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-600/10 transition hover:bg-indigo-100 sm:max-w-[135px] lg:max-w-[150px]"
-                  onClick={() => clearSingleFilter(filter.key)}
-                  title="Remove filter"
-                >
-                  <span className="truncate">
-                    <span className="text-indigo-500">{filter.label}:</span> {filter.value}
-                  </span>
-                  <FiX className="h-3.5 w-3.5 shrink-0" />
-                </button>
-              ))}
+                {activeFilterEntries.map((filter) => (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    className="inline-flex max-w-[115px] items-center gap-1 rounded-full bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-600/10 transition hover:bg-indigo-100 sm:max-w-[135px] lg:max-w-[150px]"
+                    onClick={() => clearSingleFilter(filter.key)}
+                    title="Remove filter"
+                  >
+                    <span className="truncate">
+                      <span className="text-indigo-500">{filter.label}:</span> {filter.value}
+                    </span>
+                    <FiX className="h-3.5 w-3.5 shrink-0" />
+                  </button>
+                ))}
 
-              <input
-                className="h-8 min-w-[95px] flex-1 appearance-none border-0 bg-transparent px-0 text-sm font-medium text-gray-800 shadow-none outline-none ring-0 placeholder:text-gray-400 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 sm:min-w-[120px]"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={activeFilterCount ? "Search..." : "Search employees..."}
-                type="text"
-              />
+                <input
+                  className="h-8 min-w-[95px] flex-1 appearance-none border-0 bg-transparent px-0 text-sm font-medium text-gray-800 shadow-none outline-none ring-0 placeholder:text-gray-400 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 sm:min-w-[120px]"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={activeFilterCount ? "Search..." : "Search employees..."}
+                  type="text"
+                />
 
-              <button
-                type="button"
-                className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-xl px-2 text-[13px] font-bold transition ${
-                  activeFilterCount
-                    ? "bg-indigo-600 text-white hover:bg-indigo-700"
-                    : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
-                }`}
-                onClick={() => {
-                  setFilterDraft(filters)
-                  setFiltersOpen(true)
-                }}
-              >
-                <FiFilter className="h-4 w-4" />
-                Filters
-                {activeFilterCount ? <span className="rounded-full bg-white/20 px-1.5 text-xs">{activeFilterCount}</span> : null}
-              </button>
-
-              {(query || activeFilterCount) ? (
                 <button
                   type="button"
-                  className="inline-flex h-8 shrink-0 items-center justify-center rounded-xl px-2.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
-                  onClick={resetFilters}
-                  title="Clear search and filters"
+                  className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-xl px-2 text-[13px] font-bold transition ${
+                    activeFilterCount
+                      ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                      : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
+                  }`}
+                  onClick={() => {
+                    setFilterDraft(filters)
+                    setFiltersOpen(true)
+                  }}
                 >
-                  <FiX className="h-4 w-4" />
+                  <FiFilter className="h-4 w-4" />
+                  Filters
+                  {activeFilterCount ? <span className="rounded-full bg-white/20 px-1.5 text-xs">{activeFilterCount}</span> : null}
                 </button>
-              ) : null}
+
+                {(query || activeFilterCount) ? (
+                  <button
+                    type="button"
+                    className="inline-flex h-8 shrink-0 items-center justify-center rounded-xl px-2.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                    onClick={resetFilters}
+                    title="Clear search and filters"
+                  >
+                    <FiX className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
             </div>
+
+            <p className="text-sm font-bold text-gray-500">
+              Showing <span className="text-gray-900">{employees.length}</span> employee{employees.length === 1 ? "" : "s"}
+            </p>
           </div>
         </div>
 
@@ -612,7 +947,9 @@ export default function Employee() {
                   {["Employee", "Department", "Designation", "Access Group", "Employment", "Status", "Actions"].map((heading) => (
                     <th
                       key={heading}
-                      className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-extrabold uppercase tracking-[0.06em] text-gray-600"
+                      className={`border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-extrabold uppercase tracking-[0.06em] text-gray-600 ${
+                        heading === "Actions" ? "text-right" : ""
+                      }`}
                     >
                       {heading}
                     </th>
@@ -675,22 +1012,14 @@ export default function Employee() {
                         </div>
                       </td>
                       <td className="border-b border-gray-100 px-5 py-4 text-right group-hover:bg-indigo-50/40">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            className="inline-flex rounded-xl p-2.5 text-indigo-600 transition hover:bg-indigo-50"
-                            onClick={() => openEdit(employee)}
-                            title="Edit employee"
-                          >
-                            <FiEdit3 />
-                          </button>
-                          <button
-                            className="inline-flex rounded-xl p-2.5 text-rose-600 transition hover:bg-rose-50"
-                            onClick={() => setDeleteState({ open: true, employee, password: "", loading: false })}
-                            title="Delete employee"
-                          >
-                            <FiTrash2 />
-                          </button>
-                        </div>
+                        <EmployeeActionMenu
+                          employee={employee}
+                          openMenuId={openMenuId}
+                          setOpenMenuId={setOpenMenuId}
+                          onView={(item) => setDetailsState({ open: true, employee: item })}
+                          onEdit={openEdit}
+                          onDelete={(item) => setDeleteState({ open: true, employee: item, password: "", loading: false })}
+                        />
                       </td>
                     </tr>
                   ))
@@ -724,6 +1053,14 @@ export default function Employee() {
           </div>
         </section>
       </div>
+
+      <EmployeeDetailsModal
+        open={detailsState.open}
+        employee={detailsState.employee}
+        onClose={() => setDetailsState({ open: false, employee: null })}
+        onEdit={openEdit}
+        onDelete={(employee) => setDeleteState({ open: true, employee, password: "", loading: false })}
+      />
 
       <Modal
         open={modalOpen}
@@ -829,6 +1166,25 @@ export default function Employee() {
                 ))}
               </select>
             </Field>
+            <Field label="Basic Salary" hint={selectedPosition ? "Auto-filled from designation. You can edit it for this employee." : "Select a designation or enter employee salary manually."}>
+              <input className={input} type="number" min="0" value={form.basicSalary} onChange={(event) => updateForm("basicSalary", event.target.value)} placeholder="Example: 25000" />
+            </Field>
+            <Field label="Salary Profile Type">
+              <select className={input} value={form.salaryProfileType} onChange={(event) => updateForm("salaryProfileType", event.target.value)}>
+                <option value="monthly">Monthly</option>
+                <option value="daily">Daily</option>
+                <option value="hourly">Hourly</option>
+              </select>
+            </Field>
+            <Field label="Currency">
+              <input className={input} value={form.currency} onChange={(event) => updateForm("currency", event.target.value.toUpperCase())} />
+            </Field>
+            <Field label="Working Days / Month">
+              <input className={input} type="number" min="1" max="31" value={form.workingDaysPerMonth} onChange={(event) => updateForm("workingDaysPerMonth", event.target.value)} />
+            </Field>
+            <Field label="Working Hours / Day">
+              <input className={input} type="number" min="1" max="24" value={form.workingHoursPerDay} onChange={(event) => updateForm("workingHoursPerDay", event.target.value)} />
+            </Field>
             <Field label="Permission Group">
               <select className={input} value={form.permissionGroup} onChange={(event) => updateForm("permissionGroup", event.target.value)}>
                 <option value="">Select access group</option>
@@ -865,6 +1221,57 @@ export default function Employee() {
             <Field label="Daily Lead Limit">
               <input className={input} type="number" min="0" value={form.dailyLeadLimit} onChange={(event) => updateForm("dailyLeadLimit", event.target.value)} />
             </Field>
+          </div>
+
+          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-indigo-600 ring-1 ring-indigo-100">
+                <FiClock className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-extrabold text-gray-900">Assign Roster / Shift</p>
+                <p className="text-xs font-semibold text-gray-500">Optional. Assign this employee to a shift from the employee panel.</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Field label="Shift">
+                <select className={input} value={form.rosterShift} onChange={(event) => updateForm("rosterShift", event.target.value)}>
+                  <option value="">No shift assigned now</option>
+                  {shifts.filter((shift) => shift.isActive !== false).map((shift) => (
+                    <option key={shift._id} value={shift._id}>
+                      {shift.name} ({shift.startTime} - {shift.endTime})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Roster Type">
+                <select className={input} value={form.rosterType} onChange={(event) => updateForm("rosterType", event.target.value)} disabled={!form.rosterShift}>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </Field>
+              <Field label="Start Date">
+                <input className={input} type="date" value={form.rosterStartDate} onChange={(event) => updateForm("rosterStartDate", event.target.value)} disabled={!form.rosterShift} />
+              </Field>
+              <Field label="End Date">
+                <input className={input} type="date" value={form.rosterEndDate} onChange={(event) => updateForm("rosterEndDate", event.target.value)} disabled={!form.rosterShift} />
+              </Field>
+              {form.rosterType === "weekly" ? (
+                <div className="md:col-span-2">
+                  <Field label="Weekly Roster Days">
+                    <WeekdayPicker value={form.rosterWeekdays} onChange={(days) => updateForm("rosterWeekdays", days)} />
+                  </Field>
+                </div>
+              ) : null}
+            </div>
+
+            {selectedShift ? (
+              <div className="mt-4 rounded-2xl bg-white p-3 text-sm font-semibold text-gray-600 ring-1 ring-indigo-100">
+                Selected shift: <span className="font-extrabold text-gray-900">{selectedShift.name}</span> • Break {selectedShift.breakMinutes || 0} min • Grace {selectedShift.graceMinutes || 0} min
+              </div>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-1 gap-3 rounded-2xl border border-gray-100 bg-gray-50 p-4 sm:grid-cols-2">

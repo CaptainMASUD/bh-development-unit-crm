@@ -13,6 +13,7 @@ import Attendance from "./Attendance"
 import AdminSalaryPage from "./AdminSalaryPage"
 import PayrollManager from "./PayrollManager"
 import EmployeeLoans from "./EmployeeLoans"
+import RosterShiftSetup from "./RosterShiftSetup"
 import ProfileSettings from "./ProfileSettings"
 import About from "./About"
 
@@ -97,6 +98,11 @@ const sections = {
   "Employee Loans": {
     icon: <FiCreditCard className="w-5 h-5" />,
     component: <EmployeeLoans />,
+  },
+
+  "Roster / Shift Setup": {
+    icon: <FiCalendar className="w-5 h-5" />,
+    component: <RosterShiftSetup />,
   },
 
   "Access Control": {

@@ -79,10 +79,11 @@ export default function EmployeeDashboard() {
     if (!authChecked || !currentUser || currentUser.role !== "employee" || !currentUser.isActive) return
 
     const cleanPath = location.pathname.replace(/\/+$/, "") || "/"
-    const isCustomerDetailPath = cleanPath.startsWith("/employee/customers/")
+    const isCustomerDetailPath =
+      cleanPath.startsWith("/employee/customers/") || cleanPath.startsWith("/employee/clients/")
     const routeIsAllowed =
       Boolean(routeMap.routes?.[cleanPath]) ||
-      (isCustomerDetailPath && Boolean(allowedSections.Customers))
+      (isCustomerDetailPath && Boolean(allowedSections.Clients))
     const sectionIsAllowed = Boolean(allowedSections[activeSection])
 
     if (!routeIsAllowed || !sectionIsAllowed) {
@@ -137,12 +138,12 @@ export default function EmployeeDashboard() {
   const content = useMemo(() => {
     if (!activeView) return null
     const injectedProps =
-      activeSection === "Customers"
+      activeSection === "Clients"
         ? {
             routeCustomerId: routeState.customerId || null,
             onNavigateCustomer: (customerId) =>
-              navigate(`/employee/customers/${customerId}/overview`),
-            onBackToCustomers: () => navigate("/employee/customers"),
+              navigate(`/employee/clients/${customerId}/overview`),
+            onBackToCustomers: () => navigate("/employee/clients"),
           }
         : {}
 
