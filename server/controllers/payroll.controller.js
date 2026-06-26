@@ -7,6 +7,7 @@ import {
   applyPayrollLoanRepayments,
   getEmployeeLoanDeductionsForPayroll,
 } from "./employeeLoan.controller.js";
+import { getEmployeeRosterSummaryForPayroll } from "./roster.controller.js";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -415,6 +416,12 @@ const buildPayrollPayload = async ({
   const currency = String(salaryProfile.currency || "BDT").toUpperCase();
 
   const attendanceSummary = summarizeAttendance(attendanceRecords);
+  const rosterSummary =
+    (await getEmployeeRosterSummaryForPayroll({
+      employee,
+      year,
+      month,
+    })) || {};
 
   const salarySnapshot = {
     salaryType: salaryProfile.salaryType || "monthly",
@@ -570,6 +577,7 @@ const buildPayrollPayload = async ({
     currency,
     salarySnapshot,
     attendanceSummary,
+    rosterSummary,
     earnings,
     deductions,
     basicSalary,

@@ -56,6 +56,7 @@ import salaryProfileRoutes from "./routes/salaryProfile.routes.js";
 import attendanceRoutes from "./routes/attendance.routes.js";
 import payrollRoutes from "./routes/payroll.routes.js";
 import employeeLoanRoutes from "./routes/employeeLoan.routes.js";
+import rosterRoutes from "./routes/roster.routes.js";
 
 /* =========================
    HEALTH CHECK
@@ -92,6 +93,11 @@ app.use("/api/employee-loans", employeeLoanRoutes);
    PAYROLL
 ========================= */
 app.use("/api/payroll", payrollRoutes);
+
+/* =========================
+   ROSTER / SHIFT SETUP
+========================= */
+app.use("/api/roster", rosterRoutes);
 
 /* =========================
    CUSTOMER VIEW PREFERENCES

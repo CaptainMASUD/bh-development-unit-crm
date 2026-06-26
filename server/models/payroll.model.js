@@ -161,6 +161,22 @@ const attendanceSummarySchema = new mongoose.Schema(
   { _id: false }
 );
 
+const rosterSummarySchema = new mongoose.Schema(
+  {
+    year: { type: Number, default: 0 },
+    month: { type: Number, default: 0 },
+    rosteredDays: { type: Number, default: 0 },
+    workingDays: { type: Number, default: 0 },
+    weeklyOffDays: { type: Number, default: 0 },
+    holidayDays: { type: Number, default: 0 },
+    attendedDays: { type: Number, default: 0 },
+    rosterAbsentDays: { type: Number, default: 0 },
+    lateDays: { type: Number, default: 0 },
+    schedule: { type: Array, default: [] },
+  },
+  { _id: false }
+);
+
 const payrollSchema = new mongoose.Schema(
   {
     payrollKey: {
@@ -236,6 +252,11 @@ const payrollSchema = new mongoose.Schema(
 
     attendanceSummary: {
       type: attendanceSummarySchema,
+      default: () => ({}),
+    },
+
+    rosterSummary: {
+      type: rosterSummarySchema,
       default: () => ({}),
     },
 
