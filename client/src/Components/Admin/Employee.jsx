@@ -10,6 +10,7 @@ import {
   FiEye,
   FiFilter,
   FiLock,
+  FiLoader,
   FiMoreVertical,
   FiPlus,
   FiRefreshCcw,
@@ -147,7 +148,7 @@ function StatusBadge({ active, label }) {
   )
 }
 
-function EmployeeDetailsModal({ open, employee, onClose, onEdit, onDelete }) {
+function EmployeeDetailsModal({ open, employee, salaryProfile, loading, onClose, onEdit, onDelete }) {
   if (!open) return null
 
   return (
@@ -193,7 +194,9 @@ function EmployeeDetailsModal({ open, employee, onClose, onEdit, onDelete }) {
         </div>
       }
     >
-      {!employee ? (
+      {loading ? (
+        <div className="flex items-center justify-center p-12"><FiLoader className="h-7 w-7 animate-spin text-indigo-600" /></div>
+      ) : !employee ? (
         <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center text-sm font-semibold text-gray-500">
           No employee selected.
         </div>
@@ -227,23 +230,96 @@ function EmployeeDetailsModal({ open, employee, onClose, onEdit, onDelete }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {[
-              ["Phone", employee.phone || "—"],
-              ["Department", employee.department?.name || "Not assigned"],
-              ["Designation", employee.position?.title || "Not assigned"],
-              ["Access Group", employee.permissionGroup?.name || "No access group"],
-              ["Employment Type", pretty(employee.employmentType || "full_time")],
-              ["Salary Type", `${pretty(employee.salaryType || "fixed")} Salary`],
-              ["Work Status", pretty(employee.workStatus || "available")],
-              ["Daily Lead Limit", employee.dailyLeadLimit || 0],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-2xl border border-gray-100 bg-gray-50/80 p-4">
-                <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-gray-400">{label}</p>
-                <p className="mt-1.5 text-sm font-extrabold text-gray-900">{value}</p>
+          {[
+            {
+              title: "Personal Information",
+              items: [
+                ["Phone", employee.phone || "—"],
+                ["Alternate Phone", employee.alternatePhone || "—"],
+                ["Gender", pretty(employee.gender) || "—"],
+                ["Date of Birth", formatDetailDate(employee.dateOfBirth)],
+              ],
+            },
+            {
+              title: "Employment",
+              items: [
+                ["Department", employee.department?.name || "Not assigned"],
+                ["Designation", employee.position?.title || "Not assigned"],
+                ["Employment Type", pretty(employee.employmentType || "full_time")],
+                ["Employee Status", pretty(employee.employeeStatus || "active")],
+                ["Joining Date", formatDetailDate(employee.joiningDate)],
+                ["Leaving Date", formatDetailDate(employee.leavingDate)],
+                ["Manager", employee.managerId?.name || "Not assigned"],
+                ["Work Status", pretty(employee.workStatus || "available")],
+              ],
+            },
+            {
+              title: "Access & Assignment",
+              items: [
+                ["System Role", pretty(employee.role || "employee")],
+                ["Access Role", employee.accessRole?.name || "No custom role"],
+                ["Permission Group", employee.permissionGroup?.name || "No access group"],
+                ["Daily Lead Limit", employee.dailyLeadLimit || 0],
+                ["Available for Assignment", employee.isAvailableForAssignment !== false ? "Yes" : "No"],
+                ["Account Access", employee.isActive !== false ? "Enabled" : "Disabled"],
+              ],
+            },
+            {
+              title: "Salary Profile",
+              items: [
+                ["Profile Status", salaryProfile ? (salaryProfile.isActive !== false ? "Active" : "Inactive") : "No salary profile"],
+                ["Salary Type", pretty(salaryProfile?.salaryType || employee.salaryType || "fixed")],
+                ["Basic Salary", salaryProfile ? `${salaryProfile.currency || "BDT"} ${Number(salaryProfile.basicSalary || 0).toLocaleString()}` : "—"],
+                ["Working Days / Month", salaryProfile?.workingDaysPerMonth || "—"],
+                ["Working Hours / Day", salaryProfile?.workingHoursPerDay || "—"],
+                ["Effective From", formatDetailDate(salaryProfile?.effectiveFrom)],
+              ],
+            },
+          ].map((section) => (
+            <section key={section.title}>
+              <h3 className="mb-3 text-sm font-bold text-gray-900">{section.title}</h3>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                {section.items.map(([label, value]) => (
+                  <div key={label} className="rounded-2xl border border-gray-100 bg-gray-50/80 p-4">
+                    <p className="text-xs font-semibold uppercase text-gray-400">{label}</p>
+                    <p className="mt-1.5 break-words text-sm font-semibold text-gray-900">{value}</p>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </section>
+          ))}
+
+          <section>
+            <h3 className="mb-3 text-sm font-bold text-gray-900">Address</h3>
+            <div className="rounded-2xl border border-gray-100 bg-gray-50/80 p-4 text-sm font-semibold text-gray-900">
+              {employee.address?.fullAddress || [employee.address?.line1, employee.address?.line2, employee.address?.city, employee.address?.state, employee.address?.postalCode, employee.address?.country].filter(Boolean).join(", ") || "No address added"}
+            </div>
+          </section>
+
+          <section>
+            <h3 className="mb-3 text-sm font-bold text-gray-900">Emergency Contact</h3>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {[
+                ["Name", employee.emergencyContact?.name || "—"],
+                ["Relation", employee.emergencyContact?.relation || "—"],
+                ["Phone", employee.emergencyContact?.phone || "—"],
+                ["Address", employee.emergencyContact?.address || "—"],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-2xl border border-gray-100 bg-gray-50/80 p-4">
+                  <p className="text-xs font-semibold uppercase text-gray-400">{label}</p>
+                  <p className="mt-1.5 break-words text-sm font-semibold text-gray-900">{value}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <h3 className="mb-3 text-sm font-bold text-gray-900">Record Information</h3>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div className="rounded-2xl border border-gray-100 bg-gray-50/80 p-4"><p className="text-xs font-semibold uppercase text-gray-400">Created</p><p className="mt-1.5 text-sm font-semibold text-gray-900">{formatDetailDate(employee.createdAt)}</p></div>
+              <div className="rounded-2xl border border-gray-100 bg-gray-50/80 p-4"><p className="text-xs font-semibold uppercase text-gray-400">Last Updated</p><p className="mt-1.5 text-sm font-semibold text-gray-900">{formatDetailDate(employee.updatedAt)}</p></div>
+            </div>
+          </section>
         </div>
       )}
     </Modal>
@@ -367,6 +443,7 @@ const emptyForm = {
   department: "",
   position: "",
   permissionGroup: "",
+  accessRole: "",
   employmentType: "full_time",
   salaryType: "fixed",
   salaryProfileType: "monthly",
@@ -394,6 +471,13 @@ function pretty(value) {
   return String(value || "")
     .replace(/_/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+function formatDetailDate(value) {
+  if (!value) return "—"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return "—"
+  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
 }
 
 const dayOptions = [
@@ -437,6 +521,7 @@ export default function Employee() {
   const [departments, setDepartments] = useState([])
   const [positions, setPositions] = useState([])
   const [permissionGroups, setPermissionGroups] = useState([])
+  const [roles, setRoles] = useState([])
   const [shifts, setShifts] = useState([])
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -462,7 +547,7 @@ export default function Employee() {
   const [avatarObjectUrl, setAvatarObjectUrl] = useState("")
   const [avatarRemove, setAvatarRemove] = useState(false)
   const [deleteState, setDeleteState] = useState({ open: false, employee: null, password: "", loading: false })
-  const [detailsState, setDetailsState] = useState({ open: false, employee: null })
+  const [detailsState, setDetailsState] = useState({ open: false, employee: null, salaryProfile: null, loading: false })
   const [openMenuId, setOpenMenuId] = useState(null)
   const abortRef = useRef(null)
   const avatarInputRef = useRef(null)
@@ -489,15 +574,17 @@ export default function Employee() {
 
   const loadAccessLists = async () => {
     try {
-      const [departmentsRes, positionsRes, groupsRes, shiftsRes] = await Promise.all([
+      const [departmentsRes, positionsRes, groupsRes, rolesRes, shiftsRes] = await Promise.all([
         api("/access-control/departments"),
         api("/access-control/positions"),
         api("/access-control/permission-groups"),
+        api("/access-control/roles"),
         api("/roster/shifts"),
       ])
       setDepartments(departmentsRes.departments || [])
       setPositions(positionsRes.positions || [])
       setPermissionGroups(groupsRes.permissionGroups || [])
+      setRoles((rolesRes.roles || []).filter((role) => !role.isSystem && role.isActive !== false))
       setShifts(shiftsRes.shifts || [])
     } catch (error) {
       toast.error(error.message || "Failed to load access lists")
@@ -667,6 +754,24 @@ export default function Employee() {
     setModalOpen(true)
   }
 
+  const openDetails = async (employee) => {
+    const employeeId = employee?._id
+    if (!employeeId) return
+    setDetailsState({ open: true, employee, salaryProfile: null, loading: true })
+    try {
+      const data = await api(`/users/employees/${employeeId}`)
+      setDetailsState({
+        open: true,
+        employee: data.employee || employee,
+        salaryProfile: data.salaryProfile || null,
+        loading: false,
+      })
+    } catch (error) {
+      toast.error(error.message || "Failed to load employee details")
+      setDetailsState((previous) => ({ ...previous, loading: false }))
+    }
+  }
+
   const openEdit = (employee) => {
     setEditing(employee)
     setForm({
@@ -678,6 +783,7 @@ export default function Employee() {
       department: getId(employee.department),
       position: getId(employee.position),
       permissionGroup: getId(employee.permissionGroup),
+      accessRole: getId(employee.accessRole),
       employmentType: employee.employmentType || "full_time",
       salaryType: employee.salaryType || "fixed",
       employeeStatus: employee.employeeStatus || "active",
@@ -716,6 +822,7 @@ export default function Employee() {
       department: form.department || null,
       position: form.position || null,
       permissionGroup: form.permissionGroup || null,
+      accessRole: form.accessRole || null,
       employmentType: form.employmentType,
       salaryType: form.salaryType,
       employeeStatus: form.employeeStatus,
@@ -1016,7 +1123,7 @@ export default function Employee() {
                           employee={employee}
                           openMenuId={openMenuId}
                           setOpenMenuId={setOpenMenuId}
-                          onView={(item) => setDetailsState({ open: true, employee: item })}
+                          onView={openDetails}
                           onEdit={openEdit}
                           onDelete={(item) => setDeleteState({ open: true, employee: item, password: "", loading: false })}
                         />
@@ -1057,7 +1164,9 @@ export default function Employee() {
       <EmployeeDetailsModal
         open={detailsState.open}
         employee={detailsState.employee}
-        onClose={() => setDetailsState({ open: false, employee: null })}
+        salaryProfile={detailsState.salaryProfile}
+        loading={detailsState.loading}
+        onClose={() => setDetailsState({ open: false, employee: null, salaryProfile: null, loading: false })}
         onEdit={openEdit}
         onDelete={(employee) => setDeleteState({ open: true, employee, password: "", loading: false })}
       />
@@ -1185,8 +1294,28 @@ export default function Employee() {
             <Field label="Working Hours / Day">
               <input className={input} type="number" min="1" max="24" value={form.workingHoursPerDay} onChange={(event) => updateForm("workingHoursPerDay", event.target.value)} />
             </Field>
-            <Field label="Permission Group">
-              <select className={input} value={form.permissionGroup} onChange={(event) => updateForm("permissionGroup", event.target.value)}>
+            <Field label="Access Role" hint="Selecting a role automatically applies its permission group.">
+              <select
+                className={input}
+                value={form.accessRole}
+                onChange={(event) => {
+                  const accessRole = event.target.value
+                  const selectedRole = roles.find((role) => String(role._id) === String(accessRole))
+                  setForm((previous) => ({
+                    ...previous,
+                    accessRole,
+                    permissionGroup: accessRole ? getId(selectedRole?.permissionGroup) : previous.permissionGroup,
+                  }))
+                }}
+              >
+                <option value="">No custom role</option>
+                {roles.map((role) => (
+                  <option key={role._id} value={role._id}>{role.name}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Permission Group" hint={form.accessRole ? "Controlled by the selected access role." : "Choose direct feature access for this employee."}>
+              <select disabled={Boolean(form.accessRole)} className={input} value={form.permissionGroup} onChange={(event) => updateForm("permissionGroup", event.target.value)}>
                 <option value="">Select access group</option>
                 {permissionGroups.map((group) => (
                   <option key={group._id} value={group._id}>{group.name}</option>

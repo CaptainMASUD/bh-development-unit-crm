@@ -116,6 +116,13 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
 
+    accessRole: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "AccessRole",
+      default: null,
+      index: true,
+    },
+
     managerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

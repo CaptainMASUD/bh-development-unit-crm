@@ -13,6 +13,7 @@ import User from "../models/user.model.js";
 import Department from "../models/department.model.js";
 import Position from "../models/position.model.js";
 import PermissionGroup from "../models/permissionGroup.model.js";
+import AccessRole from "../models/accessRole.model.js";
 import SalaryProfile from "../models/salaryProfile.model.js";
 import { uploadCloudinary, deleteCloudinary } from "../utils/cloudinary.js";
 
@@ -75,7 +76,7 @@ const requireRequesterPassword = async (req, res) => {
    OPTIMIZATION HELPERS
 ========================= */
 const LIST_PROJECTION =
-  "_id name email role employeeId phone alternatePhone gender dateOfBirth address emergencyContact joiningDate leavingDate employmentType salaryType employeeStatus isActive avatarUrl department position permissionGroup teamRole dailyLeadLimit isAvailableForAssignment workStatus managerId createdAt updatedAt";
+  "_id name email role employeeId phone alternatePhone gender dateOfBirth address emergencyContact joiningDate leavingDate employmentType salaryType employeeStatus isActive avatarUrl department position permissionGroup accessRole teamRole dailyLeadLimit isAvailableForAssignment workStatus managerId createdAt updatedAt";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -306,6 +307,7 @@ const USER_POPULATE = [
       "title department isActive defaultSalaryEnabled defaultSalaryType defaultCurrency defaultBasicSalary defaultWorkingDaysPerMonth defaultWorkingHoursPerDay defaultComponents defaultRules",
   },
   { path: "permissionGroup", select: "name permissions isActive" },
+  { path: "accessRole", select: "name description permissionGroup isActive" },
   { path: "managerId", select: "name email role employeeId phone isActive avatarUrl" },
 ];
 
@@ -703,7 +705,8 @@ export const createEmployee = async (req, res) => {
 
     const department = normalizeOptionalObjectId(req.body.department);
     const position = normalizeOptionalObjectId(req.body.position);
-    const permissionGroup = normalizeOptionalObjectId(req.body.permissionGroup);
+    let permissionGroup = normalizeOptionalObjectId(req.body.permissionGroup);
+    const accessRole = normalizeOptionalObjectId(req.body.accessRole);
     const managerId = normalizeOptionalObjectId(req.body.managerId);
 
     if (!name || !email || !password) {
@@ -712,10 +715,17 @@ export const createEmployee = async (req, res) => {
         .json({ message: "Name, email, password are required." });
     }
 
+    if (accessRole) {
+      const selectedRole = await AccessRole.findOne({ _id: accessRole, isActive: { $ne: false } }).lean();
+      if (!selectedRole) return res.status(400).json({ message: "Access role not found." });
+      permissionGroup = selectedRole.permissionGroup;
+    }
+
     const refsOk = await validateEmployeeAccessRefs({
       department,
       position,
       permissionGroup,
+      accessRole,
     });
 
     if (!refsOk.ok) {
@@ -735,6 +745,7 @@ export const createEmployee = async (req, res) => {
       department,
       position,
       permissionGroup,
+      accessRole,
       managerId,
       ...employeeProfile,
 
@@ -874,10 +885,21 @@ export const updateEmployee = async (req, res) => {
         ? normalizeOptionalObjectId(req.body.position)
         : employee.position;
 
-    const nextPermissionGroup =
+    let nextPermissionGroup =
       req.body.permissionGroup !== undefined
         ? normalizeOptionalObjectId(req.body.permissionGroup)
         : employee.permissionGroup;
+
+    const nextAccessRole =
+      req.body.accessRole !== undefined
+        ? normalizeOptionalObjectId(req.body.accessRole)
+        : employee.accessRole;
+
+    if (nextAccessRole) {
+      const selectedRole = await AccessRole.findOne({ _id: nextAccessRole, isActive: { $ne: false } }).lean();
+      if (!selectedRole) return res.status(400).json({ message: "Access role not found." });
+      nextPermissionGroup = selectedRole.permissionGroup;
+    }
 
     const refsOk = await validateEmployeeAccessRefs({
       department: nextDepartment,
@@ -892,6 +914,10 @@ export const updateEmployee = async (req, res) => {
     if (req.body.department !== undefined) employee.department = nextDepartment;
     if (req.body.position !== undefined) employee.position = nextPosition;
     if (req.body.permissionGroup !== undefined) {
+      employee.permissionGroup = nextPermissionGroup;
+    }
+    if (req.body.accessRole !== undefined) {
+      employee.accessRole = nextAccessRole;
       employee.permissionGroup = nextPermissionGroup;
     }
 

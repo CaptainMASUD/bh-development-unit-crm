@@ -1,6 +1,8 @@
 import Department from "../models/department.model.js";
 import Position from "../models/position.model.js";
 import PermissionGroup, { PERMISSION_KEYS } from "../models/permissionGroup.model.js";
+import AccessRole from "../models/accessRole.model.js";
+import User from "../models/user.model.js";
 
 const clean = (value) => String(value ?? "").trim();
 
@@ -310,8 +312,123 @@ export const updatePermissionGroup = async (req, res) => {
 };
 
 export const deletePermissionGroup = async (req, res) => {
+  const usedByRole = await AccessRole.exists({ permissionGroup: req.params.id });
+  if (usedByRole) {
+    return res.status(400).json({ message: "This permission group is assigned to a role." });
+  }
+
   const permissionGroup = await PermissionGroup.findByIdAndDelete(req.params.id);
   if (!permissionGroup) return res.status(404).json({ message: "Permission group not found." });
 
   return res.json({ message: "Permission group deleted." });
+};
+
+/* ===============================
+   CUSTOM ACCESS ROLES
+================================ */
+export const listAccessRoles = async (req, res) => {
+  const customRoles = await AccessRole.find({})
+    .populate("permissionGroup", "name permissions isActive")
+    .sort({ nameLower: 1 })
+    .lean();
+  const systemRoles = [
+    {
+      _id: "system:admin",
+      name: "Admin",
+      description: "Built-in administrator role with full administrative access.",
+      permissionGroup: { name: "System administration", permissions: PERMISSION_KEYS, isActive: true },
+      isActive: true,
+      isSystem: true,
+    },
+    {
+      _id: "system:employee",
+      name: "Employee",
+      description: "Built-in employee role. Feature access comes from the assigned permission group.",
+      permissionGroup: { name: "Assigned per employee", permissions: [], isActive: true },
+      isActive: true,
+      isSystem: true,
+    },
+  ];
+  return res.json({ roles: [...systemRoles, ...customRoles] });
+};
+
+export const createAccessRole = async (req, res) => {
+  try {
+    const name = clean(req.body.name);
+    const permissionGroup = clean(req.body.permissionGroup);
+    if (!name) return res.status(400).json({ message: "Role name is required." });
+    if (["superadmin", "admin", "employee"].includes(name.toLowerCase())) {
+      return res.status(400).json({ message: "Admin and Employee are protected system roles." });
+    }
+    if (!permissionGroup) return res.status(400).json({ message: "Permission group is required." });
+    if (!(await PermissionGroup.exists({ _id: permissionGroup, isActive: { $ne: false } }))) {
+      return res.status(404).json({ message: "Active permission group not found." });
+    }
+
+    const role = await AccessRole.create({
+      name,
+      description: clean(req.body.description),
+      permissionGroup,
+      isActive: req.body.isActive ?? true,
+      createdBy: req.user?._id || null,
+    });
+    const populated = await AccessRole.findById(role._id)
+      .populate("permissionGroup", "name permissions isActive")
+      .lean();
+    return res.status(201).json({ message: "Role created.", role: populated });
+  } catch (err) {
+    const duplicate = duplicateMessage(err, "Role already exists.");
+    if (duplicate) return res.status(409).json({ message: duplicate });
+    return res.status(500).json({ message: err.message || "Role create failed." });
+  }
+};
+
+export const updateAccessRole = async (req, res) => {
+  try {
+    if (String(req.params.id).startsWith("system:")) {
+      return res.status(403).json({ message: "System roles cannot be changed." });
+    }
+    const patch = {};
+    if (req.body.name !== undefined) {
+      patch.name = clean(req.body.name);
+      if (!patch.name) return res.status(400).json({ message: "Role name cannot be empty." });
+      if (["superadmin", "admin", "employee"].includes(patch.name.toLowerCase())) {
+        return res.status(400).json({ message: "Admin and Employee are protected system roles." });
+      }
+    }
+    if (req.body.description !== undefined) patch.description = clean(req.body.description);
+    if (typeof req.body.isActive === "boolean") patch.isActive = req.body.isActive;
+    if (req.body.permissionGroup !== undefined) {
+      patch.permissionGroup = clean(req.body.permissionGroup);
+      if (!(await PermissionGroup.exists({ _id: patch.permissionGroup, isActive: { $ne: false } }))) {
+        return res.status(404).json({ message: "Active permission group not found." });
+      }
+    }
+
+    const role = await AccessRole.findByIdAndUpdate(req.params.id, patch, {
+      new: true,
+      runValidators: true,
+    }).populate("permissionGroup", "name permissions isActive");
+    if (!role) return res.status(404).json({ message: "Role not found." });
+    if (patch.permissionGroup) {
+      await User.updateMany({ accessRole: role._id }, { $set: { permissionGroup: patch.permissionGroup } });
+    }
+    return res.json({ message: "Role updated.", role });
+  } catch (err) {
+    const duplicate = duplicateMessage(err, "Role already exists.");
+    if (duplicate) return res.status(409).json({ message: duplicate });
+    return res.status(500).json({ message: err.message || "Role update failed." });
+  }
+};
+
+export const deleteAccessRole = async (req, res) => {
+  if (String(req.params.id).startsWith("system:")) {
+    return res.status(403).json({ message: "System roles cannot be deleted." });
+  }
+  if (await User.exists({ accessRole: req.params.id })) {
+    return res.status(400).json({ message: "This role is assigned to one or more employees." });
+  }
+  const role = await AccessRole.findByIdAndDelete(req.params.id);
+  if (!role) return res.status(404).json({ message: "Role not found." });
+  return res.json({ message: "Role deleted." });
 };

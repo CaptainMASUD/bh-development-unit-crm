@@ -89,7 +89,9 @@ export const isMarketingTeam = (req, res, next) => {
 
 // ✅ Marketing Team OR Admin OR Super Admin
 export const isMarketingOrAdmin = (req, res, next) => {
-  const permissions = req.user?.permissionGroup?.permissions || [];
+  const permissions = req.user?.permissionGroup?.isActive === false
+    ? []
+    : req.user?.permissionGroup?.permissions || [];
   if (
     !["marketing_team", "admin", "superadmin"].includes(req.user?.role) &&
     !(req.user?.role === "employee" && permissions.includes("leads:view"))
@@ -111,12 +113,31 @@ export const isEmployeeOrMarketing = (req, res, next) => {
 
 export const requirePermission = (permission) => (req, res, next) => {
   if (["admin", "superadmin"].includes(req.user?.role)) return next();
-  if (req.user?.role === "marketing_team" && String(permission).startsWith("leads:")) {
+  if (
+    req.user?.role === "marketing_team" &&
+    ["leads:", "deals:"].some((prefix) => String(permission).startsWith(prefix))
+  ) {
     return next();
   }
 
-  const permissions = req.user?.permissionGroup?.permissions || [];
-  if (!permissions.includes(permission)) {
+  const permissions = req.user?.permissionGroup?.isActive === false
+    ? []
+    : req.user?.permissionGroup?.permissions || [];
+  const compatibility = {
+    "tasks:view": "customers:view",
+    "tasks:manage": "customers:manage",
+    "deals:view": "leads:view",
+    "deals:manage": "leads:manage",
+    "notifications:view": "dashboard:view",
+  };
+  const manageEquivalent = String(permission).endsWith(":view")
+    ? String(permission).replace(/:view$/, ":manage")
+    : "";
+  const allowed =
+    permissions.includes(permission) ||
+    permissions.includes(compatibility[permission]) ||
+    (manageEquivalent && permissions.includes(manageEquivalent));
+  if (!allowed) {
     return res.status(403).json({ message: "Permission denied." });
   }
 

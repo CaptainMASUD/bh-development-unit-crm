@@ -17,7 +17,6 @@ import {
   FiSearch,
   FiRotateCcw,
   FiTag,
-  FiMove,
 } from "react-icons/fi"
 import {
   HiOutlineArchive,
@@ -98,13 +97,6 @@ function getTaskTargetDate(t) {
   const d = new Date(v)
   if (Number.isNaN(d.getTime())) return null
   return d
-}
-
-function statusPill(status) {
-  const s = String(status || "pending")
-  if (s === "done") return "bg-emerald-50 text-emerald-700 border border-emerald-200"
-  if (s === "in_progress") return "bg-indigo-50 text-indigo-700 border border-indigo-200"
-  return "bg-gray-100 text-gray-700 border border-gray-200"
 }
 
 function duePill(timeLeftMs, status) {
@@ -526,7 +518,7 @@ function ManualSubtitlesEditor({ value, onChange }) {
 
   return (
     <div className="md:col-span-2">
-      <div className="flex items-center gap-2 text-xs font-semibold text-gray-600">
+      <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
         <FiHash /> Subtitles (optional)
       </div>
 
@@ -534,7 +526,7 @@ function ManualSubtitlesEditor({ value, onChange }) {
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+          className="w-full h-11 px-3 border border-gray-300 rounded-lg bg-white text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
           placeholder="Add subtitle"
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -546,7 +538,7 @@ function ManualSubtitlesEditor({ value, onChange }) {
         <button
           type="button"
           onClick={addOne}
-          className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
+          className="inline-flex h-11 w-full sm:w-auto items-center justify-center gap-2 px-4 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
         >
           <FiPlus /> Add
         </button>
@@ -1220,23 +1212,24 @@ function TaskModal({
 
   const canSave = isEmployeeMode ? canSaveEmployee : canSaveAdmin
   const subJobsForSelectedRoot = selectedRootId ? subJobsByParent.get(String(selectedRootId)) || [] : []
+  const controlClass =
+    "w-full h-11 px-3 rounded-lg border border-gray-300 bg-white text-sm text-gray-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 disabled:bg-gray-50 disabled:text-gray-500"
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-2 sm:p-4">
       <div className="absolute inset-0 bg-black/40" onClick={() => !loading && onClose?.()} />
 
-      <div className="relative w-full max-w-3xl rounded-2xl bg-white shadow-2xl border border-gray-100 overflow-hidden max-h-[92vh] sm:max-h-[85vh] flex flex-col">
+      <div className="relative w-full max-w-4xl rounded-2xl bg-white shadow-2xl border border-gray-200 overflow-hidden max-h-[94vh] sm:max-h-[88vh] flex flex-col">
         <div className="p-4 sm:p-5 flex items-start justify-between gap-3 border-b border-gray-100 shrink-0">
           <div className="min-w-0">
-            <h3 className="text-base font-bold text-gray-900">{heading}</h3>
-            <p className="text-sm text-gray-500 mt-1">Ctrl/⌘ + Enter to {submitLabel.toLowerCase()}.</p>
+            <h3 className="text-lg font-bold text-gray-900">{heading}</h3>
           </div>
 
           <button
             ref={closeBtnRef}
             onClick={onClose}
             disabled={loading}
-            className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-60 shrink-0"
+            className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 disabled:opacity-60 shrink-0 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
             aria-label="Close"
             title="Close"
           >
@@ -1253,7 +1246,7 @@ function TaskModal({
                   value={statusValue}
                   onChange={(e) => setStatusValue(e.target.value)}
                   disabled={loading}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+                  className={controlClass}
                 >
                   <option value="pending">pending</option>
                   <option value="in_progress">in_progress</option>
@@ -1266,15 +1259,15 @@ function TaskModal({
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-5">
               {/* ✅ Job */}
-              <div className="md:col-span-2">
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Job (optional)</label>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Job</label>
                 <select
                   value={selectedRootId}
                   onChange={(e) => onSelectRoot(e.target.value)}
                   disabled={loading}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+                  className={controlClass}
                 >
                   <option value="">No job (independent task)</option>
                   {(rootJobs || []).map((j) => (
@@ -1283,19 +1276,16 @@ function TaskModal({
                     </option>
                   ))}
                 </select>
-                <p className="text-xs text-gray-500 mt-2">
-                  First pick a job. If that job has sub-jobs, you can optionally pick one below.
-                </p>
               </div>
 
               {/* ✅ Sub-job field after selecting job */}
-              <div className="md:col-span-2">
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Sub-job (optional)</label>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Sub-job</label>
                 <select
                   value={selectedSubId}
                   onChange={(e) => onSelectSub(e.target.value)}
                   disabled={loading || !selectedRootId || subJobsForSelectedRoot.length === 0}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white disabled:bg-gray-50"
+                  className={controlClass}
                 >
                   {!selectedRootId ? (
                     <option value="">Select a job first</option>
@@ -1313,33 +1303,10 @@ function TaskModal({
                   )}
                 </select>
 
-                {/* ✅ breadcrumb preview */}
-                <div className="mt-2 rounded-2xl border border-gray-100 bg-gray-50/60 p-3 text-xs text-gray-700">
-                  <span className="font-extrabold text-gray-900">Selected path:</span>{" "}
-                  {!selectedRootId ? (
-                    <span className="text-gray-600">Independent (no job)</span>
-                  ) : (
-                    <>
-                      <span className="font-semibold text-indigo-700">
-                        {jobById.get(String(selectedRootId))?.title || "Job"}
-                      </span>
-                      {selectedSubId ? (
-                        <>
-                          <span className="text-gray-400"> {"›"} </span>
-                          <span className="font-semibold text-amber-700">
-                            {jobById.get(String(selectedSubId))?.title || "Sub-job"}
-                          </span>
-                        </>
-                      ) : (
-                        <span className="text-gray-500"> (no sub-job)</span>
-                      )}
-                    </>
-                  )}
-                </div>
               </div>
 
-              <div className="md:col-span-2">
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Template</label>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Template</label>
                 <select
                   value={templateId}
                   onChange={(e) => {
@@ -1352,7 +1319,7 @@ function TaskModal({
                     }
                   }}
                   disabled={loading}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+                  className={controlClass}
                 >
                   <option value="">Manual</option>
                   {(templates || []).map((tpl) => (
@@ -1364,21 +1331,21 @@ function TaskModal({
               </div>
 
               {!inTemplateMode ? (
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-semibold text-gray-600 mb-1">Title</label>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1.5">Title</label>
                   <input
                     ref={titleRef}
                     value={titleValue}
                     onChange={(e) => setTitleValue(e.target.value)}
                     disabled={loading}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+                    className={controlClass}
                     placeholder="Task title"
                   />
                 </div>
               ) : (
-                <div className="md:col-span-2">
-                  <p className="text-xs font-semibold text-gray-600 mb-1">Title</p>
-                  <div className="px-3 py-2 rounded-xl border border-gray-200 bg-gray-50/50">
+                <div>
+                  <p className="text-sm font-semibold text-gray-700 mb-1.5">Title</p>
+                  <div className="min-h-11 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50">
                     <p className="text-sm font-extrabold text-indigo-700 break-words">{selectedTemplate?.title || "—"}</p>
                     <p className="text-xs text-gray-500 mt-1">
                       Selected subtitles: {(selectedSubtitleIds || []).length || 0}
@@ -1391,7 +1358,7 @@ function TaskModal({
                 <ManualSubtitlesEditor value={subtitlesValue} onChange={setSubtitlesValue} />
               ) : (
                 <div className="md:col-span-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-gray-600">
+                  <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
                     <FiHash /> Subtitles
                   </div>
 
@@ -1407,7 +1374,7 @@ function TaskModal({
                               checked={checked}
                               onChange={() => toggleSubtitle(sid)}
                               disabled={loading}
-                              className="w-4 h-4 mt-1 shrink-0"
+                              className="w-4 h-4 mt-1 shrink-0 outline-none text-indigo-600 focus:ring-2 focus:ring-indigo-500/30"
                             />
                             <span className="text-sm text-gray-800 break-words">{s?.text || "—"}</span>
                           </label>
@@ -1421,12 +1388,12 @@ function TaskModal({
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Status</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Status</label>
                 <select
                   value={statusValue}
                   onChange={(e) => setStatusValue(e.target.value)}
                   disabled={loading}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+                  className={controlClass}
                 >
                   <option value="pending">pending</option>
                   <option value="in_progress">in_progress</option>
@@ -1435,18 +1402,18 @@ function TaskModal({
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Due (optional)</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Due date</label>
                 <input
                   type="datetime-local"
                   value={dueAtValue}
                   onChange={(e) => setDueAtValue(e.target.value)}
                   disabled={loading}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+                  className={controlClass}
                 />
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-xs font-semibold text-gray-600 mb-2">Assign to</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Assignees</label>
 
                 {!canAssign ? (
                   <div className="p-4 rounded-2xl border border-gray-100 bg-gray-50/60 text-sm text-gray-600">
@@ -1467,7 +1434,7 @@ function TaskModal({
                             checked={checked}
                             onChange={() => toggleAssignee(id)}
                             disabled={loading}
-                            className="w-4 h-4 mt-1 sm:mt-0 shrink-0"
+                            className="w-4 h-4 mt-1 sm:mt-0 shrink-0 outline-none text-indigo-600 focus:ring-2 focus:ring-indigo-500/30"
                           />
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-gray-900 truncate">{u.name}</p>
@@ -1481,13 +1448,13 @@ function TaskModal({
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-xs font-semibold text-gray-600 mb-1">Task Notes (optional)</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Task notes</label>
                 <textarea
                   value={value}
                   onChange={(e) => setValue(e.target.value)}
                   rows={3}
                   disabled={loading}
-                  className="w-full px-3 py-2 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm outline-none transition resize-y focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
                   placeholder="Add short task notes..."
                 />
               </div>
@@ -1499,7 +1466,7 @@ function TaskModal({
           <button
             onClick={onClose}
             disabled={loading}
-            className="w-full sm:w-auto px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold disabled:opacity-60"
+            className="w-full sm:w-auto px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold disabled:opacity-60 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
           >
             Cancel
           </button>
@@ -1507,7 +1474,7 @@ function TaskModal({
           <button
             onClick={onSubmit}
             disabled={!canSave}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold disabled:opacity-60"
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold disabled:opacity-60 outline-none focus:ring-2 focus:ring-indigo-500/30 focus:ring-offset-2"
           >
             {loading ? (
               <>
@@ -1549,10 +1516,8 @@ function TaskCard({
   deleteSubtitleFile,
   inferActorRole,
 
-  jobsFlat,
   jobById,
-  onMoveJob,
-  movingKey,
+  showJobBadge = true,
 }) {
   const busy = deletingTaskId === t._id
   const target = getTaskTargetDate(t)
@@ -1569,7 +1534,6 @@ function TaskCard({
 
   const currentJob = jobById?.get(String(t?.jobId || "")) || null
   const parentJob = currentJob?.parentJobId ? jobById?.get(String(currentJob.parentJobId)) : null
-  const moving = movingKey === String(t?._id || "")
 
   const formatJobPath = () => {
     if (!currentJob) return null
@@ -1583,27 +1547,25 @@ function TaskCard({
 
   return (
     <div className="hover:bg-gray-50/60">
-      <div className="p-4 sm:p-6 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
+      <div className="p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
         <button type="button" onClick={onToggle} className="w-full sm:flex-1 min-w-0 text-left" aria-expanded={isOpen}>
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-extrabold text-indigo-700 truncate">{t.title || "Task"}</p>
-            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${statusPill(t.status)}`}>{t.status}</span>
-
             {hasDue ? (
               <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${duePill(timeLeftMs, t.status)}`}>
                 {t.status === "done" ? "Completed" : formatTimeLeft(timeLeftMs)}
               </span>
             ) : null}
 
-            {currentJob ? (
+            {showJobBadge && currentJob ? (
               <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
                 {formatJobPath()}
               </span>
-            ) : (
+            ) : showJobBadge ? (
               <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 border border-gray-200">
                 No job
               </span>
-            )}
+            ) : null}
           </div>
 
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500 leading-snug">
@@ -1620,7 +1582,7 @@ function TaskCard({
             value={t.status}
             disabled={busy}
             onChange={(e) => onQuickStatus(e.target.value)}
-            className="w-full sm:w-auto px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold"
+            className="w-full sm:w-40 h-10 px-3 rounded-xl border border-gray-200 bg-white text-sm font-semibold outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
             title="Change status"
           >
             <option value="pending">pending</option>
@@ -1632,7 +1594,7 @@ function TaskCard({
             <button
               type="button"
               onClick={onToggle}
-              className="h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50"
+              className="h-10 w-10 flex items-center justify-center rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
               aria-label={isOpen ? "Collapse" : "Expand"}
               title={isOpen ? "Hide" : "Show"}
             >
@@ -1644,7 +1606,7 @@ function TaskCard({
             <button
               onClick={onEdit}
               disabled={busy}
-              className="h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              className="h-10 w-10 flex items-center justify-center rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-60 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
               title={isEmployee ? "Update status" : "Edit"}
               aria-label={isEmployee ? "Update status" : "Edit"}
             >
@@ -1655,7 +1617,7 @@ function TaskCard({
               <button
                 onClick={onDelete}
                 disabled={busy}
-                className="h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60"
+                className="h-10 w-10 flex items-center justify-center rounded-xl border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60 outline-none focus:ring-2 focus:ring-red-500/20"
                 title="Delete"
                 aria-label="Delete"
               >
@@ -1669,68 +1631,6 @@ function TaskCard({
       <SmoothCollapse open={isOpen}>
         <div className="px-3 sm:px-6 pb-5 -mt-2">
           <div className="rounded-2xl border border-gray-100 bg-gray-50/60 p-3 sm:p-4">
-            {/* MOVE TASK (ADMIN) */}
-            {isAdmin ? (
-              <div className="mb-4 rounded-2xl border border-gray-100 bg-white p-3">
-                <p className="text-xs font-extrabold text-gray-700 mb-2 flex items-center gap-2">
-                  <FiMove /> Move task
-                </p>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <select
-                    disabled={moving}
-                    value={String(t?.jobId || "")}
-                    onChange={(e) => onMoveJob?.(t?._id, e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold"
-                    title="Move task to job/sub-job"
-                  >
-                    <option value="">No job (independent)</option>
-                    {(jobsFlat || []).map((j) => {
-                      const jid = String(j?._id || "")
-                      const pid = j?.parentJobId ? String(j.parentJobId) : ""
-                      const parent = pid ? jobById?.get(pid) : null
-                      const label = pid ? `${parent?.title || "Job"} › ${j?.title || "Sub-job"}` : j?.title || "Job"
-                      return (
-                        <option key={jid} value={jid}>
-                          {label}
-                        </option>
-                      )
-                    })}
-                  </select>
-
-                  <button
-                    type="button"
-                    disabled={moving}
-                    onClick={() => onMoveJob?.(t?._id, String(t?.jobId || ""))}
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
-                    title="Re-apply move (refresh)"
-                  >
-                    {moving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                    {moving ? "Moving..." : "Apply"}
-                  </button>
-                </div>
-                <p className="text-xs text-gray-500 mt-2">
-                  Change the job here to move tasks between jobs/sub-jobs (or keep it independent).
-                </p>
-              </div>
-            ) : null}
-
-            {/* assignees */}
-            {resolveAssignees(t?.assignedTo, assignedEmployees).length ? (
-              <div className="mb-3">
-                <p className="text-xs font-semibold text-gray-600 mb-2">Assigned to</p>
-                <div className="flex flex-wrap gap-2">
-                  {resolveAssignees(t?.assignedTo, assignedEmployees).map((a) => (
-                    <span
-                      key={a._id}
-                      className="inline-flex items-center px-3 py-1 rounded-full bg-white border border-gray-200 text-xs font-semibold text-gray-700"
-                    >
-                      {a.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
             {t?.description ? (
               <div className="mb-4">
                 <p className="text-xs font-semibold text-gray-600 mb-1">Task notes</p>
@@ -1738,16 +1638,14 @@ function TaskCard({
               </div>
             ) : null}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs mb-4">
-              <div className="px-3 py-2 rounded-xl border border-gray-100 bg-white">
-                <p className="text-gray-500">Due</p>
-                <p className="font-semibold text-gray-900">{formatDateTime(t.dueAt)}</p>
-              </div>
+            {t?.completedAt ? (
+              <div className="text-xs mb-4">
               <div className="px-3 py-2 rounded-xl border border-gray-100 bg-white">
                 <p className="text-gray-500">Completed</p>
                 <p className="font-semibold text-gray-900">{formatDateTime(t.completedAt)}</p>
               </div>
-            </div>
+              </div>
+            ) : null}
 
             {Array.isArray(t?.subtitles) && t.subtitles.length ? (
               <div>
@@ -1837,7 +1735,6 @@ export default function CustomerCRM({
   const [tasksNextCursor, setTasksNextCursor] = useState(null)
 
   // moving
-  const [movingTaskId, setMovingTaskId] = useState("")
 
   // FILTERS
   const [filtersOpen, setFiltersOpen] = useState(false)
@@ -2237,34 +2134,6 @@ export default function CustomerCRM({
     }
   }
 
-  /* ---------------- MOVE TASK (ADMIN) ---------------- */
-  const moveTaskToJob = async (taskId, nextJobId) => {
-    if (!isAdmin) return
-    const tid = String(taskId || "")
-    if (!tid) return
-
-    const next = String(nextJobId || "")
-    setMovingTaskId(tid)
-    setPageError?.("")
-    try {
-      await patchTaskAdmin({
-        customerId,
-        taskId: tid,
-        body: {
-          jobId: next.trim() ? next.trim() : null,
-        },
-      })
-      await resetTasks()
-      pushToast("Task moved")
-    } catch (e) {
-      const message = e?.message || "Failed to move task."
-      setPageError?.(message)
-      pushToast(message, "error")
-    } finally {
-      setMovingTaskId("")
-    }
-  }
-
   /* ---------------- QUICK STATUS ---------------- */
   const quickChangeStatus = async (taskId, nextStatus) => {
     setPageError?.("")
@@ -2596,7 +2465,7 @@ export default function CustomerCRM({
     setSelectedJobId("")
   }
 
-  const renderTaskList = (taskList) => {
+  const renderTaskList = (taskList, { showJobBadge = true } = {}) => {
     if (tasksLoading && (!taskList || taskList.length === 0)) {
       return <div className="p-10 text-center text-gray-500 text-sm">Loading tasks...</div>
     }
@@ -2635,10 +2504,8 @@ export default function CustomerCRM({
               renameSubtitleFile={renameSubtitleFile}
               deleteSubtitleFile={deleteSubtitleFile}
               inferActorRole={inferActorRole}
-              jobsFlat={jobsFlat}
               jobById={jobById}
-              onMoveJob={moveTaskToJob}
-              movingKey={movingTaskId}
+              showJobBadge={showJobBadge}
             />
           )
         })}
@@ -2678,7 +2545,7 @@ export default function CustomerCRM({
                 </button>
               ) : null}
             </div>
-            {renderTaskList(independentTasks)}
+            {renderTaskList(independentTasks, { showJobBadge: false })}
           </div>
         ) : null}
 
@@ -2707,14 +2574,12 @@ export default function CustomerCRM({
                 ? root.subJobs
                 : []
 
-              const getFilteredByJob = (jobId, isRoot) => {
-                const base = isRoot
-                  ? tasks.filter((t) => String(t?.rootJobId || "") === String(jobId))
-                  : tasks.filter((t) => String(t?.jobId || "") === String(jobId))
+              const getFilteredByJob = (jobId) => {
+                const base = tasks.filter((t) => String(t?.jobId || "") === String(jobId))
                 return applyAllFiltersToTasks(base)
               }
 
-              const rootTasksFiltered = getFilteredByJob(rootId, true)
+              const rootTasksFiltered = getFilteredByJob(rootId)
 
               return (
                 <div key={rootId} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
@@ -2732,7 +2597,7 @@ export default function CustomerCRM({
                         <div className="min-w-0">
                           <p className="text-sm font-extrabold text-indigo-700 truncate">{root?.title || "Job"}</p>
                           <p className="text-xs text-gray-500 mt-0.5">
-                            {rootTasksFiltered.length} task{rootTasksFiltered.length === 1 ? "" : "s"} (filtered)
+                            {rootTasksFiltered.length} direct task{rootTasksFiltered.length === 1 ? "" : "s"}
                             {children.length ? ` • ${children.length} sub-job${children.length === 1 ? "" : "s"}` : ""}
                           </p>
                         </div>
@@ -2780,29 +2645,22 @@ export default function CustomerCRM({
 
                   <SmoothCollapse open={rootOpen}>
                     <div className="px-3 sm:px-6 pb-5 pt-4 space-y-4 bg-gray-50/50">
-                      <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+                      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
                         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-2">
-                          <p className="text-xs font-extrabold text-indigo-700">Tasks (Job)</p>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedJobId(rootId)}
-                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-xs font-semibold"
-                            title="Filter to this job"
-                          >
-                            Filter
-                          </button>
+                          <p className="text-sm font-semibold text-gray-800">Direct tasks</p>
+                          <span className="text-xs font-medium text-gray-500">{rootTasksFiltered.length}</span>
                         </div>
-                        {renderTaskList(rootTasksFiltered)}
+                        {renderTaskList(rootTasksFiltered, { showJobBadge: false })}
                       </div>
 
                       {children.length ? (
                         <div className="space-y-3">
                           {children.map((sub) => {
                             const subId = String(sub?._id || "")
-                            const subTasksFiltered = getFilteredByJob(subId, false)
+                            const subTasksFiltered = getFilteredByJob(subId)
 
                             return (
-                              <div key={subId} className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+                              <div key={subId} className="rounded-2xl border border-gray-200 bg-white overflow-hidden">
                                 <div className="px-4 py-3 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                                   <div className="min-w-0 flex items-center gap-2">
                                     <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-extrabold">
@@ -2810,7 +2668,7 @@ export default function CustomerCRM({
                                     </span>
                                     <p className="text-sm font-extrabold text-gray-900 truncate">{sub?.title || "Sub-job"}</p>
                                     <span className="text-xs text-gray-500">
-                                      • {subTasksFiltered.length} task{subTasksFiltered.length === 1 ? "" : "s"} (filtered)
+                                      • {subTasksFiltered.length} task{subTasksFiltered.length === 1 ? "" : "s"}
                                     </span>
                                   </div>
 
@@ -2819,33 +2677,25 @@ export default function CustomerCRM({
                                       <>
                                         <button
                                           onClick={() => openCreateModal(subId)}
-                                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold"
+                                          className="inline-flex h-10 items-center justify-center gap-2 px-3 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold"
                                           title="Add task under this sub-job"
                                         >
                                           <FiPlus /> Task
                                         </button>
                                         <button
                                           onClick={() => requestDeleteJob(subId)}
-                                          className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 text-sm font-semibold"
+                                          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-red-200 text-red-600 hover:bg-red-50"
                                           title="Delete sub-job"
+                                          aria-label="Delete sub-job"
                                         >
-                                          <FiTrash2 /> Delete
+                                          <FiTrash2 />
                                         </button>
                                       </>
                                     ) : null}
-
-                                    <button
-                                      type="button"
-                                      onClick={() => setSelectedJobId(subId)}
-                                      className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
-                                      title="Filter to this sub-job"
-                                    >
-                                      Filter
-                                    </button>
                                   </div>
                                 </div>
 
-                                {renderTaskList(subTasksFiltered)}
+                                {renderTaskList(subTasksFiltered, { showJobBadge: false })}
                               </div>
                             )
                           })}

@@ -13,6 +13,10 @@ import {
   updateDepartment,
   updatePermissionGroup,
   updatePosition,
+  listAccessRoles,
+  createAccessRole,
+  updateAccessRole,
+  deleteAccessRole,
 } from "../controllers/accessControl.controller.js";
 import { protect, isAdminOrSuperAdmin } from "../middleware/auth.middleware.js";
 
@@ -36,5 +40,10 @@ router.get("/permission-groups", listPermissionGroups);
 router.post("/permission-groups", createPermissionGroup);
 router.patch("/permission-groups/:id", updatePermissionGroup);
 router.delete("/permission-groups/:id", deletePermissionGroup);
+
+router.get("/roles", listAccessRoles);
+router.post("/roles", createAccessRole);
+router.patch("/roles/:id", updateAccessRole);
+router.delete("/roles/:id", deleteAccessRole);
 
 export default router;

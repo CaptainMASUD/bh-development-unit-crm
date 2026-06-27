@@ -1,6 +1,6 @@
 // src/routes/dashboard.routes.js
 import express from "express";
-import { protect } from "../middleware/auth.middleware.js";
+import { protect, requirePermission } from "../middleware/auth.middleware.js";
 import {
   getDashboard,
   getDashboardCustomersReport,
@@ -11,11 +11,11 @@ import {
 const router = express.Router();
 
 // Overview
-router.get("/", protect, getDashboard);
+router.get("/", protect, requirePermission("dashboard:view"), getDashboard);
 
 // Reports (drill-down)
-router.get("/reports/customers", protect, getDashboardCustomersReport);
-router.get("/reports/tasks", protect, getDashboardTasksReport);
-router.get("/reports/new-customers", protect, getDashboardNewCustomersReport);
+router.get("/reports/customers", protect, requirePermission("reports:view"), getDashboardCustomersReport);
+router.get("/reports/tasks", protect, requirePermission("reports:view"), getDashboardTasksReport);
+router.get("/reports/new-customers", protect, requirePermission("reports:view"), getDashboardNewCustomersReport);
 
 export default router;

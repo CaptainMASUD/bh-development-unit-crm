@@ -15,6 +15,7 @@ import {
   protect,
   isMarketingOrAdmin,
   isAdminOrSuperAdmin,
+  requirePermission,
 } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
@@ -23,20 +24,20 @@ const router = express.Router();
  * Deal access:
  * marketing_team + admin + superadmin
  */
-router.use(protect, isMarketingOrAdmin);
+router.use(protect, requirePermission("deals:view"));
 
 /* =========================
    DEAL
 ========================= */
-router.post("/", createDeal);
-router.post("/from-proposal/:proposalId", createDealFromProposal);
+router.post("/", requirePermission("deals:manage"), createDeal);
+router.post("/from-proposal/:proposalId", requirePermission("deals:manage"), createDealFromProposal);
 router.get("/", listDeals);
 router.get("/:id", getDealById);
 
-router.put("/:id", updateDeal);
+router.put("/:id", requirePermission("deals:manage"), updateDeal);
 
-router.patch("/:id/won", markDealWon);
-router.patch("/:id/lost", markDealLost);
+router.patch("/:id/won", requirePermission("deals:manage"), markDealWon);
+router.patch("/:id/lost", requirePermission("deals:manage"), markDealLost);
 
 /* =========================
    DELETE

@@ -46,7 +46,7 @@ router.get("/employees/search", isAdminOrSuperAdmin, searchEmployeesForCustomerA
 router.get("/", getCustomers);
 
 // employee can create direct customer; marketing blocked by middleware above
-router.post("/", createCustomer);
+router.post("/", requirePermission("customers:manage"), createCustomer);
 
 // ✅ admin-only onboarding status update
 router.patch("/:id/status", isAdminOrSuperAdmin, updateCustomerStatus);
@@ -64,9 +64,9 @@ router.delete("/:id/jobs/:jobId", isAdminOrSuperAdmin, deleteCustomerJob);
    ✅ CUSTOMER TASKS / ENGAGEMENTS
 ========================= */
 router.get("/:id/tasks", getCustomerTasks);
-router.patch("/:id/engagements", upsertCustomerEngagement);
+router.patch("/:id/engagements", requirePermission("customers:manage"), upsertCustomerEngagement);
 
-router.patch("/:id", updateCustomer);
+router.patch("/:id", requirePermission("customers:manage"), updateCustomer);
 
 // ✅ assignment + delete are admin-only
 router.patch("/:id/assign", isAdminOrSuperAdmin, assignCustomer);

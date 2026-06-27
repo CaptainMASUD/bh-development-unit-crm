@@ -8,10 +8,12 @@ import {
   FiDollarSign,
   FiEdit3,
   FiLayers,
+  FiLock,
   FiPlus,
   FiRefreshCcw,
   FiShield,
   FiTrash2,
+  FiUserCheck,
   FiX,
 } from "react-icons/fi"
 
@@ -94,6 +96,8 @@ const PERMISSION_LABELS = {
     label: "Manage Deals",
     helper: "Create and update deals.",
   },
+  "tasks:view": { label: "View Client Tasks", helper: "See tasks, subtitles, files, and notes assigned to clients." },
+  "tasks:manage": { label: "Manage Client Tasks", helper: "Update task status, files, notes, and task details." },
   "reports:view": {
     label: "View Reports",
     helper: "Open reporting pages.",
@@ -106,6 +110,41 @@ const PERMISSION_LABELS = {
     label: "View Profile Settings",
     helper: "Open and update own profile settings.",
   },
+  "attendance:view": { label: "View Attendance", helper: "See personal attendance and monthly summaries." },
+  "attendance:manage": { label: "Manage Attendance", helper: "Mark, update, and correct employee attendance." },
+  "payroll:view": { label: "View Payroll", helper: "See personal payroll records and payslips." },
+  "payroll:manage": { label: "Manage Payroll", helper: "Calculate, approve, pay, and cancel payroll records." },
+  "loans:view": { label: "View Employee Loans", helper: "See personal employee loan records." },
+  "loans:manage": { label: "Manage Employee Loans", helper: "Create, update, cancel, and record loan payments." },
+  "roster:view": { label: "View Roster", helper: "See shifts, weekly offs, and holiday schedules." },
+  "roster:manage": { label: "Manage Roster", helper: "Create shifts and manage roster assignments and holidays." },
+  "employees:view": { label: "View Employees", helper: "See employee profiles and employment information." },
+  "employees:manage": { label: "Manage Employees", helper: "Create and update employee records." },
+  "salary:view": { label: "View Salary Profiles", helper: "See employee salary profiles and history." },
+  "salary:manage": { label: "Manage Salary Profiles", helper: "Create, override, and deactivate salary profiles." },
+  "notifications:view": { label: "View Notifications", helper: "See personal task and deadline notifications." },
+  "notifications:manage": { label: "Manage Notifications", helper: "Create and administer employee notifications." },
+  "access-control:view": { label: "View Access Control", helper: "See departments, positions, permission groups, and roles." },
+  "access-control:manage": { label: "Manage Access Control", helper: "Create and update access-control records." },
+}
+
+const MODULE_LABELS = {
+  dashboard: "Dashboard",
+  customers: "Clients",
+  tasks: "Client Tasks",
+  leads: "Leads",
+  deals: "Deals",
+  reports: "Reports",
+  attendance: "Attendance",
+  payroll: "Payroll",
+  loans: "Employee Loans",
+  roster: "Roster & Shifts",
+  employees: "Employees",
+  salary: "Salary",
+  notifications: "Notifications",
+  "access-control": "Access Control",
+  workflow: "Workflow",
+  profile: "Profile",
 }
 
 function authHeaders() {
@@ -256,37 +295,56 @@ export default function AccessControl() {
   const [departments, setDepartments] = useState([])
   const [positions, setPositions] = useState([])
   const [permissionGroups, setPermissionGroups] = useState([])
+  const [roles, setRoles] = useState([])
   const [permissionCatalog, setPermissionCatalog] = useState([])
   const [loading, setLoading] = useState(false)
 
   const [departmentForm, setDepartmentForm] = useState({ name: "", description: "" })
   const [positionForm, setPositionForm] = useState(emptyPositionForm)
   const [groupForm, setGroupForm] = useState({ name: "", description: "", permissions: [] })
+  const [roleForm, setRoleForm] = useState({ name: "", description: "", permissionGroup: "" })
 
   const activeDepartments = useMemo(
     () => departments.filter((department) => department.isActive !== false),
     [departments]
   )
 
+  const permissionSections = useMemo(() => {
+    const sections = new Map()
+    permissionCatalog.forEach((permission) => {
+      const moduleName = permission.module || String(permission.key || "").split(":")[0]
+      if (!sections.has(moduleName)) sections.set(moduleName, [])
+      sections.get(moduleName).push(permission)
+    })
+    return Array.from(sections, ([moduleName, permissions]) => ({
+      moduleName,
+      label: MODULE_LABELS[moduleName] || moduleName.replace(/\b\w/g, (char) => char.toUpperCase()),
+      permissions,
+    }))
+  }, [permissionCatalog])
+
   const tabs = [
     { key: "departments", label: "Departments", icon: FiLayers, count: departments.length },
     { key: "positions", label: "Positions", icon: FiBriefcase, count: positions.length },
     { key: "permission-groups", label: "Permission Groups", icon: FiShield, count: permissionGroups.length },
+    { key: "roles", label: "Roles", icon: FiUserCheck, count: roles.length },
   ]
 
   const loadAll = async () => {
     setLoading(true)
     try {
-      const [deps, pos, groups, catalog] = await Promise.all([
+      const [deps, pos, groups, catalog, roleData] = await Promise.all([
         api("/access-control/departments"),
         api("/access-control/positions"),
         api("/access-control/permission-groups"),
         api("/access-control/permissions"),
+        api("/access-control/roles"),
       ])
       setDepartments(deps.departments || [])
       setPositions(pos.positions || [])
       setPermissionGroups(groups.permissionGroups || [])
       setPermissionCatalog(catalog.permissions || [])
+      setRoles(roleData.roles || [])
     } catch (err) {
       toast.error(err.message || "Failed to load access settings")
     } finally {
@@ -308,6 +366,7 @@ export default function AccessControl() {
     if (type === "departments") setDepartmentForm({ name: "", description: "" })
     if (type === "positions") setPositionForm(emptyPositionForm)
     if (type === "permission-groups") setGroupForm({ name: "", description: "", permissions: [] })
+    if (type === "roles") setRoleForm({ name: "", description: "", permissionGroup: "" })
     setCreateModal(type)
   }
 
@@ -339,6 +398,13 @@ export default function AccessControl() {
         name: item?.name || "",
         description: item?.description || "",
         permissions: Array.isArray(item?.permissions) ? item.permissions : [],
+      })
+    }
+    if (type === "roles") {
+      setRoleForm({
+        name: item?.name || "",
+        description: item?.description || "",
+        permissionGroup: item?.permissionGroup?._id || item?.permissionGroup || "",
       })
     }
     setCreateModal(type)
@@ -415,6 +481,22 @@ export default function AccessControl() {
     }
   }
 
+  const createRole = async (event) => {
+    event.preventDefault()
+    try {
+      await api(editingItem?._id ? `/access-control/roles/${editingItem._id}` : "/access-control/roles", {
+        method: editingItem?._id ? "PATCH" : "POST",
+        body: JSON.stringify(roleForm),
+      })
+      setRoleForm({ name: "", description: "", permissionGroup: "" })
+      toast.success(editingItem?._id ? "Role updated" : "Role created")
+      closeModal()
+      loadAll()
+    } catch (err) {
+      toast.error(err.message || "Create failed")
+    }
+  }
+
   const removeItem = async (path, label) => {
     if (!window.confirm(`Delete ${label}?`)) return
     try {
@@ -429,11 +511,21 @@ export default function AccessControl() {
   const togglePermission = (key) => {
     setGroupForm((prev) => {
       const exists = prev.permissions.includes(key)
+      const [moduleName, action] = String(key).split(":")
+      const viewKey = `${moduleName}:view`
+      const manageKey = `${moduleName}:manage`
+      let permissions = [...prev.permissions]
+
+      if (exists) {
+        permissions = permissions.filter((permission) => permission !== key)
+        if (action === "view") permissions = permissions.filter((permission) => permission !== manageKey)
+      } else {
+        permissions.push(key)
+        if (action === "manage" && !permissions.includes(viewKey)) permissions.push(viewKey)
+      }
       return {
         ...prev,
-        permissions: exists
-          ? prev.permissions.filter((permission) => permission !== key)
-          : [...prev.permissions, key],
+        permissions: [...new Set(permissions)],
       }
     })
   }
@@ -472,7 +564,9 @@ export default function AccessControl() {
       ? "Add Department"
       : activeTab === "positions"
       ? "Add Position"
-      : "Add Permission Group"
+      : activeTab === "permission-groups"
+      ? "Add Permission Group"
+      : "Add Role"
   return (
     <div className={shell}>
       <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: "14px", fontWeight: 700 } }} />
@@ -689,11 +783,64 @@ export default function AccessControl() {
                 {!permissionGroups.length ? <EmptyTable icon={<FiCheckSquare />} title="No permission groups yet" subtitle="Create a group and choose readable feature access labels." /> : null}
               </div>
             ) : null}
+
+            {activeTab === "roles" ? (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left">
+                  <thead>
+                    <tr>
+                      {["Role", "Description", "Permission Group", "Status", "Actions"].map((heading) => (
+                        <th key={heading} className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-extrabold uppercase tracking-[0.06em] text-gray-600">
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {roles.map((role) => (
+                      <tr key={role._id} className="group">
+                        <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40">
+                          <div className="flex items-center gap-2">
+                            <span className="text-base font-extrabold text-gray-900">{role.name}</span>
+                            {role.isSystem ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-600"><FiLock />System</span>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td className="border-b border-gray-100 px-5 py-4 text-sm font-medium text-gray-600 group-hover:bg-indigo-50/40">{role.description || "No description added"}</td>
+                        <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-800">{role.permissionGroup?.name || "No permission group"}</p>
+                            <p className="mt-1 text-xs text-gray-500">
+                              {role.isSystem && role.name === "Employee"
+                                ? "Varies by employee"
+                                : `${role.permissionGroup?.permissions?.length || 0} feature permissions`}
+                            </p>
+                          </div>
+                        </td>
+                        <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40"><StatusBadge active={role.isActive !== false} /></td>
+                        <td className="border-b border-gray-100 px-5 py-4 text-right group-hover:bg-indigo-50/40">
+                          {role.isSystem ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-400"><FiLock />Protected</span>
+                          ) : (
+                            <div className="flex justify-end gap-2">
+                              <button className="inline-flex rounded-xl p-2.5 text-indigo-600 transition hover:bg-indigo-50" onClick={() => openEditModal("roles", role)} title="Edit role"><FiEdit3 /></button>
+                              <button className="inline-flex rounded-xl p-2.5 text-rose-600 transition hover:bg-rose-50" onClick={() => removeItem(`/access-control/roles/${role._id}`, role.name)} title="Delete role"><FiTrash2 /></button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!roles.length ? <EmptyTable icon={<FiUserCheck />} title="No custom roles yet" subtitle="Create a role and connect it to a permission group." /> : null}
+              </div>
+            ) : null}
           </section>
         </div>
 
         <div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-800">
-          Flow: Create Departments, create Positions under them, create Permission Groups, then assign those three items to each employee in User Management.
+          Flow: Create Departments, Positions, Permission Groups, and Roles. A role uses a permission group to define its feature access.
         </div>
       </div>
 
@@ -995,35 +1142,93 @@ export default function AccessControl() {
           </div>
 
           <div>
-            <p className="mb-2 text-sm font-extrabold text-gray-800">Feature Access</p>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              {permissionCatalog.map((permission) => {
-                const meta = permissionMeta(permission.key)
-                const checked = groupForm.permissions.includes(permission.key)
-                return (
-                  <label
-                    key={permission.key}
-                    className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-3 py-3 transition ${
-                      checked
-                        ? "border-indigo-200 bg-indigo-50"
-                        : "border-gray-100 bg-gray-50 hover:bg-white"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => togglePermission(permission.key)}
-                      className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <span>
-                      <span className="block text-sm font-extrabold text-gray-900">{meta.label}</span>
-                      <span className="mt-0.5 block text-xs font-medium text-gray-500">{meta.helper}</span>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="text-sm font-extrabold text-gray-800">Feature Access</p>
+              <span className="text-xs font-semibold text-gray-500">{groupForm.permissions.length} selected</span>
+            </div>
+            <div className="space-y-4">
+              {permissionSections.map((section) => (
+                <section key={section.moduleName} className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
+                  <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-4 py-3">
+                    <h3 className="text-sm font-extrabold text-gray-900">{section.label}</h3>
+                    <span className="text-xs font-semibold text-gray-500">
+                      {section.permissions.filter((permission) => groupForm.permissions.includes(permission.key)).length}/{section.permissions.length}
                     </span>
-                  </label>
-                )
-              })}
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 p-3 md:grid-cols-2">
+                    {section.permissions.map((permission) => {
+                      const meta = permissionMeta(permission.key)
+                      const checked = groupForm.permissions.includes(permission.key)
+                      return (
+                        <label
+                          key={permission.key}
+                          className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition ${
+                            checked ? "border-indigo-200 bg-indigo-50" : "border-gray-100 bg-gray-50 hover:bg-white"
+                          }`}
+                        >
+                          <input type="checkbox" checked={checked} onChange={() => togglePermission(permission.key)} className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                          <span>
+                            <span className="block text-sm font-extrabold text-gray-900">{meta.label}</span>
+                            <span className="mt-0.5 block text-xs font-medium text-gray-500">{meta.helper}</span>
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </section>
+              ))}
             </div>
           </div>
+        </form>
+      </AccessModal>
+
+      <AccessModal
+        open={createModal === "roles"}
+        title={isEditing ? "Edit Role" : "Add Role"}
+        subtitle={isEditing ? "Update the role and its access group." : "Create a company role and connect its feature access."}
+        icon={<FiUserCheck className="h-5 w-5" />}
+        maxWidthClass="max-w-2xl"
+        onClose={closeModal}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button className={`${btn} ${btnGhost}`} onClick={closeModal} type="button">Cancel</button>
+            <button className={`${btn} ${btnPrimary}`} form="role-create-form" type="submit">
+              {isEditing ? "Update Role" : "Create Role"}
+            </button>
+          </div>
+        }
+      >
+        <form id="role-create-form" onSubmit={createRole} className="space-y-4">
+          <Field label="Role Name">
+            <input
+              required
+              className={input}
+              placeholder="Example: Team Lead"
+              value={roleForm.name}
+              onChange={(e) => setRoleForm((prev) => ({ ...prev, name: e.target.value }))}
+            />
+          </Field>
+          <Field label="Permission Group">
+            <select
+              required
+              className={input}
+              value={roleForm.permissionGroup}
+              onChange={(e) => setRoleForm((prev) => ({ ...prev, permissionGroup: e.target.value }))}
+            >
+              <option value="">Select permission group</option>
+              {permissionGroups.filter((group) => group.isActive !== false).map((group) => (
+                <option key={group._id} value={group._id}>{group.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Description">
+            <textarea
+              className={`${input} h-28 resize-none py-3`}
+              placeholder="Describe who should receive this role"
+              value={roleForm.description}
+              onChange={(e) => setRoleForm((prev) => ({ ...prev, description: e.target.value }))}
+            />
+          </Field>
         </form>
       </AccessModal>
     </div>

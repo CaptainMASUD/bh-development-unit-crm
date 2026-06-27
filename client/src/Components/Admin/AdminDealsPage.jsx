@@ -19,7 +19,6 @@ import {
   FiPrinter,
   FiRefreshCcw,
   FiSearch,
-  FiTrendingUp,
   FiX,
 } from "react-icons/fi"
 
@@ -29,7 +28,7 @@ const VIEW_KEY = "deals.accounting"
 const COLUMN_LABELS = {
   title: "Deal",
   dealNo: "Deal No",
-  customer: "Customer",
+  customer: "Client",
   leadNumber: "Lead No",
   stage: "Stage",
   budgetMin: "Budget Min",
@@ -56,8 +55,8 @@ const STAGE_COLORS = {
   overdue: "bg-rose-50 text-rose-700 ring-rose-600/10",
 }
 
-const card = "rounded-3xl border border-gray-100 bg-white shadow-[0_18px_45px_-34px_rgba(15,23,42,0.45)]"
-const button = "inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+const card = "rounded-2xl border border-gray-100 bg-white shadow-[0_10px_28px_-16px_rgba(0,0,0,0.22)]"
+const button = "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-50"
 const primaryButton = `${button} bg-indigo-600 text-white shadow-sm hover:bg-indigo-700`
 const ghostButton = `${button} border border-gray-200 bg-white text-gray-800 hover:bg-gray-50`
 const input = "w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10"
@@ -99,6 +98,13 @@ function formatMoney(value, currency = "BDT") {
   }
 }
 
+function formatAmount(value) {
+  return new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0))
+}
+
 function formatDate(value, withTime = false) {
   if (!value) return "—"
   const date = new Date(value)
@@ -123,7 +129,7 @@ function addDays(value, days) {
 function Badge({ value }) {
   const key = String(value || "").toLowerCase()
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black capitalize ring-1 ${STAGE_COLORS[key] || "bg-gray-100 text-gray-700 ring-gray-600/10"}`}>
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold capitalize ring-1 ${STAGE_COLORS[key] || "bg-gray-100 text-gray-700 ring-gray-600/10"}`}>
       {String(value || "—").replaceAll("_", " ")}
     </span>
   )
@@ -144,7 +150,7 @@ function Modal({ open, onClose, title, subtitle, children, footer, maxWidth = "m
       <div className={`relative flex max-h-[92vh] w-full ${maxWidth} flex-col overflow-hidden rounded-3xl border border-white/70 bg-white shadow-2xl`}>
         <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-5 py-4 sm:px-6">
           <div>
-            <h2 className="text-xl font-black text-gray-950">{title}</h2>
+            <h2 className="text-xl font-bold text-gray-950">{title}</h2>
             {subtitle ? <p className="mt-1 text-sm font-medium text-gray-500">{subtitle}</p> : null}
           </div>
           <button type="button" className="rounded-xl p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900" onClick={onClose}>
@@ -233,11 +239,11 @@ function ColumnPickerModal({ open, onClose, selected, onSave }) {
       <div className="mb-4 flex items-center gap-2 rounded-2xl border border-gray-200 px-3 py-2">
         <FiSearch className="text-gray-400" />
         <input className="flex-1 border-0 bg-transparent text-sm outline-none" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search columns..." />
-        <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-black text-indigo-700">{local.length} selected</span>
+        <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">{local.length} selected</span>
       </div>
       <div className="grid gap-4 lg:grid-cols-12">
         <div className="overflow-hidden rounded-2xl border border-gray-100 lg:col-span-7">
-          <div className="border-b border-gray-100 bg-gray-50 px-4 py-3"><p className="text-sm font-black text-gray-900">Available columns</p></div>
+          <div className="border-b border-gray-100 bg-gray-50 px-4 py-3"><p className="text-sm font-semibold text-gray-900">Available columns</p></div>
           <div className="grid gap-2 p-3 sm:grid-cols-2">
             {filtered.map((column) => {
               const checked = local.includes(column)
@@ -251,11 +257,11 @@ function ColumnPickerModal({ open, onClose, selected, onSave }) {
           </div>
         </div>
         <div className="overflow-hidden rounded-2xl border border-gray-100 lg:col-span-5">
-          <div className="border-b border-gray-100 bg-gray-50 px-4 py-3"><p className="text-sm font-black text-gray-900">Selected order</p></div>
+          <div className="border-b border-gray-100 bg-gray-50 px-4 py-3"><p className="text-sm font-semibold text-gray-900">Selected order</p></div>
           <div className="max-h-[430px] space-y-2 overflow-y-auto p-3">
             {local.map((column, index) => (
               <div key={column} className="flex items-center justify-between gap-3 rounded-2xl border border-gray-100 p-3">
-                <div className="flex min-w-0 items-center gap-3"><span className="flex h-8 w-8 items-center justify-center rounded-full border text-xs font-black">{index + 1}</span><p className="truncate text-sm font-black">{COLUMN_LABELS[column]}</p></div>
+                <div className="flex min-w-0 items-center gap-3"><span className="flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold">{index + 1}</span><p className="truncate text-sm font-semibold">{COLUMN_LABELS[column]}</p></div>
                 <div className="flex gap-1">
                   <button className="rounded-xl border p-2 disabled:opacity-30" disabled={index === 0} onClick={() => move(column, "up")}><FiChevronDown className="rotate-180" /></button>
                   <button className="rounded-xl border p-2 disabled:opacity-30" disabled={index === local.length - 1} onClick={() => move(column, "down")}><FiChevronDown /></button>
@@ -278,14 +284,17 @@ function getClientName(deal) {
     || "—"
 }
 
-function SummaryMetric({ label, value, icon, tone }) {
+function SummaryMetric({ label, value, hint, icon, tone, glow }) {
   return (
-    <div className="flex min-w-[180px] flex-1 items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3">
-      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tone}`}>{icon}</div>
-      <div className="min-w-0">
-        <p className="truncate text-xs font-black uppercase tracking-wide text-gray-500">{label}</p>
-        <p className="mt-0.5 truncate text-lg font-black text-gray-950">{value}</p>
+    <div className={`rounded-2xl border border-gray-100 bg-white p-5 ${glow || "shadow-[0_18px_50px_-34px_rgba(75,85,99,0.25)]"}`}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-gray-500">{label}</p>
+          <p className="mt-1 whitespace-nowrap text-2xl font-bold text-gray-900">{value}</p>
+        </div>
+        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ring-1 ring-black/5 ${tone}`}>{icon}</div>
       </div>
+      <p className="mt-3 text-xs text-gray-500">{hint}</p>
     </div>
   )
 }
@@ -339,13 +348,13 @@ function DealDetailsModal({ dealId, onClose, onCreateInvoice, onViewInvoice }) {
               ["Health", <Badge key="health" value={deal.dealHealth} />],
             ].map(([label, value]) => (
               <div key={label} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-                <p className="text-xs font-black uppercase tracking-wide text-gray-500">{label}</p>
+                <p className="text-xs font-semibold uppercase text-gray-500">{label}</p>
                 <div className="mt-1.5 text-sm font-bold text-gray-900">{value}</div>
               </div>
             ))}
           </div>
           <div>
-            <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-gray-600">Deal items</h3>
+            <h3 className="mb-3 text-sm font-semibold text-gray-700">Deal items</h3>
             <div className="overflow-hidden rounded-2xl border border-gray-200">
               <table className="w-full min-w-[650px] text-left">
                 <thead className="bg-gray-50">
@@ -748,8 +757,8 @@ export default function AdminDealsPage() {
       expectedValue: formatMoney(deal.requirementSnapshot?.expectedValue, deal.currency),
       dealValue: formatMoney(deal.grandTotal, deal.currency),
       invoiceTotal: deal.invoice ? formatMoney(deal.invoice.total, currency) : "—",
-      paidAmount: <span className="font-black text-emerald-700">{formatMoney(deal.invoice?.paidTotal, currency)}</span>,
-      dueAmount: <span className={`font-black ${dueAmount > 0 ? "text-rose-700" : "text-emerald-700"}`}>{formatMoney(dueAmount, currency)}</span>,
+      paidAmount: <span className="font-semibold text-emerald-700">{formatMoney(deal.invoice?.paidTotal, currency)}</span>,
+      dueAmount: <span className={`font-semibold ${dueAmount > 0 ? "text-rose-700" : "text-emerald-700"}`}>{formatMoney(dueAmount, currency)}</span>,
       invoiceStatus: deal.invoice ? <Badge value={deal.invoice.status} /> : <Badge value="uninvoiced" />,
       invoiceNo: deal.invoice?.invoiceNo || "—",
       closeDate: formatDate(deal.expectedCloseDate),
@@ -758,41 +767,39 @@ export default function AdminDealsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
-      <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: "14px", fontWeight: 700 } }} />
-      <div className="mx-auto max-w-[1550px] px-1 py-1 sm:px-3">
-        <div className={`${card} mb-5 p-5 sm:p-6`}>
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+    <div className="min-h-screen bg-gray-50/60">
+      <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: "12px", fontWeight: 600 } }} />
+      <div className="mx-auto max-w-[1550px] space-y-5 px-1 py-1 sm:px-3">
+        <div className={`${card} p-5 sm:p-6`}>
+          <div className="flex items-center gap-3 border-b border-gray-100 pb-5">
             <div className="flex items-center gap-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm"><FiBriefcase className="h-6 w-6" /></div>
-              <div>
-                <h1 className="text-2xl font-black tracking-tight text-gray-950 sm:text-3xl">Deals</h1>
-                <p className="mt-1 text-sm font-medium text-gray-500">Won-deal accounting, invoicing, collections and outstanding balances.</p>
-              </div>
+              <h1 className="text-2xl font-bold text-gray-950 sm:text-3xl">Deals</h1>
             </div>
-            <div className="flex w-full gap-2 xl:w-auto">
-              <div className="relative min-w-0 flex-1 xl:w-[340px]">
+          </div>
+          <div className="flex flex-col gap-3 pt-5 lg:flex-row lg:items-center">
+              <div className="relative min-w-0 flex-1">
                 <FiSearch className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <input className={`${input} pl-10`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search deal number or title..." />
+                <input className={`${input} h-12 pl-10`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search deals, numbers or clients..." />
               </div>
-              <button className={ghostButton} onClick={() => setColumnsOpen(true)}><FiColumns /><span className="hidden sm:inline">Columns</span></button>
-              <button className={ghostButton} onClick={() => loadDeals()} disabled={loading}><FiRefreshCcw className={loading ? "animate-spin" : ""} /><span className="hidden sm:inline">Refresh</span></button>
-            </div>
+              <div className="flex gap-2">
+                <button className={ghostButton} onClick={() => setColumnsOpen(true)}><FiColumns />Columns</button>
+                <button className={ghostButton} onClick={() => loadDeals()} disabled={loading}><FiRefreshCcw className={loading ? "animate-spin" : ""} />Refresh</button>
+              </div>
           </div>
-          <div className="mt-5 flex flex-wrap gap-3 border-t border-gray-100 pt-5">
-            <SummaryMetric label="Won deals" value={accounting.wonDeals} icon={<FiCheckCircle />} tone="bg-emerald-50 text-emerald-700" />
-            <SummaryMetric label="Won value" value={formatMoney(accounting.wonValue)} icon={<FiBriefcase />} tone="bg-indigo-50 text-indigo-700" />
-            <SummaryMetric label="Invoiced" value={formatMoney(accounting.invoicedAmount)} icon={<FiFileText />} tone="bg-sky-50 text-sky-700" />
-            <SummaryMetric label="Paid" value={formatMoney(accounting.paidAmount)} icon={<FiDollarSign />} tone="bg-emerald-50 text-emerald-700" />
-            <SummaryMetric label="Outstanding" value={formatMoney(accounting.outstandingAmount)} icon={<FiTrendingUp />} tone="bg-rose-50 text-rose-700" />
-          </div>
-          {accounting.uninvoicedAmount > 0 ? <p className="mt-3 text-right text-xs font-bold text-amber-700">Uninvoiced won value: {formatMoney(accounting.uninvoicedAmount)}</p> : null}
         </div>
 
-        <div className="mb-4 overflow-x-auto rounded-2xl border border-gray-200 bg-white p-1.5 shadow-sm">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryMetric label="Won deals" value={accounting.wonDeals} hint="Closed successfully" icon={<FiCheckCircle />} tone="bg-emerald-50 text-emerald-700" glow="shadow-[0_18px_50px_-30px_rgba(34,197,94,0.28)]" />
+          <SummaryMetric label="Won value" value={formatAmount(accounting.wonValue)} hint="Total confirmed value" icon={<FiBriefcase />} tone="bg-indigo-50 text-indigo-700" glow="shadow-[0_18px_50px_-30px_rgba(79,70,229,0.30)]" />
+          <SummaryMetric label="Invoiced" value={formatAmount(accounting.invoicedAmount)} hint={`${formatAmount(accounting.uninvoicedAmount)} not invoiced`} icon={<FiFileText />} tone="bg-sky-50 text-sky-700" />
+          <SummaryMetric label="Paid" value={formatAmount(accounting.paidAmount)} hint="Payments collected" icon={<FiDollarSign />} tone="bg-emerald-50 text-emerald-700" glow="shadow-[0_18px_50px_-30px_rgba(34,197,94,0.28)]" />
+        </div>
+
+        <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white p-1.5 shadow-sm">
           <div className="flex min-w-max gap-1">
             {[["", "All", accounting.wonDeals], ["paid", "Paid", accounting.paidDeals], ["due", "Due", accounting.dueDeals]].map(([value, label, count]) => (
-              <button key={label} type="button" onClick={() => setInvoiceState(value)} className={`rounded-xl px-4 py-2.5 text-sm font-black transition ${invoiceState === value ? "bg-indigo-600 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100"}`}>
+              <button key={label} type="button" onClick={() => setInvoiceState(value)} className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition ${invoiceState === value ? "bg-indigo-600 text-white shadow-sm" : "text-gray-700 hover:bg-gray-100"}`}>
                 {label}<span className={`ml-2 rounded-full px-2 py-0.5 text-xs ${invoiceState === value ? "bg-white/20" : "bg-gray-100"}`}>{count}</span>
               </button>
             ))}
@@ -806,8 +813,8 @@ export default function AdminDealsPage() {
             <table className="w-full min-w-[1200px] border-separate border-spacing-0 text-left">
               <thead className="sticky top-0 z-20">
                 <tr>
-                  {selectedColumns.map((column) => <th key={column} className="whitespace-nowrap border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-black uppercase tracking-[0.06em] text-gray-600">{COLUMN_LABELS[column]}</th>)}
-                  <th className="sticky right-0 z-30 whitespace-nowrap border-b border-gray-200 bg-gray-50 px-5 py-4 text-right text-xs font-black uppercase tracking-[0.06em] text-gray-600 shadow-[-12px_0_20px_-20px_rgba(15,23,42,0.35)]">Actions</th>
+                  {selectedColumns.map((column) => <th key={column} className="whitespace-nowrap border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-semibold uppercase text-gray-600">{COLUMN_LABELS[column]}</th>)}
+                  <th className="sticky right-0 z-30 whitespace-nowrap border-b border-gray-200 bg-gray-50 px-5 py-4 text-right text-xs font-semibold uppercase text-gray-600 shadow-[-12px_0_20px_-20px_rgba(15,23,42,0.35)]">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 bg-white">
@@ -815,7 +822,7 @@ export default function AdminDealsPage() {
                   <tr><td colSpan={selectedColumns.length + 1} className="p-12 text-center"><FiLoader className="mx-auto h-7 w-7 animate-spin text-indigo-600" /></td></tr>
                 ) : deals.length ? deals.map((deal) => (
                     <tr key={deal._id} className="group">
-                      {selectedColumns.map((column) => <td key={column} className="max-w-[240px] whitespace-nowrap bg-white px-5 py-2.5 text-sm font-bold text-gray-800 transition group-hover:bg-indigo-50/40"><div className="truncate">{renderCell(deal, column)}</div></td>)}
+                      {selectedColumns.map((column) => <td key={column} className="max-w-[240px] whitespace-nowrap bg-white px-5 py-3.5 text-sm font-medium text-gray-800 transition group-hover:bg-indigo-50/40"><div className="truncate">{renderCell(deal, column)}</div></td>)}
                       <td className="sticky right-0 z-10 bg-white px-5 py-2.5 text-right shadow-[-14px_0_24px_-22px_rgba(15,23,42,0.45)] group-hover:bg-indigo-50/40">
                         <div className="flex justify-end gap-2">
                           <button className={ghostButton} onClick={() => setViewDealId(deal._id)}><FiEye />View</button>
@@ -824,13 +831,13 @@ export default function AdminDealsPage() {
                       </td>
                     </tr>
                 )) : (
-                  <tr><td colSpan={selectedColumns.length + 1} className="p-12 text-center"><FiBriefcase className="mx-auto h-9 w-9 text-gray-300" /><p className="mt-3 font-black text-gray-900">No deals found</p><p className="mt-1 text-sm text-gray-500">No won deals match this accounting tab.</p></td></tr>
+                  <tr><td colSpan={selectedColumns.length + 1} className="p-12 text-center"><FiBriefcase className="mx-auto h-9 w-9 text-gray-300" /><p className="mt-3 font-semibold text-gray-900">No deals found</p><p className="mt-1 text-sm text-gray-500">No won deals match this accounting tab.</p></td></tr>
                 )}
               </tbody>
             </table>
           </div>
           <div className="flex flex-col gap-3 border-t border-gray-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div><p className="text-sm font-black text-gray-800">{deals.length} of {pageInfo.total || 0} deals loaded</p><p className="mt-0.5 text-xs text-gray-500">Newest deals appear first.</p></div>
+            <div><p className="text-sm font-semibold text-gray-800">{deals.length} of {pageInfo.total || 0} deals loaded</p><p className="mt-0.5 text-xs text-gray-500">Newest deals appear first.</p></div>
             <button className={pageInfo.hasNextPage ? primaryButton : `${ghostButton} cursor-not-allowed text-gray-400`} disabled={!pageInfo.hasNextPage || loadingMore} onClick={() => loadDeals({ nextPage: pageInfo.page + 1, append: true })}>{loadingMore ? <FiLoader className="animate-spin" /> : null}{loadingMore ? "Loading..." : pageInfo.hasNextPage ? "Load more" : "All deals loaded"}</button>
           </div>
         </div>
