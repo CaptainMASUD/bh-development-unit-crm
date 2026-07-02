@@ -16,6 +16,7 @@ import {
   FiUserCheck,
   FiX,
 } from "react-icons/fi"
+import { hasPermission, PERMISSIONS } from "../Auth/permissions"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -26,6 +27,7 @@ const btn =
   "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
 const btnPrimary = "bg-indigo-600 text-white shadow-sm hover:bg-indigo-700"
 const btnGhost = "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
+const btnDanger = "bg-rose-600 text-white shadow-sm hover:bg-rose-700"
 const input =
   "h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-transparent focus:ring-2 focus:ring-indigo-500/40"
 
@@ -299,6 +301,14 @@ function AccessModal({ open, title, subtitle, icon, children, footer, onClose, m
 }
 
 export default function AccessControl() {
+  const currentUser = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("user") || "null")
+    } catch {
+      return null
+    }
+  }, [])
+  const canManageAccessControl = hasPermission(currentUser, PERMISSIONS.ACCESS_CONTROL_MANAGE)
   const [activeTab, setActiveTab] = useState("departments")
   const [createModal, setCreateModal] = useState("")
   const [editingItem, setEditingItem] = useState(null)
@@ -308,6 +318,7 @@ export default function AccessControl() {
   const [roles, setRoles] = useState([])
   const [permissionCatalog, setPermissionCatalog] = useState([])
   const [loading, setLoading] = useState(false)
+  const [deleteState, setDeleteState] = useState({ open: false, path: "", label: "", type: "", password: "", loading: false })
 
   const [departmentForm, setDepartmentForm] = useState({ name: "", description: "" })
   const [positionForm, setPositionForm] = useState(emptyPositionForm)
@@ -372,6 +383,7 @@ export default function AccessControl() {
   }
 
   const openCreateModal = (type) => {
+    if (!canManageAccessControl) return toast.error("You do not have permission to create access settings")
     setEditingItem(null)
     if (type === "departments") setDepartmentForm({ name: "", description: "" })
     if (type === "positions") setPositionForm(emptyPositionForm)
@@ -381,6 +393,7 @@ export default function AccessControl() {
   }
 
   const openEditModal = (type, item) => {
+    if (!canManageAccessControl) return toast.error("You do not have permission to update access settings")
     setEditingItem(item)
     if (type === "departments") {
       setDepartmentForm({
@@ -507,14 +520,36 @@ export default function AccessControl() {
     }
   }
 
-  const removeItem = async (path, label) => {
-    if (!window.confirm(`Delete ${label}?`)) return
+  const requestDelete = ({ path, label, type }) => {
+    if (!canManageAccessControl) return toast.error("You do not have permission to delete access settings")
+    setDeleteState({ open: true, path, label, type, password: "", loading: false })
+  }
+
+  const closeDeleteModal = () => {
+    if (deleteState.loading) return
+    setDeleteState({ open: false, path: "", label: "", type: "", password: "", loading: false })
+  }
+
+  const removeItem = async (event) => {
+    event.preventDefault()
+    if (!deleteState.path) return
+    if (!deleteState.password || deleteState.password.length < 6) {
+      toast.error("Enter your password to delete")
+      return
+    }
+
+    setDeleteState((prev) => ({ ...prev, loading: true }))
     try {
-      await api(path, { method: "DELETE" })
+      await api(deleteState.path, {
+        method: "DELETE",
+        body: JSON.stringify({ password: deleteState.password }),
+      })
       toast.success("Deleted")
+      setDeleteState({ open: false, path: "", label: "", type: "", password: "", loading: false })
       loadAll()
     } catch (err) {
       toast.error(err.message || "Delete failed")
+      setDeleteState((prev) => ({ ...prev, loading: false }))
     }
   }
 
@@ -648,10 +683,12 @@ export default function AccessControl() {
                 <h2 className="text-lg font-extrabold text-gray-900">{currentTitle}</h2>
                 <p className="text-sm font-medium text-gray-500">Review and manage existing records.</p>
               </div>
-              <button className={`${btn} ${btnPrimary}`} onClick={() => openCreateModal(activeTab)} type="button">
-                <FiPlus />
-                {addButtonLabel}
-              </button>
+              {canManageAccessControl ? (
+                <button className={`${btn} ${btnPrimary}`} onClick={() => openCreateModal(activeTab)} type="button">
+                  <FiPlus />
+                  {addButtonLabel}
+                </button>
+              ) : null}
             </div>
 
             {activeTab === "departments" ? (
@@ -673,14 +710,16 @@ export default function AccessControl() {
                         <td className="border-b border-gray-100 px-5 py-4 text-sm font-medium text-gray-600 group-hover:bg-indigo-50/40">{department.description || "No description added"}</td>
                         <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40"><StatusBadge active={department.isActive !== false} /></td>
                         <td className="border-b border-gray-100 px-5 py-4 text-right group-hover:bg-indigo-50/40">
-                          <div className="flex justify-end gap-2">
-                          <button className="inline-flex rounded-xl p-2.5 text-indigo-600 transition hover:bg-indigo-50" onClick={() => openEditModal("departments", department)} title="Edit department">
-                            <FiEdit3 />
-                          </button>
-                          <button className="inline-flex rounded-xl p-2.5 text-rose-600 transition hover:bg-rose-50" onClick={() => removeItem(`/access-control/departments/${department._id}`, department.name)} title="Delete department">
-                            <FiTrash2 />
-                          </button>
-                          </div>
+                          {canManageAccessControl ? (
+                            <div className="flex justify-end gap-2">
+                              <button className="inline-flex rounded-xl p-2.5 text-indigo-600 transition hover:bg-indigo-50" onClick={() => openEditModal("departments", department)} title="Edit department">
+                                <FiEdit3 />
+                              </button>
+                              <button className="inline-flex rounded-xl p-2.5 text-rose-600 transition hover:bg-rose-50" onClick={() => requestDelete({ path: `/access-control/departments/${department._id}`, label: department.name, type: "department" })} title="Delete department">
+                                <FiTrash2 />
+                              </button>
+                            </div>
+                          ) : <span className="text-xs font-semibold text-gray-400">View only</span>}
                         </td>
                       </tr>
                     ))}
@@ -735,14 +774,16 @@ export default function AccessControl() {
                         </td>
                         <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40"><StatusBadge active={position.isActive !== false} /></td>
                         <td className="border-b border-gray-100 px-5 py-4 text-right group-hover:bg-indigo-50/40">
-                          <div className="flex justify-end gap-2">
-                          <button className="inline-flex rounded-xl p-2.5 text-indigo-600 transition hover:bg-indigo-50" onClick={() => openEditModal("positions", position)} title="Edit position">
-                            <FiEdit3 />
-                          </button>
-                          <button className="inline-flex rounded-xl p-2.5 text-rose-600 transition hover:bg-rose-50" onClick={() => removeItem(`/access-control/positions/${position._id}`, position.title)} title="Delete position">
-                            <FiTrash2 />
-                          </button>
-                          </div>
+                          {canManageAccessControl ? (
+                            <div className="flex justify-end gap-2">
+                              <button className="inline-flex rounded-xl p-2.5 text-indigo-600 transition hover:bg-indigo-50" onClick={() => openEditModal("positions", position)} title="Edit position">
+                                <FiEdit3 />
+                              </button>
+                              <button className="inline-flex rounded-xl p-2.5 text-rose-600 transition hover:bg-rose-50" onClick={() => requestDelete({ path: `/access-control/positions/${position._id}`, label: position.title, type: "position" })} title="Delete position">
+                                <FiTrash2 />
+                              </button>
+                            </div>
+                          ) : <span className="text-xs font-semibold text-gray-400">View only</span>}
                         </td>
                       </tr>
                     ))}
@@ -782,14 +823,16 @@ export default function AccessControl() {
                         </td>
                         <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40"><StatusBadge active={group.isActive !== false} /></td>
                         <td className="border-b border-gray-100 px-5 py-4 text-right group-hover:bg-indigo-50/40">
-                          <div className="flex justify-end gap-2">
-                          <button className="inline-flex rounded-xl p-2.5 text-indigo-600 transition hover:bg-indigo-50" onClick={() => openEditModal("permission-groups", group)} title="Edit permission group">
-                            <FiEdit3 />
-                          </button>
-                          <button className="inline-flex rounded-xl p-2.5 text-rose-600 transition hover:bg-rose-50" onClick={() => removeItem(`/access-control/permission-groups/${group._id}`, group.name)} title="Delete permission group">
-                            <FiTrash2 />
-                          </button>
-                          </div>
+                          {canManageAccessControl ? (
+                            <div className="flex justify-end gap-2">
+                              <button className="inline-flex rounded-xl p-2.5 text-indigo-600 transition hover:bg-indigo-50" onClick={() => openEditModal("permission-groups", group)} title="Edit permission group">
+                                <FiEdit3 />
+                              </button>
+                              <button className="inline-flex rounded-xl p-2.5 text-rose-600 transition hover:bg-rose-50" onClick={() => requestDelete({ path: `/access-control/permission-groups/${group._id}`, label: group.name, type: "permission group" })} title="Delete permission group">
+                                <FiTrash2 />
+                              </button>
+                            </div>
+                          ) : <span className="text-xs font-semibold text-gray-400">View only</span>}
                         </td>
                       </tr>
                     ))}
@@ -837,12 +880,12 @@ export default function AccessControl() {
                         <td className="border-b border-gray-100 px-5 py-4 text-right group-hover:bg-indigo-50/40">
                           {role.isSystem ? (
                             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-400"><FiLock />Protected</span>
-                          ) : (
+                          ) : canManageAccessControl ? (
                             <div className="flex justify-end gap-2">
                               <button className="inline-flex rounded-xl p-2.5 text-indigo-600 transition hover:bg-indigo-50" onClick={() => openEditModal("roles", role)} title="Edit role"><FiEdit3 /></button>
-                              <button className="inline-flex rounded-xl p-2.5 text-rose-600 transition hover:bg-rose-50" onClick={() => removeItem(`/access-control/roles/${role._id}`, role.name)} title="Delete role"><FiTrash2 /></button>
+                              <button className="inline-flex rounded-xl p-2.5 text-rose-600 transition hover:bg-rose-50" onClick={() => requestDelete({ path: `/access-control/roles/${role._id}`, label: role.name, type: "role" })} title="Delete role"><FiTrash2 /></button>
                             </div>
-                          )}
+                          ) : <span className="text-xs font-semibold text-gray-400">View only</span>}
                         </td>
                       </tr>
                     ))}
@@ -1243,6 +1286,42 @@ export default function AccessControl() {
               value={roleForm.description}
               onChange={(e) => setRoleForm((prev) => ({ ...prev, description: e.target.value }))}
             />
+          </Field>
+        </form>
+      </AccessModal>
+
+      <AccessModal
+        open={deleteState.open}
+        title={`Delete ${deleteState.type || "item"}`}
+        subtitle={deleteState.label || "Confirm deletion"}
+        icon={<FiTrash2 className="h-5 w-5" />}
+        maxWidthClass="max-w-xl"
+        onClose={closeDeleteModal}
+        footer={
+          <div className="flex justify-end gap-2">
+            <button className={`${btn} ${btnGhost}`} disabled={deleteState.loading} onClick={closeDeleteModal} type="button">Cancel</button>
+            <button className={`${btn} ${btnDanger}`} disabled={deleteState.loading || deleteState.password.length < 6} form="access-control-delete-form" type="submit">
+              {deleteState.loading ? "Deleting..." : "Delete"}
+            </button>
+          </div>
+        }
+      >
+        <form id="access-control-delete-form" onSubmit={removeItem} className="space-y-4">
+          <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-sm font-semibold text-rose-700">
+            This will delete {deleteState.label ? <span className="font-extrabold">{deleteState.label}</span> : "this item"}. Enter your password to continue.
+          </div>
+          <Field label="Admin Password">
+            <div className="relative">
+              <FiLock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-500" />
+              <input
+                className={`${input} pl-10`}
+                type="password"
+                value={deleteState.password}
+                onChange={(event) => setDeleteState((prev) => ({ ...prev, password: event.target.value }))}
+                placeholder="Enter admin password"
+                autoFocus
+              />
+            </div>
           </Field>
         </form>
       </AccessModal>

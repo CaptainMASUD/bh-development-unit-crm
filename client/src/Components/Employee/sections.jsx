@@ -87,7 +87,7 @@ export const sections = {
   "Employee Management": {
     icon: <FiUsers className="w-5 h-5" />,
     component: <EmployeeManager />,
-    permission: PERMISSIONS.EMPLOYEES_MANAGE,
+    permission: PERMISSIONS.EMPLOYEES_VIEW,
   },
 
   "Attendance Management": {
@@ -141,7 +141,7 @@ export const sections = {
   "Access Control": {
     icon: <FiUsers className="w-5 h-5" />,
     component: <AccessControl />,
-    permission: PERMISSIONS.ACCESS_CONTROL_MANAGE,
+    permission: PERMISSIONS.ACCESS_CONTROL_VIEW,
   },
 
   // ✅ ADDED: after Clients, before Profile Settings

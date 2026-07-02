@@ -16,6 +16,33 @@ const duplicateMessage = (err, fallback) => {
   return null;
 };
 
+const requireRequesterPassword = async (req, res) => {
+  try {
+    const password = clean(req.body?.password);
+    if (!password) {
+      res.status(400).json({ message: "Password is required to delete this item." });
+      return false;
+    }
+
+    const requester = await User.findById(req.user?._id).select("+password");
+    if (!requester) {
+      res.status(401).json({ message: "Unauthorized." });
+      return false;
+    }
+
+    const ok = await requester.comparePassword(password);
+    if (!ok) {
+      res.status(401).json({ message: "Password is incorrect." });
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    res.status(500).json({ message: "Password verification failed.", error: err.message });
+    return false;
+  }
+};
+
 const normalizeSalaryComponent = (item = {}) => {
   return {
     name: clean(item.name),
@@ -161,6 +188,8 @@ export const updateDepartment = async (req, res) => {
 };
 
 export const deleteDepartment = async (req, res) => {
+  if (!(await requireRequesterPassword(req, res))) return;
+
   const used = await Position.exists({ department: req.params.id });
 
   if (used) {
@@ -245,6 +274,8 @@ export const updatePosition = async (req, res) => {
 };
 
 export const deletePosition = async (req, res) => {
+  if (!(await requireRequesterPassword(req, res))) return;
+
   const position = await Position.findByIdAndDelete(req.params.id);
   if (!position) return res.status(404).json({ message: "Position not found." });
 
@@ -326,6 +357,8 @@ export const updatePermissionGroup = async (req, res) => {
 };
 
 export const deletePermissionGroup = async (req, res) => {
+  if (!(await requireRequesterPassword(req, res))) return;
+
   const usedByRole = await AccessRole.exists({ permissionGroup: req.params.id });
   if (usedByRole) {
     return res.status(400).json({ message: "This permission group is assigned to a role." });
@@ -436,6 +469,8 @@ export const updateAccessRole = async (req, res) => {
 };
 
 export const deleteAccessRole = async (req, res) => {
+  if (!(await requireRequesterPassword(req, res))) return;
+
   if (String(req.params.id).startsWith("system:")) {
     return res.status(403).json({ message: "System roles cannot be deleted." });
   }

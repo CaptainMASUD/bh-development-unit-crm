@@ -52,6 +52,13 @@ export function hasPermission(user, permission) {
   if (String(permission).endsWith(":view")) {
     return permissions.includes(String(permission).replace(/:view$/, ":manage"))
   }
+  if (String(permission).endsWith(".view")) {
+    const moduleName = String(permission).replace(/\.view$/, "")
+    return permissions.some((item) => {
+      const [itemModule, itemAction] = String(item).split(".")
+      return itemModule === moduleName && ["create", "update", "delete", "assign_employee", "report", "manage"].includes(itemAction)
+    })
+  }
   return false
 }
 

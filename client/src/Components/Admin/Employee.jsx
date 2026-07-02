@@ -23,6 +23,7 @@ import {
   FiUsers,
   FiX,
 } from "react-icons/fi"
+import { hasPermission, PERMISSIONS } from "../Auth/permissions"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const PAGE_SIZE = 25
@@ -149,7 +150,7 @@ function StatusBadge({ active, label }) {
   )
 }
 
-function EmployeeDetailsModal({ open, employee, salaryProfile, loading, onClose, onEdit, onDelete }) {
+function EmployeeDetailsModal({ open, employee, salaryProfile, loading, onClose, onEdit, onDelete, canManage = true }) {
   if (!open) return null
 
   return (
@@ -166,7 +167,7 @@ function EmployeeDetailsModal({ open, employee, salaryProfile, loading, onClose,
             Close
           </button>
 
-          {employee ? (
+          {employee && canManage ? (
             <div className="flex flex-col gap-2 sm:flex-row">
               <button
                 className={`${btn} ${btnPrimary}`}
@@ -342,7 +343,7 @@ function EmployeeDetailsModal({ open, employee, salaryProfile, loading, onClose,
   )
 }
 
-function EmployeeActionMenu({ employee, openMenuId, setOpenMenuId, onView, onEdit, onDelete }) {
+function EmployeeActionMenu({ employee, openMenuId, setOpenMenuId, onView, onEdit, onDelete, canManage = true }) {
   const [position, setPosition] = useState({ top: 0, left: 0 })
   const buttonRef = useRef(null)
   const open = openMenuId === employee?._id
@@ -407,18 +408,22 @@ function EmployeeActionMenu({ employee, openMenuId, setOpenMenuId, onView, onEdi
               <FiEye className="h-4 w-4 text-indigo-600" />
               View details
             </button>
-            <button type="button" className={itemClass} onClick={() => runAction(onEdit)}>
-              <FiEdit3 className="h-4 w-4 text-gray-600" />
-              Edit employee
-            </button>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-bold text-rose-700 transition hover:bg-rose-50"
-              onClick={() => runAction(onDelete)}
-            >
-              <FiTrash2 className="h-4 w-4" />
-              Delete employee
-            </button>
+            {canManage ? (
+              <>
+                <button type="button" className={itemClass} onClick={() => runAction(onEdit)}>
+                  <FiEdit3 className="h-4 w-4 text-gray-600" />
+                  Edit employee
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-bold text-rose-700 transition hover:bg-rose-50"
+                  onClick={() => runAction(onDelete)}
+                >
+                  <FiTrash2 className="h-4 w-4" />
+                  Delete employee
+                </button>
+              </>
+            ) : null}
           </div>,
           document.body
         )
@@ -592,6 +597,14 @@ function WeekdayPicker({ value = [], onChange }) {
 }
 
 export default function Employee() {
+  const currentUser = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("user") || "null")
+    } catch {
+      return null
+    }
+  }, [])
+  const canManageEmployees = hasPermission(currentUser, PERMISSIONS.EMPLOYEES_MANAGE)
   const [employees, setEmployees] = useState([])
   const [departments, setDepartments] = useState([])
   const [positions, setPositions] = useState([])
@@ -661,6 +674,16 @@ export default function Employee() {
     if (!filters.department) return positions
     return positions.filter((position) => String(getId(position.department)) === String(filters.department))
   }, [filters.department, positions])
+
+  const departmentTabs = useMemo(
+    () => [
+      { key: "", label: "All Departments" },
+      ...departments
+        .filter((department) => department.isActive !== false)
+        .map((department) => ({ key: String(department._id), label: department.name })),
+    ],
+    [departments]
+  )
 
   const loadAccessLists = async () => {
     try {
@@ -850,6 +873,7 @@ export default function Employee() {
   }
 
   const openCreate = () => {
+    if (!canManageEmployees) return toast.error("You do not have permission to create employees")
     setEditing(null)
     setForm(emptyForm)
     resetAvatarDraft()
@@ -875,6 +899,7 @@ export default function Employee() {
   }
 
   const openEdit = (employee) => {
+    if (!canManageEmployees) return toast.error("You do not have permission to update employees")
     setEditing(employee)
     setForm({
       ...emptyForm,
@@ -986,6 +1011,7 @@ export default function Employee() {
 
   const deleteEmployee = async (event) => {
     event.preventDefault()
+    if (!canManageEmployees) return toast.error("You do not have permission to delete employees")
     const employee = deleteState.employee
     const password = deleteState.password
     if (!employee?._id) return
@@ -1063,6 +1089,19 @@ export default function Employee() {
     }))
   }
 
+  const selectDepartmentTab = (departmentId) => {
+    setFilters((prev) => ({
+      ...prev,
+      department: departmentId,
+      position: "",
+    }))
+    setFilterDraft((prev) => ({
+      ...prev,
+      department: departmentId,
+      position: "",
+    }))
+  }
+
   return (
     <div className={shell}>
       <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: "14px", fontWeight: 700 } }} />
@@ -1087,10 +1126,12 @@ export default function Employee() {
                 <FiRefreshCcw className={loading ? "animate-spin" : ""} />
                 Refresh
               </button>
-              <button className={`${btn} ${btnPrimary}`} onClick={openCreate}>
-                <FiPlus />
-                Add Employee
-              </button>
+              {canManageEmployees ? (
+                <button className={`${btn} ${btnPrimary}`} onClick={openCreate}>
+                  <FiPlus />
+                  Add Employee
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -1155,6 +1196,28 @@ export default function Employee() {
             <p className="text-sm font-bold text-gray-500">
               Showing <span className="text-gray-900">{employees.length}</span> employee{employees.length === 1 ? "" : "s"}
             </p>
+          </div>
+        </div>
+
+        <div className="mb-5 overflow-hidden rounded-3xl border border-gray-200 bg-white p-2 shadow-[0_14px_35px_-30px_rgba(15,23,42,0.45)]">
+          <div className="flex min-w-max gap-1 overflow-x-auto" role="tablist" aria-label="Filter employees by department">
+            {departmentTabs.map((department) => {
+              const active = String(filters.department || "") === String(department.key)
+              return (
+                <button
+                  key={department.key || "all"}
+                  type="button"
+                  onClick={() => selectDepartmentTab(department.key)}
+                  className={`inline-flex items-center rounded-2xl px-4 py-3 text-sm font-extrabold transition ${
+                    active
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-950"
+                  }`}
+                >
+                  {department.label}
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -1238,6 +1301,7 @@ export default function Employee() {
                           onView={openDetails}
                           onEdit={openEdit}
                           onDelete={(item) => setDeleteState({ open: true, employee: item, password: "", loading: false })}
+                          canManage={canManageEmployees}
                         />
                       </td>
                     </tr>
@@ -1281,6 +1345,7 @@ export default function Employee() {
         onClose={() => setDetailsState({ open: false, employee: null, salaryProfile: null, loading: false })}
         onEdit={openEdit}
         onDelete={(employee) => setDeleteState({ open: true, employee, password: "", loading: false })}
+        canManage={canManageEmployees}
       />
 
       <Modal
