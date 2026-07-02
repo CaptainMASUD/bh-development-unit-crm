@@ -1,12 +1,14 @@
-// ===============================
-// middleware/auth.middleware.js
-// ===============================
 import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
 
+const normalizeSystemRole = async (user) => {
+  if (["superadmin", "admin", "employee"].includes(user?.role)) return;
+  user.role = "employee";
+  await user.save({ validateBeforeSave: false });
+};
+
 export const protect = async (req, res, next) => {
   try {
-    // allow auth routes without token
     if (
       req.originalUrl === "/api/users/register" ||
       req.originalUrl === "/api/users/login"
@@ -21,7 +23,6 @@ export const protect = async (req, res, next) => {
     }
 
     const token = authHeader.split(" ")[1];
-
     const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
 
     const user = await User.findById(decoded.id).populate({
@@ -37,6 +38,8 @@ export const protect = async (req, res, next) => {
       return res.status(403).json({ message: "Account is disabled." });
     }
 
+    await normalizeSystemRole(user);
+
     req.user = user;
     next();
   } catch (err) {
@@ -47,7 +50,6 @@ export const protect = async (req, res, next) => {
   }
 };
 
-// ✅ Super Admin only
 export const isSuperAdmin = (req, res, next) => {
   if (req.user?.role !== "superadmin") {
     return res.status(403).json({ message: "Super admin access required." });
@@ -55,7 +57,6 @@ export const isSuperAdmin = (req, res, next) => {
   next();
 };
 
-// ✅ Admin OR Super Admin (admin-level access)
 export const isAdminOrSuperAdmin = (req, res, next) => {
   if (!["admin", "superadmin"].includes(req.user?.role)) {
     return res.status(403).json({ message: "Admin access required." });
@@ -63,7 +64,6 @@ export const isAdminOrSuperAdmin = (req, res, next) => {
   next();
 };
 
-// ✅ Admin only (strict)
 export const isAdmin = (req, res, next) => {
   if (req.user?.role !== "admin") {
     return res.status(403).json({ message: "Admin access required." });
@@ -71,7 +71,6 @@ export const isAdmin = (req, res, next) => {
   next();
 };
 
-// ✅ Employee only
 export const isEmployee = (req, res, next) => {
   if (req.user?.role !== "employee") {
     return res.status(403).json({ message: "Employee access required." });
@@ -79,64 +78,30 @@ export const isEmployee = (req, res, next) => {
   next();
 };
 
-// ✅ Marketing Team only
-export const isMarketingTeam = (req, res, next) => {
-  if (req.user?.role !== "marketing_team") {
-    return res.status(403).json({ message: "Marketing team access required." });
-  }
-  next();
-};
-
-// ✅ Marketing Team OR Admin OR Super Admin
-export const isMarketingOrAdmin = (req, res, next) => {
-  const permissions = req.user?.permissionGroup?.isActive === false
-    ? []
-    : req.user?.permissionGroup?.permissions || [];
-  if (
-    !["marketing_team", "admin", "superadmin"].includes(req.user?.role) &&
-    !(req.user?.role === "employee" && permissions.includes("leads:view"))
-  ) {
-    return res.status(403).json({
-      message: "Lead access required.",
-    });
-  }
-  next();
-};
-
-// ✅ Employee OR Marketing Team (staff routes)
-export const isEmployeeOrMarketing = (req, res, next) => {
-  if (!["employee", "marketing_team"].includes(req.user?.role)) {
-    return res.status(403).json({ message: "Staff access required." });
-  }
-  next();
-};
-
 export const requirePermission = (permission) => (req, res, next) => {
   if (["admin", "superadmin"].includes(req.user?.role)) return next();
-  if (
-    req.user?.role === "marketing_team" &&
-    ["leads:", "deals:"].some((prefix) => String(permission).startsWith(prefix))
-  ) {
-    return next();
-  }
 
   const permissions = req.user?.permissionGroup?.isActive === false
     ? []
     : req.user?.permissionGroup?.permissions || [];
   const compatibility = {
-    "tasks:view": "customers:view",
-    "tasks:manage": "customers:manage",
-    "deals:view": "leads:view",
-    "deals:manage": "leads:manage",
-    "notifications:view": "dashboard:view",
+    "tasks:view": ["customers:view"],
+    "tasks:manage": ["customers:manage"],
+    "deals:view": ["leads:view"],
+    "deals:manage": ["leads:manage"],
+    "notifications:view": ["dashboard:view"],
+    "access-control:view": ["employees:manage", "salary:manage", "payroll:manage", "leaves:manage", "roster:manage"],
+    "employees:view": ["employees:manage", "attendance:manage", "payroll:manage", "loans:manage", "leaves:manage", "roster:manage", "salary:manage"],
+    "tax.view": ["tax.create", "tax.update", "tax.delete", "tax.assign_employee", "tax.report", "payroll:manage"],
   };
   const manageEquivalent = String(permission).endsWith(":view")
     ? String(permission).replace(/:view$/, ":manage")
     : "";
   const allowed =
     permissions.includes(permission) ||
-    permissions.includes(compatibility[permission]) ||
+    (compatibility[permission] || []).some((key) => permissions.includes(key)) ||
     (manageEquivalent && permissions.includes(manageEquivalent));
+
   if (!allowed) {
     return res.status(403).json({ message: "Permission denied." });
   }

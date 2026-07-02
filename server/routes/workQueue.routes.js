@@ -15,17 +15,12 @@ import {
 
 import {
   protect,
-  isMarketingOrAdmin,
-  isAdminOrSuperAdmin,
+  requirePermission,
 } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-/**
- * Work queue access:
- * marketing_team + admin + superadmin
- */
-router.use(protect, isMarketingOrAdmin);
+router.use(protect, requirePermission("leads:view"));
 
 /* =========================
    WORK QUEUE LIST / SUMMARY
@@ -38,19 +33,19 @@ router.get("/:id", getWorkQueueItem);
 /* =========================
    CREATE MANUAL QUEUE ITEM
 ========================= */
-router.post("/", createWorkQueueItem);
+router.post("/", requirePermission("leads:manage"), createWorkQueueItem);
 
 /* =========================
    QUEUE ACTIONS
 ========================= */
-router.patch("/:id/start", startWorkQueueItem);
-router.patch("/:id/done", markWorkQueueDone);
-router.patch("/:id/snooze", snoozeWorkQueueItem);
-router.patch("/:id/cancel", cancelWorkQueueItem);
+router.patch("/:id/start", requirePermission("leads:manage"), startWorkQueueItem);
+router.patch("/:id/done", requirePermission("leads:manage"), markWorkQueueDone);
+router.patch("/:id/snooze", requirePermission("leads:manage"), snoozeWorkQueueItem);
+router.patch("/:id/cancel", requirePermission("leads:manage"), cancelWorkQueueItem);
 
 /* =========================
    ADMIN REASSIGN
 ========================= */
-router.patch("/:id/reassign", isAdminOrSuperAdmin, reassignWorkQueueItem);
+router.patch("/:id/reassign", requirePermission("leads:manage"), reassignWorkQueueItem);
 
 export default router;

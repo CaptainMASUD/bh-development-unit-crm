@@ -1817,13 +1817,13 @@ function AssignLeadModal({ open, onClose, lead, onSaved }) {
     }
   }
 
-  return <ModalShell open={open} onClose={onClose} title="Assign marketing person" subtitle={lead?.contact?.name || "Choose who will handle this lead"} icon={<FiUserCheck className="h-5 w-5" />} maxWidthClass="max-w-2xl" footer={<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading || !assignedTo}>{loading ? "Assigning..." : "Assign lead"}</button></div>}>
+  return <ModalShell open={open} onClose={onClose} title="Assign employee" subtitle={lead?.contact?.name || "Choose who will handle this lead"} icon={<FiUserCheck className="h-5 w-5" />} maxWidthClass="max-w-2xl" footer={<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading || !assignedTo}>{loading ? "Assigning..." : "Assign lead"}</button></div>}>
     {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
 
     <div className="grid gap-4">
-      <Field label="Marketing team member">
+      <Field label="Lead assignee">
         <select className={input} value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
-          <option value="">Select marketing person</option>
+          <option value="">Select employee</option>
           {users.map((u) => <option key={u._id || u.id} value={u._id || u.id}>{u.name || u.email} {u.currentOpenLeadCount !== undefined ? `— open ${u.currentOpenLeadCount || 0}` : ""}</option>)}
         </select>
       </Field>
@@ -1832,7 +1832,7 @@ function AssignLeadModal({ open, onClose, lead, onSaved }) {
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-sm font-black text-indigo-700 shadow-sm">{initials(selectedUser.name || selectedUser.email)}</div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold text-gray-900">{selectedUser.name || "Marketing user"}</p>
+            <p className="truncate text-sm font-bold text-gray-900">{selectedUser.name || "Employee"}</p>
             <p className="truncate text-xs text-gray-500">{selectedUser.email || "—"}</p>
           </div>
           <Badge value={selectedUser.workStatus || "available"} />
@@ -1852,7 +1852,7 @@ function AssignLeadModal({ open, onClose, lead, onSaved }) {
             const selected = selectedUsers.includes(userId)
             return <button key={userId} type="button" onClick={() => toggleUser(userId)} className={cn("flex items-center gap-3 rounded-2xl border p-3 text-left transition", selected ? "border-indigo-200 bg-indigo-50" : "border-gray-100 bg-white hover:bg-gray-50")}>
               <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border", selected ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-200 bg-white text-transparent")}><FiCheck className="h-4 w-4" /></span>
-              <span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold text-gray-900">{user.name || user.email}</span><span className="block truncate text-xs text-gray-500">{primaryOwner === userId ? "Primary owner" : user.email || "Marketing team"}</span></span>
+              <span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold text-gray-900">{user.name || user.email}</span><span className="block truncate text-xs text-gray-500">{primaryOwner === userId ? "Primary owner" : user.email || "Lead access"}</span></span>
             </button>
           })}
         </div>
@@ -1994,7 +1994,7 @@ function LeadNotesOverview({ lead, onAction }) {
   )
 }
 
-function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initialTab = "overview", isMarketing = false, showToast }) {
+function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initialTab = "overview", isRestrictedLeadView = false, showToast }) {
   const [lead, setLead] = useState(null)
   const [timeline, setTimeline] = useState({ logs: [], activities: [], proposals: [], deals: [], queueItems: [] })
   const [tab, setTab] = useState(initialTab || "overview")
@@ -2028,7 +2028,7 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
   const tabs = [
     ["overview", "Overview", FiInfo],
     ["timeline", "Timeline", FiClock],
-    ...(!isMarketing ? [["activities", "Activities", FiActivity]] : []),
+    ...(!isRestrictedLeadView ? [["activities", "Activities", FiActivity]] : []),
     ...(showSalesTabs ? [["proposals", "Proposals", FiFileText], ["deals", "Deals", FiBriefcase]] : []),
     ["notes", "Notes", FiFileText],
     ["inbox", "Inbox", FiMessageSquare, inboxUnreadCount],
@@ -2037,7 +2037,7 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
   useEffect(() => {
     if (!lead) return
     if (!tabs.some(([key]) => key === tab)) setTab("overview")
-  }, [lead, tab, isMarketing, showSalesTabs])
+  }, [lead, tab, isRestrictedLeadView, showSalesTabs])
   const openReasonModal = (config) => setReasonModal({ open: true, ...config })
   const closeReasonModal = () => setReasonModal({ open: false })
   return <><ModalShell open={open} onClose={onClose} title="Lead A-Z History" subtitle={lead?.contact?.name || "Full timeline, activities, proposals, deals and work queue"} icon={<FiEye className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex flex-wrap justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load}><FiRefreshCcw className="h-4 w-4" />Refresh</button>{lead ? (() => { const proposalInfo = getProposalShortcutInfo(lead, timeline); const eligibleProposal = (timeline.proposals || []).find((proposal) => ["sent", "accepted"].includes(proposal.status) && !proposal.dealId); return <><button className={cn(btn, btnPrimary)} disabled={!getNextPipelineStage(lead)} onClick={() => onAction?.("nextStage", lead)}><FiArrowRight />Next Stage</button><button className={cn(btn, btnSoft)} onClick={() => onAction?.("quick", lead)}><FiZap />Quick action</button>{proposalInfo.show ? <button className={cn(btn, proposalInfo.action === "proposal" ? btnPrimary : btnGhost)} disabled={proposalInfo.disabled} onClick={() => proposalInfo.action === "manageProposal" ? setTab("proposals") : onAction?.(proposalInfo.action, lead)}><FiFileText />{proposalInfo.label}</button> : null}<button className={cn(btn, btnGhost)} disabled={!eligibleProposal} title={eligibleProposal ? "Create deal from proposal" : "Send or accept a proposal first"} onClick={() => onAction?.("deal", lead)}><FiBriefcase />Create Deal</button></> })() : null}</div>}>
@@ -2067,7 +2067,7 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
         </div>
       )}
       {tab === "timeline" && <div className="space-y-3">{[...logs, ...activities, ...proposals, ...deals, ...queueItems].sort((a,b)=>new Date(b.createdAt||b.sentAt||0)-new Date(a.createdAt||a.sentAt||0)).map((x, i) => <TimelineCard key={`${x._id || i}`} item={x} />)}{!logs.length && !activities.length && !proposals.length && !deals.length && !queueItems.length ? <EmptyState icon={<FiClock />} title="No history yet" /> : null}</div>}
-      {!isMarketing && tab === "activities" && <RecordList items={activities} type="activity" onComplete={async (id) => { await apiCompleteActivity(id, { outcome: "Completed from UI" }); await load(); onAction?.("refresh") }} onCancel={async (id) => { await apiCancelActivity(id, { reason: "Cancelled from UI" }); await load(); onAction?.("refresh") }} />}
+      {!isRestrictedLeadView && tab === "activities" && <RecordList items={activities} type="activity" onComplete={async (id) => { await apiCompleteActivity(id, { outcome: "Completed from UI" }); await load(); onAction?.("refresh") }} onCancel={async (id) => { await apiCancelActivity(id, { reason: "Cancelled from UI" }); await load(); onAction?.("refresh") }} />}
       {showSalesTabs && tab === "proposals" && <RecordList items={proposals} type="proposal" onView={(record) => setRecordView({ open: true, type: "proposal", record })} onEdit={(record) => setRecordEdit({ type: "proposal", record })} onSend={async (id) => { await apiSendProposal(id); await load(); onAction?.("refresh") }} onAccept={async (id) => { await apiAcceptProposal(id); await load(); onAction?.("refresh") }} onReject={(id) => openReasonModal({ title: "Reject proposal", subtitle: lead?.contact?.name || "Add a clear reason before rejecting.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Reject proposal", danger: true, onSubmit: async ({ reason, note }) => { await apiRejectProposal(id, { rejectReason: reason, note }); await load(); onAction?.("refresh") } })} />}
       {showSalesTabs && tab === "deals" && <RecordList items={deals} type="deal" onView={(record) => setRecordView({ open: true, type: "deal", record })} onEdit={(record) => setRecordEdit({ type: "deal", record })} onWon={(id) => openReasonModal({ title: "Mark deal as won", subtitle: "Winning the deal will automatically convert this lead to a customer.", icon: <FiCheckCircle className="h-5 w-5" />, actionLabel: "Win deal & convert", onSubmit: async ({ reason, note }) => { const data = await apiDealWon(id, { reason, note }); await load(); onAction?.("dealWon", data) } })} onLost={(id) => openReasonModal({ title: "Mark deal as lost", subtitle: lead?.contact?.name || "Add a clear loss reason.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Mark lost", danger: true, onSubmit: async ({ reason, note }) => { await apiDealLost(id, { reason, note }); await load(); onAction?.("refresh") } })} />}
       {tab === "queue" && <RecordList items={queueItems} type="queue" onDone={async (id) => { await apiQueueDone(id, { result: "Done from lead view" }); await load(); onAction?.("refresh") }} />}
@@ -2232,7 +2232,7 @@ function WorkQueuePanel({ open, onClose, onToast, onChanged }) {
   const done = async (id) => { await apiQueueDone(id, { result: "Completed from work queue" }); onToast?.("success", "Queue item completed."); await load(); onChanged?.() }
   const start = async (id) => { await apiQueueStart(id); await load() }
   const runSnooze = async () => { if (!snooze.id || !snooze.date) return; await apiQueueSnooze(snooze.id, { snoozedUntil: new Date(snooze.date).toISOString(), reason: "Snoozed from UI" }); setSnooze({ id: "", date: "" }); await load(); onChanged?.() }
-  return <ModalShell open={open} onClose={onClose} title="Today’s Work Queue" subtitle="Priority based daily work for marketing/sales team" icon={<FiZap className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load}><FiRefreshCcw />Refresh</button></div>}>
+  return <ModalShell open={open} onClose={onClose} title="Today’s Work Queue" subtitle="Priority based daily work for the lead team" icon={<FiZap className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load}><FiRefreshCcw />Refresh</button></div>}>
     {summary ? <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">{Object.entries(summary).map(([k, v]) => <div key={k} className="rounded-2xl border border-gray-100 bg-gray-50 p-3"><p className="text-xs font-bold uppercase text-gray-500">{k}</p><p className="mt-1 text-2xl font-black text-gray-900">{v}</p></div>)}</div> : null}
     {loading ? <div className="flex justify-center p-8"><FiLoader className="animate-spin" /></div> : items.length ? <div className="space-y-3">{items.map((it) => <div key={it._id} className="rounded-2xl border border-gray-100 bg-white p-4"><div className="flex flex-wrap justify-between gap-3"><div><p className="font-bold text-gray-900">{it.title}</p><p className="text-sm text-gray-500">{it.description || it.leadId?.contact?.companyName || "—"}</p><p className="mt-1 text-xs text-gray-400">Due: {formatDate(it.dueAt, true)}</p></div><div className="flex flex-wrap gap-2"><Badge value={it.priority} /><Badge value={it.status} /><Badge value={it.source} /></div></div><div className="mt-3 flex flex-wrap gap-2"><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => start(it._id)}>Start</button><button className={cn(btn, btnPrimary, "px-3 py-2")} onClick={() => done(it._id)}>Done</button><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => setSnooze({ id: it._id, date: formatDateInput(new Date(Date.now() + 24 * 60 * 60 * 1000)) })}>Snooze</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={async () => { await apiQueueCancel(it._id, { reason: "Cancelled from UI" }); await load() }}>Cancel</button></div></div>)}</div> : <EmptyState icon={<FiZap />} title="No work queue items for today" />}
     {snooze.id ? <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50 p-4"><div className="grid gap-3 md:grid-cols-[1fr_auto]"><input type="datetime-local" className={input} value={snooze.date} onChange={(e) => setSnooze((p) => ({ ...p, date: e.target.value }))} /><button className={cn(btn, btnPrimary)} onClick={runSnooze}>Confirm snooze</button></div></div> : null}
@@ -2357,7 +2357,7 @@ function AssignmentPanel({ open, onClose, onToast }) {
         <div className="flex items-start gap-3">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-sm font-black text-indigo-700">{initials(u.name || u.email)}</div>
           <div className="min-w-0 flex-1">
-            <p className="truncate font-bold text-gray-900">{u.name || "Marketing user"}</p>
+            <p className="truncate font-bold text-gray-900">{u.name || "Employee"}</p>
             <p className="truncate text-xs text-gray-500">{u.email || "—"}</p>
             <div className="mt-2 flex flex-wrap gap-2"><Badge value={u.permissionGroup?.name || u.role || "employee"} /><Badge value={u.workStatus || "available"} /></div>
           </div>
@@ -2527,13 +2527,12 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
     if (directRole) return String(directRole).toLowerCase()
     return String(currentUser?.role || "").toLowerCase()
   }, [currentUser])
-  const canAdminister = ["admin", "superadmin"].includes(role)
+  const canAdminister = ["admin", "superadmin"].includes(role) || hasPermission(currentUser, PERMISSIONS.LEADS_MANAGE)
   const canManageLeads =
     canAdminister ||
-    role === "marketing_team" ||
     hasPermission(currentUser, PERMISSIONS.LEADS_MANAGE)
   const canConvert = canManageLeads
-  const isMarketing = role === "marketing_team" || role === "employee"
+  const isRestrictedLeadView = role === "employee" && !canManageLeads
   const showToast = (type, message) => {
     const safeMessage = message || "Something went wrong."
     if (type === "error") toast.error(safeMessage)
@@ -2702,7 +2701,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
               </button>
               {canManageLeads ? <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("queue")}><FiZap />Queue</button> : null}
               {canManageLeads ? <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("templates")}><FiFileText />Templates</button> : null}
-              {canAdminister ? <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("assignment")}><FiUserCheck />Marketing team</button> : null}
+              {canAdminister ? <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("assignment")}><FiUserCheck />Assignees</button> : null}
             </div>
             {canManageLeads ? <button className={cn(btn, btnPrimary, "h-11 shrink-0 px-5")} onClick={() => setModal({ type: "create", lead: null })}>
               <FiPlus />New Lead
@@ -2888,7 +2887,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
     </div>
     <ModalShell open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Lead Filters" subtitle="Filter by lead, queue and follow-up fields" icon={<FiFilter className="h-5 w-5" />} maxWidthClass="max-w-4xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={() => { const empty = Object.fromEntries(Object.keys(filters).map((k)=>[k,"" ])); setFilterDraft(empty); setFilters(empty); setFiltersOpen(false) }}>Clear all</button><button className={cn(btn, btnPrimary)} onClick={() => { setFilters(filterDraft); setFiltersOpen(false) }}>Apply filters</button></div>}><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><Field label="Status"><select className={input} value={filterDraft.status} onChange={(e) => setFilterDraft((p) => ({ ...p, status: e.target.value }))}><option value="">All</option>{LEAD_STATUSES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Pipeline stage"><select className={input} value={filterDraft.pipelineStage} onChange={(e) => setFilterDraft((p) => ({ ...p, pipelineStage: e.target.value }))}><option value="">All</option>{PIPELINE_STAGES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Priority"><select className={input} value={filterDraft.priority} onChange={(e) => setFilterDraft((p) => ({ ...p, priority: e.target.value }))}><option value="">All</option>{PRIORITIES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Temperature"><select className={input} value={filterDraft.leadTemperature} onChange={(e) => setFilterDraft((p) => ({ ...p, leadTemperature: e.target.value }))}><option value="">All</option>{TEMPERATURES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Queue priority"><select className={input} value={filterDraft.workQueuePriority} onChange={(e) => setFilterDraft((p) => ({ ...p, workQueuePriority: e.target.value }))}><option value="">All</option>{WORK_PRIORITIES.map((x)=><option key={x}>{x}</option>)}</select></Field><Field label="Overdue"><select className={input} value={filterDraft.isOverdue} onChange={(e) => setFilterDraft((p) => ({ ...p, isOverdue: e.target.value }))}><option value="">All</option><option value="true">Overdue</option><option value="false">Not overdue</option></select></Field><Field label="Next action type"><input className={input} value={filterDraft.nextActionType} onChange={(e)=>setFilterDraft(p=>({...p,nextActionType:e.target.value}))}/></Field><Field label="Purchase type"><input className={input} value={filterDraft.purchaseType} onChange={(e) => setFilterDraft((p) => ({ ...p, purchaseType: e.target.value }))} /></Field><Field label="Source"><input className={input} value={filterDraft.source} onChange={(e) => setFilterDraft((p) => ({ ...p, source: e.target.value }))} /></Field><Field label="Tag"><input className={input} value={filterDraft.tag} onChange={(e) => setFilterDraft((p) => ({ ...p, tag: e.target.value }))} /></Field><Field label="Next follow-up from"><input type="date" className={input} value={filterDraft.nextFollowUpFrom} onChange={(e) => setFilterDraft((p) => ({ ...p, nextFollowUpFrom: e.target.value }))} /></Field><Field label="Next follow-up to"><input type="date" className={input} value={filterDraft.nextFollowUpTo} onChange={(e) => setFilterDraft((p) => ({ ...p, nextFollowUpTo: e.target.value }))} /></Field><Field label="Last contacted from"><input type="date" className={input} value={filterDraft.lastContactedFrom} onChange={(e) => setFilterDraft((p) => ({ ...p, lastContactedFrom: e.target.value }))} /></Field><Field label="Last contacted to"><input type="date" className={input} value={filterDraft.lastContactedTo} onChange={(e) => setFilterDraft((p) => ({ ...p, lastContactedTo: e.target.value }))} /></Field></div></ModalShell>
     <ColumnPickerModal open={colsOpen} onClose={() => setColsOpen(false)} allowed={allowedCols} selected={selectedCols} onSave={saveColumns} />
-    <LeadFullViewModal open={Boolean(viewLeadId)} onClose={() => setViewLeadId("")} leadId={viewLeadId} initialTab={viewInitialTab} refreshTick={viewTick} isMarketing={isMarketing} showToast={showToast} onAction={(type, lead) => type === "refresh" ? refreshAll() : action(type, lead)} />
+    <LeadFullViewModal open={Boolean(viewLeadId)} onClose={() => setViewLeadId("")} leadId={viewLeadId} initialTab={viewInitialTab} refreshTick={viewTick} isRestrictedLeadView={isRestrictedLeadView} showToast={showToast} onAction={(type, lead) => type === "refresh" ? refreshAll() : action(type, lead)} />
     <LeadUpsertModal open={modal.type === "create"} onClose={() => setModal({ type: "", lead: null })} mode="create" users={assignees} canAssignOwner={canAdminister} onSaved={async () => { showToast("success", "Lead created."); await refreshAll() }} />
     <LeadUpsertModal open={modal.type === "edit"} onClose={() => setModal({ type: "", lead: null })} mode="edit" initial={modal.lead} users={assignees} canAssignOwner={canAdminister} onSaved={async () => { showToast("success", "Lead updated."); await refreshAll() }} />
     <NoteModal open={modal.type === "note"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Note added."); await refreshAll() }} />

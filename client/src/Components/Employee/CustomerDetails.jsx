@@ -14,6 +14,7 @@ import {
 import toast, { Toaster } from "react-hot-toast"
 import CustomerOverview from "./CustomerOverview"
 import CustomerCRM from "./CustomerCRM"
+import { hasPermission, PERMISSIONS } from "../Auth/permissions"
 
 // ✅ banner image import
 import bannerimg from "../../images/banner/legacy.png"
@@ -134,6 +135,9 @@ export default function CustomerDetails({ customerId, onBack }) {
   const role = me?.user?.role || me?.role || null
   const isEmployee = role === "employee"
   const isAdmin = role === "admin" || role === "superadmin"
+  const permissionUser = me?.user || me
+  const canViewTasks = isAdmin || hasPermission(permissionUser, PERMISSIONS.TASKS_VIEW)
+  const canManageTasks = isAdmin || hasPermission(permissionUser, PERMISSIONS.TASKS_MANAGE)
   const meId = me?.user?._id || me?._id || null
 
   const [crmRefreshNonce, setCrmRefreshNonce] = useState(0)
@@ -343,7 +347,7 @@ export default function CustomerDetails({ customerId, onBack }) {
             {/* tabs */}
             <div className="mt-6 flex flex-wrap gap-2">
               <TabBtn active={tab === "overview"} icon={<FiUsers />} label="Overview" onClick={() => setTab("overview")} />
-              <TabBtn active={tab === "crm"} icon={<FiClipboard />} label="CRM" onClick={() => setTab("crm")} />
+              {canViewTasks ? <TabBtn active={tab === "crm"} icon={<FiClipboard />} label="CRM" onClick={() => setTab("crm")} /> : null}
             </div>
 
             {error ? (
@@ -359,7 +363,7 @@ export default function CustomerDetails({ customerId, onBack }) {
       {/* Body */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-10">
         <div className="mt-2">
-          {tab === "overview" ? (
+          {tab === "overview" || !canViewTasks ? (
             <CustomerOverview
               customerId={customerId}
               customer={customer}
@@ -376,6 +380,7 @@ export default function CustomerDetails({ customerId, onBack }) {
               assignedEmployees={assignedEmployees}
               isAdmin={isAdmin}
               isEmployee={isEmployee}
+              canManageTasks={canManageTasks}
               refreshNonce={crmRefreshNonce}
               onSoftRefreshCustomer={() => fetchCustomer({ soft: true })}
               setPageError={setError}

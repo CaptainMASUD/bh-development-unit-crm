@@ -28,7 +28,6 @@ const SIDEBAR_GROUPS = [
       "workflow setup",
       "report",
       "analytics",
-      "marketing",
       "campaign",
     ],
   },
@@ -53,6 +52,8 @@ const SIDEBAR_GROUPS = [
       "employees",
       "staff",
       "salary",
+      "tax",
+      "tds",
       "attendance",
       "leave",
       "accounting",
@@ -524,8 +525,6 @@ export default function Sidebar({
             ? "Admin"
             : roleRaw === "employee"
             ? "Employee"
-            : roleRaw === "marketing_team"
-            ? "Marketing Team"
             : roleRaw
 
         setUser({
@@ -562,8 +561,6 @@ export default function Sidebar({
             ? "Admin"
             : roleRaw === "employee"
             ? "Employee"
-            : roleRaw === "marketing_team"
-            ? "Marketing Team"
             : roleRaw
 
         if (!mounted) return

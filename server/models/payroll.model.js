@@ -28,6 +28,7 @@ const payrollComponentSchema = new mongoose.Schema(
         "manual",
         "system",
         "employee_loan",
+        "tax",
       ],
       default: "manual",
       index: true,
@@ -294,7 +295,31 @@ const payrollSchema = new mongoose.Schema(
       set: roundMoney,
     },
 
+    taxDeduction: {
+      type: Number,
+      default: 0,
+      set: roundMoney,
+    },
+
+    otherDeductions: {
+      type: Number,
+      default: 0,
+      set: roundMoney,
+    },
+
+    totalDeduction: {
+      type: Number,
+      default: 0,
+      set: roundMoney,
+    },
+
     netPayable: {
+      type: Number,
+      default: 0,
+      set: roundMoney,
+    },
+
+    netSalary: {
       type: Number,
       default: 0,
       set: roundMoney,
@@ -398,7 +423,15 @@ payrollSchema.methods.recalculateTotals = function () {
   this.totalEarnings = roundMoney(earningsTotal);
   this.grossSalary = roundMoney(earningsTotal);
   this.totalDeductions = roundMoney(deductionsTotal);
+  this.taxDeduction = roundMoney(
+    this.deductions
+      .filter((item) => item.source === "tax")
+      .reduce((sum, item) => sum + Number(item.amount || 0), 0)
+  );
+  this.otherDeductions = roundMoney(deductionsTotal - this.taxDeduction);
+  this.totalDeduction = this.totalDeductions;
   this.netPayable = roundMoney(earningsTotal - deductionsTotal);
+  this.netSalary = this.netPayable;
 
   return this;
 };

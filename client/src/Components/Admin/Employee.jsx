@@ -5,6 +5,7 @@ import { createPortal } from "react-dom"
 import toast, { Toaster } from "react-hot-toast"
 import {
   FiCamera,
+  FiCalendar,
   FiClock,
   FiEdit3,
   FiEye,
@@ -265,6 +266,21 @@ function EmployeeDetailsModal({ open, employee, salaryProfile, loading, onClose,
               ],
             },
             {
+              title: "Leave Entitlement",
+              items: [
+                ["Template", employee.leaveTemplate?.name || "No template"],
+                ["Year", employee.leaveEntitlement?.year || new Date().getFullYear()],
+                ["Paid Leave Days", employee.leaveEntitlement?.paidDays || 0],
+                ["Unpaid Leave Days", employee.leaveEntitlement?.unpaidDays || 0],
+                [
+                  "Unpaid Charge",
+                  employee.leavePolicy?.unpaidCharge?.enabled === false
+                    ? "Disabled"
+                    : `${pretty(employee.leavePolicy?.unpaidCharge?.calculationType || "per_day")} • ${employee.leavePolicy?.unpaidCharge?.value || 0}`,
+                ],
+              ],
+            },
+            {
               title: "Salary Profile",
               items: [
                 ["Profile Status", salaryProfile ? (salaryProfile.isActive !== false ? "Active" : "Inactive") : "No salary profile"],
@@ -444,6 +460,7 @@ const emptyForm = {
   position: "",
   permissionGroup: "",
   accessRole: "",
+  leaveTemplate: "",
   employmentType: "full_time",
   salaryType: "fixed",
   salaryProfileType: "monthly",
@@ -456,6 +473,9 @@ const emptyForm = {
   isAvailableForAssignment: true,
   workStatus: "available",
   dailyLeadLimit: 0,
+  leaveYear: new Date().getFullYear(),
+  paidLeaveDays: 0,
+  unpaidLeaveDays: 0,
   rosterShift: "",
   rosterType: "weekly",
   rosterStartDate: new Date().toISOString().slice(0, 10),
@@ -465,6 +485,61 @@ const emptyForm = {
 
 function getId(value) {
   return value?._id || value || ""
+}
+
+function leaveTemplateScope(template = {}) {
+  return {
+    departments: (template.departments || []).map((item) => String(getId(item))).filter(Boolean),
+    positions: (template.positions || []).map((item) => String(getId(item))).filter(Boolean),
+  }
+}
+
+function templateMatchesEmployee(template, { department, position }) {
+  if (!template || template.isActive === false) return false
+  const scope = leaveTemplateScope(template)
+
+  if (scope.positions.length) return Boolean(position && scope.positions.includes(String(position)))
+  if (scope.departments.length && department) return scope.departments.includes(String(department))
+  if (scope.positions.length || scope.departments.length) return false
+  return true
+}
+
+function templateMatchScore(template, { department, position }) {
+  const scope = leaveTemplateScope(template)
+  if (position && scope.positions.includes(String(position))) return 3
+  if (department && scope.departments.includes(String(department))) return 2
+  if (!scope.positions.length && !scope.departments.length) return 1
+  return 0
+}
+
+function findBestLeaveTemplate(templates, { department, position }) {
+  return (templates || [])
+    .filter((template) => templateMatchesEmployee(template, { department, position }))
+    .sort(
+      (a, b) =>
+        templateMatchScore(b, { department, position }) - templateMatchScore(a, { department, position }) ||
+        Number(b.year || 0) - Number(a.year || 0)
+    )[0] || null
+}
+
+function applyLeaveTemplateToForm(draft, template) {
+  if (!template) {
+    return {
+      ...draft,
+      leaveTemplate: "",
+      leaveYear: new Date().getFullYear(),
+      paidLeaveDays: 0,
+      unpaidLeaveDays: 0,
+    }
+  }
+
+  return {
+    ...draft,
+    leaveTemplate: template._id || "",
+    leaveYear: template.year || draft.leaveYear || new Date().getFullYear(),
+    paidLeaveDays: Number(template.paidDays || 0),
+    unpaidLeaveDays: Number(template.unpaidDays || 0),
+  }
 }
 
 function pretty(value) {
@@ -522,6 +597,7 @@ export default function Employee() {
   const [positions, setPositions] = useState([])
   const [permissionGroups, setPermissionGroups] = useState([])
   const [roles, setRoles] = useState([])
+  const [leaveTemplates, setLeaveTemplates] = useState([])
   const [shifts, setShifts] = useState([])
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -567,6 +643,20 @@ export default function Employee() {
     [form.rosterShift, shifts]
   )
 
+  const selectedLeaveTemplate = useMemo(
+    () => leaveTemplates.find((template) => String(template._id) === String(form.leaveTemplate)) || null,
+    [form.leaveTemplate, leaveTemplates]
+  )
+
+  const availableLeaveTemplates = useMemo(() => {
+    return leaveTemplates.filter((template) =>
+      templateMatchesEmployee(template, {
+        department: form.department,
+        position: form.position,
+      })
+    )
+  }, [form.department, form.position, leaveTemplates])
+
   const filterPositionOptions = useMemo(() => {
     if (!filters.department) return positions
     return positions.filter((position) => String(getId(position.department)) === String(filters.department))
@@ -574,18 +664,20 @@ export default function Employee() {
 
   const loadAccessLists = async () => {
     try {
-      const [departmentsRes, positionsRes, groupsRes, rolesRes, shiftsRes] = await Promise.all([
+      const [departmentsRes, positionsRes, groupsRes, rolesRes, shiftsRes, leaveTemplateRes] = await Promise.all([
         api("/access-control/departments"),
         api("/access-control/positions"),
         api("/access-control/permission-groups"),
         api("/access-control/roles"),
         api("/roster/shifts"),
+        api("/leave-templates"),
       ])
       setDepartments(departmentsRes.departments || [])
       setPositions(positionsRes.positions || [])
       setPermissionGroups(groupsRes.permissionGroups || [])
       setRoles((rolesRes.roles || []).filter((role) => !role.isSystem && role.isActive !== false))
       setShifts(shiftsRes.shifts || [])
+      setLeaveTemplates(leaveTemplateRes.templates || [])
     } catch (error) {
       toast.error(error.message || "Failed to load access lists")
     }
@@ -672,6 +764,16 @@ export default function Employee() {
         next.basicSalary = ""
         next.workingDaysPerMonth = 26
         next.workingHoursPerDay = 8
+      }
+
+      if (key === "department" || key === "position") {
+        return applyLeaveTemplateToForm(
+          next,
+          findBestLeaveTemplate(leaveTemplates, {
+            department: next.department,
+            position: next.position,
+          })
+        )
       }
 
       return next
@@ -784,6 +886,7 @@ export default function Employee() {
       position: getId(employee.position),
       permissionGroup: getId(employee.permissionGroup),
       accessRole: getId(employee.accessRole),
+      leaveTemplate: getId(employee.leaveTemplate),
       employmentType: employee.employmentType || "full_time",
       salaryType: employee.salaryType || "fixed",
       employeeStatus: employee.employeeStatus || "active",
@@ -791,6 +894,9 @@ export default function Employee() {
       isAvailableForAssignment: employee.isAvailableForAssignment !== false,
       workStatus: employee.workStatus || "available",
       dailyLeadLimit: Number(employee.dailyLeadLimit || 0),
+      leaveYear: Number(employee.leaveEntitlement?.year || new Date().getFullYear()),
+      paidLeaveDays: Number(employee.leaveEntitlement?.paidDays || 0),
+      unpaidLeaveDays: Number(employee.leaveEntitlement?.unpaidDays || 0),
     })
     resetAvatarDraft({ preview: employee.avatarUrl || "" })
     setModalOpen(true)
@@ -823,6 +929,7 @@ export default function Employee() {
       position: form.position || null,
       permissionGroup: form.permissionGroup || null,
       accessRole: form.accessRole || null,
+      leaveTemplate: form.leaveTemplate || null,
       employmentType: form.employmentType,
       salaryType: form.salaryType,
       employeeStatus: form.employeeStatus,
@@ -830,6 +937,11 @@ export default function Employee() {
       isAvailableForAssignment: Boolean(form.isAvailableForAssignment),
       workStatus: form.workStatus,
       dailyLeadLimit: Number(form.dailyLeadLimit || 0),
+      leaveEntitlement: {
+        year: Number(form.leaveYear || new Date().getFullYear()),
+        paidDays: Number(form.paidLeaveDays || 0),
+        unpaidDays: Number(form.unpaidLeaveDays || 0),
+      },
       createSalaryProfile: Boolean(form.position && Number(form.basicSalary || 0) > 0),
       salaryProfile: form.position && Number(form.basicSalary || 0) > 0
         ? {
@@ -1322,6 +1434,34 @@ export default function Employee() {
                 ))}
               </select>
             </Field>
+            <Field label="Leave Template" hint="Auto-selected from Leave Setup by department/designation. You can override it if needed.">
+              <select
+                className={input}
+                value={form.leaveTemplate}
+                onChange={(event) => {
+                  const leaveTemplate = event.target.value
+                  const template = leaveTemplates.find((item) => String(item._id) === String(leaveTemplate))
+                  setForm((previous) => ({
+                    ...previous,
+                    leaveTemplate,
+                    ...(template
+                      ? {
+                          leaveYear: template.year || previous.leaveYear,
+                          paidLeaveDays: template.paidDays || 0,
+                          unpaidLeaveDays: template.unpaidDays || 0,
+                        }
+                      : {}),
+                  }))
+                }}
+              >
+                <option value="">No matching template</option>
+                {availableLeaveTemplates.map((template) => (
+                  <option key={template._id} value={template._id}>
+                    {template.name} ({template.year}) - Paid {template.paidDays || 0}, Unpaid {template.unpaidDays || 0}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="Employment Type">
               <select className={input} value={form.employmentType} onChange={(event) => updateForm("employmentType", event.target.value)}>
                 <option value="full_time">Full Time</option>
@@ -1350,6 +1490,54 @@ export default function Employee() {
             <Field label="Daily Lead Limit">
               <input className={input} type="number" min="0" value={form.dailyLeadLimit} onChange={(event) => updateForm("dailyLeadLimit", event.target.value)} />
             </Field>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-emerald-600 ring-1 ring-emerald-100">
+                <FiCalendar className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-extrabold text-gray-900">Yearly Leave Entitlement</p>
+                <p className="text-xs font-semibold text-gray-500">
+                  {selectedLeaveTemplate
+                    ? "Template values are loaded below. Admin can still manually override them for this employee."
+                    : "No setup template matches this employee yet. You can set the leave days manually."}
+                </p>
+              </div>
+            </div>
+            {selectedLeaveTemplate ? (
+              <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-emerald-100 bg-white p-3 text-sm font-bold text-gray-700 sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                  Assigned template: {selectedLeaveTemplate.name} • Paid {selectedLeaveTemplate.paidDays || 0} • Unpaid {selectedLeaveTemplate.unpaidDays || 0}
+                </span>
+                <button
+                  type="button"
+                  className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-extrabold text-white hover:bg-emerald-700"
+                  onClick={() =>
+                    setForm((previous) => ({
+                      ...previous,
+                      leaveYear: selectedLeaveTemplate.year || previous.leaveYear,
+                      paidLeaveDays: selectedLeaveTemplate.paidDays || 0,
+                      unpaidLeaveDays: selectedLeaveTemplate.unpaidDays || 0,
+                    }))
+                  }
+                >
+                  Use template values
+                </button>
+              </div>
+            ) : null}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <Field label="Leave Year">
+                <input className={input} type="number" min="2000" value={form.leaveYear} onChange={(event) => updateForm("leaveYear", event.target.value)} />
+              </Field>
+              <Field label="Paid Leave Days">
+                <input className={input} type="number" min="0" value={form.paidLeaveDays} onChange={(event) => updateForm("paidLeaveDays", event.target.value)} />
+              </Field>
+              <Field label="Unpaid Leave Days">
+                <input className={input} type="number" min="0" value={form.unpaidLeaveDays} onChange={(event) => updateForm("unpaidLeaveDays", event.target.value)} />
+              </Field>
+            </div>
           </div>
 
           <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4">

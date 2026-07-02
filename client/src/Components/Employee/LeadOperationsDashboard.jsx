@@ -153,7 +153,7 @@ export default function LeadOperationsDashboard({ embedded = false }) {
       setLastUpdated(new Date())
     } catch (loadError) {
       if (loadError?.name !== "AbortError") {
-        setError(loadError?.message || "Failed to load the marketing dashboard.")
+        setError(loadError?.message || "Failed to load the lead dashboard.")
       }
     } finally {
       if (!controller.signal.aborted) setLoading(false)
@@ -193,7 +193,7 @@ export default function LeadOperationsDashboard({ embedded = false }) {
                 <FiTrendingUp className="h-6 w-6" />
               </div>
               <div>
-                <h1 className="text-2xl font-black tracking-tight text-gray-950">Marketing Dashboard</h1>
+                <h1 className="text-2xl font-black tracking-tight text-gray-950">Lead Dashboard</h1>
                 <p className="mt-1 text-sm font-medium text-gray-500">
                   {user?.name ? `Welcome, ${user.name}. ` : ""}Your latest lead pipeline and today&apos;s workload.
                 </p>

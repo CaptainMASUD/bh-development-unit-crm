@@ -76,7 +76,7 @@ export default function LoginForm() {
         navigate(dashboardPath, { replace: true })
         return
 
-        // ✅ NEW: marketing team route
+        // Employee/admin routing is handled by the returned role.
       } else {
         throw new Error("Unexpected response from server.")
       }

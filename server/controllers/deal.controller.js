@@ -27,7 +27,8 @@ const validateDateOrNull = (value) => {
 
 const isAdminOrSuperAdmin = (req) => {
   const role = req?.user?.role;
-  return role === "admin" || role === "superadmin";
+  const group = req?.user?.permissionGroup;
+  return role === "admin" || role === "superadmin" || (group?.isActive !== false && group?.permissions?.includes?.("deals:manage"));
 };
 
 const assertLeadAccessOrThrow = async ({ req, leadId }) => {

@@ -1,6 +1,6 @@
 // routes/purchaseType.routes.js
 import express from "express";
-import { protect, isMarketingOrAdmin } from "../middleware/auth.middleware.js";
+import { protect, requirePermission } from "../middleware/auth.middleware.js";
 import {
   listPurchaseTypes,
   createPurchaseType,
@@ -10,11 +10,11 @@ import {
 
 const router = express.Router();
 
-router.use(protect, isMarketingOrAdmin);
+router.use(protect, requirePermission("leads:view"));
 
 router.get("/", listPurchaseTypes);
-router.post("/", createPurchaseType);
-router.patch("/:id", updatePurchaseType);
-router.delete("/:id", deletePurchaseType);
+router.post("/", requirePermission("leads:manage"), createPurchaseType);
+router.patch("/:id", requirePermission("leads:manage"), updatePurchaseType);
+router.delete("/:id", requirePermission("leads:manage"), deletePurchaseType);
 
 export default router;

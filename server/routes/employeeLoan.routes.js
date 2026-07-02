@@ -13,6 +13,7 @@ import {
 import {
   protect,
   isAdminOrSuperAdmin,
+  requirePermission,
 } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
@@ -20,15 +21,15 @@ const router = express.Router();
 router.use(protect);
 
 /* Employee self view */
-router.get("/me", getMyEmployeeLoans);
+router.get("/me", requirePermission("loans:view"), getMyEmployeeLoans);
 
 /* Admin/Superadmin loan CRUD */
-router.post("/", isAdminOrSuperAdmin, createEmployeeLoan);
-router.get("/", isAdminOrSuperAdmin, listEmployeeLoans);
-router.get("/employee/:employeeId", isAdminOrSuperAdmin, getEmployeeLoansByEmployee);
-router.get("/:id", isAdminOrSuperAdmin, getEmployeeLoanById);
-router.patch("/:id", isAdminOrSuperAdmin, updateEmployeeLoan);
-router.patch("/:id/cancel", isAdminOrSuperAdmin, cancelEmployeeLoan);
-router.post("/:id/manual-payment", isAdminOrSuperAdmin, addManualLoanPayment);
+router.post("/", requirePermission("loans:manage"), createEmployeeLoan);
+router.get("/", requirePermission("loans:manage"), listEmployeeLoans);
+router.get("/employee/:employeeId", requirePermission("loans:manage"), getEmployeeLoansByEmployee);
+router.get("/:id", requirePermission("loans:manage"), getEmployeeLoanById);
+router.patch("/:id", requirePermission("loans:manage"), updateEmployeeLoan);
+router.patch("/:id/cancel", requirePermission("loans:manage"), cancelEmployeeLoan);
+router.post("/:id/manual-payment", requirePermission("loans:manage"), addManualLoanPayment);
 
 export default router;

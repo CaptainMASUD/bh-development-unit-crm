@@ -12,11 +12,11 @@ import { verifyAdminPassword } from "../utils/verifyAdminPassword.js";
 
 const isAdminOrSuperAdmin = (userOrReq) => {
   const role = userOrReq?.user?.role ?? userOrReq?.role;
-  return role === "admin" || role === "superadmin";
+  const group = userOrReq?.user?.permissionGroup ?? userOrReq?.permissionGroup;
+  return role === "admin" || role === "superadmin" || (group?.isActive !== false && group?.permissions?.includes?.("customers:manage"));
 };
 
 const isEmployee = (req) => req?.user?.role === "employee";
-const isMarketing = (req) => req?.user?.role === "marketing";
 
 const invalidateDashboardCache = () => {
   try {
@@ -219,7 +219,7 @@ const buildEngagementElemMatch = (req) => {
  * ✅ UPDATED ACCESS RULES (per your requirement)
  * - admin/superadmin: see all customers
  * - employee: sees customers they created OR assigned to
- * - marketing: ONLY sees customers if explicitly assigned (no createdBy access)
+ * - other permissioned users: see customers explicitly assigned to them
  */
 const buildCustomerListMatch = (req) => {
   const visibilityMatch = buildVisibilityMatch(req);

@@ -32,7 +32,7 @@ const leadMessageSchema = new mongoose.Schema(
 
     senderRole: {
       type: String,
-      enum: ["admin", "superadmin", "marketing_team"],
+      enum: ["admin", "superadmin", "employee"],
       required: true,
       index: true,
     },

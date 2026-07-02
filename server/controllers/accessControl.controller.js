@@ -99,7 +99,7 @@ const buildPositionPatch = (body = {}, { isCreate = false } = {}) => {
 export const getPermissionCatalog = async (req, res) => {
   return res.json({
     permissions: PERMISSION_KEYS.map((key) => {
-      const [module, action] = key.split(":");
+      const [module, action] = key.split(/[:.]/);
       return { key, module, action, label: `${module} ${action}` };
     }),
   });
@@ -255,6 +255,20 @@ export const deletePosition = async (req, res) => {
    PERMISSION GROUPS
 ================================ */
 export const listPermissionGroups = async (req, res) => {
+  await PermissionGroup.findOneAndUpdate(
+    { nameLower: "tax management" },
+    {
+      $setOnInsert: {
+        name: "Tax Management",
+        nameLower: "tax management",
+        description: "Tax/TDS setup, employee assignment, and reports.",
+        permissions: ["tax.view", "tax.create", "tax.update", "tax.delete", "tax.assign_employee", "tax.report"],
+        isActive: true,
+        createdBy: req.user?._id || null,
+      },
+    },
+    { upsert: true, new: true }
+  );
   const permissionGroups = await PermissionGroup.find({})
     .sort({ nameLower: 1 })
     .lean();

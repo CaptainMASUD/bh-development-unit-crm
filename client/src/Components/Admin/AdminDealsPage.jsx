@@ -299,7 +299,7 @@ function SummaryMetric({ label, value, hint, icon, tone, glow }) {
   )
 }
 
-function DealDetailsModal({ dealId, onClose, onCreateInvoice, onViewInvoice }) {
+function DealDetailsModal({ dealId, onClose, onCreateInvoice, onViewInvoice, canManage = true }) {
   const [deal, setDeal] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -327,8 +327,8 @@ function DealDetailsModal({ dealId, onClose, onCreateInvoice, onViewInvoice }) {
       footer={deal ? (
         <div className="flex flex-wrap justify-end gap-2">
           <button className={ghostButton} onClick={onClose}>Close</button>
-          {deal.invoice ? <button className={primaryButton} onClick={() => onViewInvoice(deal.invoice)}><FiFileText />View invoice</button> : null}
-          {!deal.invoice && deal.stage === "won" ? <button className={primaryButton} onClick={() => onCreateInvoice(deal)}><FiFileText />Invoice</button> : null}
+          {canManage && deal.invoice ? <button className={primaryButton} onClick={() => onViewInvoice(deal.invoice)}><FiFileText />View invoice</button> : null}
+          {canManage && !deal.invoice && deal.stage === "won" ? <button className={primaryButton} onClick={() => onCreateInvoice(deal)}><FiFileText />Invoice</button> : null}
         </div>
       ) : null}
     >
@@ -651,7 +651,7 @@ function InvoiceDetailsModal({ invoice, onClose, onPayment }) {
   )
 }
 
-export default function AdminDealsPage() {
+export default function AdminDealsPage({ employeeMode = false }) {
   const [deals, setDeals] = useState([])
   const [accounting, setAccounting] = useState({ wonDeals: 0, wonValue: 0, invoicedAmount: 0, paidAmount: 0, invoiceDueAmount: 0, uninvoicedAmount: 0, outstandingAmount: 0, paidDeals: 0, dueDeals: 0 })
   const [pageInfo, setPageInfo] = useState({ page: 1, total: 0, hasNextPage: false })
@@ -826,7 +826,7 @@ export default function AdminDealsPage() {
                       <td className="sticky right-0 z-10 bg-white px-5 py-2.5 text-right shadow-[-14px_0_24px_-22px_rgba(15,23,42,0.45)] group-hover:bg-indigo-50/40">
                         <div className="flex justify-end gap-2">
                           <button className={ghostButton} onClick={() => setViewDealId(deal._id)}><FiEye />View</button>
-                          <button className={primaryButton} disabled={!deal.customerId} onClick={() => deal.invoice ? viewInvoice(deal.invoice) : setInvoiceDeal(deal)}><FiFileText />Invoice</button>
+                          {!employeeMode ? <button className={primaryButton} disabled={!deal.customerId} onClick={() => deal.invoice ? viewInvoice(deal.invoice) : setInvoiceDeal(deal)}><FiFileText />Invoice</button> : null}
                         </div>
                       </td>
                     </tr>
@@ -843,10 +843,10 @@ export default function AdminDealsPage() {
         </div>
       </div>
 
-      <DealDetailsModal dealId={viewDealId} onClose={() => setViewDealId("")} onCreateInvoice={(deal) => { setViewDealId(""); setInvoiceDeal(deal) }} onViewInvoice={viewInvoice} />
-      <InvoiceModal deal={invoiceDeal} onClose={() => setInvoiceDeal(null)} onCreated={handleInvoiceCreated} />
-      <InvoiceDetailsModal invoice={invoiceView} onClose={() => setInvoiceView(null)} onPayment={(invoice) => setPaymentInvoice(invoice)} />
-      <PaymentModal invoice={paymentInvoice} onClose={() => setPaymentInvoice(null)} onSaved={handlePaymentSaved} />
+      <DealDetailsModal dealId={viewDealId} onClose={() => setViewDealId("")} onCreateInvoice={(deal) => { setViewDealId(""); setInvoiceDeal(deal) }} onViewInvoice={viewInvoice} canManage={!employeeMode} />
+      {!employeeMode ? <InvoiceModal deal={invoiceDeal} onClose={() => setInvoiceDeal(null)} onCreated={handleInvoiceCreated} /> : null}
+      {!employeeMode ? <InvoiceDetailsModal invoice={invoiceView} onClose={() => setInvoiceView(null)} onPayment={(invoice) => setPaymentInvoice(invoice)} /> : null}
+      {!employeeMode ? <PaymentModal invoice={paymentInvoice} onClose={() => setPaymentInvoice(null)} onSaved={handlePaymentSaved} /> : null}
       <ColumnPickerModal open={columnsOpen} onClose={() => setColumnsOpen(false)} selected={selectedColumns} onSave={saveColumns} />
     </div>
   )

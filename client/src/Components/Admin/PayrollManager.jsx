@@ -1298,6 +1298,7 @@ function PayrollTable({
 function PayrollPreviewCard({ payroll }) {
   if (!payroll) return <div className={`${card} flex min-h-[360px] items-center justify-center p-8 text-center`}><div><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10"><FiEye className="h-6 w-6" /></div><h3 className="mt-4 text-lg font-extrabold text-gray-900">Preview will show here</h3><p className="mt-2 text-sm font-semibold text-gray-500">Select employee and click Preview Payroll.</p></div></div>
   const loanTotal = getLoanDeductionTotal(payroll)
+  const taxTotal = getTaxDeductionTotal(payroll)
   return (
     <div className={`${card} overflow-hidden`}>
       <div className="border-b border-gray-100 p-4 sm:p-5">
@@ -1316,6 +1317,7 @@ function PayrollPreviewCard({ payroll }) {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <MiniStat label="Gross" value={money(payroll.grossSalary, payroll.currency)} />
+          <MiniStat label="Tax / TDS" value={money(taxTotal, payroll.currency)} tone={taxTotal > 0 ? "rose" : "gray"} />
           <MiniStat label="Deductions" value={money(payroll.totalDeductions, payroll.currency)} tone="rose" />
           <MiniStat label="Loan Deduction" value={money(loanTotal, payroll.currency)} tone={loanTotal > 0 ? "amber" : "gray"} />
           <MiniStat label="Payable Days" value={payroll.attendanceSummary?.payableDays || 0} />
@@ -1337,6 +1339,19 @@ function getLoanDeductions(payroll) {
 
 function getLoanDeductionTotal(payroll) {
   return getLoanDeductions(payroll).reduce((sum, item) => sum + Number(item.amount || 0), 0)
+}
+
+function getTaxDeductions(payroll) {
+  return (payroll?.deductions || []).filter((item) => item?.source === "tax")
+}
+
+function getTaxDeductionTotal(payroll) {
+  return Number(payroll?.taxDeduction ?? getTaxDeductions(payroll).reduce((sum, item) => sum + Number(item.amount || 0), 0))
+}
+
+function getOtherDeductionTotal(payroll) {
+  const total = Number(payroll?.totalDeductions || 0)
+  return Math.max(0, total - getTaxDeductionTotal(payroll))
 }
 
 function LoanDeductionNotice({ payroll }) {
@@ -1421,6 +1436,8 @@ function DetailFooter({ payroll, approvePayroll, setPayModal, setCancelModal, de
 function PayslipView({ payroll }) {
   const employee = payroll.employee || {}
   const attendance = payroll.attendanceSummary || {}
+  const taxTotal = getTaxDeductionTotal(payroll)
+  const otherDeductionTotal = getOtherDeductionTotal(payroll)
   return <div className="bg-white"><div className="rounded-2xl border border-gray-100 bg-white p-5"><div className="flex flex-col gap-4 border-b border-gray-100 pb-5 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[0.15em] text-indigo-600">Business Hub CRM</p><h3 className="mt-1 text-2xl font-black text-gray-900">Payslip</h3><p className="mt-1 text-sm font-bold text-gray-500">Salary slip for {monthName(payroll.month)} {payroll.year}</p></div><div className="text-left sm:text-right"><StatusBadge status={payroll.status} /><p className="mt-2 text-xs font-bold text-gray-500">Payslip No</p><p className="text-sm font-black text-gray-900">{payrollDisplayId(payroll)}</p></div></div><div className="grid grid-cols-1 gap-4 py-5 lg:grid-cols-3"><div className="lg:col-span-2"><div className="flex items-center gap-3 rounded-2xl bg-gray-50 p-4 ring-1 ring-gray-100"><Avatar employee={employee} className="h-12 w-12" /><div className="min-w-0"><p className="truncate text-lg font-black text-gray-900">{employee.name || "Employee"}</p><p className="truncate text-sm font-bold text-gray-500">{employee.email || "No email"}</p><p className="truncate text-sm font-bold text-gray-500">{employee.department?.name || "No department"} • {employee.position?.title || "No position"}</p></div></div></div><div className="rounded-2xl bg-indigo-50 p-4 ring-1 ring-indigo-600/10"><p className="text-xs font-bold text-indigo-500">Net Payable</p><p className="mt-1 text-3xl font-black text-indigo-700">{money(payroll.netPayable, payroll.currency)}</p></div></div><div className="grid grid-cols-2 gap-3 border-b border-gray-100 pb-5 md:grid-cols-4"><MiniStat label="Basic" value={money(payroll.basicSalary, payroll.currency)} /><MiniStat label="Gross" value={money(payroll.grossSalary, payroll.currency)} /><MiniStat label="Deductions" value={money(payroll.totalDeductions, payroll.currency)} tone="rose" /><MiniStat label="Loan Deduction" value={money(getLoanDeductionTotal(payroll), payroll.currency)} tone={getLoanDeductionTotal(payroll) > 0 ? "amber" : "gray"} /></div><div className="mt-5"><RosterSummaryCard payroll={payroll} /></div><div className="mt-5"><LoanDeductionNotice payroll={payroll} /></div><div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2"><PayrollComponentTable title="Earnings" items={payroll.earnings || []} total={payroll.totalEarnings} currency={payroll.currency} /><PayrollComponentTable title="Deductions" items={payroll.deductions || []} total={payroll.totalDeductions} currency={payroll.currency} danger /></div><div className="mt-5 rounded-2xl border border-gray-100 bg-gray-50 p-4"><h4 className="text-base font-black text-gray-900">Attendance Summary</h4><div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4"><InfoLine label="Present" value={attendance.presentDays || 0} /><InfoLine label="Late" value={attendance.lateDays || 0} /><InfoLine label="Absent" value={attendance.absentDays || 0} /><InfoLine label="Half Day" value={attendance.halfDays || 0} /><InfoLine label="Paid Leave" value={attendance.paidLeaveDays || 0} /><InfoLine label="Unpaid Leave" value={attendance.unpaidLeaveDays || 0} /><InfoLine label="Payable Days" value={attendance.payableDays || 0} /><InfoLine label="Overtime Hours" value={attendance.approvedOvertimeHours || 0} /></div></div></div></div>
 }
 

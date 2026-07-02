@@ -27,6 +27,7 @@ import JetskyModal from "./JetskyModal"
 // ✅ NEW
 import NotificationModal from "./NotificationModal"
 import { Bell } from "lucide-react"
+import { hasPermission, PERMISSIONS } from "../Auth/permissions"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const NOTIF_BADGE_COLOR = "#5850EC"
@@ -508,6 +509,7 @@ export default function Sidebar({
       avatarUrl: parsed?.avatarUrl || "",
       email: parsed?.email || "",
       id: parsed?._id || parsed?.id || "",
+      permissionGroup: parsed?.permissionGroup || null,
     })
 
     // refresh from server to ensure avatar is correct
@@ -527,6 +529,7 @@ export default function Sidebar({
           avatarUrl: fresh?.avatarUrl || "",
           email: fresh?.email || parsed?.email || "",
           id: fresh?._id || parsed?._id || parsed?.id || "",
+          permissionGroup: fresh?.permissionGroup || parsed?.permissionGroup || null,
         })
 
         // update localStorage so next load works instantly
@@ -542,7 +545,13 @@ export default function Sidebar({
   }, [navigate])
 
   // notifications refresh
+  const canViewNotifications = hasPermission(user, PERMISSIONS.NOTIFICATIONS_VIEW)
+
   const refreshNotifCount = useCallback(async () => {
+    if (!canViewNotifications) {
+      setNotifCount7d(0)
+      return
+    }
     try {
       if (abortNotifRef.current) abortNotifRef.current.abort()
       const controller = new AbortController()
@@ -561,7 +570,7 @@ export default function Sidebar({
     } finally {
       setNotifLoading(false)
     }
-  }, [])
+  }, [canViewNotifications])
 
   useEffect(() => {
     refreshNotifCount()
@@ -675,15 +684,15 @@ export default function Sidebar({
         @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
 
-      <NotificationModal
+      {canViewNotifications ? <NotificationModal
         open={showNotifications}
         onClose={() => setShowNotifications(false)}
         isDarkMode={isDarkMode}
         onOpenCustomer={onOpenCustomer}
-      />
+      /> : null}
 
       {/* Desktop tooltip */}
-      {!isMobileViewport && showBellTip && notifCount7d > 0 ? (
+      {canViewNotifications && !isMobileViewport && showBellTip && notifCount7d > 0 ? (
         <div
           className="fixed z-[999999] pointer-events-auto"
           style={{ top: `${tipPos.top}px`, left: `${tipPos.left}px`, transform: "translateY(-50%)" }}
@@ -825,7 +834,7 @@ export default function Sidebar({
             ) : null}
 
             <div className={`flex items-center ${compact ? "justify-center" : "gap-2"}`}>
-              <button
+              {canViewNotifications ? <button
                 ref={bellBtnRef}
                 onClick={() => {
                   dismissBellTip()
@@ -855,7 +864,7 @@ export default function Sidebar({
                 ) : null}
 
                 {notifLoading ? <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-purple-400" /> : null}
-              </button>
+              </button> : null}
 
               {!compact ? (
                 <button

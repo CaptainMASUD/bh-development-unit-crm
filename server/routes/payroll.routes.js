@@ -12,7 +12,7 @@ import {
   markPayrollPaid,
   previewPayroll,
 } from "../controllers/payroll.controller.js";
-import { protect } from "../middleware/auth.middleware.js";
+import { protect, requirePermission } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
@@ -21,7 +21,7 @@ router.use(protect);
 /**
  * Employee self payroll view
  */
-router.get("/me", getMyPayrolls);
+router.get("/me", requirePermission("payroll:view"), getMyPayrolls);
 
 /**
  * Admin/Superadmin payroll calculation

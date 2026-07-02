@@ -10,7 +10,8 @@ const clean = (value) => String(value ?? "").trim();
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(String(id || ""));
 
 const requireAdmin = (req, res) => {
-  if (!["admin", "superadmin"].includes(req.user?.role)) {
+  const canManage = ["admin", "superadmin"].includes(req.user?.role) || (req.user?.permissionGroup?.isActive !== false && req.user?.permissionGroup?.permissions?.includes?.("roster:manage"));
+  if (!canManage) {
     res.status(403).json({ message: "Only admin or superadmin can manage roster setup." });
     return false;
   }
@@ -87,10 +88,24 @@ const loadEmployee = async (employeeId) => {
 const validateEmployee = async (employeeId) => {
   const employee = await loadEmployee(employeeId);
   if (!employee) return { ok: false, status: 404, message: "Employee not found." };
-  if (!["employee", "marketing_team"].includes(employee.role)) {
+  if (employee.role !== "employee") {
     return { ok: false, status: 400, message: "Roster can only be assigned to employee users." };
   }
   return { ok: true, employee };
+};
+
+export const getMyRoster = async (req, res) => {
+  try {
+    const employeeId = req.user?._id;
+    const [assignments, weeklyOffs, holidays] = await Promise.all([
+      RosterAssignment.find({ employee: employeeId, isActive: true }).populate("shift").sort({ startDate: -1 }).lean(),
+      WeeklyOff.find({ isActive: true, $or: [{ scope: "company" }, { employee: employeeId }] }).sort({ createdAt: -1 }).lean(),
+      Holiday.find({ isActive: true, $or: [{ appliesTo: "company" }, { employee: employeeId }] }).sort({ holidayDate: 1 }).lean(),
+    ]);
+    return res.json({ assignments, weeklyOffs, holidays });
+  } catch (err) {
+    return res.status(500).json({ message: "Server error in getMyRoster.", error: err.message });
+  }
 };
 
 const buildShiftPayload = (body = {}) => ({

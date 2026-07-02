@@ -57,6 +57,9 @@ import attendanceRoutes from "./routes/attendance.routes.js";
 import payrollRoutes from "./routes/payroll.routes.js";
 import employeeLoanRoutes from "./routes/employeeLoan.routes.js";
 import rosterRoutes from "./routes/roster.routes.js";
+import leaveRequestRoutes from "./routes/leaveRequest.routes.js";
+import leaveTemplateRoutes from "./routes/leaveTemplate.routes.js";
+import taxRoutes from "./routes/tax.routes.js";
 
 /* =========================
    HEALTH CHECK
@@ -88,6 +91,9 @@ app.use("/api/attendance", attendanceRoutes);
    EMPLOYEE LOANS
 ========================= */
 app.use("/api/employee-loans", employeeLoanRoutes);
+app.use("/api/leaves", leaveRequestRoutes);
+app.use("/api/leave-templates", leaveTemplateRoutes);
+app.use("/api/tax", taxRoutes);
 
 /* =========================
    PAYROLL

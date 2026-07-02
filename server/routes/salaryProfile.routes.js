@@ -9,7 +9,7 @@ import {
   previewSalaryProfile,
   updateSalaryProfile,
 } from "../controllers/salaryProfile.controller.js";
-import { protect, isAdminOrSuperAdmin } from "../middleware/auth.middleware.js";
+import { protect, requirePermission } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
@@ -20,17 +20,17 @@ router.use(protect);
  * Later you can replace isAdminOrSuperAdmin with permission middleware:
  * authorize("payroll:manage")
  */
-router.get("/", isAdminOrSuperAdmin, listSalaryProfiles);
-router.post("/", isAdminOrSuperAdmin, createSalaryProfile);
+router.get("/", requirePermission("salary:view"), listSalaryProfiles);
+router.post("/", requirePermission("salary:manage"), createSalaryProfile);
 
-router.get("/employee/:employeeId/active", isAdminOrSuperAdmin, getActiveSalaryProfileByEmployee);
+router.get("/employee/:employeeId/active", requirePermission("salary:view"), getActiveSalaryProfileByEmployee);
 
-router.get("/:id", isAdminOrSuperAdmin, getSalaryProfileById);
-router.get("/:id/preview", isAdminOrSuperAdmin, previewSalaryProfile);
+router.get("/:id", requirePermission("salary:view"), getSalaryProfileById);
+router.get("/:id/preview", requirePermission("salary:view"), previewSalaryProfile);
 
-router.patch("/:id", isAdminOrSuperAdmin, updateSalaryProfile);
-router.patch("/:id/deactivate", isAdminOrSuperAdmin, deactivateSalaryProfile);
+router.patch("/:id", requirePermission("salary:manage"), updateSalaryProfile);
+router.patch("/:id/deactivate", requirePermission("salary:manage"), deactivateSalaryProfile);
 
-router.delete("/:id", isAdminOrSuperAdmin, deleteSalaryProfile);
+router.delete("/:id", requirePermission("salary:manage"), deleteSalaryProfile);
 
 export default router;

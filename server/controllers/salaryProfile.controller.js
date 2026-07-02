@@ -98,7 +98,7 @@ const buildProfilePayload = async (req, { isCreate = false } = {}) => {
       return { ok: false, status: 404, message: "Employee not found." };
     }
 
-    if (!["employee", "marketing_team"].includes(employee.role)) {
+    if (employee.role !== "employee") {
       return {
         ok: false,
         status: 400,

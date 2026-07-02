@@ -8,6 +8,7 @@ import {
   getEmployeeLoanDeductionsForPayroll,
 } from "./employeeLoan.controller.js";
 import { getEmployeeRosterSummaryForPayroll } from "./roster.controller.js";
+import { calculateEmployeeTaxDeduction } from "../services/tax.service.js";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -22,7 +23,8 @@ const clean = (value) => String(value ?? "").trim();
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(String(id || ""));
 
 const isAdminUser = (req) =>
-  ["admin", "superadmin"].includes(String(req.user?.role || ""));
+  ["admin", "superadmin"].includes(String(req.user?.role || "")) ||
+  (req.user?.permissionGroup?.isActive !== false && req.user?.permissionGroup?.permissions?.includes?.("payroll:manage"));
 
 const requireAdmin = (req, res) => {
   if (!isAdminUser(req)) {
@@ -80,7 +82,7 @@ const loadEmployee = async (employeeId) => {
   if (!isValidObjectId(employeeId)) return null;
 
   return User.findById(employeeId)
-    .select("name email role isActive department position")
+    .select("name email role isActive department position leavePolicy taxProfile")
     .lean();
 };
 
@@ -241,7 +243,7 @@ const normalizeManualComponent = (item = {}, type) => {
   };
 };
 
-const calculateAttendanceMoney = ({ salaryProfile, summary, grossSalary }) => {
+const calculateAttendanceMoney = ({ employee, salaryProfile, summary, grossSalary }) => {
   const basicSalary = Number(salaryProfile.basicSalary || 0);
   const workingDays = Number(salaryProfile.workingDaysPerMonth || 26);
   const workingHours = Number(salaryProfile.workingHoursPerDay || 8);
@@ -322,7 +324,7 @@ const calculateAttendanceMoney = ({ salaryProfile, summary, grossSalary }) => {
   }
 
   if (rules.unpaidLeaveDeduction?.enabled !== false) {
-    const rule = rules.unpaidLeaveDeduction || {};
+    const rule = employee?.leavePolicy?.unpaidCharge || rules.unpaidLeaveDeduction || {};
     const type = rule.calculationType || "per_day";
     const days = Number(summary.unpaidLeaveDeductionDays || 0);
     let amount = 0;
@@ -481,6 +483,7 @@ const buildPayrollPayload = async ({
   }
 
   const attendanceMoney = calculateAttendanceMoney({
+    employee,
     salaryProfile,
     summary: attendanceSummary,
     grossSalary: runningGross,
@@ -545,6 +548,16 @@ const buildPayrollPayload = async ({
 
   deductions.push(...loanDeductions);
 
+  const taxResult = await calculateEmployeeTaxDeduction({
+    employee,
+    grossSalary: runningGross,
+    year,
+    month,
+  });
+  if (taxResult.component) {
+    deductions.push(makePayrollComponent(taxResult.component));
+  }
+
   for (const item of manualDeductions.map((x) => normalizeManualComponent(x, "deduction"))) {
     const amount =
       item.amount !== undefined
@@ -607,7 +620,7 @@ const calculateAndSavePayroll = async ({
     return { ok: false, status: 404, message: "Employee not found." };
   }
 
-  if (!["employee", "marketing_team"].includes(employee.role)) {
+  if (employee.role !== "employee") {
     return {
       ok: false,
       status: 400,
@@ -819,7 +832,7 @@ export const calculateBulkPayroll = async (req, res) => {
     }
 
     const filter = {
-      role: { $in: ["employee", "marketing_team"] },
+      role: "employee",
       isActive: true,
     };
 

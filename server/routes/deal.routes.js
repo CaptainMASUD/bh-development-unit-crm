@@ -13,17 +13,11 @@ import {
 
 import {
   protect,
-  isMarketingOrAdmin,
-  isAdminOrSuperAdmin,
   requirePermission,
 } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-/**
- * Deal access:
- * marketing_team + admin + superadmin
- */
 router.use(protect, requirePermission("deals:view"));
 
 /* =========================
@@ -42,6 +36,6 @@ router.patch("/:id/lost", requirePermission("deals:manage"), markDealLost);
 /* =========================
    DELETE
 ========================= */
-router.delete("/:id", isAdminOrSuperAdmin, deleteDeal);
+router.delete("/:id", requirePermission("deals:manage"), deleteDeal);
 
 export default router;

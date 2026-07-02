@@ -114,8 +114,16 @@ const PERMISSION_LABELS = {
   "attendance:manage": { label: "Manage Attendance", helper: "Mark, update, and correct employee attendance." },
   "payroll:view": { label: "View Payroll", helper: "See personal payroll records and payslips." },
   "payroll:manage": { label: "Manage Payroll", helper: "Calculate, approve, pay, and cancel payroll records." },
+  "tax.view": { label: "View Tax", helper: "See tax slabs, employee tax profiles, and reports." },
+  "tax.create": { label: "Create Tax Slabs", helper: "Create Tax/TDS slab settings by fiscal year." },
+  "tax.update": { label: "Update Tax Settings", helper: "Edit tax slabs and employee tax profiles." },
+  "tax.delete": { label: "Delete Tax Slabs", helper: "Delete tax slab settings." },
+  "tax.assign_employee": { label: "Assign Employee Tax", helper: "Enable and configure employee tax profiles." },
+  "tax.report": { label: "Tax Reports", helper: "See monthly and employee-wise tax deduction reports." },
   "loans:view": { label: "View Employee Loans", helper: "See personal employee loan records." },
   "loans:manage": { label: "Manage Employee Loans", helper: "Create, update, cancel, and record loan payments." },
+  "leaves:view": { label: "View Leave Requests", helper: "Apply for leave and see personal leave request history." },
+  "leaves:manage": { label: "Manage Leave Requests", helper: "Review, approve, and reject employee leave requests." },
   "roster:view": { label: "View Roster", helper: "See shifts, weekly offs, and holiday schedules." },
   "roster:manage": { label: "Manage Roster", helper: "Create shifts and manage roster assignments and holidays." },
   "employees:view": { label: "View Employees", helper: "See employee profiles and employment information." },
@@ -137,7 +145,9 @@ const MODULE_LABELS = {
   reports: "Reports",
   attendance: "Attendance",
   payroll: "Payroll",
+  tax: "Tax Management",
   loans: "Employee Loans",
+  leaves: "Leave Requests",
   roster: "Roster & Shifts",
   employees: "Employees",
   salary: "Salary",
@@ -312,7 +322,7 @@ export default function AccessControl() {
   const permissionSections = useMemo(() => {
     const sections = new Map()
     permissionCatalog.forEach((permission) => {
-      const moduleName = permission.module || String(permission.key || "").split(":")[0]
+      const moduleName = permission.module || String(permission.key || "").split(/[:.]/)[0]
       if (!sections.has(moduleName)) sections.set(moduleName, [])
       sections.get(moduleName).push(permission)
     })
@@ -511,17 +521,22 @@ export default function AccessControl() {
   const togglePermission = (key) => {
     setGroupForm((prev) => {
       const exists = prev.permissions.includes(key)
-      const [moduleName, action] = String(key).split(":")
-      const viewKey = `${moduleName}:view`
-      const manageKey = `${moduleName}:manage`
+      const separator = String(key).includes(".") ? "." : ":"
+      const [moduleName, action] = String(key).split(/[:.]/)
+      const viewKey = `${moduleName}${separator}view`
+      const manageKey = `${moduleName}${separator}manage`
       let permissions = [...prev.permissions]
 
       if (exists) {
         permissions = permissions.filter((permission) => permission !== key)
-        if (action === "view") permissions = permissions.filter((permission) => permission !== manageKey)
+        if (action === "view") permissions = permissions.filter((permission) => {
+          const [itemModule] = String(permission).split(/[:.]/)
+          return itemModule !== moduleName || permission === key
+        }).filter((permission) => permission !== key)
       } else {
         permissions.push(key)
         if (action === "manage" && !permissions.includes(viewKey)) permissions.push(viewKey)
+        if (separator === "." && action !== "view" && !permissions.includes(viewKey)) permissions.push(viewKey)
       }
       return {
         ...prev,
@@ -865,7 +880,7 @@ export default function AccessControl() {
             <input
               required
               className={input}
-              placeholder="Example: Marketing"
+              placeholder="Example: Sales"
               value={departmentForm.name}
               onChange={(e) => setDepartmentForm((prev) => ({ ...prev, name: e.target.value }))}
             />
@@ -920,7 +935,7 @@ export default function AccessControl() {
               <input
                 required
                 className={input}
-                placeholder="Example: Marketing Executive"
+                placeholder="Example: Sales Executive"
                 value={positionForm.title}
                 onChange={(e) => updatePositionForm("title", e.target.value)}
               />
@@ -1124,7 +1139,7 @@ export default function AccessControl() {
               <input
                 required
                 className={input}
-                placeholder="Example: Marketing Lead Access"
+                placeholder="Example: Lead Access"
                 value={groupForm.name}
                 onChange={(e) => setGroupForm((prev) => ({ ...prev, name: e.target.value }))}
               />

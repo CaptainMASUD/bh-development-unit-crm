@@ -20,12 +20,6 @@ import {
   updateEmployee,
   deleteEmployee,
 
-  createMarketingTeam,
-  getMarketingTeam,
-  getMarketingTeamById,
-  updateMarketingTeam,
-  deleteMarketingTeam,
-
   createAdmin,
   getAdmins,
   getAdminById,
@@ -38,13 +32,12 @@ import {
   updateSuperAdmin,
   deleteSuperAdmin,
 
-  // (optional) search endpoint if you use it in frontend
-  searchMarketingUsers,
 } from "../controllers/user.controller.js";
 
 import {
   protect,
   isAdminOrSuperAdmin,
+  requirePermission,
   isSuperAdmin,
 } from "../middleware/auth.middleware.js";
 
@@ -77,42 +70,12 @@ router.delete(
   adminDeleteUserAvatar
 );
 
-/* ✅ OPTIONAL: marketing user search */
-router.get(
-  "/marketing-team/search",
-  protect,
-  isAdminOrSuperAdmin,
-  searchMarketingUsers
-);
-
 /* EMPLOYEES */
-router.post("/employees", protect, isAdminOrSuperAdmin, createEmployee);
-router.get("/employees", protect, isAdminOrSuperAdmin, getEmployees);
-router.get("/employees/:id", protect, isAdminOrSuperAdmin, getEmployeeById);
-router.patch("/employees/:id", protect, isAdminOrSuperAdmin, updateEmployee);
-router.delete("/employees/:id", protect, isAdminOrSuperAdmin, deleteEmployee);
-
-/* MARKETING TEAM */
-router.post("/marketing-team", protect, isAdminOrSuperAdmin, createMarketingTeam);
-router.get("/marketing-team", protect, isAdminOrSuperAdmin, getMarketingTeam);
-router.get(
-  "/marketing-team/:id",
-  protect,
-  isAdminOrSuperAdmin,
-  getMarketingTeamById
-);
-router.patch(
-  "/marketing-team/:id",
-  protect,
-  isAdminOrSuperAdmin,
-  updateMarketingTeam
-);
-router.delete(
-  "/marketing-team/:id",
-  protect,
-  isAdminOrSuperAdmin,
-  deleteMarketingTeam
-);
+router.post("/employees", protect, requirePermission("employees:manage"), createEmployee);
+router.get("/employees", protect, requirePermission("employees:view"), getEmployees);
+router.get("/employees/:id", protect, requirePermission("employees:view"), getEmployeeById);
+router.patch("/employees/:id", protect, requirePermission("employees:manage"), updateEmployee);
+router.delete("/employees/:id", protect, requirePermission("employees:manage"), deleteEmployee);
 
 /* ADMINS */
 router.post("/admins", protect, isAdminOrSuperAdmin, createAdmin);

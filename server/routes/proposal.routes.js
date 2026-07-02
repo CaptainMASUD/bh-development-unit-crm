@@ -13,34 +13,29 @@ import {
 
 import {
   protect,
-  isMarketingOrAdmin,
-  isAdminOrSuperAdmin,
+  requirePermission,
 } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-/**
- * Proposal access:
- * marketing_team + admin + superadmin
- */
-router.use(protect, isMarketingOrAdmin);
+router.use(protect, requirePermission("leads:view"));
 
 /* =========================
    PROPOSAL / QUOTATION
 ========================= */
-router.post("/", createProposal);
+router.post("/", requirePermission("leads:manage"), createProposal);
 router.get("/", listProposals);
 router.get("/:id", getProposalById);
 
-router.put("/:id", updateProposal);
+router.put("/:id", requirePermission("leads:manage"), updateProposal);
 
-router.patch("/:id/send", sendProposal);
-router.patch("/:id/accept", acceptProposal);
-router.patch("/:id/reject", rejectProposal);
+router.patch("/:id/send", requirePermission("leads:manage"), sendProposal);
+router.patch("/:id/accept", requirePermission("leads:manage"), acceptProposal);
+router.patch("/:id/reject", requirePermission("leads:manage"), rejectProposal);
 
 /* =========================
    DELETE
 ========================= */
-router.delete("/:id", isAdminOrSuperAdmin, deleteProposal);
+router.delete("/:id", requirePermission("leads:manage"), deleteProposal);
 
 export default router;

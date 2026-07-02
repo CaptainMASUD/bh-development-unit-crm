@@ -11,33 +11,29 @@ import {
 
 import {
   protect,
-  isMarketingOrAdmin,
+  requirePermission,
 } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-/**
- * Template access:
- * marketing_team + admin + superadmin
- */
-router.use(protect, isMarketingOrAdmin);
+router.use(protect, requirePermission("leads:view"));
 
 /* =========================
    MESSAGE TEMPLATES
 ========================= */
-router.post("/", createTemplate);
+router.post("/", requirePermission("leads:manage"), createTemplate);
 router.get("/", listTemplates);
 router.get("/:id", getTemplateById);
-router.put("/:id", updateTemplate);
+router.put("/:id", requirePermission("leads:manage"), updateTemplate);
 
 /* =========================
    USE / RENDER TEMPLATE
 ========================= */
-router.post("/:id/use", useTemplate);
+router.post("/:id/use", requirePermission("leads:manage"), useTemplate);
 
 /* =========================
    DELETE
 ========================= */
-router.delete("/:id", deleteTemplate);
+router.delete("/:id", requirePermission("leads:manage"), deleteTemplate);
 
 export default router;

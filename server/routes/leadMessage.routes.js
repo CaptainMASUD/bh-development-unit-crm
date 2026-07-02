@@ -6,16 +6,16 @@ import {
   markLeadMessagesRead,
   sendLeadMessage,
 } from "../controllers/leadMessage.controller.js";
-import { protect, isMarketingOrAdmin } from "../middleware/auth.middleware.js";
+import { protect, requirePermission } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-router.use(protect, isMarketingOrAdmin);
+router.use(protect, requirePermission("leads:view"));
 
 router.get("/unread-count", getLeadMessageUnreadCount);
 router.get("/:leadId/participants", getLeadMessageParticipants);
 router.get("/:leadId", listLeadMessages);
-router.post("/:leadId", sendLeadMessage);
-router.patch("/:leadId/read", markLeadMessagesRead);
+router.post("/:leadId", requirePermission("leads:manage"), sendLeadMessage);
+router.patch("/:leadId/read", requirePermission("leads:manage"), markLeadMessagesRead);
 
 export default router;

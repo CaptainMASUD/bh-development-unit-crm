@@ -52,14 +52,9 @@ const userSchema = new mongoose.Schema(
       select: false,
     },
 
-    /**
-     * Keep marketing_team temporarily for old data/backward compatibility.
-     * New users should normally be:
-     * role: employee + department + position + permissionGroup
-     */
     role: {
       type: String,
-      enum: ["superadmin", "admin", "employee", "marketing_team"],
+      enum: ["superadmin", "admin", "employee"],
       default: "employee",
       required: true,
       index: true,
@@ -158,6 +153,48 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
 
+    leaveEntitlement: {
+      year: { type: Number, default: () => new Date().getFullYear(), index: true },
+      paidDays: { type: Number, default: 0, min: 0 },
+      unpaidDays: { type: Number, default: 0, min: 0 },
+    },
+
+    leaveTemplate: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "LeaveTemplate",
+      default: null,
+      index: true,
+    },
+
+    leavePolicy: {
+      unpaidCharge: {
+        enabled: { type: Boolean, default: true },
+        calculationType: {
+          type: String,
+          enum: ["per_day", "fixed", "percentage"],
+          default: "per_day",
+        },
+        value: { type: Number, default: 0, min: 0 },
+        basedOn: {
+          type: String,
+          enum: ["basicSalary", "grossSalary", "manual"],
+          default: "basicSalary",
+        },
+      },
+    },
+
+    taxProfile: {
+      enabled: { type: Boolean, default: false, index: true },
+      tin: { type: String, trim: true, default: "" },
+      fiscalYear: { type: String, trim: true, default: "" },
+      taxpayerType: { type: String, trim: true, lowercase: true, default: "general", index: true },
+      method: { type: String, enum: ["slab", "percentage", "fixed"], default: "slab" },
+      percentage: { type: Number, default: 0, min: 0 },
+      fixedAmount: { type: Number, default: 0, min: 0 },
+      exemptionAmount: { type: Number, default: 0, min: 0 },
+      investmentAmount: { type: Number, default: 0, min: 0 },
+    },
+
     isActive: { type: Boolean, default: true, index: true },
 
     avatarUrl: { type: String, default: "" },
@@ -175,7 +212,7 @@ const userSchema = new mongoose.Schema(
 
     teamRole: {
       type: String,
-      enum: ["", "admin", "manager", "sales", "marketing", "support"],
+      enum: ["", "admin", "manager", "sales", "support"],
       default: "",
       index: true,
     },
@@ -368,12 +405,8 @@ userSchema.methods.isEmployee = function () {
   return this.role === "employee";
 };
 
-userSchema.methods.isMarketing = function () {
-  return (
-    this.role === "marketing_team" ||
-    this.teamRole === "marketing" ||
-    this.permissionGroup?.permissions?.includes?.("leads:view")
-  );
+userSchema.methods.hasLeadAccess = function () {
+  return this.permissionGroup?.permissions?.includes?.("leads:view");
 };
 
 userSchema.methods.canReceiveAutoAssignedLead = function () {
@@ -381,7 +414,7 @@ userSchema.methods.canReceiveAutoAssignedLead = function () {
     this.isActive === true &&
     this.isAvailableForAssignment === true &&
     this.workStatus === "available" &&
-    ["employee", "marketing_team"].includes(this.role)
+    this.role === "employee"
   );
 };
 

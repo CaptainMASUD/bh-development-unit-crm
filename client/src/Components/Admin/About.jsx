@@ -228,7 +228,7 @@ export default function About() {
           >
             <div className="space-y-3">
               <GuideSection title="1) Login & Roles">
-                Use your email and password to log in. Your role (Admin / Employee / Marketing Team)
+                Use your email and password to log in. Your role and permission group decide what you can access.
                 controls what you can access.
               </GuideSection>
 
@@ -243,7 +243,7 @@ export default function About() {
               </GuideSection>
 
               <GuideSection title="4) User Management (Admins)">
-                Admins can create and manage Employees, Marketing Team users, and Admins. Super Admins
+                Admins can create and manage employees, departments, positions, permission groups, and admins. Super Admins
                 can manage Super Admin accounts.
               </GuideSection>
 
@@ -467,7 +467,7 @@ export default function About() {
                     <br />
                     <strong>Employees</strong> can view only assigned customers and update work progress.
                     <br />
-                    <strong>Marketing Team</strong> can manage leads and follow-up activities.
+                    <strong>Employees with lead access</strong> can manage leads and follow-up activities.
                   </p>
                 </div>
               </div>
@@ -602,7 +602,7 @@ export default function About() {
             </p>
 
             <div className="mt-4 grid grid-cols-1 gap-3">
-              <StatPill icon={<FiUsers className="w-5 h-5" />} label="Users" value="Admins • Employees • Marketing" />
+              <StatPill icon={<FiUsers className="w-5 h-5" />} label="Users" value="Admins • Employees • Roles" />
               <StatPill icon={<FiGlobe className="w-5 h-5" />} label="Platform" value="Web based" />
             </div>
           </div>

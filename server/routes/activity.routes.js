@@ -11,38 +11,33 @@ import {
 
 import {
   protect,
-  isMarketingOrAdmin,
-  isAdminOrSuperAdmin,
+  requirePermission,
 } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-/**
- * Activity access:
- * marketing_team + admin + superadmin
- */
-router.use(protect, isMarketingOrAdmin);
+router.use(protect, requirePermission("leads:view"));
 
 /* =========================
    ACTIVITY
 ========================= */
-router.post("/", createActivity);
+router.post("/", requirePermission("leads:manage"), createActivity);
 router.get("/", listActivities);
 
 /* =========================
    QUICK ACTION
 ========================= */
-router.post("/quick-action", quickAction);
+router.post("/quick-action", requirePermission("leads:manage"), quickAction);
 
 /* =========================
    ACTIVITY ACTIONS
 ========================= */
-router.patch("/:id/complete", completeActivity);
-router.patch("/:id/cancel", cancelActivity);
+router.patch("/:id/complete", requirePermission("leads:manage"), completeActivity);
+router.patch("/:id/cancel", requirePermission("leads:manage"), cancelActivity);
 
 /* =========================
    DELETE
 ========================= */
-router.delete("/:id", isAdminOrSuperAdmin, deleteActivity);
+router.delete("/:id", requirePermission("leads:manage"), deleteActivity);
 
 export default router;

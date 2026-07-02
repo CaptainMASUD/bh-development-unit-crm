@@ -19,7 +19,8 @@ const DEFAULT_LIMIT = 20;
 
 const isAdminOrSuperAdmin = (req) => {
   const role = req?.user?.role ?? req?.role;
-  return role === "admin" || role === "superadmin";
+  const group = req?.user?.permissionGroup ?? req?.permissionGroup;
+  return role === "admin" || role === "superadmin" || (group?.isActive !== false && group?.permissions?.includes?.("tasks:manage"));
 };
 
 const toIdString = (x) => {

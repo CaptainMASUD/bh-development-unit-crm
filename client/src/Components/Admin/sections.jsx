@@ -13,7 +13,10 @@ import Attendance from "./Attendance"
 import AdminSalaryPage from "./AdminSalaryPage"
 import PayrollManager from "./PayrollManager"
 import EmployeeLoans from "./EmployeeLoans"
+import LeaveRequests from "./LeaveRequests"
+import LeaveSetup from "./LeaveSetup"
 import RosterShiftSetup from "./RosterShiftSetup"
+import TaxSetup from "./TaxSetup"
 import ProfileSettings from "./ProfileSettings"
 import About from "./About"
 
@@ -24,6 +27,7 @@ import PurchaseTypePage from "./PurchaseTypePage"
 import CustomerCRMInner from "./CustomerCRMInner"
 import ClientReport from "./ClientReport"
 import AdminEmployeeReportPage from "./EmployeeReportPage"
+import TaxReport from "./TaxReport"
 import AccessControl from "./AccessControl"
 
 
@@ -67,6 +71,10 @@ const sections = {
       "Client Report": <ClientReport />,
       // ✅ NEW sub option
       "Employee Report": <AdminEmployeeReportPage />,
+      "Tax Report": <TaxReport />,
+    },
+    subcategoryPermissions: {
+      "Tax Report": "tax.report",
     },
   },
 
@@ -100,9 +108,23 @@ const sections = {
     component: <EmployeeLoans />,
   },
 
-  "Roster / Shift Setup": {
+  "Leave Requests": {
     icon: <FiCalendar className="w-5 h-5" />,
-    component: <RosterShiftSetup />,
+    component: <LeaveRequests />,
+  },
+
+  Setup: {
+    icon: <FiLayers className="w-5 h-5" />,
+    subcategories: {
+      "Roster / Shift Setup": <RosterShiftSetup />,
+      "Leave Setup": <LeaveSetup />,
+      "Tax Setup": <TaxSetup />,
+    },
+    subcategoryPermissions: {
+      "Roster / Shift Setup": "roster:view",
+      "Leave Setup": "leaves:manage",
+      "Tax Setup": "tax.view",
+    },
   },
 
   "Access Control": {

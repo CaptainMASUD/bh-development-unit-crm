@@ -190,7 +190,7 @@ export default function LeadInboxPanel({ leadId, lead, showToast, compact = fals
               <p className="text-sm font-black text-gray-950">Inbox</p>
               {unreadTotal ? <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-black text-white">{unreadTotal}</span> : null}
             </div>
-            <p className="truncate text-xs font-semibold text-gray-500">Admin ↔ Marketing · {title}</p>
+            <p className="truncate text-xs font-semibold text-gray-500">Admin ↔ Assignee · {title}</p>
           </div>
         </div>
         <button
@@ -255,7 +255,7 @@ export default function LeadInboxPanel({ leadId, lead, showToast, compact = fals
               <div className="flex h-40 flex-col items-center justify-center px-4 text-center">
                 <FiUsers className="h-6 w-6 text-gray-400" />
                 <p className="mt-2 text-sm font-black text-gray-900">No assigned users</p>
-                <p className="mt-1 text-xs font-semibold text-gray-500">Assign a marketing team member to this lead first.</p>
+                <p className="mt-1 text-xs font-semibold text-gray-500">Assign an employee with lead access to this lead first.</p>
               </div>
             )}
           </div>

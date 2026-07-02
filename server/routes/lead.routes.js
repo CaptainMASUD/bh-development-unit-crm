@@ -20,18 +20,12 @@ import {
 
 import {
   protect,
-  isMarketingOrAdmin,
-  isAdminOrSuperAdmin,
   requirePermission,
 } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-/**
- * Lead module access:
- * marketing_team + admin + superadmin
- */
-router.use(protect, isMarketingOrAdmin);
+router.use(protect, requirePermission("leads:view"));
 
 /* =========================
    BASIC LEAD CRUD
@@ -71,11 +65,11 @@ router.post("/:id/convert", requirePermission("leads:manage"), convertLead);
 /* =========================
    ADMIN ACCESS CONTROL
 ========================= */
-router.patch("/:id/access", isAdminOrSuperAdmin, updateLeadAccess);
+router.patch("/:id/access", requirePermission("leads:manage"), updateLeadAccess);
 
 /* =========================
    DELETE
 ========================= */
-router.delete("/:id", isAdminOrSuperAdmin, deleteLead);
+router.delete("/:id", requirePermission("leads:manage"), deleteLead);
 
 export default router;

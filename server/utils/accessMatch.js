@@ -12,9 +12,6 @@ export function customerAccessMatch(user) {
     case "employee":
       // common: employee sees assigned OR created
       return { $or: [{ assignedTo: userId }, { createdBy: userId }] };
-    case "marketing_team":
-      // common: marketing sees lead-origin OR created by them
-      return { $or: [{ origin: "lead" }, { createdBy: userId }] };
     default:
       return { _id: null }; // sees nothing
   }

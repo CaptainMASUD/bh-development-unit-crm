@@ -8,7 +8,7 @@ import {
   markAttendance,
   updateAttendance,
 } from "../controllers/attendance.controller.js";
-import { protect } from "../middleware/auth.middleware.js";
+import { protect, requirePermission } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
@@ -25,7 +25,7 @@ router.post("/bulk", bulkMarkAttendance);
 /**
  * Employee/admin monthly attendance + salary impact summary.
  */
-router.get("/me/monthly-summary", getEmployeeMonthlyAttendanceSummary);
+router.get("/me/monthly-summary", requirePermission("attendance:view"), getEmployeeMonthlyAttendanceSummary);
 router.get("/employee/:employeeId/monthly-summary", getEmployeeMonthlyAttendanceSummary);
 
 router.get("/:id", getAttendanceById);

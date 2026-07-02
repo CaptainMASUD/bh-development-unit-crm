@@ -15,7 +15,8 @@ const roundMoney = (value) => {
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(String(id || ""));
 
 const isAdminUser = (req) =>
-  ["admin", "superadmin"].includes(String(req.user?.role || ""));
+  ["admin", "superadmin"].includes(String(req.user?.role || "")) ||
+  (req.user?.permissionGroup?.isActive !== false && req.user?.permissionGroup?.permissions?.includes?.("loans:manage"));
 
 const requireAdmin = (req, res) => {
   if (!isAdminUser(req)) {
@@ -160,7 +161,7 @@ export const createEmployeeLoan = async (req, res) => {
       return res.status(404).json({ message: "Employee not found." });
     }
 
-    if (!["employee", "marketing_team"].includes(employee.role)) {
+    if (employee.role !== "employee") {
       return res.status(400).json({
         message: "Loan can only be assigned to employee users.",
       });

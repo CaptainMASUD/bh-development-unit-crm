@@ -14,6 +14,7 @@ import Department from "../models/department.model.js";
 import Position from "../models/position.model.js";
 import PermissionGroup from "../models/permissionGroup.model.js";
 import AccessRole from "../models/accessRole.model.js";
+import LeaveTemplate from "../models/leaveTemplate.model.js";
 import SalaryProfile from "../models/salaryProfile.model.js";
 import { uploadCloudinary, deleteCloudinary } from "../utils/cloudinary.js";
 
@@ -76,7 +77,7 @@ const requireRequesterPassword = async (req, res) => {
    OPTIMIZATION HELPERS
 ========================= */
 const LIST_PROJECTION =
-  "_id name email role employeeId phone alternatePhone gender dateOfBirth address emergencyContact joiningDate leavingDate employmentType salaryType employeeStatus isActive avatarUrl department position permissionGroup accessRole teamRole dailyLeadLimit isAvailableForAssignment workStatus managerId createdAt updatedAt";
+  "_id name email role employeeId phone alternatePhone gender dateOfBirth address emergencyContact joiningDate leavingDate employmentType salaryType employeeStatus leaveEntitlement leaveTemplate leavePolicy isActive avatarUrl department position permissionGroup accessRole teamRole dailyLeadLimit isAvailableForAssignment workStatus managerId createdAt updatedAt";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -117,6 +118,10 @@ const buildSearchFilter = (qRaw) => {
 };
 
 const clean = (value) => String(value ?? "").trim();
+const normalizeTeamRole = (value) => {
+  const role = clean(value).toLowerCase();
+  return ["admin", "manager", "sales", "support"].includes(role) ? role : "";
+};
 
 const normalizeOptionalObjectId = (value) => {
   const cleanValue = clean(value);
@@ -186,6 +191,32 @@ const normalizeEmployeeStatus = (value) => {
     return raw;
   }
   return undefined;
+};
+
+const normalizeLeaveEntitlement = (body, { isCreate = false } = {}) => {
+  const input = body.leaveEntitlement && typeof body.leaveEntitlement === "object"
+    ? body.leaveEntitlement
+    : {};
+  const hasAny =
+    body.leaveYear !== undefined ||
+    body.paidLeaveDays !== undefined ||
+    body.unpaidLeaveDays !== undefined ||
+    input.year !== undefined ||
+    input.paidDays !== undefined ||
+    input.unpaidDays !== undefined;
+
+  if (!hasAny && !isCreate) return undefined;
+
+  const currentYear = new Date().getFullYear();
+  const year = Number(input.year ?? body.leaveYear ?? currentYear);
+  const paidDays = Number(input.paidDays ?? body.paidLeaveDays ?? 0);
+  const unpaidDays = Number(input.unpaidDays ?? body.unpaidLeaveDays ?? 0);
+
+  return {
+    year: Number.isFinite(year) && year >= 2000 ? year : currentYear,
+    paidDays: Math.max(0, Number.isFinite(paidDays) ? paidDays : 0),
+    unpaidDays: Math.max(0, Number.isFinite(unpaidDays) ? unpaidDays : 0),
+  };
 };
 
 const normalizeAddress = (value) => {
@@ -293,6 +324,9 @@ const buildEmployeeProfilePayload = (body = {}, { isCreate = false } = {}) => {
     payload.employeeStatus = "active";
   }
 
+  const leaveEntitlement = normalizeLeaveEntitlement(body, { isCreate });
+  if (leaveEntitlement !== undefined) payload.leaveEntitlement = leaveEntitlement;
+
   return payload;
 };
 
@@ -308,6 +342,7 @@ const USER_POPULATE = [
   },
   { path: "permissionGroup", select: "name permissions isActive" },
   { path: "accessRole", select: "name description permissionGroup isActive" },
+  { path: "leaveTemplate", select: "name year paidDays unpaidDays unpaidCharge isActive departments positions" },
   { path: "managerId", select: "name email role employeeId phone isActive avatarUrl" },
 ];
 
@@ -346,6 +381,69 @@ const validateEmployeeAccessRefs = async ({
   }
 
   return { ok: true };
+};
+
+const normalizeLeavePolicyFromTemplate = (template) => ({
+  unpaidCharge: {
+    enabled: template?.unpaidCharge?.enabled !== false,
+    calculationType: template?.unpaidCharge?.calculationType || "per_day",
+    value: Number(template?.unpaidCharge?.value || 0),
+    basedOn: template?.unpaidCharge?.basedOn || "basicSalary",
+  },
+});
+
+const resolveLeaveTemplateForEmployee = async ({ leaveTemplate, department, position }) => {
+  if (!leaveTemplate) return { ok: true, template: null };
+  const template = await LeaveTemplate.findOne({ _id: leaveTemplate, isActive: { $ne: false } }).lean();
+  if (!template) return { ok: false, message: "Leave template not found." };
+
+  const allowedDepartments = (template.departments || []).map(String);
+  const allowedPositions = (template.positions || []).map(String);
+  if (allowedPositions.length && !allowedPositions.includes(String(position || ""))) {
+    return { ok: false, message: "This leave template is not assigned to the selected position." };
+  }
+  if (!allowedPositions.length && allowedDepartments.length && !allowedDepartments.includes(String(department || ""))) {
+    return { ok: false, message: "This leave template is not assigned to the selected department." };
+  }
+
+  return { ok: true, template };
+};
+
+const templateScope = (template = {}) => ({
+  departments: (template.departments || []).map(String),
+  positions: (template.positions || []).map(String),
+});
+
+const templateMatchesEmployee = (template, { department, position }) => {
+  const scope = templateScope(template);
+  if (scope.positions.length) return Boolean(position && scope.positions.includes(String(position)));
+  if (scope.departments.length && department) return scope.departments.includes(String(department));
+  if (scope.positions.length || scope.departments.length) return false;
+  return true;
+};
+
+const templateMatchScore = (template, { department, position }) => {
+  const scope = templateScope(template);
+  if (position && scope.positions.includes(String(position))) return 3;
+  if (department && scope.departments.includes(String(department))) return 2;
+  if (!scope.positions.length && !scope.departments.length) return 1;
+  return 0;
+};
+
+const findDefaultLeaveTemplateForEmployee = async ({ department, position }) => {
+  const templates = await LeaveTemplate.find({ isActive: { $ne: false } })
+    .sort({ year: -1, createdAt: -1 })
+    .lean();
+
+  return (
+    templates
+      .filter((template) => templateMatchesEmployee(template, { department, position }))
+      .sort(
+        (a, b) =>
+          templateMatchScore(b, { department, position }) - templateMatchScore(a, { department, position }) ||
+          Number(b.year || 0) - Number(a.year || 0)
+      )[0] || null
+  );
 };
 
 /* =========================
@@ -708,6 +806,7 @@ export const createEmployee = async (req, res) => {
     let permissionGroup = normalizeOptionalObjectId(req.body.permissionGroup);
     const accessRole = normalizeOptionalObjectId(req.body.accessRole);
     const managerId = normalizeOptionalObjectId(req.body.managerId);
+    let leaveTemplate = normalizeOptionalObjectId(req.body.leaveTemplate);
 
     if (!name || !email || !password) {
       return res
@@ -736,6 +835,23 @@ export const createEmployee = async (req, res) => {
       isCreate: true,
     });
 
+    if (!leaveTemplate) {
+      const defaultLeaveTemplate = await findDefaultLeaveTemplateForEmployee({ department, position });
+      leaveTemplate = defaultLeaveTemplate?._id || null;
+    }
+
+    const leaveTemplateResult = await resolveLeaveTemplateForEmployee({ leaveTemplate, department, position });
+    if (!leaveTemplateResult.ok) return res.status(400).json({ message: leaveTemplateResult.message });
+    if (leaveTemplateResult.template) {
+      employeeProfile.leaveEntitlement = {
+        year: leaveTemplateResult.template.year,
+        paidDays: Number(leaveTemplateResult.template.paidDays || 0),
+        unpaidDays: Number(leaveTemplateResult.template.unpaidDays || 0),
+      };
+    }
+    const manualLeaveEntitlement = normalizeLeaveEntitlement(req.body, { isCreate: false });
+    if (manualLeaveEntitlement) employeeProfile.leaveEntitlement = manualLeaveEntitlement;
+
     const employee = await User.create({
       name,
       email,
@@ -746,6 +862,8 @@ export const createEmployee = async (req, res) => {
       position,
       permissionGroup,
       accessRole,
+      leaveTemplate,
+      leavePolicy: leaveTemplateResult.template ? normalizeLeavePolicyFromTemplate(leaveTemplateResult.template) : undefined,
       managerId,
       ...employeeProfile,
 
@@ -757,7 +875,7 @@ export const createEmployee = async (req, res) => {
           : true,
 
       workStatus: req.body.workStatus || "available",
-      teamRole: req.body.teamRole || "",
+      teamRole: normalizeTeamRole(req.body.teamRole),
     });
 
     createdEmployeeId = employee._id;
@@ -816,7 +934,7 @@ export const getEmployeeById = async (req, res) => {
     const employee = await populateUserQuery(
       User.findOne({
         _id: req.params.id,
-        role: { $in: ["employee", "marketing_team"] },
+        role: "employee",
       })
     )
       .select(LIST_PROJECTION)
@@ -849,11 +967,11 @@ export const updateEmployee = async (req, res) => {
     const employee = wantsPassword
       ? await User.findOne({
           _id: req.params.id,
-          role: { $in: ["employee", "marketing_team"] },
+          role: "employee",
         }).select("+password")
       : await User.findOne({
           _id: req.params.id,
-          role: { $in: ["employee", "marketing_team"] },
+          role: "employee",
         });
 
     if (!employee) {
@@ -895,6 +1013,22 @@ export const updateEmployee = async (req, res) => {
         ? normalizeOptionalObjectId(req.body.accessRole)
         : employee.accessRole;
 
+    let nextLeaveTemplate =
+      req.body.leaveTemplate !== undefined
+        ? normalizeOptionalObjectId(req.body.leaveTemplate)
+        : employee.leaveTemplate;
+
+    if (
+      req.body.leaveTemplate === undefined &&
+      (req.body.department !== undefined || req.body.position !== undefined)
+    ) {
+      const defaultLeaveTemplate = await findDefaultLeaveTemplateForEmployee({
+        department: nextDepartment,
+        position: nextPosition,
+      });
+      nextLeaveTemplate = defaultLeaveTemplate?._id || null;
+    }
+
     if (nextAccessRole) {
       const selectedRole = await AccessRole.findOne({ _id: nextAccessRole, isActive: { $ne: false } }).lean();
       if (!selectedRole) return res.status(400).json({ message: "Access role not found." });
@@ -931,6 +1065,28 @@ export const updateEmployee = async (req, res) => {
 
     Object.assign(employee, employeeProfile);
 
+    if (req.body.leaveTemplate !== undefined || req.body.department !== undefined || req.body.position !== undefined) {
+      const leaveTemplateResult = await resolveLeaveTemplateForEmployee({
+        leaveTemplate: nextLeaveTemplate,
+        department: nextDepartment,
+        position: nextPosition,
+      });
+      if (!leaveTemplateResult.ok) return res.status(400).json({ message: leaveTemplateResult.message });
+      employee.leaveTemplate = nextLeaveTemplate;
+      if (leaveTemplateResult.template) {
+        const manualLeaveEntitlement = normalizeLeaveEntitlement(req.body, { isCreate: false });
+        employee.leaveEntitlement = manualLeaveEntitlement || {
+          year: leaveTemplateResult.template.year,
+          paidDays: Number(leaveTemplateResult.template.paidDays || 0),
+          unpaidDays: Number(leaveTemplateResult.template.unpaidDays || 0),
+        };
+        employee.leavePolicy = normalizeLeavePolicyFromTemplate(leaveTemplateResult.template);
+      } else if (req.body.leaveTemplate !== undefined) {
+        const manualLeaveEntitlement = normalizeLeaveEntitlement(req.body, { isCreate: false });
+        if (manualLeaveEntitlement) employee.leaveEntitlement = manualLeaveEntitlement;
+      }
+    }
+
     if (req.body.dailyLeadLimit !== undefined) {
       employee.dailyLeadLimit = Number(req.body.dailyLeadLimit || 0);
     }
@@ -944,11 +1100,7 @@ export const updateEmployee = async (req, res) => {
     }
 
     if (req.body.teamRole !== undefined) {
-      employee.teamRole = req.body.teamRole || "";
-    }
-
-    if (employee.role === "marketing_team") {
-      employee.role = "employee";
+      employee.teamRole = normalizeTeamRole(req.body.teamRole);
     }
 
     await employee.save();
@@ -1014,7 +1166,7 @@ export const deleteEmployee = async (req, res) => {
 
     const employee = await User.findOne({
       _id: req.params.id,
-      role: { $in: ["employee", "marketing_team"] },
+      role: "employee",
     });
 
     if (!employee) {
@@ -1032,170 +1184,6 @@ export const deleteEmployee = async (req, res) => {
   } catch (err) {
     return res.status(500).json({
       message: "Server error in deleteEmployee.",
-      error: err.message,
-    });
-  }
-};
-
-/* =========================
-   ADMIN: MARKETING TEAM
-   NOTE: Kept for backward compatibility.
-   New system should create marketing users as:
-   role: employee + department: marketing
-========================= */
-export const createMarketingTeam = async (req, res) => {
-  try {
-    const name = clean(req.body.name);
-    const email = clean(req.body.email).toLowerCase();
-    const password = String(req.body.password ?? "");
-
-    const isActive =
-      typeof req.body.isActive === "boolean" ? req.body.isActive : true;
-
-    if (!name || !email || !password) {
-      return res
-        .status(400)
-        .json({ message: "Name, email, password are required." });
-    }
-
-    const marketing = await User.create({
-      name,
-      email,
-      password,
-      role: "marketing_team",
-      isActive,
-    });
-
-    const safe = await User.findById(marketing._id)
-      .select(LIST_PROJECTION)
-      .lean();
-
-    return res
-      .status(201)
-      .json({ message: "Marketing team user created.", marketing: safe });
-  } catch (err) {
-    const dup = handleMongoDuplicateKey(err);
-    if (dup) return res.status(409).json(dup);
-
-    return res.status(500).json({
-      message: "Server error in createMarketingTeam.",
-      error: err.message,
-    });
-  }
-};
-
-export const getMarketingTeam = async (req, res) => {
-  return listUsersByRole(req, res, "marketing_team", "marketing");
-};
-
-export const getMarketingTeamById = async (req, res) => {
-  try {
-    const marketing = await User.findOne({
-      _id: req.params.id,
-      role: "marketing_team",
-    })
-      .select(LIST_PROJECTION)
-      .lean();
-
-    if (!marketing) {
-      return res
-        .status(404)
-        .json({ message: "Marketing team user not found." });
-    }
-
-    return res.status(200).json({ marketing });
-  } catch (err) {
-    return res.status(500).json({
-      message: "Server error in getMarketingTeamById.",
-      error: err.message,
-    });
-  }
-};
-
-export const updateMarketingTeam = async (req, res) => {
-  try {
-    const { name, email, password, isActive } = req.body;
-
-    const wantsPassword = password !== undefined && String(password).length > 0;
-
-    const marketing = wantsPassword
-      ? await User.findOne({
-          _id: req.params.id,
-          role: "marketing_team",
-        }).select("+password")
-      : await User.findOne({
-          _id: req.params.id,
-          role: "marketing_team",
-        });
-
-    if (!marketing) {
-      return res
-        .status(404)
-        .json({ message: "Marketing team user not found." });
-    }
-
-    if (email !== undefined) {
-      const e = clean(email).toLowerCase();
-      if (!e) return res.status(400).json({ message: "Email cannot be empty." });
-      marketing.email = e;
-    }
-
-    if (name !== undefined) {
-      const n = clean(name);
-      if (!n) return res.status(400).json({ message: "Name cannot be empty." });
-      marketing.name = n;
-    }
-
-    if (typeof isActive === "boolean") marketing.isActive = isActive;
-    if (wantsPassword) marketing.password = String(password);
-
-    await marketing.save();
-
-    const safe = await User.findById(marketing._id)
-      .select(LIST_PROJECTION)
-      .lean();
-
-    return res
-      .status(200)
-      .json({ message: "Marketing team user updated.", marketing: safe });
-  } catch (err) {
-    const dup = handleMongoDuplicateKey(err);
-    if (dup) return res.status(409).json(dup);
-
-    return res.status(500).json({
-      message: "Server error in updateMarketingTeam.",
-      error: err.message,
-    });
-  }
-};
-
-export const deleteMarketingTeam = async (req, res) => {
-  try {
-    const ok = await requireRequesterPassword(req, res);
-    if (!ok) return;
-
-    const marketing = await User.findOne({
-      _id: req.params.id,
-      role: "marketing_team",
-    });
-
-    if (!marketing) {
-      return res
-        .status(404)
-        .json({ message: "Marketing team user not found." });
-    }
-
-    if (marketing.avatarPublicId) {
-      await deleteCloudinary(marketing.avatarPublicId);
-    }
-
-    await SalaryProfile.deleteMany({ employee: marketing._id });
-    await marketing.deleteOne();
-
-    return res.status(200).json({ message: "Marketing team user deleted." });
-  } catch (err) {
-    return res.status(500).json({
-      message: "Server error in deleteMarketingTeam.",
       error: err.message,
     });
   }
@@ -1596,6 +1584,21 @@ export const updateMe = async (req, res) => {
       return res.status(404).json({ message: "User not found." });
     }
 
+    const isEmployeeSelf = user.role === "employee";
+    const employeeLockedFields = [
+      "name",
+      "email",
+      "phone",
+      "alternatePhone",
+      "address",
+      "emergencyContact",
+    ];
+    if (isEmployeeSelf && employeeLockedFields.some((field) => req.body[field] !== undefined)) {
+      return res.status(403).json({
+        message: "Employees can update only password and profile photo. Contact admin for profile changes.",
+      });
+    }
+
     if (name !== undefined) {
       const n = clean(name);
       if (!n) return res.status(400).json({ message: "Name cannot be empty." });
@@ -1799,38 +1802,3 @@ export const adminDeleteUserAvatar = async (req, res) => {
   }
 };
 
-/* =========================
-   SEARCH MARKETING USERS
-   NOTE: kept for old CRM flow.
-========================= */
-export const searchMarketingUsers = async (req, res) => {
-  try {
-    const q = String(req.query.q || "").trim().toLowerCase();
-    const limit = Math.min(Number(req.query.limit || 25), 50);
-
-    const filter = {
-      isActive: true,
-      $or: [{ role: "marketing_team" }, { role: "employee", teamRole: "marketing" }],
-    };
-
-    if (q) {
-      filter.nameLower = {
-        $regex: `^${q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`,
-      };
-    }
-
-    const users = await User.find(filter)
-      .select("name email role employeeId phone teamRole department position employmentType salaryType")
-      .populate([
-        { path: "department", select: "name" },
-        { path: "position", select: "title" },
-      ])
-      .sort({ nameLower: 1, _id: -1 })
-      .limit(limit)
-      .lean();
-
-    return res.json({ users });
-  } catch (e) {
-    return res.status(500).json({ message: e.message || "User search failed" });
-  }
-};

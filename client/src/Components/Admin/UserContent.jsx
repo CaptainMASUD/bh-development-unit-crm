@@ -277,7 +277,6 @@ function SegTab({ active, onClick, icon, label }) {
 function roleTitle(role) {
   if (role === "superadmin") return "Super Admin"
   if (role === "admin") return "Admin"
-  if (role === "marketing_team") return "Marketing Team"
   return "Employee"
 }
 
@@ -443,7 +442,6 @@ function UserModal({ open, mode, role, initial, accessLists, onClose, onSaved, s
       const targetId =
         (isEdit && initial?._id) ||
         data?.employee?._id ||
-        data?.marketing?._id ||
         data?.admin?._id ||
         data?.superadmin?._id ||
         data?.user?._id

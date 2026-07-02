@@ -489,6 +489,7 @@ function SubtitleWorkPanel({
   onUpload,
   onAddNote,
   inferActorRole,
+  readOnly = false,
 }) {
   const subtitleId = String(subtitle?._id || "")
   const [open, setOpen] = useState(false)
@@ -693,7 +694,7 @@ function SubtitleWorkPanel({
               </span>
             </div>
 
-            <label className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer text-sm font-semibold shrink-0">
+            {!readOnly ? <label className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer text-sm font-semibold shrink-0">
               <FiUpload />
               {busy ? "Uploading..." : "Upload files"}
               <input
@@ -707,10 +708,10 @@ function SubtitleWorkPanel({
                   if (list.length) onUpload(task._id, subtitleId, list, draft)
                 }}
               />
-            </label>
+            </label> : null}
           </div>
 
-          <div className="rounded-2xl border border-gray-100 bg-gray-50/50 p-3 sm:p-4 mb-4">
+          {!readOnly ? <div className="rounded-2xl border border-gray-100 bg-gray-50/50 p-3 sm:p-4 mb-4">
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs font-semibold text-gray-700">Add note (optional)</p>
               <button
@@ -737,7 +738,7 @@ function SubtitleWorkPanel({
             <p className="mt-2 text-xs text-gray-500">
               Tip: If you upload files while a note is written, the note will also be saved along with the upload.
             </p>
-          </div>
+          </div> : null}
 
           <div className="mb-5">
             <p className="text-xs font-extrabold text-indigo-700 mb-2">Files</p>
@@ -1143,9 +1144,11 @@ export default function CustomerCRM({
   assignedEmployees,
   isAdmin,
   isEmployee,
+  canManageTasks = false,
   setError,
   showToast,
 }) {
+  const canUpdateTasks = isAdmin || (isEmployee && canManageTasks)
   const [nowTick, setNowTick] = useState(Date.now())
   useEffect(() => {
     const id = setInterval(() => setNowTick(Date.now()), 30_000)
@@ -1718,7 +1721,7 @@ export default function CustomerCRM({
 
                     {/* MOBILE: status select full width + buttons beside */}
                     <div className="w-full sm:w-auto flex flex-wrap sm:flex-nowrap items-center gap-2 justify-between sm:justify-end">
-                      <select
+                      {canUpdateTasks ? <select
                         value={t.status}
                         disabled={busy}
                         onChange={(e) => quickChangeStatus(t._id, e.target.value)}
@@ -1728,10 +1731,10 @@ export default function CustomerCRM({
                         <option value="pending">pending</option>
                         <option value="in_progress">in_progress</option>
                         <option value="done">done</option>
-                      </select>
+                      </select> : null}
 
                       <div className="flex items-center gap-2 ml-auto">
-                        <button
+                        {canUpdateTasks ? <button
                           type="button"
                           onClick={() => toggleTaskOpen(t._id)}
                           className="h-9 w-9 sm:h-10 sm:w-10 flex items-center justify-center rounded-xl border border-gray-200 text-gray-700 hover:bg-gray-50"
@@ -1744,7 +1747,7 @@ export default function CustomerCRM({
                               isOpen ? "transform rotate-180" : "transform rotate-0",
                             ].join(" ")}
                           />
-                        </button>
+                        </button> : null}
 
                         <button
                           onClick={() => openEditModal(t)}
@@ -1824,6 +1827,7 @@ export default function CustomerCRM({
                                   onUpload={uploadFilesToSubtitle}
                                   onAddNote={addNoteToSubtitle}
                                   inferActorRole={inferActorRole}
+                                  readOnly={!canUpdateTasks}
                                 />
                               ))}
                             </div>

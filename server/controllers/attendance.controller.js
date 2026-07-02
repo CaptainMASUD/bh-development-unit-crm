@@ -40,7 +40,8 @@ const parseLimit = (value) => {
 };
 
 const isAdminUser = (req) =>
-  ["admin", "superadmin"].includes(String(req.user?.role || ""));
+  ["admin", "superadmin"].includes(String(req.user?.role || "")) ||
+  (req.user?.permissionGroup?.isActive !== false && req.user?.permissionGroup?.permissions?.includes?.("attendance:manage"));
 
 const normalizeDateOnly = (value) => {
   const d = value ? new Date(value) : new Date();
@@ -91,7 +92,7 @@ const validateEmployeeForAttendance = async (employeeId) => {
     return { ok: false, status: 404, message: "Employee not found." };
   }
 
-  if (!["employee", "marketing_team"].includes(employee.role)) {
+  if (employee.role !== "employee") {
     return {
       ok: false,
       status: 400,

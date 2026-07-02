@@ -176,8 +176,8 @@ export const getLeadMessageParticipants = async (req, res) => {
     await assertLeadAccessOrThrow({ req, leadId });
 
     const lead = await Lead.findById(leadId)
-      .populate("assignedTo", "name email role avatarUrl workStatus")
-      .populate("allowedUsers", "name email role avatarUrl workStatus")
+      .populate({ path: "assignedTo", select: "name email role avatarUrl workStatus permissionGroup", populate: { path: "permissionGroup", select: "permissions isActive" } })
+      .populate({ path: "allowedUsers", select: "name email role avatarUrl workStatus permissionGroup", populate: { path: "permissionGroup", select: "permissions isActive" } })
       .lean();
 
     if (!lead) return res.status(404).json({ message: "Lead not found" });
@@ -187,7 +187,13 @@ export const getLeadMessageParticipants = async (req, res) => {
       const map = new Map();
       const maybeUsers = [lead.assignedTo, ...(Array.isArray(lead.allowedUsers) ? lead.allowedUsers : [])];
       for (const user of maybeUsers) {
-        if (user?.role === "marketing_team") map.set(String(user._id), user);
+        if (
+          user?.role === "employee" &&
+          user.permissionGroup?.isActive !== false &&
+          user.permissionGroup?.permissions?.includes?.("leads:view")
+        ) {
+          map.set(String(user._id), user);
+        }
       }
       users = Array.from(map.values());
     } else {

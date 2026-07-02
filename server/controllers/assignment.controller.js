@@ -146,18 +146,25 @@ const chooseUserByRule = async (rule) => {
     isActive: true,
     isAvailableForAssignment: true,
     workStatus: "available",
-    role: { $in: ["employee", "marketing_team"] },
+    role: "employee",
   })
     .select(
-      "name email role dailyLeadLimit currentOpenLeadCount currentPendingWorkQueueCount lastAssignedLeadAt"
+      "name email role dailyLeadLimit currentOpenLeadCount currentPendingWorkQueueCount lastAssignedLeadAt permissionGroup"
     )
+    .populate("permissionGroup", "permissions isActive")
     .lean();
 
-  if (!users.length) return null;
+  const leadUsers = users.filter(
+    (user) =>
+      user.permissionGroup?.isActive !== false &&
+      user.permissionGroup?.permissions?.includes?.("leads:view")
+  );
+
+  if (!leadUsers.length) return null;
 
   const eligible = [];
 
-  for (const user of users) {
+  for (const user of leadUsers) {
     if (Number(rule.maxDailyLeadsPerUser || 0) > 0) {
       const todayCount = await getTodayAssignedCount(user._id);
       if (todayCount >= Number(rule.maxDailyLeadsPerUser)) continue;
@@ -840,10 +847,10 @@ export const listAvailableAssignees = async (req, res) => {
       isActive: true,
       isAvailableForAssignment: true,
       workStatus: "available",
-      role: { $in: ["employee", "marketing_team"] },
+      role: "employee",
     };
 
-    if (role && ["employee", "marketing_team"].includes(String(role))) {
+    if (role && String(role) === "employee") {
       filter.role = role;
     }
 
@@ -865,7 +872,7 @@ export const listAvailableAssignees = async (req, res) => {
 
     const users = usersRaw.filter(
       (user) =>
-        user.role === "marketing_team" ||
+        user.permissionGroup?.isActive !== false &&
         user.permissionGroup?.permissions?.includes?.("leads:view")
     );
 

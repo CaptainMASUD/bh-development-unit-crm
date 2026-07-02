@@ -18,13 +18,15 @@ import {
   updateRosterAssignment,
   updateShift,
   updateWeeklyOff,
+  getMyRoster,
 } from "../controllers/roster.controller.js";
-import { protect, isAdminOrSuperAdmin } from "../middleware/auth.middleware.js";
+import { protect, isAdminOrSuperAdmin, requirePermission } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
 router.use(protect);
-router.use(isAdminOrSuperAdmin);
+router.get("/me", requirePermission("roster:view"), getMyRoster);
+router.use(requirePermission("roster:manage"));
 
 router.get("/shifts", listShifts);
 router.post("/shifts", createShift);
