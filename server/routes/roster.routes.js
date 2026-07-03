@@ -20,35 +20,34 @@ import {
   updateWeeklyOff,
   getMyRoster,
 } from "../controllers/roster.controller.js";
-import { protect, isAdminOrSuperAdmin, requirePermission } from "../middleware/auth.middleware.js";
+import { protect, requirePermission } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
 router.use(protect);
 router.get("/me", requirePermission("roster:view"), getMyRoster);
-router.use(requirePermission("roster:manage"));
 
-router.get("/shifts", listShifts);
-router.post("/shifts", createShift);
-router.patch("/shifts/:id", updateShift);
-router.delete("/shifts/:id", deleteShift);
+router.get("/shifts", requirePermission("roster:manage"), listShifts);
+router.post("/shifts", requirePermission("roster:manage"), createShift);
+router.patch("/shifts/:id", requirePermission("roster:manage"), updateShift);
+router.delete("/shifts/:id", requirePermission("roster:manage"), deleteShift);
 
-router.get("/assignments", listRosterAssignments);
-router.post("/assignments", createRosterAssignment);
-router.patch("/assignments/:id", updateRosterAssignment);
-router.delete("/assignments/:id", deleteRosterAssignment);
+router.get("/assignments", requirePermission("roster:manage"), listRosterAssignments);
+router.post("/assignments", requirePermission("roster:manage"), createRosterAssignment);
+router.patch("/assignments/:id", requirePermission("roster:manage"), updateRosterAssignment);
+router.delete("/assignments/:id", requirePermission("roster:manage"), deleteRosterAssignment);
 
-router.get("/weekly-offs", listWeeklyOffs);
-router.post("/weekly-offs", createWeeklyOff);
-router.patch("/weekly-offs/:id", updateWeeklyOff);
-router.delete("/weekly-offs/:id", deleteWeeklyOff);
+router.get("/weekly-offs", requirePermission("leaves:manage"), listWeeklyOffs);
+router.post("/weekly-offs", requirePermission("leaves:manage"), createWeeklyOff);
+router.patch("/weekly-offs/:id", requirePermission("leaves:manage"), updateWeeklyOff);
+router.delete("/weekly-offs/:id", requirePermission("leaves:manage"), deleteWeeklyOff);
 
-router.get("/holidays", listHolidays);
-router.post("/holidays", createHoliday);
-router.patch("/holidays/:id", updateHoliday);
-router.delete("/holidays/:id", deleteHoliday);
+router.get("/holidays", requirePermission("leaves:manage"), listHolidays);
+router.post("/holidays", requirePermission("leaves:manage"), createHoliday);
+router.patch("/holidays/:id", requirePermission("leaves:manage"), updateHoliday);
+router.delete("/holidays/:id", requirePermission("leaves:manage"), deleteHoliday);
 
-router.post("/attendance/calculate", calculateRosterAttendance);
-router.get("/reports/monthly", getMonthlyRosterReport);
+router.post("/attendance/calculate", requirePermission("roster:manage"), calculateRosterAttendance);
+router.get("/reports/monthly", requirePermission("roster:manage"), getMonthlyRosterReport);
 
 export default router;

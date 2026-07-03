@@ -686,6 +686,7 @@ export const listLeads = async (req, res) => {
       limit,
       fields,
       sort,
+      includeSummary,
     } = req.query;
 
     const pageSize = clamp(parseInt(limit || "20", 10), 1, 100);
@@ -747,6 +748,9 @@ export const listLeads = async (req, res) => {
     }
 
     if (cursor) applyCursor(filter, cursor);
+
+    const summaryFilter = { ...filter };
+    delete summaryFilter._id;
 
     const dynamicProjection = parseFieldsProjection(fields);
 
@@ -810,8 +814,75 @@ export const listLeads = async (req, res) => {
     const items = hasNextPage ? rows.slice(0, pageSize) : rows;
     const nextCursor = hasNextPage ? String(items[items.length - 1]._id) : null;
 
+    let total = undefined;
+    let summary = undefined;
+
+    if (String(includeSummary || "").toLowerCase() === "true") {
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      const endOfToday = new Date(startOfToday);
+      endOfToday.setDate(endOfToday.getDate() + 1);
+
+      const summaryRows = await Lead.aggregate([
+        { $match: summaryFilter },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            active: {
+              $sum: {
+                $cond: [{ $not: [{ $in: ["$pipelineStage", ["won", "lost"]] }] }, 1, 0],
+              },
+            },
+            overdue: { $sum: { $cond: ["$isOverdue", 1, 0] } },
+            followUpsToday: {
+              $sum: {
+                $cond: [
+                  {
+                    $and: [
+                      { $gte: ["$nextFollowUpAt", startOfToday] },
+                      { $lt: ["$nextFollowUpAt", endOfToday] },
+                    ],
+                  },
+                  1,
+                  0,
+                ],
+              },
+            },
+            new: { $sum: { $cond: [{ $eq: ["$pipelineStage", "new"] }, 1, 0] } },
+            qualified: { $sum: { $cond: [{ $eq: ["$pipelineStage", "qualified"] }, 1, 0] } },
+            discovery: { $sum: { $cond: [{ $eq: ["$pipelineStage", "discovery"] }, 1, 0] } },
+            proposal: { $sum: { $cond: [{ $eq: ["$pipelineStage", "proposal"] }, 1, 0] } },
+            negotiation: { $sum: { $cond: [{ $eq: ["$pipelineStage", "negotiation"] }, 1, 0] } },
+            won: { $sum: { $cond: [{ $eq: ["$pipelineStage", "won"] }, 1, 0] } },
+            lost: { $sum: { $cond: [{ $eq: ["$pipelineStage", "lost"] }, 1, 0] } },
+          },
+        },
+      ]);
+
+      const row = summaryRows[0] || {};
+      total = Number(row.total || 0);
+      summary = {
+        total,
+        active: Number(row.active || 0),
+        overdue: Number(row.overdue || 0),
+        followUpsToday: Number(row.followUpsToday || 0),
+        byStage: {
+          new: Number(row.new || 0),
+          qualified: Number(row.qualified || 0),
+          discovery: Number(row.discovery || 0),
+          proposal: Number(row.proposal || 0),
+          negotiation: Number(row.negotiation || 0),
+          won: Number(row.won || 0),
+          lost: Number(row.lost || 0),
+        },
+      };
+    }
+
     return res.json({
       items,
+      total,
+      summary,
       pageInfo: {
         limit: pageSize,
         hasNextPage,

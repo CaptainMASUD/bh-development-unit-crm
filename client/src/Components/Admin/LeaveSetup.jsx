@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import toast, { Toaster } from "react-hot-toast"
-import { FiCalendar, FiCheckCircle, FiEdit3, FiPlus, FiRefreshCcw, FiTrash2, FiX } from "react-icons/fi"
+import { FiBriefcase, FiCalendar, FiCheckCircle, FiClock, FiEdit3, FiPlus, FiRefreshCcw, FiTrash2, FiX } from "react-icons/fi"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -21,6 +21,45 @@ const input =
   "h-11 w-full rounded-2xl border border-gray-200 bg-white px-3 text-sm font-medium text-gray-800 outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100"
 
 const label = "mb-1.5 block text-sm font-semibold text-gray-700"
+
+const dayOptions = [
+  ["0", "Sunday"],
+  ["1", "Monday"],
+  ["2", "Tuesday"],
+  ["3", "Wednesday"],
+  ["4", "Thursday"],
+  ["5", "Friday"],
+  ["6", "Saturday"],
+]
+
+const createEmptyWeeklyOff = () => ({
+  name: "",
+  scope: "company",
+  employee: "",
+  offType: "fixed",
+  fixedDays: [5],
+  customDate: "",
+  rotationStartDate: "",
+  rotationCycleDays: 7,
+  rotationOffDays: [5],
+  paid: true,
+  isActive: true,
+})
+
+const createEmptyHoliday = () => ({
+  name: "",
+  dateMode: "single",
+  selectedDate: new Date().toISOString().slice(0, 10),
+  rangeStart: "",
+  rangeEnd: "",
+  holidayDates: [],
+  holidayType: "paid",
+  appliesTo: "company",
+  department: "",
+  employee: "",
+  note: "",
+  isActive: true,
+})
 
 const createEmptyForm = () => ({
   name: "",
@@ -112,6 +151,35 @@ function MultiSelect({ label, value, options, onChange, emptyLabel }) {
   )
 }
 
+function SetupTable({ headers, children }) {
+  return (
+    <div className={`${card} overflow-hidden`}>
+      <div className="max-h-[68vh] overflow-auto">
+        <table className="min-w-full text-left">
+          <thead className="sticky top-0 z-10 bg-gray-50">
+            <tr className="border-b border-gray-100 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500">
+              {headers.map((header) => (
+                <th key={header} className={`px-5 py-3.5 ${header === "Actions" ? "text-right" : ""}`}>
+                  {header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>{children}</tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function SetupCell({ children, strong = false, right = false }) {
+  return (
+    <td className={`px-5 py-4 text-sm ${right ? "text-right" : ""} ${strong ? "font-semibold text-gray-950" : "font-medium text-gray-600"}`}>
+      {children}
+    </td>
+  )
+}
+
 function StatusPill({ active }) {
   return (
     <span
@@ -126,14 +194,52 @@ function StatusPill({ active }) {
   )
 }
 
+function ToggleDays({ value = [], onChange }) {
+  const selected = new Set((value || []).map(Number))
+  return (
+    <div className="flex flex-wrap gap-2">
+      {dayOptions.map(([raw, text]) => {
+        const day = Number(raw)
+        const active = selected.has(day)
+        return (
+          <button
+            key={raw}
+            type="button"
+            className={`rounded-xl px-3 py-2 text-xs font-bold ring-1 transition ${
+              active ? "bg-indigo-600 text-white ring-indigo-600" : "bg-white text-gray-600 ring-gray-200 hover:bg-gray-50"
+            }`}
+            onClick={() => onChange(active ? value.filter((item) => Number(item) !== day) : [...value, day])}
+          >
+            {text}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function employeeLabel(employee) {
+  return employee ? `${employee.name || employee.email || "Employee"}${employee.employeeId ? ` - ${employee.employeeId}` : ""}` : "Employee"
+}
+
+function dayNames(days = []) {
+  return days.map((day) => dayOptions.find(([value]) => Number(value) === Number(day))?.[1]?.slice(0, 3)).filter(Boolean).join(", ") || "-"
+}
+
 export default function LeaveSetup() {
+  const [activeTab, setActiveTab] = useState("templates")
   const [templates, setTemplates] = useState([])
   const [departments, setDepartments] = useState([])
   const [positions, setPositions] = useState([])
+  const [employees, setEmployees] = useState([])
+  const [weeklyOffs, setWeeklyOffs] = useState([])
+  const [holidays, setHolidays] = useState([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(createEmptyForm)
+  const [weeklyOffForm, setWeeklyOffForm] = useState(createEmptyWeeklyOff)
+  const [holidayForm, setHolidayForm] = useState(createEmptyHoliday)
   const [saving, setSaving] = useState(false)
   const [applyingId, setApplyingId] = useState("")
 
@@ -156,10 +262,18 @@ export default function LeaveSetup() {
         api("/access-control/departments"),
         api("/access-control/positions"),
       ])
+      const [employeeRes, weeklyOffRes, holidayRes] = await Promise.all([
+        api("/users/employees?limit=100"),
+        api("/roster/weekly-offs"),
+        api(`/roster/holidays?year=${new Date().getFullYear()}`),
+      ])
 
       setTemplates(templateRes.templates || [])
       setDepartments(departmentRes.departments || [])
       setPositions(positionRes.positions || [])
+      setEmployees(employeeRes.employees || [])
+      setWeeklyOffs(weeklyOffRes.weeklyOffs || [])
+      setHolidays(holidayRes.holidays || [])
     } catch (error) {
       toast.error(error?.message || "Failed to load leave setup")
     } finally {
@@ -266,6 +380,90 @@ export default function LeaveSetup() {
     }
   }
 
+  const activeEmployees = useMemo(() => employees.filter((employee) => employee.isActive !== false), [employees])
+
+  const getHolidayRangeDates = () => {
+    if (!holidayForm.rangeStart || !holidayForm.rangeEnd) return []
+
+    const start = new Date(holidayForm.rangeStart)
+    const end = new Date(holidayForm.rangeEnd)
+    start.setHours(0, 0, 0, 0)
+    end.setHours(0, 0, 0, 0)
+
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return []
+
+    const dates = []
+    for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+      dates.push(date.toISOString().slice(0, 10))
+    }
+    return dates
+  }
+
+  const saveWeeklyOff = async (event) => {
+    event.preventDefault()
+    setSaving(true)
+
+    try {
+      const payload = {
+        ...weeklyOffForm,
+        employee: weeklyOffForm.scope === "employee" ? weeklyOffForm.employee : null,
+        customDates: weeklyOffForm.offType === "custom" && weeklyOffForm.customDate ? [{ date: weeklyOffForm.customDate, paid: weeklyOffForm.paid }] : [],
+      }
+      await api("/roster/weekly-offs", { method: "POST", body: JSON.stringify(payload) })
+      toast.success("Weekly off setup created.")
+      setWeeklyOffForm(createEmptyWeeklyOff())
+      await load()
+    } catch (error) {
+      toast.error(error?.message || "Weekly off create failed")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveHoliday = async (event) => {
+    event.preventDefault()
+    const holidayDates =
+      holidayForm.dateMode === "single"
+        ? [holidayForm.selectedDate].filter(Boolean)
+        : getHolidayRangeDates()
+    if (!holidayDates.length) {
+      toast.error(holidayForm.dateMode === "single" ? "Select a holiday date" : "Select a valid date range")
+      return
+    }
+
+    setSaving(true)
+
+    try {
+      await api("/roster/holidays", {
+        method: "POST",
+        body: JSON.stringify({
+          ...holidayForm,
+          holidayDates,
+          holidayDate: holidayDates[0],
+          department: holidayForm.appliesTo === "department" ? holidayForm.department : null,
+          employee: holidayForm.appliesTo === "employee" ? holidayForm.employee : null,
+        }),
+      })
+      toast.success(holidayDates.length > 1 ? "Holidays created." : "Holiday created.")
+      setHolidayForm(createEmptyHoliday())
+      await load()
+    } catch (error) {
+      toast.error(error?.message || "Holiday create failed")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const removeSetupItem = async (path, successMessage) => {
+    try {
+      await api(path, { method: "DELETE" })
+      toast.success(successMessage)
+      await load()
+    } catch (error) {
+      toast.error(error?.message || "Delete failed")
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
       <Toaster position="top-right" />
@@ -291,14 +489,39 @@ export default function LeaveSetup() {
                 Refresh
               </button>
 
-              <button className={`${btn} ${btnPrimary}`} onClick={openCreate}>
-                <FiPlus className="h-3.5 w-3.5" />
-                Add Template
-              </button>
+              {activeTab === "templates" ? (
+                <button className={`${btn} ${btnPrimary}`} onClick={openCreate}>
+                  <FiPlus className="h-3.5 w-3.5" />
+                  Add Template
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
 
+        <div className="mb-6 overflow-x-auto rounded-3xl border border-gray-100 bg-white p-1.5 shadow-[0_14px_35px_-28px_rgba(15,23,42,0.45)]">
+          <div className="flex min-w-max gap-1">
+            {[
+              ["templates", "Leave Templates", FiCalendar],
+              ["weekly-off", "Weekly Off", FiClock],
+              ["holidays", "Holidays", FiBriefcase],
+            ].map(([key, text, Icon]) => (
+              <button
+                key={key}
+                type="button"
+                className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-bold transition ${
+                  activeTab === key ? "bg-indigo-600 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100"
+                }`}
+                onClick={() => setActiveTab(key)}
+              >
+                <Icon className="h-4 w-4" />
+                {text}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {activeTab === "templates" ? (
         <div className={`${card} overflow-hidden`}>
           <div className="border-b border-gray-100 px-5 py-4">
             <h2 className="text-sm font-bold text-gray-950 sm:text-[15px]">
@@ -406,6 +629,226 @@ export default function LeaveSetup() {
             </table>
           </div>
         </div>
+        ) : null}
+
+        {activeTab === "weekly-off" ? (
+          <section className="grid grid-cols-1 gap-5 xl:grid-cols-[460px_minmax(0,1fr)]">
+            <form onSubmit={saveWeeklyOff} className={`${card} space-y-4 p-5`}>
+              <h2 className="text-lg font-extrabold text-gray-950">Weekly Off Setup</h2>
+
+              <div>
+                <label className={label}>Name</label>
+                <input className={input} value={weeklyOffForm.name} onChange={(event) => setWeeklyOffForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="Example: Friday Off" />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className={label}>Scope</label>
+                  <select className={input} value={weeklyOffForm.scope} onChange={(event) => setWeeklyOffForm((prev) => ({ ...prev, scope: event.target.value }))}>
+                    <option value="company">Company</option>
+                    <option value="employee">Employee</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={label}>Off Type</label>
+                  <select className={input} value={weeklyOffForm.offType} onChange={(event) => setWeeklyOffForm((prev) => ({ ...prev, offType: event.target.value }))}>
+                    <option value="fixed">Fixed off day</option>
+                    <option value="custom">Custom off day</option>
+                    <option value="rotating">Rotating off day</option>
+                  </select>
+                </div>
+              </div>
+
+              {weeklyOffForm.scope === "employee" ? (
+                <div>
+                  <label className={label}>Employee</label>
+                  <select required className={input} value={weeklyOffForm.employee} onChange={(event) => setWeeklyOffForm((prev) => ({ ...prev, employee: event.target.value }))}>
+                    <option value="">Select employee</option>
+                    {activeEmployees.map((employee) => <option key={employee._id} value={employee._id}>{employeeLabel(employee)}</option>)}
+                  </select>
+                </div>
+              ) : null}
+
+              {weeklyOffForm.offType === "fixed" ? (
+                <div>
+                  <label className={label}>Fixed Off Day</label>
+                  <ToggleDays value={weeklyOffForm.fixedDays} onChange={(fixedDays) => setWeeklyOffForm((prev) => ({ ...prev, fixedDays }))} />
+                </div>
+              ) : null}
+
+              {weeklyOffForm.offType === "custom" ? (
+                <div>
+                  <label className={label}>Custom Off Date</label>
+                  <input className={input} type="date" value={weeklyOffForm.customDate} onChange={(event) => setWeeklyOffForm((prev) => ({ ...prev, customDate: event.target.value }))} />
+                </div>
+              ) : null}
+
+              {weeklyOffForm.offType === "rotating" ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className={label}>Rotation Start</label>
+                    <input className={input} type="date" value={weeklyOffForm.rotationStartDate} onChange={(event) => setWeeklyOffForm((prev) => ({ ...prev, rotationStartDate: event.target.value }))} />
+                  </div>
+                  <div>
+                    <label className={label}>Cycle Days</label>
+                    <input className={input} type="number" min="1" value={weeklyOffForm.rotationCycleDays} onChange={(event) => setWeeklyOffForm((prev) => ({ ...prev, rotationCycleDays: event.target.value }))} />
+                  </div>
+                </div>
+              ) : null}
+
+              <label className="flex items-center justify-between rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm font-bold text-gray-800">
+                <span>Paid off day</span>
+                <input type="checkbox" checked={weeklyOffForm.paid} onChange={(event) => setWeeklyOffForm((prev) => ({ ...prev, paid: event.target.checked }))} />
+              </label>
+
+              <button className={`${btn} ${btnPrimary}`} type="submit" disabled={saving}>
+                <FiPlus className="h-3.5 w-3.5" />
+                Save Weekly Off
+              </button>
+            </form>
+
+            <SetupTable headers={["Name", "Scope", "Type", "Days / Date", "Paid", "Actions"]}>
+              {weeklyOffs.map((item) => (
+                <tr key={item._id} className="border-b border-gray-100">
+                  <SetupCell strong>{item.name || "Weekly Off"}</SetupCell>
+                  <SetupCell>{item.scope === "employee" ? employeeLabel(item.employee) : "Company"}</SetupCell>
+                  <SetupCell>{item.offType}</SetupCell>
+                  <SetupCell>{item.offType === "fixed" ? dayNames(item.fixedDays) : item.offType === "custom" ? `${item.customDates?.length || 0} custom date(s)` : `${item.rotationCycleDays} day cycle`}</SetupCell>
+                  <SetupCell>{item.paid ? "Paid" : "Unpaid"}</SetupCell>
+                  <SetupCell right>
+                    <button className={`${btn} ${btnDanger}`} type="button" onClick={() => removeSetupItem(`/roster/weekly-offs/${item._id}`, "Weekly off deleted.")}>
+                      <FiTrash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </SetupCell>
+                </tr>
+              ))}
+              {!weeklyOffs.length ? <tr><td colSpan={6} className="px-5 py-14 text-center text-sm font-medium text-gray-500">No weekly off setup found.</td></tr> : null}
+            </SetupTable>
+          </section>
+        ) : null}
+
+        {activeTab === "holidays" ? (
+          <section className="grid grid-cols-1 gap-5 xl:grid-cols-[460px_minmax(0,1fr)]">
+            <form onSubmit={saveHoliday} className={`${card} space-y-4 p-5`}>
+              <h2 className="text-lg font-extrabold text-gray-950">Holiday Setup</h2>
+
+              <div>
+                <label className={label}>Holiday Name</label>
+                <input required className={input} value={holidayForm.name} onChange={(event) => setHolidayForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="Example: Eid-ul-Fitr" />
+              </div>
+
+              <div>
+                <label className={label}>Date Selection</label>
+                <select
+                  className={input}
+                  value={holidayForm.dateMode}
+                  onChange={(event) => setHolidayForm((prev) => ({ ...prev, dateMode: event.target.value }))}
+                >
+                  <option value="single">Single Date</option>
+                  <option value="multiple">Multiple Dates</option>
+                </select>
+              </div>
+
+              {holidayForm.dateMode === "single" ? (
+                <div>
+                  <label className={label}>Holiday Date</label>
+                  <input className={input} type="date" value={holidayForm.selectedDate} onChange={(event) => setHolidayForm((prev) => ({ ...prev, selectedDate: event.target.value }))} />
+                </div>
+              ) : null}
+
+              {holidayForm.dateMode === "multiple" ? (
+                <div className="rounded-3xl border border-gray-100 bg-gray-50/80 p-4">
+                  <p className="mb-3 text-sm font-semibold text-gray-950">Date Range</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className={label}>From</label>
+                      <input
+                        className={input}
+                        type="date"
+                        value={holidayForm.rangeStart}
+                        onChange={(event) => setHolidayForm((prev) => ({ ...prev, rangeStart: event.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className={label}>To</label>
+                      <input
+                        className={input}
+                        type="date"
+                        value={holidayForm.rangeEnd}
+                        onChange={(event) => setHolidayForm((prev) => ({ ...prev, rangeEnd: event.target.value }))}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className={label}>Type</label>
+                  <select className={input} value={holidayForm.holidayType} onChange={(event) => setHolidayForm((prev) => ({ ...prev, holidayType: event.target.value }))}>
+                    <option value="paid">Paid holiday</option>
+                    <option value="unpaid">Unpaid holiday</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={label}>Applies To</label>
+                  <select className={input} value={holidayForm.appliesTo} onChange={(event) => setHolidayForm((prev) => ({ ...prev, appliesTo: event.target.value, department: "", employee: "" }))}>
+                    <option value="company">Company</option>
+                    <option value="department">Department</option>
+                    <option value="employee">Employee</option>
+                  </select>
+                </div>
+              </div>
+
+              {holidayForm.appliesTo === "department" ? (
+                <div>
+                  <label className={label}>Department</label>
+                  <select required className={input} value={holidayForm.department} onChange={(event) => setHolidayForm((prev) => ({ ...prev, department: event.target.value }))}>
+                    <option value="">Select department</option>
+                    {departments.map((department) => <option key={department._id} value={department._id}>{department.name}</option>)}
+                  </select>
+                </div>
+              ) : null}
+
+              {holidayForm.appliesTo === "employee" ? (
+                <div>
+                  <label className={label}>Employee</label>
+                  <select required className={input} value={holidayForm.employee} onChange={(event) => setHolidayForm((prev) => ({ ...prev, employee: event.target.value }))}>
+                    <option value="">Select employee</option>
+                    {activeEmployees.map((employee) => <option key={employee._id} value={employee._id}>{employeeLabel(employee)}</option>)}
+                  </select>
+                </div>
+              ) : null}
+
+              <div>
+                <label className={label}>Note</label>
+                <input className={input} value={holidayForm.note} onChange={(event) => setHolidayForm((prev) => ({ ...prev, note: event.target.value }))} placeholder="Optional" />
+              </div>
+
+              <button className={`${btn} ${btnPrimary}`} type="submit" disabled={saving}>
+                <FiPlus className="h-3.5 w-3.5" />
+                Save Holiday
+              </button>
+            </form>
+
+            <SetupTable headers={["Holiday", "Date", "Type", "Scope", "Actions"]}>
+              {holidays.map((item) => (
+                <tr key={item._id} className="border-b border-gray-100">
+                  <SetupCell strong>{item.name}</SetupCell>
+                  <SetupCell>{String(item.holidayDate || "").slice(0, 10)}</SetupCell>
+                  <SetupCell>{item.holidayType === "paid" ? "Paid" : "Unpaid"}</SetupCell>
+                  <SetupCell>{item.appliesTo === "department" ? item.department?.name || "Department" : item.appliesTo === "employee" ? employeeLabel(item.employee) : "Company"}</SetupCell>
+                  <SetupCell right>
+                    <button className={`${btn} ${btnDanger}`} type="button" onClick={() => removeSetupItem(`/roster/holidays/${item._id}`, "Holiday deleted.")}>
+                      <FiTrash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </SetupCell>
+                </tr>
+              ))}
+              {!holidays.length ? <tr><td colSpan={5} className="px-5 py-14 text-center text-sm font-medium text-gray-500">No holidays found.</td></tr> : null}
+            </SetupTable>
+          </section>
+        ) : null}
       </div>
 
       <AnimatePresence>

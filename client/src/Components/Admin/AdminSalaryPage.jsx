@@ -442,14 +442,14 @@ function RuleCard({ title, icon, value, onChange, showGrace = false, calculation
 
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-[0_12px_35px_-30px_rgba(15,23,42,0.35)]">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10">
             {icon}
           </span>
-          <p className="text-sm font-extrabold text-gray-900">{title}</p>
+          <p className="text-base font-extrabold leading-snug text-gray-900">{title}</p>
         </div>
-        <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-extrabold text-gray-600">
+        <label className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 text-xs font-extrabold text-gray-600 ring-1 ring-gray-100">
           <input
             type="checkbox"
             checked={enabled}
@@ -460,7 +460,7 @@ function RuleCard({ title, icon, value, onChange, showGrace = false, calculation
         </label>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className={`grid grid-cols-1 gap-3 ${showGrace ? "md:grid-cols-3" : "md:grid-cols-[1fr_1fr_1.2fr]"}`}>
         <Field label="Calculation">
           <select
             className={input}
@@ -1392,7 +1392,7 @@ export default function AdminSalaryPage() {
                   <FiShield className="text-indigo-600" />
                   <h3 className="text-sm font-extrabold text-gray-900">Attendance Salary Rules</h3>
                 </div>
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                <div className="space-y-4">
                   <RuleCard
                     title="Overtime Earning"
                     icon={<FiTrendingUp />}

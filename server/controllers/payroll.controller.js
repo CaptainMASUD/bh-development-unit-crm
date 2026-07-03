@@ -8,6 +8,7 @@ import {
   getEmployeeLoanDeductionsForPayroll,
 } from "./employeeLoan.controller.js";
 import { getEmployeeRosterSummaryForPayroll } from "./roster.controller.js";
+import { ensureEmployeeAttendanceForRange } from "./attendance.controller.js";
 import { calculateEmployeeTaxDeduction } from "../services/tax.service.js";
 
 const DEFAULT_LIMIT = 20;
@@ -645,6 +646,13 @@ const calculateAndSavePayroll = async ({
     };
   }
 
+  await ensureEmployeeAttendanceForRange({
+    employee,
+    start: range.start,
+    end: range.end,
+    createdBy: requesterId,
+  });
+
   const attendanceRecords = await Attendance.find({
     employee: employeeId,
     workDate: { $gte: range.start, $lt: range.end },
@@ -737,6 +745,13 @@ export const previewPayroll = async (req, res) => {
     if (!salaryProfile) {
       return res.status(404).json({ message: "Active salary profile not found." });
     }
+
+    await ensureEmployeeAttendanceForRange({
+      employee,
+      start: range.start,
+      end: range.end,
+      createdBy: req.user?._id || null,
+    });
 
     const attendanceRecords = await Attendance.find({
       employee: employeeId,

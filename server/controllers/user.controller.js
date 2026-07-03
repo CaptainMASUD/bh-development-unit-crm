@@ -1733,16 +1733,16 @@ export const deleteMyAvatar = async (req, res) => {
 
 export const adminUpdateUserAvatar = async (req, res) => {
   try {
-    if (!isAdminOrSuperAdmin(req)) {
-      return res.status(403).json({ message: "Not authorized." });
-    }
-
     if (!requireImageFile(req, res)) return;
 
     const target = await User.findById(req.params.id);
 
     if (!target) {
       return res.status(404).json({ message: "User not found." });
+    }
+
+    if (target.role !== "employee" && !isAdminOrSuperAdmin(req)) {
+      return res.status(403).json({ message: "Only admin users can update admin avatars." });
     }
 
     if (denyIfTargetIsSuperAdmin(target, req, res)) return;
@@ -1768,14 +1768,14 @@ export const adminUpdateUserAvatar = async (req, res) => {
 
 export const adminDeleteUserAvatar = async (req, res) => {
   try {
-    if (!isAdminOrSuperAdmin(req)) {
-      return res.status(403).json({ message: "Not authorized." });
-    }
-
     const target = await User.findById(req.params.id);
 
     if (!target) {
       return res.status(404).json({ message: "User not found." });
+    }
+
+    if (target.role !== "employee" && !isAdminOrSuperAdmin(req)) {
+      return res.status(403).json({ message: "Only admin users can remove admin avatars." });
     }
 
     if (denyIfTargetIsSuperAdmin(target, req, res)) return;

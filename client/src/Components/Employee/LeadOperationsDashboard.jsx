@@ -114,6 +114,7 @@ function LoadingRows() {
 
 export default function LeadOperationsDashboard({ embedded = false }) {
   const [leads, setLeads] = useState([])
+  const [leadSummary, setLeadSummary] = useState(null)
   const [queueSummary, setQueueSummary] = useState({})
   const [unreadAlerts, setUnreadAlerts] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -138,7 +139,7 @@ export default function LeadOperationsDashboard({ embedded = false }) {
 
     try {
       const [leadResult, queueResult, notificationResult] = await Promise.allSettled([
-        apiJson("/leads?limit=60&sort=newest", controller.signal),
+        apiJson("/leads?limit=60&sort=newest&includeSummary=true", controller.signal),
         apiJson("/work-queue/summary", controller.signal),
         apiJson("/notifications/my", controller.signal),
       ])
@@ -146,6 +147,7 @@ export default function LeadOperationsDashboard({ embedded = false }) {
       if (leadResult.status === "rejected") throw leadResult.reason
 
       setLeads(Array.isArray(leadResult.value?.items) ? leadResult.value.items : [])
+      setLeadSummary(leadResult.value?.summary || null)
       setQueueSummary(queueResult.status === "fulfilled" ? queueResult.value?.summary || {} : {})
       setUnreadAlerts(notificationResult.status === "fulfilled"
         ? Number(notificationResult.value?.unreadCount || 0)
@@ -167,20 +169,27 @@ export default function LeadOperationsDashboard({ embedded = false }) {
 
   const dashboard = useMemo(() => {
     const byStage = Object.fromEntries(PIPELINE_STAGES.map((stage) => [stage, 0]))
-    leads.forEach((lead) => {
-      const stage = String(lead?.pipelineStage || "new").toLowerCase()
-      byStage[stage] = (byStage[stage] || 0) + 1
-    })
+    if (leadSummary?.byStage) {
+      PIPELINE_STAGES.forEach((stage) => {
+        byStage[stage] = Number(leadSummary.byStage[stage] || 0)
+      })
+    } else {
+      leads.forEach((lead) => {
+        const stage = String(lead?.pipelineStage || "new").toLowerCase()
+        byStage[stage] = (byStage[stage] || 0) + 1
+      })
+    }
 
     return {
       byStage,
-      overdue: leads.filter((lead) => lead?.isOverdue).length,
-      followUpsToday: leads.filter((lead) => isToday(lead?.nextFollowUpAt)).length,
+      total: Number(leadSummary?.total ?? leads.length),
+      overdue: Number(leadSummary?.overdue ?? leads.filter((lead) => lead?.isOverdue).length),
+      followUpsToday: Number(leadSummary?.followUpsToday ?? leads.filter((lead) => isToday(lead?.nextFollowUpAt)).length),
       latest: leads.slice(0, 10),
-      active: leads.filter((lead) => !["won", "lost"].includes(String(lead?.pipelineStage || ""))).length,
+      active: Number(leadSummary?.active ?? leads.filter((lead) => !["won", "lost"].includes(String(lead?.pipelineStage || ""))).length),
       maxStageCount: Math.max(1, ...Object.values(byStage)),
     }
-  }, [leads])
+  }, [leadSummary, leads])
 
   return (
     <div className={embedded ? "space-y-5" : "min-h-screen bg-gradient-to-b from-gray-50 to-white p-1 sm:p-3"}>
@@ -226,7 +235,7 @@ export default function LeadOperationsDashboard({ embedded = false }) {
         ) : null}
 
         <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard icon={<FiTarget className="h-5 w-5" />} title="Latest leads" value={loading && !leads.length ? "—" : leads.length} hint="Newest 60 accessible leads" tone="bg-indigo-50 text-indigo-700" />
+          <StatCard icon={<FiTarget className="h-5 w-5" />} title="Total leads" value={loading && !leads.length ? "—" : dashboard.total} hint="All accessible leads" tone="bg-indigo-50 text-indigo-700" />
           <StatCard icon={<FiTrendingUp className="h-5 w-5" />} title="Active pipeline" value={loading && !leads.length ? "—" : dashboard.active} hint="Excludes won and lost" tone="bg-sky-50 text-sky-700" />
           <StatCard icon={<FiClock className="h-5 w-5" />} title="Overdue" value={loading && !leads.length ? "—" : dashboard.overdue} hint="Needs attention now" tone="bg-rose-50 text-rose-700" />
           <StatCard icon={<FiCalendar className="h-5 w-5" />} title="Follow-ups today" value={loading && !leads.length ? "—" : dashboard.followUpsToday} hint="Scheduled for today" tone="bg-amber-50 text-amber-800" />
@@ -236,7 +245,7 @@ export default function LeadOperationsDashboard({ embedded = false }) {
           <div className={`${card} overflow-hidden`}>
             <div className="border-b border-gray-100 px-5 py-4">
               <h2 className="text-lg font-black text-gray-950">Pipeline snapshot</h2>
-              <p className="mt-1 text-sm text-gray-500">Stage distribution across the newest accessible leads.</p>
+              <p className="mt-1 text-sm text-gray-500">Stage distribution across all accessible leads.</p>
             </div>
             <div className="space-y-4 p-5">
               {PIPELINE_STAGES.map((stage) => {
@@ -339,3 +348,4 @@ export default function LeadOperationsDashboard({ embedded = false }) {
     </div>
   )
 }
+

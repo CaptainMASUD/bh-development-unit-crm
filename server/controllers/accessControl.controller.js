@@ -3,6 +3,7 @@ import Position from "../models/position.model.js";
 import PermissionGroup, { PERMISSION_KEYS } from "../models/permissionGroup.model.js";
 import AccessRole from "../models/accessRole.model.js";
 import User from "../models/user.model.js";
+import SalaryProfile from "../models/salaryProfile.model.js";
 
 const clean = (value) => String(value ?? "").trim();
 
@@ -190,6 +191,13 @@ export const updateDepartment = async (req, res) => {
 export const deleteDepartment = async (req, res) => {
   if (!(await requireRequesterPassword(req, res))) return;
 
+  const usedByEmployee = await User.exists({ department: req.params.id });
+  if (usedByEmployee) {
+    return res.status(400).json({
+      message: "This department is assigned to one or more employees.",
+    });
+  }
+
   const used = await Position.exists({ department: req.params.id });
 
   if (used) {
@@ -276,6 +284,20 @@ export const updatePosition = async (req, res) => {
 export const deletePosition = async (req, res) => {
   if (!(await requireRequesterPassword(req, res))) return;
 
+  const usedByEmployee = await User.exists({ position: req.params.id });
+  if (usedByEmployee) {
+    return res.status(400).json({
+      message: "This position is assigned to one or more employees.",
+    });
+  }
+
+  const usedBySalaryProfile = await SalaryProfile.exists({ position: req.params.id });
+  if (usedBySalaryProfile) {
+    return res.status(400).json({
+      message: "This position is used in salary profile history.",
+    });
+  }
+
   const position = await Position.findByIdAndDelete(req.params.id);
   if (!position) return res.status(404).json({ message: "Position not found." });
 
@@ -358,6 +380,11 @@ export const updatePermissionGroup = async (req, res) => {
 
 export const deletePermissionGroup = async (req, res) => {
   if (!(await requireRequesterPassword(req, res))) return;
+
+  const usedByEmployee = await User.exists({ permissionGroup: req.params.id });
+  if (usedByEmployee) {
+    return res.status(400).json({ message: "This permission group is assigned to one or more employees." });
+  }
 
   const usedByRole = await AccessRole.exists({ permissionGroup: req.params.id });
   if (usedByRole) {

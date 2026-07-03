@@ -576,6 +576,7 @@ export const getCustomers = async (req, res) => {
   try {
     const limit = clampLimit(req.query.limit, 1, 50, 20);
     const cursorId = toObjectIdOrNull(req.query.cursor);
+    const includeSummary = String(req.query.includeSummary || "").toLowerCase() === "true";
 
     const { match, error: matchErr } = buildCustomerListMatch(req);
     if (matchErr) return res.status(400).json({ message: matchErr });
@@ -692,7 +693,73 @@ export const getCustomers = async (req, res) => {
     const customers = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = customers.length ? String(customers[customers.length - 1]._id) : null;
 
-    return res.status(200).json({ count: customers.length, hasMore, nextCursor, customers });
+    let total = undefined;
+    let summary = undefined;
+
+    if (includeSummary) {
+      const me = toObjectIdOrNull(req.user?._id);
+      const summaryRows = await Customer.aggregate([
+        { $match: match },
+        ...(elemMatch ? [{ $match: { engagements: { $elemMatch: elemMatch } } }] : []),
+        {
+          $project: {
+            status: 1,
+            assignedTo: { $ifNull: ["$assignedTo", []] },
+            tasks: { $ifNull: ["$crmTasks", []] },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: 1 },
+            inProgress: { $sum: { $cond: [{ $eq: ["$status", "in_progress"] }, 1, 0] } },
+            complete: { $sum: { $cond: [{ $eq: ["$status", "complete"] }, 1, 0] } },
+            assignedToMe: { $sum: { $cond: [me ? { $in: [me, "$assignedTo"] } : false, 1, 0] } },
+            taskTotal: { $sum: { $size: "$tasks" } },
+            taskPending: {
+              $sum: {
+                $size: {
+                  $filter: { input: "$tasks", as: "task", cond: { $eq: ["$$task.status", "pending"] } },
+                },
+              },
+            },
+            taskInProgress: {
+              $sum: {
+                $size: {
+                  $filter: { input: "$tasks", as: "task", cond: { $eq: ["$$task.status", "in_progress"] } },
+                },
+              },
+            },
+            taskDone: {
+              $sum: {
+                $size: {
+                  $filter: { input: "$tasks", as: "task", cond: { $eq: ["$$task.status", "done"] } },
+                },
+              },
+            },
+          },
+        },
+      ]).allowDiskUse(true);
+
+      const row = summaryRows[0] || {};
+      total = Number(row.total || 0);
+      summary = {
+        customers: {
+          total,
+          inProgress: Number(row.inProgress || 0),
+          complete: Number(row.complete || 0),
+          assignedToMe: Number(row.assignedToMe || 0),
+        },
+        tasks: {
+          total: Number(row.taskTotal || 0),
+          pending: Number(row.taskPending || 0),
+          inProgress: Number(row.taskInProgress || 0),
+          done: Number(row.taskDone || 0),
+        },
+      };
+    }
+
+    return res.status(200).json({ count: customers.length, total, summary, hasMore, nextCursor, customers });
   } catch (err) {
     return res.status(500).json({
       message: "Server error in getCustomers.",

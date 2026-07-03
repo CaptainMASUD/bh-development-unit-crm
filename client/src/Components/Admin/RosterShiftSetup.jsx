@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react"
 import toast, { Toaster } from "react-hot-toast"
 import {
-  FiBriefcase,
   FiCalendar,
   FiClock,
   FiRefreshCcw,
@@ -34,8 +33,6 @@ const dayOptions = [
 
 const emptyShift = { name: "", startTime: "09:00", endTime: "18:00", breakMinutes: 60, graceMinutes: 10, overtimeAfterMinutes: 0, isActive: true, note: "" }
 const emptyAssignment = { employee: "", shift: "", rosterType: "weekly", startDate: new Date().toISOString().slice(0, 10), endDate: "", weekdays: [0, 1, 2, 3, 4], monthDays: [], isActive: true, note: "" }
-const emptyWeeklyOff = { name: "", scope: "company", employee: "", offType: "fixed", fixedDays: [5], customDate: "", rotationStartDate: "", rotationCycleDays: 7, rotationOffDays: [5], paid: true, isActive: true }
-const emptyHoliday = { name: "", holidayDate: new Date().toISOString().slice(0, 10), holidayType: "paid", appliesTo: "company", department: "", employee: "", note: "", isActive: true }
 
 function authHeaders() {
   const token = localStorage.getItem("token")
@@ -105,35 +102,25 @@ export default function RosterShiftSetup() {
   const [employees, setEmployees] = useState([])
   const [shifts, setShifts] = useState([])
   const [assignments, setAssignments] = useState([])
-  const [weeklyOffs, setWeeklyOffs] = useState([])
-  const [holidays, setHolidays] = useState([])
 
   const [shiftForm, setShiftForm] = useState(emptyShift)
   const [assignmentForm, setAssignmentForm] = useState(emptyAssignment)
-  const [weeklyOffForm, setWeeklyOffForm] = useState(emptyWeeklyOff)
-  const [holidayForm, setHolidayForm] = useState(emptyHoliday)
   const tabs = [
     ["shifts", "Shift Setup", FiClock],
     ["assign", "Employee Roster Assign", FiUsers],
-    ["weekly-off", "Weekly Off Setup", FiCalendar],
-    ["holidays", "Holiday Setup", FiBriefcase],
   ]
 
   const loadAll = async () => {
     setLoading(true)
     try {
-      const [emp, shiftData, assignmentData, offData, holidayData] = await Promise.all([
+      const [emp, shiftData, assignmentData] = await Promise.all([
         api("/users/employees?limit=100"),
         api("/roster/shifts"),
         api("/roster/assignments"),
-        api("/roster/weekly-offs"),
-        api(`/roster/holidays?year=${new Date().getFullYear()}`),
       ])
       setEmployees(emp.employees || [])
       setShifts(shiftData.shifts || [])
       setAssignments(assignmentData.rosterAssignments || [])
-      setWeeklyOffs(offData.weeklyOffs || [])
-      setHolidays(holidayData.holidays || [])
     } catch (error) {
       toast.error(error.message || "Failed to load roster setup")
     } finally {
@@ -170,35 +157,6 @@ export default function RosterShiftSetup() {
     }
   }
 
-  const saveWeeklyOff = async (event) => {
-    event.preventDefault()
-    try {
-      const payload = {
-        ...weeklyOffForm,
-        employee: weeklyOffForm.scope === "employee" ? weeklyOffForm.employee : null,
-        customDates: weeklyOffForm.customDate ? [{ date: weeklyOffForm.customDate, paid: weeklyOffForm.paid }] : [],
-      }
-      await api("/roster/weekly-offs", { method: "POST", body: JSON.stringify(payload) })
-      toast.success("Weekly off setup created")
-      setWeeklyOffForm(emptyWeeklyOff)
-      loadAll()
-    } catch (error) {
-      toast.error(error.message || "Weekly off create failed")
-    }
-  }
-
-  const saveHoliday = async (event) => {
-    event.preventDefault()
-    try {
-      await api("/roster/holidays", { method: "POST", body: JSON.stringify(holidayForm) })
-      toast.success("Holiday created")
-      setHolidayForm(emptyHoliday)
-      loadAll()
-    } catch (error) {
-      toast.error(error.message || "Holiday create failed")
-    }
-  }
-
   const remove = async (path, label) => {
     if (!window.confirm(`Delete ${label}?`)) return
     try {
@@ -222,7 +180,7 @@ export default function RosterShiftSetup() {
               <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white"><FiCalendar /></div>
               <div>
                 <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Roster / Shift Setup</h1>
-                <p className="mt-1 text-sm font-semibold text-gray-500">Manage shifts, employee rosters, weekly offs, and holidays.</p>
+                <p className="mt-1 text-sm font-semibold text-gray-500">Manage shifts and employee roster assignments.</p>
               </div>
             </div>
             <button className={`${btn} ${btnGhost}`} onClick={loadAll} type="button"><FiRefreshCcw className={loading ? "animate-spin" : ""} /> Refresh</button>
@@ -294,63 +252,6 @@ export default function RosterShiftSetup() {
                   <Cell>{item.rosterType === "weekly" ? dayNames(item.weekdays) : item.rosterType === "monthly" ? item.monthDays?.join(", ") : "Every day"}</Cell>
                   <Cell>{String(item.startDate || "").slice(0, 10)} - {item.endDate ? String(item.endDate).slice(0, 10) : "Open"}</Cell>
                   <Cell right><button className="text-rose-600" onClick={() => remove(`/roster/assignments/${item._id}`, "roster assignment")}><FiTrash2 /></button></Cell>
-                </tr>
-              ))}
-            </DataTable>
-          </section>
-        ) : null}
-
-        {tab === "weekly-off" ? (
-          <section className="grid grid-cols-1 gap-5 xl:grid-cols-[460px_minmax(0,1fr)]">
-            <form onSubmit={saveWeeklyOff} className={`${card} space-y-4 p-4 sm:p-5`}>
-              <h2 className="text-lg font-extrabold text-gray-900">Weekly Off Setup</h2>
-              <Field label="Name"><input className={input} value={weeklyOffForm.name} onChange={(e) => setWeeklyOffForm((p) => ({ ...p, name: e.target.value }))} placeholder="Friday Off" /></Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Scope"><select className={input} value={weeklyOffForm.scope} onChange={(e) => setWeeklyOffForm((p) => ({ ...p, scope: e.target.value }))}><option value="company">Company</option><option value="employee">Employee</option></select></Field>
-                <Field label="Off type"><select className={input} value={weeklyOffForm.offType} onChange={(e) => setWeeklyOffForm((p) => ({ ...p, offType: e.target.value }))}><option value="fixed">Fixed off day</option><option value="custom">Custom off day</option><option value="rotating">Rotating off day</option></select></Field>
-              </div>
-              {weeklyOffForm.scope === "employee" ? <Field label="Employee"><select required className={input} value={weeklyOffForm.employee} onChange={(e) => setWeeklyOffForm((p) => ({ ...p, employee: e.target.value }))}><option value="">Select employee</option>{activeEmployees.map((employee) => <option key={employee._id} value={employee._id}>{employeeLabel(employee)}</option>)}</select></Field> : null}
-              {weeklyOffForm.offType === "fixed" ? <Field label="Fixed off day"><ToggleDays value={weeklyOffForm.fixedDays} onChange={(days) => setWeeklyOffForm((p) => ({ ...p, fixedDays: days }))} /></Field> : null}
-              {weeklyOffForm.offType === "custom" ? <Field label="Custom off date"><input className={input} type="date" value={weeklyOffForm.customDate} onChange={(e) => setWeeklyOffForm((p) => ({ ...p, customDate: e.target.value }))} /></Field> : null}
-              {weeklyOffForm.offType === "rotating" ? <div className="grid grid-cols-2 gap-3"><Field label="Rotation start"><input className={input} type="date" value={weeklyOffForm.rotationStartDate} onChange={(e) => setWeeklyOffForm((p) => ({ ...p, rotationStartDate: e.target.value }))} /></Field><Field label="Cycle days"><input className={input} type="number" min="1" value={weeklyOffForm.rotationCycleDays} onChange={(e) => setWeeklyOffForm((p) => ({ ...p, rotationCycleDays: e.target.value }))} /></Field></div> : null}
-              <label className="flex items-center justify-between rounded-2xl bg-gray-50 px-4 py-3 text-sm font-extrabold text-gray-800"><span>Paid off day</span><input type="checkbox" checked={weeklyOffForm.paid} onChange={(e) => setWeeklyOffForm((p) => ({ ...p, paid: e.target.checked }))} /></label>
-              <button className={`${btn} ${btnPrimary}`} type="submit"><FiSave /> Save Weekly Off</button>
-            </form>
-            <DataTable headers={["Name", "Scope", "Type", "Days / Date", "Paid", ""]}>
-              {weeklyOffs.map((item) => (
-                <tr key={item._id}>
-                  <Cell strong>{item.name || "Weekly Off"}</Cell>
-                  <Cell>{item.scope === "employee" ? employeeLabel(item.employee) : "Company"}</Cell>
-                  <Cell><Badge tone="indigo">{item.offType}</Badge></Cell>
-                  <Cell>{item.offType === "fixed" ? dayNames(item.fixedDays) : item.offType === "custom" ? `${item.customDates?.length || 0} custom date(s)` : `${item.rotationCycleDays} day cycle`}</Cell>
-                  <Cell><Badge tone={item.paid ? "emerald" : "rose"}>{item.paid ? "Paid" : "Unpaid"}</Badge></Cell>
-                  <Cell right><button className="text-rose-600" onClick={() => remove(`/roster/weekly-offs/${item._id}`, "weekly off")}><FiTrash2 /></button></Cell>
-                </tr>
-              ))}
-            </DataTable>
-          </section>
-        ) : null}
-
-        {tab === "holidays" ? (
-          <section className="grid grid-cols-1 gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
-            <form onSubmit={saveHoliday} className={`${card} space-y-4 p-4 sm:p-5`}>
-              <h2 className="text-lg font-extrabold text-gray-900">Company Holiday</h2>
-              <Field label="Holiday name"><input required className={input} value={holidayForm.name} onChange={(e) => setHolidayForm((p) => ({ ...p, name: e.target.value }))} /></Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Holiday date"><input required className={input} type="date" value={holidayForm.holidayDate} onChange={(e) => setHolidayForm((p) => ({ ...p, holidayDate: e.target.value }))} /></Field>
-                <Field label="Type"><select className={input} value={holidayForm.holidayType} onChange={(e) => setHolidayForm((p) => ({ ...p, holidayType: e.target.value }))}><option value="paid">Paid holiday</option><option value="unpaid">Unpaid holiday</option></select></Field>
-              </div>
-              <Field label="Note"><textarea className={textarea} value={holidayForm.note} onChange={(e) => setHolidayForm((p) => ({ ...p, note: e.target.value }))} /></Field>
-              <button className={`${btn} ${btnPrimary}`} type="submit"><FiSave /> Save Holiday</button>
-            </form>
-            <DataTable headers={["Holiday", "Date", "Type", "Note", ""]}>
-              {holidays.map((item) => (
-                <tr key={item._id}>
-                  <Cell strong>{item.name}</Cell>
-                  <Cell>{String(item.holidayDate || "").slice(0, 10)}</Cell>
-                  <Cell><Badge tone={item.holidayType === "paid" ? "emerald" : "rose"}>{item.holidayType}</Badge></Cell>
-                  <Cell>{item.note || "-"}</Cell>
-                  <Cell right><button className="text-rose-600" onClick={() => remove(`/roster/holidays/${item._id}`, item.name)}><FiTrash2 /></button></Cell>
                 </tr>
               ))}
             </DataTable>

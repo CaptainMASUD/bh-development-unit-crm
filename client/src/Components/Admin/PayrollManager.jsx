@@ -11,6 +11,7 @@ import {
   FiCreditCard,
   FiDollarSign,
   FiEye,
+  FiEdit3,
   FiFileText,
   FiFilter,
   FiMoreVertical,
@@ -286,6 +287,7 @@ function EmployeeSearch({ value, onSelect, placeholder = "Search employee" }) {
 }
 
 const emptyManualItem = { name: "", calculationType: "fixed", value: 0, quantity: 1, basedOn: "manual", note: "" }
+const defaultManualName = (type) => (type === "earning" ? "Bonus" : "Deduction")
 
 export default function PayrollManager() {
   const now = new Date()
@@ -307,6 +309,7 @@ export default function PayrollManager() {
   const [calcMonth, setCalcMonth] = useState(now.getMonth() + 1)
   const [manualEarnings, setManualEarnings] = useState([])
   const [manualDeductions, setManualDeductions] = useState([])
+  const [manualModal, setManualModal] = useState({ open: false, type: "earning", index: null, form: { ...emptyManualItem, name: "Bonus" } })
   const [note, setNote] = useState("")
   const [preview, setPreview] = useState(null)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -465,14 +468,39 @@ export default function PayrollManager() {
 
   const updateFilterDraft = (key, value) => setFilterDraft((prev) => ({ ...prev, [key]: value, ...(key === "department" ? { position: "" } : {}) }))
 
-  const addManualItem = (type) => {
-    if (type === "earning") setManualEarnings((prev) => [...prev, { ...emptyManualItem, name: "Bonus" }])
-    else setManualDeductions((prev) => [...prev, { ...emptyManualItem, name: "Deduction" }])
+  const openManualModal = (type, index = null) => {
+    const items = type === "earning" ? manualEarnings : manualDeductions
+    setManualModal({
+      open: true,
+      type,
+      index,
+      form: index === null ? { ...emptyManualItem, name: defaultManualName(type) } : { ...emptyManualItem, ...(items[index] || {}) },
+    })
   }
 
-  const updateManualItem = (type, index, key, value) => {
+  const closeManualModal = () => {
+    setManualModal({ open: false, type: "earning", index: null, form: { ...emptyManualItem, name: "Bonus" } })
+  }
+
+  const updateManualModalForm = (key, value) => {
+    setManualModal((prev) => ({ ...prev, form: { ...prev.form, [key]: value } }))
+  }
+
+  const saveManualItem = (event) => {
+    event.preventDefault()
+    const type = manualModal.type
+    const item = {
+      ...manualModal.form,
+      name: manualModal.form.name?.trim() || defaultManualName(type),
+      value: Number(manualModal.form.value || 0),
+      quantity: Number(manualModal.form.quantity || 1),
+    }
     const setter = type === "earning" ? setManualEarnings : setManualDeductions
-    setter((prev) => prev.map((item, i) => (i === index ? { ...item, [key]: value } : item)))
+    setter((prev) => {
+      if (manualModal.index === null) return [...prev, item]
+      return prev.map((existing, index) => (index === manualModal.index ? item : existing))
+    })
+    closeManualModal()
   }
 
   const removeManualItem = (type, index) => {
@@ -711,39 +739,28 @@ export default function PayrollManager() {
 
   const renderManualItems = (type) => {
     const items = type === "earning" ? manualEarnings : manualDeductions
+    const isEarning = type === "earning"
     return (
       <div className="space-y-3">
         {items.map((item, index) => (
-          <div key={`${type}-${index}`} className="rounded-2xl border border-gray-100 bg-gray-50 p-3">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
-              <Field title="Name">
-                <input className={input} value={item.name} onChange={(e) => updateManualItem(type, index, "name", e.target.value)} />
-              </Field>
-              <Field title="Type">
-                <select className={input} value={item.calculationType} onChange={(e) => updateManualItem(type, index, "calculationType", e.target.value)}>
-                  <option value="fixed">Fixed</option>
-                  <option value="percentage">Percentage</option>
-                  <option value="per_day">Per Day</option>
-                  <option value="per_hour">Per Hour</option>
-                  <option value="per_minute">Per Minute</option>
-                  <option value="variable">Variable</option>
-                </select>
-              </Field>
-              <Field title="Value">
-                <input className={input} type="number" min="0" value={item.value} onChange={(e) => updateManualItem(type, index, "value", e.target.value)} />
-              </Field>
-              <Field title="Qty">
-                <input className={input} type="number" min="0" value={item.quantity} onChange={(e) => updateManualItem(type, index, "quantity", e.target.value)} />
-              </Field>
-              <div className="flex items-end">
-                <button className={`${btn} ${btnGhost} w-full text-rose-600`} type="button" onClick={() => removeManualItem(type, index)}>
-                  <FiTrash2 /> Remove
-                </button>
-              </div>
+          <div key={`${type}-${index}`} className="flex flex-col gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-black text-gray-900">{item.name || defaultManualName(type)}</p>
+              <p className="mt-1 text-xs font-semibold text-gray-500">
+                {pretty(item.calculationType || "fixed")} · Value {item.value || 0} · Qty {item.quantity || 1}
+              </p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <button className={`${btn} ${btnGhost} h-9 px-3 py-2`} type="button" onClick={() => openManualModal(type, index)}>
+                <FiEdit3 /> Edit
+              </button>
+              <button className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-100 bg-white text-rose-600 transition hover:bg-rose-50" type="button" onClick={() => removeManualItem(type, index)} title={`Remove ${isEarning ? "earning" : "deduction"}`}>
+                <FiTrash2 />
+              </button>
             </div>
           </div>
         ))}
-        <button type="button" className={`${btn} ${btnSoft}`} onClick={() => addManualItem(type)}>
+        <button type="button" className={`${btn} ${btnSoft} w-full sm:w-auto`} onClick={() => openManualModal(type)}>
           <FiPlus /> Add {type === "earning" ? "Earning" : "Deduction"}
         </button>
       </div>
@@ -875,9 +892,19 @@ export default function PayrollManager() {
                 <label className="flex items-end"><span className="flex h-11 w-full items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-3"><span className="text-sm font-extrabold text-gray-800">Force Recalculate</span><input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} className="h-4 w-4 rounded border-gray-300 text-indigo-600" /></span></label>
               </div>
 
-              <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <div className="rounded-2xl border border-gray-100 bg-white p-4"><h3 className="mb-3 font-extrabold text-gray-900">Manual Earnings</h3>{renderManualItems("earning")}</div>
-                <div className="rounded-2xl border border-gray-100 bg-white p-4"><h3 className="mb-3 font-extrabold text-gray-900">Manual Deductions</h3>{renderManualItems("deduction")}</div>
+              <div className="mt-5 space-y-4">
+                <div className="rounded-2xl border border-gray-100 bg-white p-4">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <h3 className="font-extrabold text-gray-900">Manual Earnings</h3>
+                  </div>
+                  {renderManualItems("earning")}
+                </div>
+                <div className="rounded-2xl border border-gray-100 bg-white p-4">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <h3 className="font-extrabold text-gray-900">Manual Deductions</h3>
+                  </div>
+                  {renderManualItems("deduction")}
+                </div>
               </div>
               <div className="mt-5"><Field title="Payroll Note"><textarea className="min-h-[95px] w-full resize-none rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optional note" /></Field></div>
               <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
@@ -912,6 +939,68 @@ export default function PayrollManager() {
 
       <Modal open={detailsOpen} title="Payroll Details" subtitle={selectedPayroll ? `${selectedPayroll.employee?.name || "Employee"} • ${monthName(selectedPayroll.month)} ${selectedPayroll.year}` : "Payroll"} icon={<FiFileText className="h-5 w-5" />} onClose={() => setDetailsOpen(false)} maxWidth="max-w-6xl" footer={selectedPayroll ? <DetailFooter payroll={selectedPayroll} approvePayroll={approvePayroll} setPayModal={setPayModal} setCancelModal={setCancelModal} deletePayroll={deletePayroll} /> : null}>
         {detailsLoading ? <div className="py-16 text-center text-sm font-bold text-gray-500">Loading payroll...</div> : selectedPayroll ? <PayslipView payroll={selectedPayroll} /> : <div className="py-16 text-center text-sm font-bold text-gray-500">No payroll selected</div>}
+      </Modal>
+
+      <Modal
+        open={manualModal.open}
+        title={`${manualModal.index === null ? "Add" : "Edit"} ${manualModal.type === "earning" ? "Manual Earning" : "Manual Deduction"}`}
+        icon={<FiPlus className="h-5 w-5" />}
+        onClose={closeManualModal}
+        maxWidth="max-w-2xl"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button className={`${btn} ${btnGhost}`} type="button" onClick={closeManualModal}>
+              Cancel
+            </button>
+            <button className={`${btn} ${btnPrimary}`} form="manual-adjustment-form" type="submit">
+              {manualModal.index === null ? "Add" : "Update"}
+            </button>
+          </div>
+        }
+      >
+        <form id="manual-adjustment-form" onSubmit={saveManualItem} className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Field title="Name">
+            <input
+              className={input}
+              value={manualModal.form.name}
+              onChange={(e) => updateManualModalForm("name", e.target.value)}
+              placeholder={manualModal.type === "earning" ? "Bonus" : "Deduction"}
+              autoFocus
+            />
+          </Field>
+          <Field title="Calculation Type">
+            <select
+              className={input}
+              value={manualModal.form.calculationType}
+              onChange={(e) => updateManualModalForm("calculationType", e.target.value)}
+            >
+              <option value="fixed">Fixed Amount</option>
+              <option value="percentage">Percentage</option>
+              <option value="per_day">Per Day</option>
+              <option value="per_hour">Per Hour</option>
+              <option value="per_minute">Per Minute</option>
+              <option value="variable">Manual Amount</option>
+            </select>
+          </Field>
+          <Field title="Value">
+            <input
+              className={input}
+              type="number"
+              min="0"
+              value={manualModal.form.value}
+              onChange={(e) => updateManualModalForm("value", e.target.value)}
+            />
+          </Field>
+          <Field title="Quantity">
+            <input
+              className={input}
+              type="number"
+              min="0"
+              value={manualModal.form.quantity}
+              onChange={(e) => updateManualModalForm("quantity", e.target.value)}
+            />
+          </Field>
+        </form>
       </Modal>
 
       <Modal open={payModal.open} title="Mark Payroll Paid" subtitle={payModal.payroll?.employee?.name || "Payment details"} icon={<FiCreditCard className="h-5 w-5" />} onClose={() => setPayModal({ open: false, payroll: null, paymentMethod: "cash", paymentDate: dateInput(), transactionRef: "" })} maxWidth="max-w-lg" footer={<div className="flex justify-end gap-2"><button className={`${btn} ${btnGhost}`} type="button" onClick={() => setPayModal({ open: false, payroll: null, paymentMethod: "cash", paymentDate: dateInput(), transactionRef: "" })}>Cancel</button><button className={`${btn} ${btnPrimary}`} form="payroll-pay-form" type="submit">Mark Paid</button></div>}>

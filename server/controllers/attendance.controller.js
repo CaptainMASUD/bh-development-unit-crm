@@ -2,6 +2,8 @@ import mongoose from "mongoose";
 import User from "../models/user.model.js";
 import Attendance from "../models/attendance.model.js";
 import SalaryProfile from "../models/salaryProfile.model.js";
+import WeeklyOff from "../models/weeklyOff.model.js";
+import Holiday from "../models/holiday.model.js";
 
 const DEFAULT_LIMIT = 31;
 const MAX_LIMIT = 200;
@@ -50,6 +52,11 @@ const normalizeDateOnly = (value) => {
   return d;
 };
 
+const dayKey = (value) => {
+  const d = normalizeDateOnly(value);
+  return d ? d.toISOString().slice(0, 10) : "";
+};
+
 const getMonthRange = ({ year, month }) => {
   const y = Number(year);
   const m = Number(month);
@@ -65,6 +72,14 @@ const getMonthRange = ({ year, month }) => {
   end.setHours(0, 0, 0, 0);
 
   return { start, end, year: y, month: m };
+};
+
+const eachDay = ({ start, end }) => {
+  const days = [];
+  for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
+    days.push(new Date(d));
+  }
+  return days;
 };
 
 const populateAttendanceQuery = (query) => query.populate(ATTENDANCE_POPULATE);
@@ -613,6 +628,13 @@ export const getEmployeeMonthlyAttendanceSummary = async (req, res) => {
     const employee = await loadEmployee(employeeId);
     if (!employee) return res.status(404).json({ message: "Employee not found." });
 
+    await ensureEmployeeAttendanceForRange({
+      employee,
+      start: range.start,
+      end: range.end,
+      createdBy: req.user?._id || null,
+    });
+
     const records = await Attendance.find({
       employee: employeeId,
       workDate: { $gte: range.start, $lt: range.end },
@@ -697,5 +719,111 @@ export const getEmployeeMonthlyAttendanceSummary = async (req, res) => {
       message: "Server error in getEmployeeMonthlyAttendanceSummary.",
       error: err.message,
     });
+  }
+};
+
+const weeklyOffMatchesDate = (off, employeeId, date) => {
+  if (!off?.isActive) return false;
+  if (off.scope === "employee" && String(off.employee?._id || off.employee) !== String(employeeId)) return false;
+  const d = normalizeDateOnly(date);
+  if (off.offType === "fixed") return (off.fixedDays || []).includes(d.getDay());
+  if (off.offType === "custom") return (off.customDates || []).some((item) => dayKey(item.date) === dayKey(d));
+  if (off.offType === "rotating" && off.rotationStartDate) {
+    const start = normalizeDateOnly(off.rotationStartDate);
+    const diff = Math.floor((d - start) / 86400000);
+    const cycle = Number(off.rotationCycleDays || 7);
+    const pos = ((diff % cycle) + cycle) % cycle;
+    return (off.rotationOffDays || []).includes(pos);
+  }
+  return false;
+};
+
+const holidayMatchesEmployee = (holiday, employee, date) => {
+  if (!holiday?.isActive || dayKey(holiday.holidayDate) !== dayKey(date)) return false;
+  if (holiday.appliesTo === "company") return true;
+  if (holiday.appliesTo === "department") return String(holiday.department?._id || holiday.department) === String(employee.department?._id || employee.department);
+  if (holiday.appliesTo === "employee") return String(holiday.employee?._id || holiday.employee) === String(employee._id);
+  return false;
+};
+
+export const ensureEmployeeAttendanceForRange = async ({ employee, employeeId, start, end, createdBy = null }) => {
+  const targetEmployee = employee || (await loadEmployee(employeeId));
+  if (!targetEmployee || targetEmployee.role !== "employee" || targetEmployee.isActive === false) {
+    return { created: 0 };
+  }
+
+  const rangeStart = normalizeDateOnly(start);
+  const rangeEnd = normalizeDateOnly(end);
+  if (!rangeStart || !rangeEnd || rangeEnd <= rangeStart) return { created: 0 };
+
+  const today = normalizeDateOnly(new Date());
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const effectiveEnd = rangeEnd > tomorrow ? tomorrow : rangeEnd;
+  if (effectiveEnd <= rangeStart) return { created: 0 };
+
+  const [existingRecords, weeklyOffs, holidays] = await Promise.all([
+    Attendance.find({
+      employee: targetEmployee._id,
+      workDate: { $gte: rangeStart, $lt: effectiveEnd },
+    })
+      .select("dayKey workDate")
+      .lean(),
+    WeeklyOff.find({
+      isActive: true,
+      $or: [{ scope: "company" }, { employee: targetEmployee._id }],
+    }).lean(),
+    Holiday.find({
+      isActive: true,
+      holidayDate: { $gte: rangeStart, $lt: effectiveEnd },
+    }).lean(),
+  ]);
+
+  const existingKeys = new Set(existingRecords.map((item) => item.dayKey || dayKey(item.workDate)));
+  const docs = [];
+
+  for (const date of eachDay({ start: rangeStart, end: effectiveEnd })) {
+    const key = dayKey(date);
+    if (existingKeys.has(key)) continue;
+
+    const holiday = holidays.find((item) => holidayMatchesEmployee(item, targetEmployee, date));
+    const weeklyOff = weeklyOffs.find((item) => weeklyOffMatchesDate(item, targetEmployee._id, date));
+    const status = holiday
+      ? holiday.holidayType === "unpaid"
+        ? "unpaid_leave"
+        : "holiday"
+      : weeklyOff
+        ? weeklyOff.paid === false
+          ? "unpaid_leave"
+          : "weekly_holiday"
+        : "absent";
+
+    docs.push({
+      employee: targetEmployee._id,
+      department: targetEmployee.department || null,
+      position: targetEmployee.position || null,
+      workDate: date,
+      status,
+      source: "manual",
+      note: holiday
+        ? `Auto marked from holiday setup: ${holiday.name || "Holiday"}`
+        : weeklyOff
+          ? `Auto marked from weekly off setup: ${weeklyOff.name || "Weekly off"}`
+          : "Auto marked absent because no attendance or approved leave was recorded.",
+      createdBy,
+      updatedBy: createdBy,
+    });
+  }
+
+  if (!docs.length) return { created: 0 };
+
+  try {
+    const inserted = await Attendance.insertMany(docs, { ordered: false });
+    return { created: inserted.length };
+  } catch (error) {
+    if (error?.code === 11000 || error?.writeErrors?.length) {
+      return { created: Math.max(0, docs.length - (error.writeErrors?.length || 0)) };
+    }
+    throw error;
   }
 };

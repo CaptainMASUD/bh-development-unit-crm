@@ -247,6 +247,7 @@ const CHART_COLORS = ["#6366F1", "#F59E0B", "#22C55E", "#6B7280", "#EF4444"]
 export default function DashboardContent({ embedded = false }) {
   const [customers, setCustomers] = useState([])
   const [count, setCount] = useState(0)
+  const [summary, setSummary] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
   const abortRef = useRef(null)
@@ -269,7 +270,7 @@ export default function DashboardContent({ embedded = false }) {
     setIsLoading(true)
     setError("")
     try {
-      const res = await fetch(`${API_BASE}/customers`, {
+      const res = await fetch(`${API_BASE}/customers?includeSummary=true`, {
         method: "GET",
         headers: getAuthHeaders(),
         signal: controller.signal,
@@ -279,7 +280,8 @@ export default function DashboardContent({ embedded = false }) {
 
       const list = Array.isArray(data?.customers) ? data.customers : []
       setCustomers(list)
-      setCount(Number(data?.count ?? list.length))
+      setCount(Number(data?.total ?? data?.count ?? list.length))
+      setSummary(data?.summary || null)
     } catch (e) {
       if (e?.name !== "AbortError") {
         console.error(e)
@@ -297,6 +299,15 @@ export default function DashboardContent({ embedded = false }) {
   }, [])
 
   const customerStats = useMemo(() => {
+    if (summary?.customers) {
+      return {
+        total: Number(summary.customers.total || 0),
+        inProgress: Number(summary.customers.inProgress || 0),
+        complete: Number(summary.customers.complete || 0),
+        assignedToMe: Number(summary.customers.assignedToMe || 0),
+      }
+    }
+
     const total = count || customers.length
     const inProgress = customers.filter((c) => safeLower(c?.status) === "in_progress").length
     const complete = customers.filter((c) => safeLower(c?.status) === "complete").length
@@ -306,7 +317,7 @@ export default function DashboardContent({ embedded = false }) {
       : 0
 
     return { total, inProgress, complete, assignedToMe }
-  }, [customers, count, currentUserId])
+  }, [customers, count, currentUserId, summary])
 
   const taskStats = useMemo(() => {
     const allTasks = customers.flatMap((c) =>
@@ -321,13 +332,19 @@ export default function DashboardContent({ embedded = false }) {
         : []
     )
 
-    const total = allTasks.length
-    const pending = allTasks.filter((t) => safeLower(t?.status) === "pending").length
-    const inProgress = allTasks.filter((t) => safeLower(t?.status) === "in_progress").length
-    const done = allTasks.filter((t) => safeLower(t?.status) === "done").length
+    const total = summary?.tasks ? Number(summary.tasks.total || 0) : allTasks.length
+    const pending = summary?.tasks
+      ? Number(summary.tasks.pending || 0)
+      : allTasks.filter((t) => safeLower(t?.status) === "pending").length
+    const inProgress = summary?.tasks
+      ? Number(summary.tasks.inProgress || 0)
+      : allTasks.filter((t) => safeLower(t?.status) === "in_progress").length
+    const done = summary?.tasks
+      ? Number(summary.tasks.done || 0)
+      : allTasks.filter((t) => safeLower(t?.status) === "done").length
 
     return { total, pending, inProgress, done, allTasks }
-  }, [customers])
+  }, [customers, summary])
 
   const inProgressTasks = useMemo(() => {
     const list = taskStats.allTasks

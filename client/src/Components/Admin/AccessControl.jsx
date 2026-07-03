@@ -11,6 +11,7 @@ import {
   FiLock,
   FiPlus,
   FiRefreshCcw,
+  FiSearch,
   FiShield,
   FiTrash2,
   FiUserCheck,
@@ -319,6 +320,7 @@ export default function AccessControl() {
   const [permissionCatalog, setPermissionCatalog] = useState([])
   const [loading, setLoading] = useState(false)
   const [deleteState, setDeleteState] = useState({ open: false, path: "", label: "", type: "", password: "", loading: false })
+  const [permissionSearch, setPermissionSearch] = useState("")
 
   const [departmentForm, setDepartmentForm] = useState({ name: "", description: "" })
   const [positionForm, setPositionForm] = useState(emptyPositionForm)
@@ -343,6 +345,33 @@ export default function AccessControl() {
       permissions,
     }))
   }, [permissionCatalog])
+
+  const filteredPermissionSections = useMemo(() => {
+    const query = permissionSearch.trim().toLowerCase()
+    if (!query) return permissionSections
+
+    return permissionSections
+      .map((section) => {
+        const sectionMatches = section.label.toLowerCase().includes(query) || section.moduleName.toLowerCase().includes(query)
+        const permissions = sectionMatches
+          ? section.permissions
+          : section.permissions.filter((permission) => {
+              const meta = permissionMeta(permission.key)
+              return [
+                permission.key,
+                permission.name,
+                permission.description,
+                meta.label,
+                meta.helper,
+              ]
+                .filter(Boolean)
+                .some((value) => String(value).toLowerCase().includes(query))
+            })
+
+        return { ...section, permissions }
+      })
+      .filter((section) => section.permissions.length)
+  }, [permissionSearch, permissionSections])
 
   const tabs = [
     { key: "departments", label: "Departments", icon: FiLayers, count: departments.length },
@@ -380,6 +409,7 @@ export default function AccessControl() {
   const closeModal = () => {
     setCreateModal("")
     setEditingItem(null)
+    setPermissionSearch("")
   }
 
   const openCreateModal = (type) => {
@@ -387,7 +417,10 @@ export default function AccessControl() {
     setEditingItem(null)
     if (type === "departments") setDepartmentForm({ name: "", description: "" })
     if (type === "positions") setPositionForm(emptyPositionForm)
-    if (type === "permission-groups") setGroupForm({ name: "", description: "", permissions: [] })
+    if (type === "permission-groups") {
+      setGroupForm({ name: "", description: "", permissions: [] })
+      setPermissionSearch("")
+    }
     if (type === "roles") setRoleForm({ name: "", description: "", permissionGroup: "" })
     setCreateModal(type)
   }
@@ -422,6 +455,7 @@ export default function AccessControl() {
         description: item?.description || "",
         permissions: Array.isArray(item?.permissions) ? item.permissions : [],
       })
+      setPermissionSearch("")
     }
     if (type === "roles") {
       setRoleForm({
@@ -1204,8 +1238,27 @@ export default function AccessControl() {
               <p className="text-sm font-extrabold text-gray-800">Feature Access</p>
               <span className="text-xs font-semibold text-gray-500">{groupForm.permissions.length} selected</span>
             </div>
+            <div className="mb-4 flex min-h-[46px] w-full items-center gap-2 rounded-2xl border border-gray-200 bg-gray-50 px-3 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-indigo-500/10">
+              <FiSearch className="h-4 w-4 shrink-0 text-gray-400" />
+              <input
+                className="h-11 min-w-0 flex-1 bg-transparent text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400"
+                placeholder="Search permissions by feature or action..."
+                value={permissionSearch}
+                onChange={(e) => setPermissionSearch(e.target.value)}
+              />
+              {permissionSearch ? (
+                <button
+                  type="button"
+                  onClick={() => setPermissionSearch("")}
+                  className="rounded-xl p-1.5 text-gray-400 transition hover:bg-white hover:text-gray-700"
+                  title="Clear permission search"
+                >
+                  <FiX className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
             <div className="space-y-4">
-              {permissionSections.map((section) => (
+              {filteredPermissionSections.map((section) => (
                 <section key={section.moduleName} className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
                   <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-4 py-3">
                     <h3 className="text-sm font-extrabold text-gray-900">{section.label}</h3>
@@ -1235,6 +1288,12 @@ export default function AccessControl() {
                   </div>
                 </section>
               ))}
+              {!filteredPermissionSections.length ? (
+                <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center">
+                  <p className="text-sm font-extrabold text-gray-900">No permissions found</p>
+                  <p className="mt-1 text-sm font-semibold text-gray-500">Try another feature name or action.</p>
+                </div>
+              ) : null}
             </div>
           </div>
         </form>

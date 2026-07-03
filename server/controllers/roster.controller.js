@@ -10,9 +10,13 @@ const clean = (value) => String(value ?? "").trim();
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(String(id || ""));
 
 const requireAdmin = (req, res) => {
-  const canManage = ["admin", "superadmin"].includes(req.user?.role) || (req.user?.permissionGroup?.isActive !== false && req.user?.permissionGroup?.permissions?.includes?.("roster:manage"));
+  const permissions = req.user?.permissionGroup?.permissions || [];
+  const canManage =
+    ["admin", "superadmin"].includes(req.user?.role) ||
+    (req.user?.permissionGroup?.isActive !== false &&
+      (permissions.includes("roster:manage") || permissions.includes("leaves:manage")));
   if (!canManage) {
-    res.status(403).json({ message: "Only admin or superadmin can manage roster setup." });
+    res.status(403).json({ message: "You do not have permission to manage roster or leave setup." });
     return false;
   }
   return true;
@@ -304,20 +308,35 @@ export const listHolidays = async (req, res) => {
 export const createHoliday = async (req, res) => {
   try {
     if (!requireAdmin(req, res)) return;
-    const holiday = await Holiday.create({
+    const dates = Array.isArray(req.body.holidayDates)
+      ? req.body.holidayDates
+      : Array.isArray(req.body.dates)
+        ? req.body.dates
+        : [req.body.holidayDate];
+    const cleanDates = [...new Set(dates.map((date) => clean(date)).filter(Boolean))];
+
+    if (!cleanDates.length) return res.status(400).json({ message: "At least one holiday date is required." });
+
+    const payloads = cleanDates.map((holidayDate) => ({
       name: clean(req.body.name),
-      holidayDate: req.body.holidayDate,
+      holidayDate,
       holidayType: clean(req.body.holidayType || "paid"),
       appliesTo: clean(req.body.appliesTo || "company"),
-      department: req.body.department || null,
-      employee: req.body.employee || null,
+      department: req.body.appliesTo === "department" ? req.body.department || null : null,
+      employee: req.body.appliesTo === "employee" ? req.body.employee || null : null,
       isActive: req.body.isActive !== false,
       note: clean(req.body.note),
       createdBy: req.user?._id,
       updatedBy: req.user?._id,
+    }));
+
+    const holidays = await Holiday.insertMany(payloads, { ordered: false });
+    const full = await Holiday.find({ _id: { $in: holidays.map((item) => item._id) } }).populate(holidayPopulate).sort({ holidayDate: 1 }).lean();
+    return res.status(201).json({
+      message: full.length === 1 ? "Holiday created." : `${full.length} holidays created.`,
+      holiday: full[0] || null,
+      holidays: full,
     });
-    const full = await Holiday.findById(holiday._id).populate(holidayPopulate).lean();
-    return res.status(201).json({ message: "Holiday created.", holiday: full });
   } catch (err) {
     return res.status(500).json({ message: "Server error in createHoliday.", error: err.message });
   }

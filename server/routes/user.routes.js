@@ -59,14 +59,14 @@ router.delete("/me/avatar", protect, deleteMyAvatar);
 router.patch(
   "/:id/avatar",
   protect,
-  isAdminOrSuperAdmin,
+  requirePermission("employees:manage"),
   upload.single("avatar"),
   adminUpdateUserAvatar
 );
 router.delete(
   "/:id/avatar",
   protect,
-  isAdminOrSuperAdmin,
+  requirePermission("employees:manage"),
   adminDeleteUserAvatar
 );
 
