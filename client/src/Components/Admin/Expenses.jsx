@@ -27,7 +27,7 @@ const btnPrimary = "bg-indigo-600 text-white shadow-sm hover:bg-indigo-700"
 const btnGhost = "border border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
 const btnDanger = "border border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
 const input =
-  "w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-transparent focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
+  "w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm outline-none transition placeholder:text-gray-300 focus:border-transparent focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
 const chip = "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-semibold ring-1"
 
 const statuses = ["all", "pending", "approved", "paid", "rejected"]
@@ -855,7 +855,6 @@ function ExpenseModal({
               className={input}
               value={form.title}
               onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))}
-              placeholder="Office rent for July"
               required
             />
           </Field>
@@ -894,7 +893,6 @@ function ExpenseModal({
               step="0.01"
               value={form.amount}
               onChange={(e) => setForm((p) => ({ ...p, amount: e.target.value }))}
-              placeholder="10000"
               required
             />
           </Field>
@@ -919,7 +917,6 @@ function ExpenseModal({
               className={input}
               value={form.payeeVendor}
               onChange={(e) => setForm((p) => ({ ...p, payeeVendor: e.target.value }))}
-              placeholder="Landlord, supplier, provider..."
             />
           </Field>
 
@@ -928,7 +925,6 @@ function ExpenseModal({
               className={input}
               value={form.invoiceBillNo}
               onChange={(e) => setForm((p) => ({ ...p, invoiceBillNo: e.target.value }))}
-              placeholder="BILL-102"
             />
           </Field>
 
@@ -937,16 +933,14 @@ function ExpenseModal({
               className={input}
               value={form.referenceNo}
               onChange={(e) => setForm((p) => ({ ...p, referenceNo: e.target.value }))}
-              placeholder="Cash/bank/mobile ref"
             />
           </Field>
 
-          <Field label="Branch / department">
+          <Field label="Branch">
             <input
               className={input}
               value={form.branch}
               onChange={(e) => setForm((p) => ({ ...p, branch: e.target.value }))}
-              placeholder="Main office / HR"
             />
           </Field>
 
@@ -977,7 +971,6 @@ function ExpenseModal({
                   attachment: { ...(p.attachment || {}), name: e.target.value },
                 }))
               }
-              placeholder="Bill image / invoice PDF"
             />
           </Field>
 
@@ -991,7 +984,6 @@ function ExpenseModal({
                   attachment: { ...(p.attachment || {}), url: e.target.value },
                 }))
               }
-              placeholder="https://..."
             />
           </Field>
 
@@ -1001,7 +993,6 @@ function ExpenseModal({
                 className={cn(input, "min-h-[110px] resize-none")}
                 value={form.description}
                 onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))}
-                placeholder="Write internal note for this expense..."
               />
             </Field>
           </div>
