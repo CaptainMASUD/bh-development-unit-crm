@@ -5,6 +5,7 @@ import {
   getTaxReport,
   listEmployeeTaxProfiles,
   listTaxSlabs,
+  markTaxRemittance,
   updateEmployeeTaxProfile,
   updateTaxSlab,
 } from "../controllers/tax.controller.js";
@@ -23,5 +24,6 @@ router.get("/employee-profiles", requirePermission("tax.view"), listEmployeeTaxP
 router.patch("/employee-profiles/:employeeId", requirePermission("tax.assign_employee"), updateEmployeeTaxProfile);
 
 router.get("/reports", requirePermission("tax.report"), getTaxReport);
+router.patch("/reports/remittance", requirePermission("tax.report"), markTaxRemittance);
 
 export default router;

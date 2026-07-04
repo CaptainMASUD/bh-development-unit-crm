@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import User from "../models/user.model.js";
 import SalaryProfile from "../models/salaryProfile.model.js";
+import TaxSlab from "../models/taxSlab.model.js";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -76,6 +77,51 @@ const normalizeComponents = (components = []) => {
 
 const populateSalaryQuery = (query) => query.populate(SALARY_POPULATE);
 
+const normalizeTaxProfile = (profile = {}) => {
+  const method = clean(profile.method || "slab").toLowerCase();
+  const rawMode = clean(profile.mode || profile.taxMode || "auto").toLowerCase();
+  const mode = ["auto", "override", "disabled"].includes(rawMode) ? rawMode : "auto";
+  const normalizedMethod = mode === "override" && ["percentage", "fixed"].includes(method) ? method : "slab";
+  return {
+    mode,
+    enabled: mode !== "disabled",
+    tin: clean(profile.tin),
+    fiscalYear: clean(profile.fiscalYear),
+    fiscalYearStartMonth: Math.min(Math.max(Number(profile.fiscalYearStartMonth || 1), 1), 12),
+    taxpayerType: clean(profile.taxpayerType || "general").toLowerCase(),
+    method: normalizedMethod,
+    percentage: normalizedMethod === "percentage" ? Math.max(0, Number(profile.percentage || 0)) : 0,
+    fixedAmount: normalizedMethod === "fixed" ? roundMoney(profile.fixedAmount) : 0,
+    exemptionAmount: roundMoney(profile.exemptionAmount),
+    investmentAmount: roundMoney(profile.investmentAmount),
+  };
+};
+
+const applyDefaultTaxProfileFromActiveSlab = async (profile) => {
+  if (!profile || profile.taxProfile?.mode === "disabled" || profile.taxProfile?.mode === "override") return profile;
+  const slab = await TaxSlab.findOne({ isActive: { $ne: false } }).sort({ fiscalYear: -1, taxpayerType: 1, minIncome: 1 }).lean();
+  if (!slab) return profile;
+  profile.taxProfile = {
+    ...(profile.taxProfile || {}),
+    mode: "auto",
+    enabled: true,
+    fiscalYear: slab.fiscalYear,
+    taxpayerType: slab.taxpayerType || "general",
+    method: "slab",
+  };
+  await profile.save();
+  await User.findByIdAndUpdate(profile.employee, {
+    $set: {
+      "taxProfile.mode": "auto",
+      "taxProfile.enabled": true,
+      "taxProfile.fiscalYear": slab.fiscalYear,
+      "taxProfile.taxpayerType": slab.taxpayerType || "general",
+      "taxProfile.method": "slab",
+    },
+  });
+  return profile;
+};
+
 const buildProfilePayload = async (req, { isCreate = false } = {}) => {
   const employeeId = clean(req.body.employee || req.body.employeeId);
 
@@ -141,6 +187,10 @@ const buildProfilePayload = async (req, { isCreate = false } = {}) => {
     payload.rules = req.body.rules || {};
   }
 
+  if (req.body.taxProfile !== undefined) {
+    payload.taxProfile = normalizeTaxProfile(req.body.taxProfile || {});
+  }
+
   if (req.body.effectiveFrom !== undefined) {
     payload.effectiveFrom = new Date(req.body.effectiveFrom);
   } else if (isCreate) {
@@ -192,6 +242,7 @@ export const createSalaryProfile = async (req, res) => {
       createdBy: req.user?._id || null,
       updatedBy: req.user?._id || null,
     });
+    await applyDefaultTaxProfileFromActiveSlab(profile);
 
     const full = await populateSalaryQuery(SalaryProfile.findById(profile._id)).lean();
 

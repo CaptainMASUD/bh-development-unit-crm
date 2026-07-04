@@ -56,6 +56,11 @@ const SIDEBAR_GROUPS = [
       "tds",
       "attendance",
       "leave",
+    ],
+  },
+  {
+    title: "Accounting",
+    matchers: [
       "accounting",
       "invoice",
       "income",

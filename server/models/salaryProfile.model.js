@@ -162,6 +162,28 @@ const payrollRulesSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const taxProfileSchema = new mongoose.Schema(
+  {
+    mode: {
+      type: String,
+      enum: ["auto", "override", "disabled"],
+      default: "auto",
+      index: true,
+    },
+    enabled: { type: Boolean, default: false, index: true },
+    tin: { type: String, trim: true, default: "" },
+    fiscalYear: { type: String, trim: true, default: "" },
+    fiscalYearStartMonth: { type: Number, default: 1, min: 1, max: 12 },
+    taxpayerType: { type: String, trim: true, lowercase: true, default: "general", index: true },
+    method: { type: String, enum: ["slab", "percentage", "fixed"], default: "slab" },
+    percentage: { type: Number, default: 0, min: 0 },
+    fixedAmount: { type: Number, default: 0, min: 0, set: roundMoney },
+    exemptionAmount: { type: Number, default: 0, min: 0, set: roundMoney },
+    investmentAmount: { type: Number, default: 0, min: 0, set: roundMoney },
+  },
+  { _id: false }
+);
+
 const salaryProfileSchema = new mongoose.Schema(
   {
     employee: {
@@ -227,6 +249,11 @@ const salaryProfileSchema = new mongoose.Schema(
 
     rules: {
       type: payrollRulesSchema,
+      default: () => ({}),
+    },
+
+    taxProfile: {
+      type: taxProfileSchema,
       default: () => ({}),
     },
 

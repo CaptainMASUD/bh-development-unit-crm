@@ -16,6 +16,7 @@ import PermissionGroup from "../models/permissionGroup.model.js";
 import AccessRole from "../models/accessRole.model.js";
 import LeaveTemplate from "../models/leaveTemplate.model.js";
 import SalaryProfile from "../models/salaryProfile.model.js";
+import TaxSlab from "../models/taxSlab.model.js";
 import { uploadCloudinary, deleteCloudinary } from "../utils/cloudinary.js";
 
 /* =========================
@@ -634,6 +635,30 @@ const createOrReplaceActiveSalaryProfile = async ({
     createdBy: requesterId || null,
     updatedBy: requesterId || null,
   });
+
+  if (salaryProfile.taxProfile?.mode !== "disabled" && salaryProfile.taxProfile?.mode !== "override") {
+    const slab = await TaxSlab.findOne({ isActive: { $ne: false } }).sort({ fiscalYear: -1, taxpayerType: 1, minIncome: 1 }).lean();
+    if (slab) {
+      salaryProfile.taxProfile = {
+        ...(salaryProfile.taxProfile || {}),
+        mode: "auto",
+        enabled: true,
+        fiscalYear: slab.fiscalYear,
+        taxpayerType: slab.taxpayerType || "general",
+        method: "slab",
+      };
+      await salaryProfile.save();
+      employee.taxProfile = {
+        ...(employee.taxProfile || {}),
+        mode: "auto",
+        enabled: true,
+        fiscalYear: slab.fiscalYear,
+        taxpayerType: slab.taxpayerType || "general",
+        method: "slab",
+      };
+      await employee.save({ validateBeforeSave: false });
+    }
+  }
 
   return { ok: true, salaryProfile };
 };

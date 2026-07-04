@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import toast, { Toaster } from "react-hot-toast"
-import { FiBarChart2, FiFilter, FiRefreshCcw, FiSearch, FiX } from "react-icons/fi"
+import { FiBarChart2, FiCheck, FiFilter, FiRefreshCcw, FiSearch, FiX } from "react-icons/fi"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -188,6 +188,23 @@ export default function TaxReport() {
     await load(next)
   }
 
+  const markRemitted = async (row) => {
+    if (!row?.payrollId) return
+    try {
+      await api("/tax/reports/remittance", {
+        method: "PATCH",
+        body: JSON.stringify({
+          payrollIds: [row.payrollId],
+          remitted: true,
+        }),
+      })
+      toast.success("Tax remittance marked")
+      await load()
+    } catch (error) {
+      toast.error(error.message || "Remittance update failed")
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#f6f7fb] p-4 sm:p-6 lg:p-8">
       <Toaster position="top-right" />
@@ -274,7 +291,7 @@ export default function TaxReport() {
         </div>
       </div>
 
-      <div className="mb-6 grid gap-4 md:grid-cols-3">
+      <div className="mb-6 grid gap-4 md:grid-cols-4 xl:grid-cols-6">
         <div className={`${card} p-5`}>
           <p className="text-sm font-bold text-gray-500">Total Gross</p>
           <p className="mt-2 text-3xl font-black text-gray-900">
@@ -290,9 +307,30 @@ export default function TaxReport() {
         </div>
 
         <div className={`${card} p-5`}>
+          <p className="text-sm font-bold text-gray-500">Yearly Liability</p>
+          <p className="mt-2 text-3xl font-black text-gray-900">
+            {money(report.totals?.yearlyTax)}
+          </p>
+        </div>
+
+        <div className={`${card} p-5`}>
+          <p className="text-sm font-bold text-gray-500">Remaining Tax</p>
+          <p className="mt-2 text-3xl font-black text-amber-600">
+            {money(report.totals?.remainingTax)}
+          </p>
+        </div>
+
+        <div className={`${card} p-5`}>
           <p className="text-sm font-bold text-gray-500">Employees</p>
           <p className="mt-2 text-3xl font-black text-gray-900">
-            {report.employeeSummary?.length || 0}
+            {report.totals?.salaryProfileEmployees || report.employeeSummary?.length || 0}
+          </p>
+        </div>
+
+        <div className={`${card} p-5`}>
+          <p className="text-sm font-bold text-gray-500">Tax Active</p>
+          <p className="mt-2 text-3xl font-black text-emerald-600">
+            {report.totals?.taxEnabledEmployees || 0}
           </p>
         </div>
       </div>
@@ -306,7 +344,11 @@ export default function TaxReport() {
                 <th className="px-5 py-3">Period</th>
                 <th className="px-5 py-3">Fiscal Year</th>
                 <th className="px-5 py-3">Gross</th>
+                <th className="px-5 py-3">Taxable</th>
+                <th className="px-5 py-3">Yearly Tax</th>
                 <th className="px-5 py-3">Tax</th>
+                <th className="px-5 py-3">Remittance</th>
+                <th className="px-5 py-3 text-right">Action</th>
               </tr>
             </thead>
 
@@ -339,8 +381,29 @@ export default function TaxReport() {
                     {money(row.grossSalary)}
                   </td>
 
+                  <td className="px-5 py-4 text-sm font-semibold text-gray-700">
+                    {money(row.taxableIncome)}
+                  </td>
+
+                  <td className="px-5 py-4 text-sm font-semibold text-gray-700">
+                    {money(row.yearlyTax)}
+                  </td>
+
                   <td className="px-5 py-4 text-sm font-black text-rose-600">
                     {money(row.taxDeduction)}
+                  </td>
+
+                  <td className="px-5 py-4 text-sm font-bold text-gray-700">
+                    {row.remittanceStatus === "remitted" ? "Remitted" : row.remittanceStatus === "pending" ? "Pending" : "-"}
+                  </td>
+
+                  <td className="px-5 py-4 text-right">
+                    {row.remittanceStatus === "pending" ? (
+                      <button className={`${btn} ${btnGhost} px-3 py-2`} type="button" onClick={() => markRemitted(row)}>
+                        <FiCheck className="h-3.5 w-3.5" />
+                        Mark
+                      </button>
+                    ) : null}
                   </td>
                 </tr>
               ))}
@@ -348,10 +411,66 @@ export default function TaxReport() {
               {!filteredRows.length ? (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={9}
                     className="h-[420px] px-5 py-10 text-center text-sm font-bold text-gray-500"
                   >
-                    No tax deductions found for this filter.
+                    No payroll tax rows found for this filter.
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className={`${card} mt-6 overflow-hidden`}>
+        <div className="border-b border-gray-100 px-5 py-4">
+          <h2 className="text-base font-extrabold text-gray-900">Employee Tax Summary</h2>
+        </div>
+        <div className="max-h-[460px] overflow-auto">
+          <table className="min-w-full text-left">
+            <thead className="sticky top-0 z-10 bg-gray-50 text-xs font-black uppercase text-gray-500 shadow-[0_1px_0_rgba(229,231,235,1)]">
+              <tr>
+                <th className="px-5 py-3">Employee</th>
+                <th className="px-5 py-3">Salary Profile</th>
+                <th className="px-5 py-3">Tax Method</th>
+                <th className="px-5 py-3">Months</th>
+                <th className="px-5 py-3">Earned Gross</th>
+                <th className="px-5 py-3">Taxable Income</th>
+                <th className="px-5 py-3">Yearly Tax</th>
+                <th className="px-5 py-3">Remaining</th>
+                <th className="px-5 py-3">Tax Paid</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {(report.employeeSummary || []).map((item) => (
+                <tr key={item.employee?._id || item.employee?.employeeId || item.employee?.email} className="bg-white transition hover:bg-gray-50/70">
+                  <td className="px-5 py-4">
+                    <p className="text-sm font-black text-gray-900">{item.employee?.name || "-"}</p>
+                    <p className="mt-0.5 text-xs font-semibold text-gray-500">{item.employee?.email || item.employee?.employeeId || "-"}</p>
+                  </td>
+                  <td className="px-5 py-4 text-sm font-semibold text-gray-700">
+                    {item.salaryProfile ? money(item.salaryProfile.basicSalary) : "-"}
+                  </td>
+                  <td className="px-5 py-4 text-sm font-semibold text-gray-700">
+                    {item.taxProfile?.mode === "disabled"
+                      ? "Disabled"
+                      : item.taxProfile?.mode === "override"
+                      ? `Override: ${String(item.taxProfile.method || "slab").toUpperCase()}`
+                      : "Auto Slab"}
+                  </td>
+                  <td className="px-5 py-4 text-sm font-semibold text-gray-700">{item.months || 0}</td>
+                  <td className="px-5 py-4 text-sm font-semibold text-gray-700">{money(item.grossSalary)}</td>
+                  <td className="px-5 py-4 text-sm font-semibold text-gray-700">{money(item.taxableIncome)}</td>
+                  <td className="px-5 py-4 text-sm font-semibold text-gray-700">{money(item.yearlyTax)}</td>
+                  <td className="px-5 py-4 text-sm font-semibold text-amber-700">{money(item.remainingTax)}</td>
+                  <td className="px-5 py-4 text-sm font-black text-rose-600">{money(item.totalTax)}</td>
+                </tr>
+              ))}
+              {!(report.employeeSummary || []).length ? (
+                <tr>
+                  <td colSpan={9} className="px-5 py-12 text-center text-sm font-bold text-gray-500">
+                    No salary-profile employees found for this filter.
                   </td>
                 </tr>
               ) : null}

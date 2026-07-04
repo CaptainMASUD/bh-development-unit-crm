@@ -93,6 +93,8 @@ export const requirePermission = (permission) => (req, res, next) => {
     "access-control:view": ["employees:manage", "salary:manage", "payroll:manage", "leaves:manage", "roster:manage"],
     "employees:view": ["employees:manage", "attendance:manage", "payroll:manage", "loans:manage", "leaves:manage", "roster:manage", "salary:manage"],
     "tax.view": ["tax.create", "tax.update", "tax.delete", "tax.assign_employee", "tax.report", "payroll:manage"],
+    "expenses:view": ["expenses:manage"],
+    "expense-setup:view": ["expense-setup:manage", "expenses:manage"],
   };
   const manageEquivalent = String(permission).endsWith(":view")
     ? String(permission).replace(/:view$/, ":manage")

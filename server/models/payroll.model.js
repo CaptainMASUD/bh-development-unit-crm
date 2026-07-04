@@ -131,6 +131,11 @@ const salarySnapshotSchema = new mongoose.Schema(
       type: Object,
       default: {},
     },
+
+    taxProfile: {
+      type: Object,
+      default: {},
+    },
   },
   { _id: false }
 );
@@ -299,6 +304,23 @@ const payrollSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       set: roundMoney,
+    },
+
+    taxRemitted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    taxRemittedAt: {
+      type: Date,
+      default: null,
+    },
+
+    taxRemittanceRef: {
+      type: String,
+      trim: true,
+      default: "",
     },
 
     otherDeductions: {

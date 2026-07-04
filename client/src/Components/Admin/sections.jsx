@@ -17,6 +17,8 @@ import LeaveRequests from "./LeaveRequests"
 import LeaveSetup from "./LeaveSetup"
 import RosterShiftSetup from "./RosterShiftSetup"
 import TaxSetup from "./TaxSetup"
+import ExpenseSetup from "./ExpenseSetup"
+import Expenses from "./Expenses"
 import ProfileSettings from "./ProfileSettings"
 import About from "./About"
 
@@ -103,6 +105,12 @@ const sections = {
     component: <PayrollManager />,
   },
 
+  Expenses: {
+    icon: <FiCreditCard className="w-5 h-5" />,
+    component: <Expenses />,
+    permission: "expenses:view",
+  },
+
   "Employee Loans": {
     icon: <FiCreditCard className="w-5 h-5" />,
     component: <EmployeeLoans />,
@@ -119,11 +127,13 @@ const sections = {
       "Roster / Shift Setup": <RosterShiftSetup />,
       "Leave Setup": <LeaveSetup />,
       "Tax Setup": <TaxSetup />,
+      "Expense Setup": <ExpenseSetup />,
     },
     subcategoryPermissions: {
       "Roster / Shift Setup": "roster:view",
       "Leave Setup": "leaves:manage",
       "Tax Setup": "tax.view",
+      "Expense Setup": "expense-setup:view",
     },
   },
 

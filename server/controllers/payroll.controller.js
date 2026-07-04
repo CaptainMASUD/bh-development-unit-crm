@@ -240,6 +240,7 @@ const normalizeManualComponent = (item = {}, type) => {
     quantity,
     basedOn: clean(item.basedOn || "manual"),
     amount: item.amount !== undefined ? roundMoney(item.amount) : undefined,
+    isTaxable: item.isTaxable === true,
     note: clean(item.note),
   };
 };
@@ -434,6 +435,7 @@ const buildPayrollPayload = async ({
     workingHoursPerDay: Number(salaryProfile.workingHoursPerDay || 8),
     components: salaryProfile.components || [],
     rules: salaryProfile.rules || {},
+    taxProfile: salaryProfile.taxProfile || {},
   };
 
   const earnings = [
@@ -453,6 +455,7 @@ const buildPayrollPayload = async ({
   const deductions = [];
 
   let runningGross = basicSalary;
+  let taxableGross = basicSalary;
 
   const activeComponents = Array.isArray(salaryProfile.components)
     ? salaryProfile.components.filter((item) => item.isActive !== false)
@@ -475,11 +478,13 @@ const buildPayrollPayload = async ({
           quantity: 1,
           basedOn: component.basedOn || "basicSalary",
           amount,
+          meta: { isTaxable: component.isTaxable === true },
           note: component.note || "",
         })
       );
 
       runningGross += amount;
+      if (component.isTaxable === true) taxableGross += amount;
     }
   }
 
@@ -493,6 +498,7 @@ const buildPayrollPayload = async ({
   for (const item of attendanceMoney.earnings) {
     earnings.push(item);
     runningGross += Number(item.amount || 0);
+    taxableGross += Number(item.amount || 0);
   }
 
   for (const item of manualEarnings.map((x) => normalizeManualComponent(x, "earning"))) {
@@ -508,11 +514,13 @@ const buildPayrollPayload = async ({
       earnings.push(
         makePayrollComponent({
           ...item,
+          meta: { isTaxable: item.isTaxable === true },
           amount,
         })
       );
 
       runningGross += amount;
+      if (item.isTaxable === true) taxableGross += amount;
     }
   }
 
@@ -551,7 +559,9 @@ const buildPayrollPayload = async ({
 
   const taxResult = await calculateEmployeeTaxDeduction({
     employee,
+    salaryProfile,
     grossSalary: runningGross,
+    taxableGrossSalary: taxableGross,
     year,
     month,
   });

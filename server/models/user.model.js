@@ -184,9 +184,16 @@ const userSchema = new mongoose.Schema(
     },
 
     taxProfile: {
+      mode: {
+        type: String,
+        enum: ["auto", "override", "disabled"],
+        default: "auto",
+        index: true,
+      },
       enabled: { type: Boolean, default: false, index: true },
       tin: { type: String, trim: true, default: "" },
       fiscalYear: { type: String, trim: true, default: "" },
+      fiscalYearStartMonth: { type: Number, default: 1, min: 1, max: 12 },
       taxpayerType: { type: String, trim: true, lowercase: true, default: "general", index: true },
       method: { type: String, enum: ["slab", "percentage", "fixed"], default: "slab" },
       percentage: { type: Number, default: 0, min: 0 },

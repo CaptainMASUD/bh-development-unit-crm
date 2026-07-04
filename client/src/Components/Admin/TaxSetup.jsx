@@ -24,9 +24,11 @@ const emptySlab = {
 }
 
 const emptyProfile = {
-  enabled: false,
+  mode: "auto",
+  enabled: true,
   tin: "",
   fiscalYear: "",
+  fiscalYearStartMonth: 1,
   taxpayerType: "general",
   method: "slab",
   percentage: 0,
@@ -66,6 +68,17 @@ function Field({ label, children }) {
   return <label className="block"><span className="mb-1.5 block text-sm font-bold text-gray-800">{label}</span>{children}</label>
 }
 
+function normalizeProfile(profile = {}) {
+  const mode = ["auto", "override", "disabled"].includes(profile.mode) ? profile.mode : profile.enabled === false ? "disabled" : "auto"
+  return {
+    ...emptyProfile,
+    ...profile,
+    mode,
+    enabled: mode !== "disabled",
+    method: mode === "override" ? profile.method || "slab" : "slab",
+  }
+}
+
 export default function TaxSetup() {
   const [activeTab, setActiveTab] = useState("slabs")
   const [slabs, setSlabs] = useState([])
@@ -96,7 +109,7 @@ export default function TaxSetup() {
   const matchingSlabCount = useMemo(() => {
     const fiscalYear = String(profileForm.fiscalYear || filters.fiscalYear || "").trim()
     const taxpayerType = String(profileForm.taxpayerType || "general").trim().toLowerCase()
-    if (profileForm.method !== "slab" || !fiscalYear) return 0
+    if (profileForm.mode === "disabled" || (profileForm.mode === "override" && profileForm.method !== "slab") || !fiscalYear) return 0
     return slabs.filter(
       (slab) =>
         String(slab.fiscalYear || "").trim() === fiscalYear &&
@@ -107,7 +120,7 @@ export default function TaxSetup() {
 
   const tabs = [
     { key: "slabs", label: "Tax Slabs", count: slabs.length },
-    { key: "employees", label: "Employee Tax Profiles", count: employees.filter((employee) => employee.taxProfile?.enabled).length },
+    { key: "employees", label: "Employee Tax Overrides", count: employees.filter((employee) => employee.taxProfile?.mode && employee.taxProfile.mode !== "auto").length },
   ]
 
   const load = async () => {
@@ -135,7 +148,7 @@ export default function TaxSetup() {
 
   useEffect(() => {
     if (!selectedEmployee) return
-    setProfileForm({ ...emptyProfile, ...(selectedEmployee.taxProfile || {}) })
+    setProfileForm(normalizeProfile(selectedEmployee.taxProfile || {}))
   }, [selectedEmployee])
 
   const saveSlab = async (event) => {
@@ -148,11 +161,16 @@ export default function TaxSetup() {
       fixedAmount: Number(slabForm.fixedAmount || 0),
     }
     try {
-      await api(editingSlab?._id ? `/tax/slabs/${editingSlab._id}` : "/tax/slabs", {
+      const data = await api(editingSlab?._id ? `/tax/slabs/${editingSlab._id}` : "/tax/slabs", {
         method: editingSlab?._id ? "PATCH" : "POST",
         body: JSON.stringify(payload),
       })
-      toast.success(editingSlab ? "Tax slab updated" : "Tax slab created")
+      const autoAssigned = Number(data?.autoAssigned?.modified || 0)
+      toast.success(
+        autoAssigned
+          ? `${editingSlab ? "Tax slab updated" : "Tax slab created"} and applied to ${autoAssigned} salary profile employee${autoAssigned === 1 ? "" : "s"}`
+          : editingSlab ? "Tax slab updated" : "Tax slab created"
+      )
       setEditingSlab(null)
       setSlabForm(emptySlab)
       setSlabModalOpen(false)
@@ -196,23 +214,26 @@ export default function TaxSetup() {
   const saveProfile = async (event) => {
     event.preventDefault()
     if (!selectedEmployeeId) return toast.error("Select an employee first")
-    const method = profileForm.method || "slab"
+    const mode = profileForm.mode || "auto"
+    const method = mode === "override" ? profileForm.method || "slab" : "slab"
     try {
       await api(`/tax/employee-profiles/${selectedEmployeeId}`, {
         method: "PATCH",
         body: JSON.stringify({
           ...profileForm,
+          mode,
+          enabled: mode !== "disabled",
           method,
-          percentage: method === "percentage" ? Number(profileForm.percentage || 0) : 0,
-          fixedAmount: method === "fixed" ? Number(profileForm.fixedAmount || 0) : 0,
-          exemptionAmount: method === "slab" ? Number(profileForm.exemptionAmount || 0) : 0,
-          investmentAmount: method === "slab" ? Number(profileForm.investmentAmount || 0) : 0,
+          percentage: mode === "override" && method === "percentage" ? Number(profileForm.percentage || 0) : 0,
+          fixedAmount: mode === "override" && method === "fixed" ? Number(profileForm.fixedAmount || 0) : 0,
+          exemptionAmount: mode !== "disabled" ? Number(profileForm.exemptionAmount || 0) : 0,
+          investmentAmount: mode !== "disabled" ? Number(profileForm.investmentAmount || 0) : 0,
         }),
       })
-      toast.success("Employee tax profile saved")
+      toast.success("Employee tax override saved")
       await load()
     } catch (error) {
-      toast.error(error.message || "Profile save failed")
+      toast.error(error.message || "Override save failed")
     }
   }
 
@@ -225,7 +246,7 @@ export default function TaxSetup() {
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white"><FiBarChart2 /></div>
             <div>
               <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Tax / TDS Setup</h1>
-              <p className="mt-1 text-sm font-semibold text-gray-500">Manage fiscal-year slabs and employee Tax/TDS profiles.</p>
+              <p className="mt-1 text-sm font-semibold text-gray-500">Manage fiscal-year slabs and employee tax exceptions.</p>
             </div>
           </div>
           <button className={`${btn} ${btnGhost}`} onClick={load} disabled={loading}><FiRefreshCcw className={loading ? "animate-spin" : ""} />Refresh</button>
@@ -289,7 +310,7 @@ export default function TaxSetup() {
 
       {activeTab === "employees" ? (
         <div className={`${card} p-5`}>
-          <h2 className="text-base font-extrabold text-gray-900">Employee Tax Profile</h2>
+          <h2 className="text-base font-extrabold text-gray-900">Employee Tax Overrides</h2>
           <form className="mt-4 grid gap-3" onSubmit={saveProfile}>
             <Field label="Employee">
               <select className={input} value={selectedEmployeeId} onChange={(e) => setSelectedEmployeeId(e.target.value)}>
@@ -297,19 +318,49 @@ export default function TaxSetup() {
                 {employees.map((employee) => <option key={employee._id} value={employee._id}>{employee.name} {employee.employeeId ? `(${employee.employeeId})` : ""}</option>)}
               </select>
             </Field>
-            <label className="flex items-center gap-2 text-sm font-bold text-gray-700"><input type="checkbox" checked={profileForm.enabled} onChange={(e) => setProfileForm((p) => ({ ...p, enabled: e.target.checked }))} /> Enable Tax/TDS</label>
-            <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Tax Mode">
+              <select
+                className={input}
+                value={profileForm.mode || "auto"}
+                onChange={(e) =>
+                  setProfileForm((p) => ({
+                    ...p,
+                    mode: e.target.value,
+                    enabled: e.target.value !== "disabled",
+                    method: e.target.value === "override" ? p.method || "slab" : "slab",
+                  }))
+                }
+              >
+                <option value="auto">Auto Tax Enabled from Salary Profile</option>
+                <option value="override">Custom Tax Override</option>
+                <option value="disabled">Tax Disabled for Employee</option>
+              </select>
+            </Field>
+            {selectedEmployeeId && profileForm.mode === "auto" ? (
+              <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm font-bold text-indigo-700">
+                Payroll will select active fiscal-year slabs automatically from this employee's taxable salary.
+              </div>
+            ) : null}
+            {selectedEmployeeId && profileForm.mode === "disabled" ? (
+              <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
+                Tax deduction will be skipped for this employee until Auto or Override is selected again.
+              </div>
+            ) : null}
+            {profileForm.mode !== "disabled" ? (
+              <div className="grid gap-3 md:grid-cols-2">
               <Field label="TIN">
                 <input className={input} value={profileForm.tin} onChange={(e) => setProfileForm((p) => ({ ...p, tin: e.target.value }))} />
               </Field>
-              <Field label="Method">
-                <select className={input} value={profileForm.method} onChange={(e) => setProfileForm((p) => ({ ...p, method: e.target.value }))}>
-                  <option value="slab">Slab</option>
-                  <option value="percentage">Percentage</option>
-                  <option value="fixed">Fixed</option>
-                </select>
-              </Field>
-              {profileForm.method === "slab" ? (
+              {profileForm.mode === "override" ? (
+                <Field label="Override Method">
+                  <select className={input} value={profileForm.method} onChange={(e) => setProfileForm((p) => ({ ...p, method: e.target.value }))}>
+                    <option value="slab">Slab</option>
+                    <option value="percentage">Percentage</option>
+                    <option value="fixed">Fixed</option>
+                  </select>
+                </Field>
+              ) : null}
+              {profileForm.mode === "auto" || profileForm.method === "slab" ? (
                 <>
                   <Field label="Fiscal Year">
                     <input
@@ -334,6 +385,13 @@ export default function TaxSetup() {
                       {taxpayerTypeOptions.map((type) => <option key={type} value={type} />)}
                     </datalist>
                   </Field>
+                  <Field label="Fiscal Year Start Month">
+                    <select className={input} value={profileForm.fiscalYearStartMonth || 1} onChange={(e) => setProfileForm((p) => ({ ...p, fiscalYearStartMonth: e.target.value }))}>
+                      {Array.from({ length: 12 }, (_, index) => (
+                        <option key={index + 1} value={index + 1}>{index + 1}</option>
+                      ))}
+                    </select>
+                  </Field>
                   <Field label="Exemption Amount">
                     <input className={input} type="number" value={profileForm.exemptionAmount} onChange={(e) => setProfileForm((p) => ({ ...p, exemptionAmount: e.target.value }))} />
                   </Field>
@@ -342,25 +400,26 @@ export default function TaxSetup() {
                   </Field>
                 </>
               ) : null}
-              {profileForm.method === "percentage" ? (
+              {profileForm.mode === "override" && profileForm.method === "percentage" ? (
                 <Field label="Tax Percentage">
                   <input className={input} type="number" min="0" step="0.01" value={profileForm.percentage} onChange={(e) => setProfileForm((p) => ({ ...p, percentage: e.target.value }))} />
                 </Field>
               ) : null}
-              {profileForm.method === "fixed" ? (
+              {profileForm.mode === "override" && profileForm.method === "fixed" ? (
                 <Field label="Fixed Monthly Amount">
                   <input className={input} type="number" min="0" value={profileForm.fixedAmount} onChange={(e) => setProfileForm((p) => ({ ...p, fixedAmount: e.target.value }))} />
                 </Field>
               ) : null}
-            </div>
-            {profileForm.method === "slab" && selectedEmployeeId ? (
+              </div>
+            ) : null}
+            {profileForm.mode !== "disabled" && (profileForm.mode === "auto" || profileForm.method === "slab") && selectedEmployeeId ? (
               <div className={`rounded-2xl border p-4 text-sm font-bold ${matchingSlabCount ? "border-emerald-100 bg-emerald-50 text-emerald-700" : "border-amber-100 bg-amber-50 text-amber-700"}`}>
                 {matchingSlabCount
-                  ? `${matchingSlabCount} active slab${matchingSlabCount === 1 ? "" : "s"} will be used for this employee.`
+                  ? `${matchingSlabCount} active slab${matchingSlabCount === 1 ? "" : "s"} can be used automatically.`
                   : "No active slab matches this fiscal year and taxpayer type."}
               </div>
             ) : null}
-            <button className={`${btn} ${btnPrimary}`} type="submit"><FiSave />Save Employee Tax Profile</button>
+            <button className={`${btn} ${btnPrimary}`} type="submit"><FiSave />Save Tax Override</button>
           </form>
         </div>
       ) : null}
