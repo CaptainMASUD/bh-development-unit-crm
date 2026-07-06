@@ -171,6 +171,8 @@ dealSchema.index({ customerId: 1, createdAt: -1 });
 dealSchema.index({ leadId: 1, createdAt: -1 });
 dealSchema.index({ proposalId: 1, createdAt: -1 });
 dealSchema.index({ stage: 1, grandTotal: -1, _id: -1 });
+dealSchema.index({ stage: 1, wonAt: -1, _id: -1 });
+dealSchema.index({ stage: 1, updatedAt: -1, _id: -1 });
 dealSchema.index({ proposalStatus: 1, quotationValidTill: 1 });
 dealSchema.index({ dealHealth: 1, expectedRevenue: -1 });
 

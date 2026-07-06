@@ -27,5 +27,9 @@ const leaveRequestSchema = new mongoose.Schema(
 
 leaveRequestSchema.index({ employee: 1, year: 1, status: 1 });
 leaveRequestSchema.index({ status: 1, createdAt: -1 });
+leaveRequestSchema.index({ employee: 1, year: 1, createdAt: -1, _id: -1 });
+leaveRequestSchema.index({ status: 1, createdAt: -1, _id: -1 });
+leaveRequestSchema.index({ leaveType: 1, year: 1, createdAt: -1, _id: -1 });
+leaveRequestSchema.index({ createdAt: -1, _id: -1 });
 
 export default mongoose.model("LeaveRequest", leaveRequestSchema);

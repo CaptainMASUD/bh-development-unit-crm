@@ -61,6 +61,7 @@ import leaveRequestRoutes from "./routes/leaveRequest.routes.js";
 import leaveTemplateRoutes from "./routes/leaveTemplate.routes.js";
 import taxRoutes from "./routes/tax.routes.js";
 import expenseRoutes from "./routes/expense.routes.js";
+import accountingRoutes from "./routes/accounting.routes.js";
 
 /* =========================
    HEALTH CHECK
@@ -96,6 +97,7 @@ app.use("/api/leaves", leaveRequestRoutes);
 app.use("/api/leave-templates", leaveTemplateRoutes);
 app.use("/api/tax", taxRoutes);
 app.use("/api/expenses", expenseRoutes);
+app.use("/api/accounting", accountingRoutes);
 
 /* =========================
    PAYROLL

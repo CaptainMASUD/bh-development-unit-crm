@@ -99,6 +99,14 @@ const PERMISSION_LABELS = {
     label: "Manage Deals",
     helper: "Create and update deals.",
   },
+  "finance:view": {
+    label: "View Finance",
+    helper: "Open receivable, payable, and profit & loss accounting reports.",
+  },
+  "finance:manage": {
+    label: "Manage Finance",
+    helper: "Administer finance and accounting reports.",
+  },
   "tasks:view": { label: "View Client Tasks", helper: "See tasks, subtitles, files, and notes assigned to clients." },
   "tasks:manage": { label: "Manage Client Tasks", helper: "Update task status, files, notes, and task details." },
   "reports:view": {
@@ -145,6 +153,7 @@ const MODULE_LABELS = {
   tasks: "Client Tasks",
   leads: "Leads",
   deals: "Deals",
+  finance: "Finance",
   reports: "Reports",
   attendance: "Attendance",
   payroll: "Payroll",

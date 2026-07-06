@@ -8,7 +8,17 @@ export const dashboardCache = new NodeCache({
   useClones: false,
 });
 
+export const accountingCache = new NodeCache({
+  stdTTL: 12,
+  checkperiod: 30,
+  useClones: false,
+});
+
 
 export const invalidateDashboardCache = () => {
   dashboardCache.flushAll();
+};
+
+export const invalidateAccountingCache = () => {
+  accountingCache.flushAll();
 };

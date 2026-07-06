@@ -214,6 +214,10 @@ employeeLoanSchema.index({ employee: 1, startYear: 1, startMonth: 1, status: 1 }
 employeeLoanSchema.index({ department: 1, status: 1, createdAt: -1 });
 employeeLoanSchema.index({ position: 1, status: 1, createdAt: -1 });
 employeeLoanSchema.index({ status: 1, remainingAmount: 1 });
+employeeLoanSchema.index({ employee: 1, createdAt: -1, _id: -1 });
+employeeLoanSchema.index({ status: 1, createdAt: -1, _id: -1 });
+employeeLoanSchema.index({ department: 1, createdAt: -1, _id: -1 });
+employeeLoanSchema.index({ position: 1, createdAt: -1, _id: -1 });
 
 /* ===============================
    Validation / normalization

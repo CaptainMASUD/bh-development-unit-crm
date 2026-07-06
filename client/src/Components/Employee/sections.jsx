@@ -28,6 +28,8 @@ import RosterManager from "../Admin/RosterShiftSetup"
 import AccessControl from "../Admin/AccessControl"
 import TaxSetup from "../Admin/TaxSetup"
 import TaxReport from "../Admin/TaxReport"
+import AccountingModules from "../Admin/AccountingModules"
+import Expenses from "../Admin/Expenses"
 
 export const sections = {
   Dashboard: {
@@ -52,6 +54,18 @@ export const sections = {
     icon: <FiCreditCard className="w-5 h-5" />,
     component: <DealsPage />,
     permission: PERMISSIONS.DEALS_VIEW,
+  },
+
+  Expenses: {
+    icon: <FiCreditCard className="w-5 h-5" />,
+    component: <Expenses />,
+    permission: PERMISSIONS.EXPENSES_VIEW,
+  },
+
+  Finance: {
+    icon: <FiDollarSign className="w-5 h-5" />,
+    component: <AccountingModules />,
+    permission: PERMISSIONS.FINANCE_VIEW,
   },
 
   "My Attendance": {

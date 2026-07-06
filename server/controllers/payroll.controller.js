@@ -42,6 +42,46 @@ const parseLimit = (value) => {
   return Math.min(Math.max(n, 1), MAX_LIMIT);
 };
 
+const encodeCursor = (doc) =>
+  Buffer.from(
+    JSON.stringify({
+      year: Number(doc.year || 0),
+      month: Number(doc.month || 0),
+      createdAt: doc.createdAt ? new Date(doc.createdAt).toISOString() : "",
+      id: String(doc._id || ""),
+    })
+  ).toString("base64url");
+
+const decodeCursor = (cursor) => {
+  if (!cursor) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(String(cursor), "base64url").toString("utf8"));
+    if (!decoded?.id || !isValidObjectId(decoded.id)) return null;
+    const createdAt = decoded.createdAt ? new Date(decoded.createdAt) : null;
+    if (!createdAt || Number.isNaN(createdAt.getTime())) return null;
+    return {
+      year: Number(decoded.year || 0),
+      month: Number(decoded.month || 0),
+      createdAt,
+      id: new mongoose.Types.ObjectId(decoded.id),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const payrollCursorFilter = (cursor) => {
+  if (!cursor) return {};
+  return {
+    $or: [
+      { year: { $lt: cursor.year } },
+      { year: cursor.year, month: { $lt: cursor.month } },
+      { year: cursor.year, month: cursor.month, createdAt: { $lt: cursor.createdAt } },
+      { year: cursor.year, month: cursor.month, createdAt: cursor.createdAt, _id: { $lt: cursor.id } },
+    ],
+  };
+};
+
 const getMonthRange = ({ year, month }) => {
   const y = Number(year);
   const m = Number(month);
@@ -927,9 +967,10 @@ export const listPayrolls = async (req, res) => {
 
     const limit = parseLimit(req.query.limit);
     const page = Math.max(Number(req.query.page || 1), 1);
-    const skip = (page - 1) * limit;
+    const cursor = decodeCursor(req.query.cursor);
+    const skip = cursor ? 0 : (page - 1) * limit;
 
-    const filter = {};
+    const filter = { ...payrollCursorFilter(cursor) };
 
     if (req.query.employee && isValidObjectId(req.query.employee)) {
       filter.employee = req.query.employee;
@@ -947,22 +988,27 @@ export const listPayrolls = async (req, res) => {
     if (req.query.month) filter.month = Number(req.query.month);
     if (req.query.status) filter.status = clean(req.query.status);
 
-    const [payrolls, total] = await Promise.all([
+    const [rawPayrolls, total] = await Promise.all([
       populatePayrollQuery(
         Payroll.find(filter)
           .sort({ year: -1, month: -1, createdAt: -1, _id: -1 })
           .skip(skip)
-          .limit(limit)
+          .limit(limit + 1)
       ).lean(),
-      Payroll.countDocuments(filter),
+      cursor ? Promise.resolve(null) : Payroll.countDocuments(filter),
     ]);
+
+    const hasNextPage = rawPayrolls.length > limit;
+    const payrolls = hasNextPage ? rawPayrolls.slice(0, limit) : rawPayrolls;
+    const nextCursor = hasNextPage && payrolls.length ? encodeCursor(payrolls[payrolls.length - 1]) : null;
 
     return res.json({
       count: payrolls.length,
-      total,
+      total: total ?? null,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
+      totalPages: total === null ? null : Math.ceil(total / limit),
+      pageInfo: { page, limit, hasNextPage, nextCursor },
       payrolls,
     });
   } catch (err) {
@@ -1010,31 +1056,38 @@ export const getMyPayrolls = async (req, res) => {
   try {
     const limit = parseLimit(req.query.limit);
     const page = Math.max(Number(req.query.page || 1), 1);
-    const skip = (page - 1) * limit;
+    const cursor = decodeCursor(req.query.cursor);
+    const skip = cursor ? 0 : (page - 1) * limit;
 
     const filter = {
       employee: req.user?._id,
+      ...payrollCursorFilter(cursor),
     };
 
     if (req.query.year) filter.year = Number(req.query.year);
     if (req.query.month) filter.month = Number(req.query.month);
 
-    const [payrolls, total] = await Promise.all([
+    const [rawPayrolls, total] = await Promise.all([
       populatePayrollQuery(
         Payroll.find(filter)
           .sort({ year: -1, month: -1, createdAt: -1, _id: -1 })
           .skip(skip)
-          .limit(limit)
+          .limit(limit + 1)
       ).lean(),
-      Payroll.countDocuments(filter),
+      cursor ? Promise.resolve(null) : Payroll.countDocuments(filter),
     ]);
+
+    const hasNextPage = rawPayrolls.length > limit;
+    const payrolls = hasNextPage ? rawPayrolls.slice(0, limit) : rawPayrolls;
+    const nextCursor = hasNextPage && payrolls.length ? encodeCursor(payrolls[payrolls.length - 1]) : null;
 
     return res.json({
       count: payrolls.length,
-      total,
+      total: total ?? null,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
+      totalPages: total === null ? null : Math.ceil(total / limit),
+      pageInfo: { page, limit, hasNextPage, nextCursor },
       payrolls,
     });
   } catch (err) {
@@ -1062,17 +1115,25 @@ export const getEmployeePayrolls = async (req, res) => {
       return res.status(403).json({ message: "Not authorized to view this payroll." });
     }
 
-    const filter = { employee: employeeId };
+    const limit = parseLimit(req.query.limit);
+    const cursor = decodeCursor(req.query.cursor);
+    const filter = { employee: employeeId, ...payrollCursorFilter(cursor) };
 
     if (req.query.year) filter.year = Number(req.query.year);
     if (req.query.month) filter.month = Number(req.query.month);
 
-    const payrolls = await populatePayrollQuery(
+    const rawPayrolls = await populatePayrollQuery(
       Payroll.find(filter).sort({ year: -1, month: -1, createdAt: -1, _id: -1 })
+        .limit(limit + 1)
     ).lean();
+
+    const hasNextPage = rawPayrolls.length > limit;
+    const payrolls = hasNextPage ? rawPayrolls.slice(0, limit) : rawPayrolls;
+    const nextCursor = hasNextPage && payrolls.length ? encodeCursor(payrolls[payrolls.length - 1]) : null;
 
     return res.json({
       count: payrolls.length,
+      pageInfo: { limit, hasNextPage, nextCursor },
       payrolls,
     });
   } catch (err) {

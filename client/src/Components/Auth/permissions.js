@@ -6,6 +6,8 @@ export const PERMISSIONS = {
   LEADS_MANAGE: "leads:manage",
   DEALS_VIEW: "deals:view",
   DEALS_MANAGE: "deals:manage",
+  FINANCE_VIEW: "finance:view",
+  FINANCE_MANAGE: "finance:manage",
   TASKS_VIEW: "tasks:view",
   TASKS_MANAGE: "tasks:manage",
   REPORTS_VIEW: "reports:view",

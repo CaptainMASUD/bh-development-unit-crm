@@ -37,6 +37,47 @@ const parseLimit = (value) => {
   return Math.min(Math.max(n, 1), MAX_LIMIT);
 };
 
+const encodeCursor = (doc) =>
+  Buffer.from(
+    JSON.stringify({
+      isActive: doc.isActive === true,
+      effectiveFrom: doc.effectiveFrom ? new Date(doc.effectiveFrom).toISOString() : "",
+      createdAt: doc.createdAt ? new Date(doc.createdAt).toISOString() : "",
+      id: String(doc._id || ""),
+    })
+  ).toString("base64url");
+
+const decodeCursor = (cursor) => {
+  if (!cursor) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(String(cursor), "base64url").toString("utf8"));
+    if (!decoded?.id || !isValidObjectId(decoded.id)) return null;
+    const effectiveFrom = decoded.effectiveFrom ? new Date(decoded.effectiveFrom) : new Date(0);
+    const createdAt = decoded.createdAt ? new Date(decoded.createdAt) : null;
+    if (!createdAt || Number.isNaN(createdAt.getTime()) || Number.isNaN(effectiveFrom.getTime())) return null;
+    return {
+      isActive: decoded.isActive === true,
+      effectiveFrom,
+      createdAt,
+      id: new mongoose.Types.ObjectId(decoded.id),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const salaryCursorFilter = (cursor) => {
+  if (!cursor) return {};
+  return {
+    $or: [
+      { isActive: { $lt: cursor.isActive } },
+      { isActive: cursor.isActive, effectiveFrom: { $lt: cursor.effectiveFrom } },
+      { isActive: cursor.isActive, effectiveFrom: cursor.effectiveFrom, createdAt: { $lt: cursor.createdAt } },
+      { isActive: cursor.isActive, effectiveFrom: cursor.effectiveFrom, createdAt: cursor.createdAt, _id: { $lt: cursor.id } },
+    ],
+  };
+};
+
 const parseBooleanQuery = (value) => {
   if (value === undefined || value === null || value === "all") return null;
   if (String(value) === "true") return true;
@@ -270,9 +311,10 @@ export const listSalaryProfiles = async (req, res) => {
   try {
     const limit = parseLimit(req.query.limit);
     const page = Math.max(Number(req.query.page || 1), 1);
-    const skip = (page - 1) * limit;
+    const cursor = decodeCursor(req.query.cursor);
+    const skip = cursor ? 0 : (page - 1) * limit;
 
-    const filter = {};
+    const filter = { ...salaryCursorFilter(cursor) };
 
     if (req.query.employee && isValidObjectId(req.query.employee)) {
       filter.employee = req.query.employee;
@@ -289,22 +331,27 @@ export const listSalaryProfiles = async (req, res) => {
     const active = parseBooleanQuery(req.query.active);
     if (active !== null) filter.isActive = active;
 
-    const [items, total] = await Promise.all([
+    const [rawItems, total] = await Promise.all([
       populateSalaryQuery(
         SalaryProfile.find(filter)
           .sort({ isActive: -1, effectiveFrom: -1, createdAt: -1, _id: -1 })
           .skip(skip)
-          .limit(limit)
+          .limit(limit + 1)
       ).lean(),
-      SalaryProfile.countDocuments(filter),
+      cursor ? Promise.resolve(null) : SalaryProfile.countDocuments(filter),
     ]);
+
+    const hasNextPage = rawItems.length > limit;
+    const items = hasNextPage ? rawItems.slice(0, limit) : rawItems;
+    const nextCursor = hasNextPage && items.length ? encodeCursor(items[items.length - 1]) : null;
 
     return res.json({
       count: items.length,
-      total,
+      total: total ?? null,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
+      totalPages: total === null ? null : Math.ceil(total / limit),
+      pageInfo: { page, limit, hasNextPage, nextCursor },
       salaryProfiles: items,
     });
   } catch (err) {

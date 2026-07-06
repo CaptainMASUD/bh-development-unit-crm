@@ -61,6 +61,8 @@ const expenseSchema = new mongoose.Schema(
 expenseSchema.index({ expenseDate: -1, createdAt: -1, _id: -1 });
 expenseSchema.index({ status: 1, expenseDate: -1 });
 expenseSchema.index({ category: 1, status: 1, expenseDate: -1 });
+expenseSchema.index({ status: 1, expenseDate: -1, _id: -1 });
+expenseSchema.index({ payeeVendor: 1, status: 1, expenseDate: -1 });
 
 expenseSchema.pre("validate", function (next) {
   this.title = String(this.title || "").trim();

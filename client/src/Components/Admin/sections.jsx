@@ -19,6 +19,7 @@ import RosterShiftSetup from "./RosterShiftSetup"
 import TaxSetup from "./TaxSetup"
 import ExpenseSetup from "./ExpenseSetup"
 import Expenses from "./Expenses"
+import AccountingModules from "./AccountingModules"
 import ProfileSettings from "./ProfileSettings"
 import About from "./About"
 
@@ -109,6 +110,12 @@ const sections = {
     icon: <FiCreditCard className="w-5 h-5" />,
     component: <Expenses />,
     permission: "expenses:view",
+  },
+
+  Finance: {
+    icon: <FiDollarSign className="w-5 h-5" />,
+    component: <AccountingModules />,
+    permission: "finance:view",
   },
 
   "Employee Loans": {

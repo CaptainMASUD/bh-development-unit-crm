@@ -9,6 +9,37 @@ const MAX_LIMIT = 100;
 const clean = (value) => String(value ?? "").trim();
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(String(id || ""));
 
+const encodeCursor = (doc) =>
+  Buffer.from(
+    JSON.stringify({
+      createdAt: doc.createdAt ? new Date(doc.createdAt).toISOString() : "",
+      id: String(doc._id || ""),
+    })
+  ).toString("base64url");
+
+const decodeCursor = (cursor) => {
+  if (!cursor) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(String(cursor), "base64url").toString("utf8"));
+    if (!decoded?.id || !isValidObjectId(decoded.id)) return null;
+    const createdAt = decoded.createdAt ? new Date(decoded.createdAt) : null;
+    if (!createdAt || Number.isNaN(createdAt.getTime())) return null;
+    return { createdAt, id: new mongoose.Types.ObjectId(decoded.id) };
+  } catch {
+    return null;
+  }
+};
+
+const createdAtCursorFilter = (cursor) => {
+  if (!cursor) return {};
+  return {
+    $or: [
+      { createdAt: { $lt: cursor.createdAt } },
+      { createdAt: cursor.createdAt, _id: { $lt: cursor.id } },
+    ],
+  };
+};
+
 const normalizeDateOnly = (value) => {
   const date = value ? new Date(value) : null;
   if (!date || Number.isNaN(date.getTime())) return null;
@@ -161,23 +192,38 @@ export const listLeaveRequests = async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page || 1));
     const limit = parseLimit(req.query.limit);
-    const filter = {};
+    const cursor = decodeCursor(req.query.cursor);
+    const filter = { ...createdAtCursorFilter(cursor) };
 
     if (req.query.status) filter.status = clean(req.query.status);
     if (req.query.leaveType) filter.leaveType = clean(req.query.leaveType);
     if (req.query.year) filter.year = Number(req.query.year);
     if (req.query.employee && isValidObjectId(req.query.employee)) filter.employee = req.query.employee;
 
-    const [items, total] = await Promise.all([
+    const [rawItems, total] = await Promise.all([
       populateLeave(LeaveRequest.find(filter))
         .sort({ createdAt: -1, _id: -1 })
-        .skip((page - 1) * limit)
-        .limit(limit)
+        .skip(cursor ? 0 : (page - 1) * limit)
+        .limit(limit + 1)
         .lean(),
-      LeaveRequest.countDocuments(filter),
+      cursor ? Promise.resolve(null) : LeaveRequest.countDocuments(filter),
     ]);
 
-    return res.json({ leaveRequests: items, pageInfo: { page, limit, total, pages: Math.ceil(total / limit) } });
+    const hasNextPage = rawItems.length > limit;
+    const items = hasNextPage ? rawItems.slice(0, limit) : rawItems;
+    const nextCursor = hasNextPage && items.length ? encodeCursor(items[items.length - 1]) : null;
+
+    return res.json({
+      leaveRequests: items,
+      pageInfo: {
+        page,
+        limit,
+        total: total ?? null,
+        pages: total === null ? null : Math.ceil(total / limit),
+        hasNextPage,
+        nextCursor,
+      },
+    });
   } catch (error) {
     return res.status(500).json({ message: "Failed to load leave requests.", error: error.message });
   }

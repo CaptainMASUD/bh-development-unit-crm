@@ -8,6 +8,8 @@ export const PERMISSION_KEYS = [
   "leads:manage",
   "deals:view",
   "deals:manage",
+  "finance:view",
+  "finance:manage",
   "tasks:view",
   "tasks:manage",
   "reports:view",

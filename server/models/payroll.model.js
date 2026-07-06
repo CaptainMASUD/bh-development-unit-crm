@@ -429,6 +429,10 @@ payrollSchema.index({ employee: 1, year: 1, month: 1 }, { unique: true });
 payrollSchema.index({ department: 1, year: 1, month: 1 });
 payrollSchema.index({ status: 1, year: 1, month: 1 });
 payrollSchema.index({ createdAt: -1, _id: -1 });
+payrollSchema.index({ employee: 1, year: -1, month: -1, createdAt: -1, _id: -1 });
+payrollSchema.index({ department: 1, year: -1, month: -1, createdAt: -1, _id: -1 });
+payrollSchema.index({ position: 1, year: -1, month: -1, createdAt: -1, _id: -1 });
+payrollSchema.index({ status: 1, year: -1, month: -1, createdAt: -1, _id: -1 });
 
 payrollSchema.methods.recalculateTotals = function () {
   const earningsTotal = this.earnings.reduce(

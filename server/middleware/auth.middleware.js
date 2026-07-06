@@ -89,6 +89,7 @@ export const requirePermission = (permission) => (req, res, next) => {
     "tasks:manage": ["customers:manage"],
     "deals:view": ["leads:view"],
     "deals:manage": ["leads:manage"],
+    "finance:view": ["finance:manage"],
     "notifications:view": ["dashboard:view"],
     "access-control:view": ["employees:manage", "salary:manage", "payroll:manage", "leaves:manage", "roster:manage"],
     "employees:view": ["employees:manage", "attendance:manage", "payroll:manage", "loans:manage", "leaves:manage", "roster:manage", "salary:manage"],

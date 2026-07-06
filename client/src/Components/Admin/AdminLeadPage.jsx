@@ -56,6 +56,7 @@ import {
   FiChevronDown,
   FiClock,
   FiColumns,
+  FiDownload,
   FiEdit2,
   FiEye,
   FiEyeOff,
@@ -446,6 +447,222 @@ function formatDateInput(value, mode = "datetime") {
 function formatMoney(value, currency = "BDT") {
   const n = Number(value || 0)
   return `${currency || "BDT"} ${n.toLocaleString()}`
+}
+
+function escapeHtml(value = "") {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
+}
+
+function getProposalTotals(items = []) {
+  return (Array.isArray(items) ? items : []).reduce(
+    (acc, item) => {
+      const qty = Math.max(Number(item.qty || 0), 0)
+      const unitPrice = Math.max(Number(item.unitPrice || 0), 0)
+      const discount = Math.max(Number(item.discount || 0), 0)
+      const rawTotal = qty * unitPrice
+      acc.subtotal += rawTotal
+      acc.discountTotal += discount
+      acc.grandTotal += Math.max(rawTotal - discount, 0)
+      return acc
+    },
+    { subtotal: 0, discountTotal: 0, grandTotal: 0 }
+  )
+}
+
+function getLeadClientName(lead = {}) {
+  return lead?.contact?.companyName || lead?.company?.name || lead?.contact?.name || "Client"
+}
+
+function proposalFileName(proposal = {}, lead = {}) {
+  const base = proposal.proposalNo || proposal.title || getLeadClientName(lead) || "quotation"
+  return `${String(base).replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "quotation"}-proposal.pdf`
+}
+
+function buildProposalPdfHtml(proposal = {}, lead = {}) {
+  const items = Array.isArray(proposal.items) ? proposal.items : []
+  const totals = {
+    ...getProposalTotals(items),
+    subtotal: Number(proposal.subtotal ?? getProposalTotals(items).subtotal),
+    discountTotal: Number(proposal.discountTotal ?? getProposalTotals(items).discountTotal),
+    grandTotal: Number(proposal.grandTotal ?? getProposalTotals(items).grandTotal),
+  }
+  const currency = proposal.currency || "BDT"
+  const clientName = getLeadClientName(lead)
+  const contactName = lead?.contact?.name || ""
+  const contactEmail = lead?.contact?.email || ""
+  const contactPhone = lead?.contact?.phone || ""
+  const requirement = lead?.requirement || {}
+  const issuedDate = formatDate(proposal.createdAt || new Date())
+  const validTill = formatDate(proposal.validTill)
+  const rows = items.length
+    ? items.map((item, index) => {
+        const qty = Math.max(Number(item.qty || 0), 0)
+        const unitPrice = Math.max(Number(item.unitPrice || 0), 0)
+        const discount = Math.max(Number(item.discount || 0), 0)
+        const lineTotal = Number(item.lineTotal ?? Math.max(qty * unitPrice - discount, 0))
+        return `
+          <tr>
+            <td class="center">${index + 1}</td>
+            <td>
+              <strong>${escapeHtml(item.nameSnapshot || "Service item")}</strong>
+              ${item.description ? `<span>${escapeHtml(item.description)}</span>` : ""}
+            </td>
+            <td class="right">${qty.toLocaleString()}</td>
+            <td class="right">${escapeHtml(formatMoney(unitPrice, currency))}</td>
+            <td class="right">${escapeHtml(formatMoney(discount, currency))}</td>
+            <td class="right total-cell">${escapeHtml(formatMoney(lineTotal, currency))}</td>
+          </tr>
+        `
+      }).join("")
+    : `<tr><td colspan="6" class="empty">No line items added.</td></tr>`
+
+  return `
+    <div class="proposal-pdf">
+      <style>
+        .proposal-pdf { width: 794px; min-height: 1123px; box-sizing: border-box; padding: 42px; color: #111827; background: #ffffff; font-family: Inter, Arial, sans-serif; }
+        .proposal-pdf * { box-sizing: border-box; }
+        .brand-bar { height: 8px; border-radius: 999px; background: linear-gradient(90deg, #2563eb, #14b8a6 52%, #f59e0b); margin-bottom: 28px; }
+        .top { display: flex; justify-content: space-between; gap: 28px; align-items: flex-start; }
+        .brand { display: flex; gap: 14px; align-items: center; }
+        .logo { width: 54px; height: 54px; border-radius: 16px; background: #111827; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 18px; letter-spacing: .5px; }
+        h1 { margin: 0; font-size: 30px; line-height: 1.1; color: #0f172a; letter-spacing: 0; }
+        .muted { color: #64748b; }
+        .small { font-size: 11px; line-height: 1.55; }
+        .meta { min-width: 220px; border: 1px solid #e5e7eb; border-radius: 14px; padding: 14px; background: #f8fafc; }
+        .meta-row { display: flex; justify-content: space-between; gap: 12px; margin-top: 7px; font-size: 12px; }
+        .meta-row strong { color: #0f172a; text-align: right; }
+        .title { margin: 34px 0 16px; padding: 20px; border-radius: 18px; background: #eff6ff; border: 1px solid #bfdbfe; }
+        .title p { margin: 0 0 6px; font-size: 12px; font-weight: 800; color: #2563eb; text-transform: uppercase; }
+        .title h2 { margin: 0; font-size: 24px; line-height: 1.25; color: #0f172a; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
+        .box { border: 1px solid #e5e7eb; border-radius: 14px; padding: 14px; min-height: 108px; }
+        .box h3 { margin: 0 0 9px; font-size: 12px; letter-spacing: 0; text-transform: uppercase; color: #475569; }
+        .box p { margin: 3px 0; font-size: 12px; line-height: 1.45; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; overflow: hidden; border-radius: 14px; }
+        thead th { background: #0f172a; color: #fff; font-size: 11px; text-align: left; padding: 11px 10px; }
+        tbody td { border-bottom: 1px solid #e5e7eb; padding: 11px 10px; font-size: 12px; vertical-align: top; }
+        tbody td span { display: block; margin-top: 4px; color: #64748b; font-size: 11px; line-height: 1.45; }
+        .right { text-align: right; white-space: nowrap; }
+        .center { text-align: center; }
+        .total-cell { font-weight: 800; color: #0f172a; }
+        .empty { text-align: center; color: #64748b; padding: 24px; }
+        .summary { display: flex; justify-content: flex-end; margin-top: 18px; }
+        .summary-card { width: 310px; border: 1px solid #e5e7eb; border-radius: 16px; overflow: hidden; }
+        .summary-row { display: flex; justify-content: space-between; padding: 11px 14px; font-size: 12px; border-bottom: 1px solid #e5e7eb; }
+        .summary-row:last-child { border-bottom: 0; background: #ecfdf5; color: #065f46; font-size: 16px; font-weight: 900; }
+        .section { margin-top: 22px; }
+        .section h3 { margin: 0 0 8px; font-size: 13px; color: #0f172a; }
+        .section p { margin: 0; color: #475569; font-size: 12px; line-height: 1.65; white-space: pre-wrap; }
+        .signature { display: flex; justify-content: space-between; gap: 24px; margin-top: 46px; }
+        .sign-box { width: 44%; padding-top: 12px; border-top: 1px solid #94a3b8; font-size: 12px; color: #475569; }
+        .footer { margin-top: 34px; padding-top: 12px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; gap: 16px; color: #64748b; font-size: 10px; line-height: 1.5; }
+      </style>
+      <div class="brand-bar"></div>
+      <div class="top">
+        <div class="brand">
+          <div class="logo">BH</div>
+          <div>
+            <h1>BusinessHub</h1>
+            <div class="muted small">CRM Proposal & Quotation<br/>Prepared with care for your client workflow</div>
+          </div>
+        </div>
+        <div class="meta">
+          <div class="meta-row"><span>Proposal No</span><strong>${escapeHtml(proposal.proposalNo || "Draft")}</strong></div>
+          <div class="meta-row"><span>Status</span><strong>${escapeHtml(proposal.status || "draft")}</strong></div>
+          <div class="meta-row"><span>Issue Date</span><strong>${escapeHtml(issuedDate)}</strong></div>
+          <div class="meta-row"><span>Valid Till</span><strong>${escapeHtml(validTill)}</strong></div>
+        </div>
+      </div>
+
+      <div class="title">
+        <p>Commercial Proposal</p>
+        <h2>${escapeHtml(proposal.title || "Proposal / Quotation")}</h2>
+      </div>
+
+      <div class="grid">
+        <div class="box">
+          <h3>Prepared For</h3>
+          <p><strong>${escapeHtml(clientName)}</strong></p>
+          ${contactName && contactName !== clientName ? `<p>${escapeHtml(contactName)}</p>` : ""}
+          ${contactEmail ? `<p>${escapeHtml(contactEmail)}</p>` : ""}
+          ${contactPhone ? `<p>${escapeHtml(contactPhone)}</p>` : ""}
+        </div>
+        <div class="box">
+          <h3>Requirement Snapshot</h3>
+          <p>${escapeHtml(requirement.summary || lead?.purchaseType || "Requirement details will be finalized during confirmation.")}</p>
+          ${requirement.timeline ? `<p><strong>Timeline:</strong> ${escapeHtml(requirement.timeline)}</p>` : ""}
+          ${requirement.decisionMaker ? `<p><strong>Decision maker:</strong> ${escapeHtml(requirement.decisionMaker)}</p>` : ""}
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th class="center">#</th>
+            <th>Item</th>
+            <th class="right">Qty</th>
+            <th class="right">Unit Price</th>
+            <th class="right">Discount</th>
+            <th class="right">Line Total</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+
+      <div class="summary">
+        <div class="summary-card">
+          <div class="summary-row"><span>Subtotal</span><strong>${escapeHtml(formatMoney(totals.subtotal, currency))}</strong></div>
+          <div class="summary-row"><span>Discount</span><strong>${escapeHtml(formatMoney(totals.discountTotal, currency))}</strong></div>
+          <div class="summary-row"><span>Grand Total</span><strong>${escapeHtml(formatMoney(totals.grandTotal, currency))}</strong></div>
+        </div>
+      </div>
+
+      ${proposal.terms ? `<div class="section"><h3>Terms & Conditions</h3><p>${escapeHtml(proposal.terms)}</p></div>` : ""}
+      ${proposal.notes ? `<div class="section"><h3>Notes</h3><p>${escapeHtml(proposal.notes)}</p></div>` : ""}
+
+      <div class="signature">
+        <div class="sign-box">Authorized Signature<br/><strong>BusinessHub</strong></div>
+        <div class="sign-box">Client Acceptance<br/><strong>${escapeHtml(clientName)}</strong></div>
+      </div>
+
+      <div class="footer">
+        <span>This quotation is valid until the date shown above unless revised in writing.</span>
+        <span>${escapeHtml(proposal.proposalNo || proposal.title || "Proposal")}</span>
+      </div>
+    </div>
+  `
+}
+
+async function exportProposalPdf(proposal, lead = {}) {
+  if (!proposal) throw new Error("No proposal selected for export.")
+  const html2pdfModule = await import("html2pdf.js")
+  const html2pdf = html2pdfModule.default || html2pdfModule
+  const container = document.createElement("div")
+  container.innerHTML = buildProposalPdfHtml(proposal, lead)
+  container.style.position = "fixed"
+  container.style.left = "-10000px"
+  container.style.top = "0"
+  document.body.appendChild(container)
+  try {
+    await html2pdf()
+      .set({
+        margin: 0,
+        filename: proposalFileName(proposal, lead),
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#ffffff" },
+        jsPDF: { unit: "px", format: [794, 1123], orientation: "portrait" },
+        pagebreak: { mode: ["avoid-all", "css", "legacy"] },
+      })
+      .from(container.firstElementChild)
+      .save()
+  } finally {
+    container.remove()
+  }
 }
 
 function initials(name = "") {
@@ -1569,10 +1786,62 @@ function ProposalModal({ open, onClose, lead, onSaved, users = [] }) {
   const [form, setForm] = useState({ title: "", currency: "BDT", validTill: "", terms: "", notes: "", ownerId: "" })
   const [items, setItems] = useState([{ nameSnapshot: "", description: "", qty: 1, unitPrice: 0, discount: 0 }])
   const [loading, setLoading] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [err, setErr] = useState("")
   useEffect(() => { if (open) { setErr(""); setForm({ title: editingProposal?.title || (lead?.contact?.companyName ? `${lead.contact.companyName} Proposal` : ""), currency: editingProposal?.currency || "BDT", validTill: formatDateInput(editingProposal?.validTill, "date"), terms: editingProposal?.terms || "", notes: editingProposal?.notes || "", ownerId: editingProposal?.ownerId?._id || editingProposal?.ownerId || "" }); setItems(Array.isArray(editingProposal?.items) && editingProposal.items.length ? editingProposal.items.map((item) => ({ nameSnapshot: item.nameSnapshot || "", description: item.description || "", qty: item.qty || 1, unitPrice: item.unitPrice || 0, discount: item.discount || 0 })) : [{ nameSnapshot: lead?.purchaseType || "", description: "", qty: 1, unitPrice: lead?.requirement?.expectedValue || 0, discount: 0 }]) } }, [open, lead, editingProposal])
-  const submit = async () => { setErr(""); if (!form.title.trim()) return setErr("Title is required."); setLoading(true); try { const payload = { leadId: getLeadId(lead), customerId: lead?.customerId?._id || lead?.customerId || null, title: form.title.trim(), currency: form.currency.trim() || "BDT", validTill: form.validTill ? new Date(form.validTill).toISOString() : null, terms: form.terms.trim(), notes: form.notes.trim(), ownerId: form.ownerId.trim() || undefined, items }; const data = editingProposal?._id ? await apiUpdateProposal(editingProposal._id, payload) : await apiCreateProposal(payload); onSaved?.(data?.lead || data?.data?.lead || data, data?.proposal || data?.data?.proposal); onClose?.() } catch (e) { setErr(e?.message || "Proposal save failed") } finally { setLoading(false) } }
-  return <ModalShell open={open} onClose={onClose} title={editingProposal ? "Edit proposal / quotation" : "Create proposal / quotation"} subtitle={lead?.contact?.name || ""} icon={<FiFileText className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : editingProposal ? "Save changes" : "Create proposal"}</button></div>}>
+  const saveProposal = async ({ closeAfter = true, exportAfter = false } = {}) => {
+    setErr("")
+    if (!form.title.trim()) {
+      setErr("Title is required.")
+      return null
+    }
+    setLoading(true)
+    try {
+      const payload = {
+        leadId: getLeadId(lead),
+        customerId: lead?.customerId?._id || lead?.customerId || null,
+        title: form.title.trim(),
+        currency: form.currency.trim() || "BDT",
+        validTill: form.validTill ? new Date(form.validTill).toISOString() : null,
+        terms: form.terms.trim(),
+        notes: form.notes.trim(),
+        ownerId: form.ownerId.trim() || undefined,
+        items,
+      }
+      const data = editingProposal?._id ? await apiUpdateProposal(editingProposal._id, payload) : await apiCreateProposal(payload)
+      const savedProposal = data?.proposal || data?.data?.proposal || data
+      await onSaved?.(data?.lead || data?.data?.lead || data, savedProposal)
+      if (exportAfter) {
+        setExporting(true)
+        try {
+          await exportProposalPdf(savedProposal, lead)
+          toast.success("Proposal PDF exported.")
+        } finally {
+          setExporting(false)
+        }
+      }
+      if (closeAfter) onClose?.()
+      return savedProposal
+    } catch (e) {
+      setErr(e?.message || "Proposal save failed")
+      return null
+    } finally {
+      setLoading(false)
+    }
+  }
+  const exportSavedProposal = async () => {
+    setErr("")
+    setExporting(true)
+    try {
+      await exportProposalPdf(editingProposal, lead)
+      toast.success("Proposal PDF exported.")
+    } catch (e) {
+      setErr(e?.message || "PDF export failed")
+    } finally {
+      setExporting(false)
+    }
+  }
+  return <ModalShell open={open} onClose={onClose} title={editingProposal ? "Edit proposal / quotation" : "Create proposal / quotation"} subtitle={lead?.contact?.name || ""} icon={<FiFileText className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex flex-col justify-end gap-2 sm:flex-row"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading || exporting}>Cancel</button>{editingProposal ? <button className={cn(btn, btnGhost)} onClick={exportSavedProposal} disabled={loading || exporting}><FiDownload className="h-4 w-4" />{exporting ? "Exporting..." : "Export PDF"}</button> : null}<button className={cn(btn, btnSoft)} onClick={() => saveProposal({ exportAfter: true })} disabled={loading || exporting}>{exporting ? "Exporting..." : "Save & export PDF"}</button><button className={cn(btn, btnPrimary)} onClick={() => saveProposal()} disabled={loading || exporting}>{loading && !exporting ? "Saving..." : editingProposal ? "Save changes" : "Create proposal"}</button></div>}>
     {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <Field label="Title *"><input className={input} value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} /></Field>
@@ -1686,13 +1955,25 @@ function DealUpdateModal({ open, onClose, deal, onSaved, users = [] }) {
   </ModalShell>
 }
 
-function RecordDetailsModal({ open, onClose, record, type }) {
+function RecordDetailsModal({ open, onClose, record, type, lead }) {
   const isProposal = type === "proposal"
+  const [exporting, setExporting] = useState(false)
   const details = isProposal
     ? [["Proposal no", record?.proposalNo], ["Status", record?.status], ["Amount", record ? formatMoney(record.grandTotal, record.currency) : ""], ["Valid till", formatDate(record?.validTill)], ["Sent at", formatDate(record?.sentAt, true)], ["Terms", record?.terms], ["Notes", record?.notes]]
     : [["Deal no", record?.dealNo], ["Stage", record?.stage], ["Amount", record ? formatMoney(record.grandTotal, record.currency) : ""], ["Probability", record?.probability !== undefined ? `${record.probability}%` : ""], ["Health", record?.dealHealth], ["Expected close", formatDate(record?.expectedCloseDate)], ["Next action", record?.nextDealAction], ["Next action at", formatDate(record?.nextDealActionAt, true)], ["Notes", record?.notes]]
+  const runExport = async () => {
+    setExporting(true)
+    try {
+      await exportProposalPdf(record, lead)
+      toast.success("Proposal PDF exported.")
+    } catch (e) {
+      toast.error(e?.message || "PDF export failed")
+    } finally {
+      setExporting(false)
+    }
+  }
 
-  return <ModalShell open={open} onClose={onClose} title={isProposal ? "Proposal details" : "Deal details"} subtitle={record?.proposalNo || record?.dealNo || record?.title || ""} icon={isProposal ? <FiFileText className="h-5 w-5" /> : <FiBriefcase className="h-5 w-5" />} maxWidthClass="max-w-3xl" footer={<div className="flex justify-end"><button className={cn(btn, btnPrimary)} onClick={onClose}>Close</button></div>}>
+  return <ModalShell open={open} onClose={onClose} title={isProposal ? "Proposal details" : "Deal details"} subtitle={record?.proposalNo || record?.dealNo || record?.title || ""} icon={isProposal ? <FiFileText className="h-5 w-5" /> : <FiBriefcase className="h-5 w-5" />} maxWidthClass="max-w-3xl" footer={<div className="flex flex-col justify-end gap-2 sm:flex-row">{isProposal ? <button className={cn(btn, btnGhost)} onClick={runExport} disabled={!record || exporting}><FiDownload className="h-4 w-4" />{exporting ? "Exporting..." : "Export PDF"}</button> : null}<button className={cn(btn, btnPrimary)} onClick={onClose}>Close</button></div>}>
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
       <div className="md:col-span-2"><DetailRow label="Title" value={record?.title} /></div>
       {details.map(([labelText, value]) => <DetailRow key={labelText} label={labelText} value={value} />)}
@@ -2040,6 +2321,14 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
   }, [lead, tab, isRestrictedLeadView, showSalesTabs])
   const openReasonModal = (config) => setReasonModal({ open: true, ...config })
   const closeReasonModal = () => setReasonModal({ open: false })
+  const exportTimelineProposal = async (proposal) => {
+    try {
+      await exportProposalPdf(proposal, lead)
+      toast.success("Proposal PDF exported.")
+    } catch (e) {
+      toast.error(e?.message || "PDF export failed")
+    }
+  }
   return <><ModalShell open={open} onClose={onClose} title="Lead A-Z History" subtitle={lead?.contact?.name || "Full timeline, activities, proposals, deals and work queue"} icon={<FiEye className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex flex-wrap justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load}><FiRefreshCcw className="h-4 w-4" />Refresh</button>{lead ? (() => { const proposalInfo = getProposalShortcutInfo(lead, timeline); const eligibleProposal = (timeline.proposals || []).find((proposal) => ["sent", "accepted"].includes(proposal.status) && !proposal.dealId); return <><button className={cn(btn, btnPrimary)} disabled={!getNextPipelineStage(lead)} onClick={() => onAction?.("nextStage", lead)}><FiArrowRight />Next Stage</button><button className={cn(btn, btnSoft)} onClick={() => onAction?.("quick", lead)}><FiZap />Quick action</button>{proposalInfo.show ? <button className={cn(btn, proposalInfo.action === "proposal" ? btnPrimary : btnGhost)} disabled={proposalInfo.disabled} onClick={() => proposalInfo.action === "manageProposal" ? setTab("proposals") : onAction?.(proposalInfo.action, lead)}><FiFileText />{proposalInfo.label}</button> : null}<button className={cn(btn, btnGhost)} disabled={!eligibleProposal} title={eligibleProposal ? "Create deal from proposal" : "Send or accept a proposal first"} onClick={() => onAction?.("deal", lead)}><FiBriefcase />Create Deal</button></> })() : null}</div>}>
     {loading ? <div className="flex justify-center p-10"><FiLoader className="h-6 w-6 animate-spin text-indigo-600" /></div> : err ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : lead ? <>
       <div className="mb-4 flex flex-wrap gap-2">{tabs.map(([k, name, Icon, count]) => <button key={k} className={cn(btn, tab === k ? btnPrimary : btnGhost, "px-3 py-2")} onClick={() => setTab(k)}><Icon className="h-4 w-4" />{name}{count ? <span className={cn("ml-1 rounded-full px-2 py-0.5 text-[10px] font-black", tab === k ? "bg-white/20 text-white" : "bg-indigo-600 text-white")}>{count > 99 ? "99+" : count}</span> : null}</button>)}</div>
@@ -2068,7 +2357,7 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
       )}
       {tab === "timeline" && <div className="space-y-3">{[...logs, ...activities, ...proposals, ...deals, ...queueItems].sort((a,b)=>new Date(b.createdAt||b.sentAt||0)-new Date(a.createdAt||a.sentAt||0)).map((x, i) => <TimelineCard key={`${x._id || i}`} item={x} />)}{!logs.length && !activities.length && !proposals.length && !deals.length && !queueItems.length ? <EmptyState icon={<FiClock />} title="No history yet" /> : null}</div>}
       {!isRestrictedLeadView && tab === "activities" && <RecordList items={activities} type="activity" onComplete={async (id) => { await apiCompleteActivity(id, { outcome: "Completed from UI" }); await load(); onAction?.("refresh") }} onCancel={async (id) => { await apiCancelActivity(id, { reason: "Cancelled from UI" }); await load(); onAction?.("refresh") }} />}
-      {showSalesTabs && tab === "proposals" && <RecordList items={proposals} type="proposal" onView={(record) => setRecordView({ open: true, type: "proposal", record })} onEdit={(record) => setRecordEdit({ type: "proposal", record })} onSend={async (id) => { await apiSendProposal(id); await load(); onAction?.("refresh") }} onAccept={async (id) => { await apiAcceptProposal(id); await load(); onAction?.("refresh") }} onReject={(id) => openReasonModal({ title: "Reject proposal", subtitle: lead?.contact?.name || "Add a clear reason before rejecting.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Reject proposal", danger: true, onSubmit: async ({ reason, note }) => { await apiRejectProposal(id, { rejectReason: reason, note }); await load(); onAction?.("refresh") } })} />}
+      {showSalesTabs && tab === "proposals" && <RecordList items={proposals} type="proposal" onView={(record) => setRecordView({ open: true, type: "proposal", record })} onEdit={(record) => setRecordEdit({ type: "proposal", record })} onExport={exportTimelineProposal} onSend={async (id) => { await apiSendProposal(id); await load(); onAction?.("refresh") }} onAccept={async (id) => { await apiAcceptProposal(id); await load(); onAction?.("refresh") }} onReject={(id) => openReasonModal({ title: "Reject proposal", subtitle: lead?.contact?.name || "Add a clear reason before rejecting.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Reject proposal", danger: true, onSubmit: async ({ reason, note }) => { await apiRejectProposal(id, { rejectReason: reason, note }); await load(); onAction?.("refresh") } })} />}
       {showSalesTabs && tab === "deals" && <RecordList items={deals} type="deal" onView={(record) => setRecordView({ open: true, type: "deal", record })} onEdit={(record) => setRecordEdit({ type: "deal", record })} onWon={(id) => openReasonModal({ title: "Mark deal as won", subtitle: "Winning the deal will automatically convert this lead to a customer.", icon: <FiCheckCircle className="h-5 w-5" />, actionLabel: "Win deal & convert", onSubmit: async ({ reason, note }) => { const data = await apiDealWon(id, { reason, note }); await load(); onAction?.("dealWon", data) } })} onLost={(id) => openReasonModal({ title: "Mark deal as lost", subtitle: lead?.contact?.name || "Add a clear loss reason.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Mark lost", danger: true, onSubmit: async ({ reason, note }) => { await apiDealLost(id, { reason, note }); await load(); onAction?.("refresh") } })} />}
       {tab === "queue" && <RecordList items={queueItems} type="queue" onDone={async (id) => { await apiQueueDone(id, { result: "Done from lead view" }); await load(); onAction?.("refresh") }} />}
       {tab === "notes" && <LeadNotesOverview lead={lead} onAction={onAction} />}
@@ -2076,7 +2365,7 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
     </> : <EmptyState icon={<FiEye className="h-5 w-5" />} title="No lead selected" />}
   </ModalShell>
   <ReasonModal open={reasonModal.open} onClose={closeReasonModal} title={reasonModal.title} subtitle={reasonModal.subtitle} icon={reasonModal.icon || <FiInfo className="h-5 w-5" />} actionLabel={reasonModal.actionLabel || "Submit"} danger={reasonModal.danger} onSubmit={reasonModal.onSubmit} />
-  <RecordDetailsModal open={recordView.open} onClose={() => setRecordView({ open: false, type: "", record: null })} record={recordView.record} type={recordView.type} />
+  <RecordDetailsModal open={recordView.open} onClose={() => setRecordView({ open: false, type: "", record: null })} record={recordView.record} type={recordView.type} lead={lead} />
   <ProposalModal open={recordEdit.type === "proposal"} onClose={() => setRecordEdit({ type: "", record: null })} lead={lead && recordEdit.record ? { ...lead, _editingProposal: recordEdit.record } : lead} onSaved={async () => { await load(); onAction?.("refresh") }} />
   <DealUpdateModal open={recordEdit.type === "deal"} onClose={() => setRecordEdit({ type: "", record: null })} deal={recordEdit.record} onSaved={async () => { await load(); onAction?.("refresh") }} />
 </>
@@ -2084,7 +2373,7 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
 
 function DetailRow({ label: labelText, value }) { return <div className="rounded-2xl border border-gray-100 bg-gray-50/50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{labelText}</p><div className="mt-1 break-words text-sm font-semibold text-gray-900">{value || "—"}</div></div> }
 function TimelineCard({ item }) { const title = item?.message || item?.title || item?.type || item?.status || item?.stage || item?.proposalNo || item?.dealNo || "Timeline item"; return <div className="relative pl-7"><span className="absolute left-0 top-1.5 h-3 w-3 rounded-full bg-indigo-600 ring-4 ring-indigo-50" /><div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-bold text-gray-900">{title}</p><p className="text-xs text-gray-500">{item?.createdBy?.name || item?.assignedTo?.name || "System"} • {formatDate(item?.createdAt || item?.scheduledAt || item?.sentAt, true)}</p></div>{item?.status || item?.stage || item?.priority ? <Badge value={item.status || item.stage || item.priority} /> : null}</div>{item?.body || item?.description || item?.result ? <p className="mt-2 text-sm text-gray-600">{item.body || item.description || item.result}</p> : null}</div></div> }
-function RecordList({ items = [], type, onComplete, onCancel, onSend, onAccept, onReject, onWon, onLost, onDone, onView, onEdit }) {
+function RecordList({ items = [], type, onComplete, onCancel, onSend, onAccept, onReject, onWon, onLost, onDone, onView, onEdit, onExport }) {
   if (!items.length) return <EmptyState icon={<FiInfo className="h-5 w-5" />} title={`No ${type} records`} />
   return <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">{items.map((it) => {
     const proposalEditable = type === "proposal" && ["draft", "sent"].includes(it.status)
@@ -2096,7 +2385,7 @@ function RecordList({ items = [], type, onComplete, onCancel, onSend, onAccept, 
         {["proposal", "deal"].includes(type) ? <button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onView?.(it)}><FiEye className="h-4 w-4" />View</button> : null}
         {proposalEditable || dealEditable ? <button className={cn(btn, btnSoft, "px-3 py-2")} onClick={() => onEdit?.(it)}><FiEdit2 className="h-4 w-4" />Edit</button> : null}
         {type === "activity" ? <><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onComplete?.(it._id)}>Complete</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={() => onCancel?.(it._id)}>Cancel</button></> : null}
-        {type === "proposal" ? <><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onSend?.(it._id)}>Send</button><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onAccept?.(it._id)}>Accept</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={() => onReject?.(it._id)}>Reject</button></> : null}
+        {type === "proposal" ? <><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onExport?.(it)}><FiDownload className="h-4 w-4" />PDF</button><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onSend?.(it._id)}>Send</button><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onAccept?.(it._id)}>Accept</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={() => onReject?.(it._id)}>Reject</button></> : null}
         {type === "deal" && !["won", "lost"].includes(it.stage) ? <><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onWon?.(it._id)}>Won</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={() => onLost?.(it._id)}>Lost</button></> : null}
         {type === "queue" ? <button className={cn(btn, btnPrimary, "px-3 py-2")} onClick={() => onDone?.(it._id)}>Done</button> : null}
       </div>

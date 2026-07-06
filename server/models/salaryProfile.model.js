@@ -303,6 +303,9 @@ salaryProfileSchema.index({ employee: 1, isActive: 1, effectiveFrom: -1 });
 salaryProfileSchema.index({ department: 1, isActive: 1 });
 salaryProfileSchema.index({ position: 1, isActive: 1 });
 salaryProfileSchema.index({ createdAt: -1, _id: -1 });
+salaryProfileSchema.index({ isActive: 1, effectiveFrom: -1, createdAt: -1, _id: -1 });
+salaryProfileSchema.index({ department: 1, isActive: 1, effectiveFrom: -1, createdAt: -1, _id: -1 });
+salaryProfileSchema.index({ position: 1, isActive: 1, effectiveFrom: -1, createdAt: -1, _id: -1 });
 
 /**
  * Only one active salary profile per employee.

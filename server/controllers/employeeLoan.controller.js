@@ -33,6 +33,37 @@ const parseLimit = (value) => {
   return Math.min(Math.max(n, 1), MAX_LIMIT);
 };
 
+const encodeCursor = (doc) =>
+  Buffer.from(
+    JSON.stringify({
+      createdAt: doc.createdAt ? new Date(doc.createdAt).toISOString() : "",
+      id: String(doc._id || ""),
+    })
+  ).toString("base64url");
+
+const decodeCursor = (cursor) => {
+  if (!cursor) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(String(cursor), "base64url").toString("utf8"));
+    if (!decoded?.id || !isValidObjectId(decoded.id)) return null;
+    const createdAt = decoded.createdAt ? new Date(decoded.createdAt) : null;
+    if (!createdAt || Number.isNaN(createdAt.getTime())) return null;
+    return { createdAt, id: new mongoose.Types.ObjectId(decoded.id) };
+  } catch {
+    return null;
+  }
+};
+
+const createdAtCursorFilter = (cursor) => {
+  if (!cursor) return {};
+  return {
+    $or: [
+      { createdAt: { $lt: cursor.createdAt } },
+      { createdAt: cursor.createdAt, _id: { $lt: cursor.id } },
+    ],
+  };
+};
+
 const parseDate = (value, fallback = null) => {
   if (value === undefined || value === null || value === "") return fallback;
   const date = new Date(value);
@@ -241,26 +272,32 @@ export const listEmployeeLoans = async (req, res) => {
 
     const limit = parseLimit(req.query.limit);
     const page = Math.max(Number(req.query.page || 1), 1);
-    const skip = (page - 1) * limit;
+    const cursor = decodeCursor(req.query.cursor);
+    const skip = cursor ? 0 : (page - 1) * limit;
 
-    const filter = buildLoanFilter(req);
+    const filter = { ...buildLoanFilter(req), ...createdAtCursorFilter(cursor) };
 
-    const [items, total] = await Promise.all([
+    const [rawItems, total] = await Promise.all([
       populateLoanQuery(
         EmployeeLoan.find(filter)
           .sort({ createdAt: -1, _id: -1 })
           .skip(skip)
-          .limit(limit)
+          .limit(limit + 1)
       ).lean(),
-      EmployeeLoan.countDocuments(filter),
+      cursor ? Promise.resolve(null) : EmployeeLoan.countDocuments(filter),
     ]);
+
+    const hasNextPage = rawItems.length > limit;
+    const items = hasNextPage ? rawItems.slice(0, limit) : rawItems;
+    const nextCursor = hasNextPage && items.length ? encodeCursor(items[items.length - 1]) : null;
 
     return res.json({
       count: items.length,
-      total,
+      total: total ?? null,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
+      totalPages: total === null ? null : Math.ceil(total / limit),
+      pageInfo: { page, limit, hasNextPage, nextCursor },
       employeeLoans: items,
     });
   } catch (err) {
@@ -312,18 +349,26 @@ export const getEmployeeLoansByEmployee = async (req, res) => {
       return res.status(400).json({ message: "Invalid employee ID." });
     }
 
-    const filter = { employee: employeeId };
+    const limit = parseLimit(req.query.limit);
+    const cursor = decodeCursor(req.query.cursor);
+    const filter = { employee: employeeId, ...createdAtCursorFilter(cursor) };
 
     if (req.query.status && ["active", "paid", "cancelled"].includes(String(req.query.status))) {
       filter.status = req.query.status;
     }
 
-    const loans = await populateLoanQuery(
+    const rawLoans = await populateLoanQuery(
       EmployeeLoan.find(filter).sort({ createdAt: -1, _id: -1 })
+        .limit(limit + 1)
     ).lean();
+
+    const hasNextPage = rawLoans.length > limit;
+    const loans = hasNextPage ? rawLoans.slice(0, limit) : rawLoans;
+    const nextCursor = hasNextPage && loans.length ? encodeCursor(loans[loans.length - 1]) : null;
 
     return res.json({
       count: loans.length,
+      pageInfo: { limit, hasNextPage, nextCursor },
       employeeLoans: loans,
     });
   } catch (err) {
