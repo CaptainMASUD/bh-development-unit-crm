@@ -2,9 +2,141 @@ import mongoose from "mongoose";
 import Deal from "../models/deal.model.js";
 import Expense from "../models/expense.model.js";
 import Invoice from "../models/invoice.model.js";
+import Account from "../models/account.model.js";
+import JournalEntry from "../models/journalEntry.model.js";
+import AccountingPeriod from "../models/accountingPeriod.model.js";
+import CashAccount from "../models/cashAccount.model.js";
+import VendorBill from "../models/vendorBill.model.js";
 import { accountingCache } from "../utils/cache.js";
 
 const money = (value) => Math.round(Number(value || 0) * 100) / 100;
+const clean = (value) => String(value ?? "").trim();
+const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
+const toId = (value) => new mongoose.Types.ObjectId(String(value));
+
+const SYSTEM_ACCOUNTS = [
+  { code: "1000", name: "Cash on Hand", type: "asset" },
+  { code: "1010", name: "Bank Account", type: "asset" },
+  { code: "1100", name: "Accounts Receivable", type: "asset" },
+  { code: "1200", name: "Input VAT / Tax Receivable", type: "asset" },
+  { code: "2000", name: "Accounts Payable", type: "liability" },
+  { code: "2100", name: "Output VAT / Tax Payable", type: "liability" },
+  { code: "2200", name: "Payroll Payable", type: "liability" },
+  { code: "3000", name: "Owner Equity", type: "equity" },
+  { code: "3100", name: "Opening Balance Equity", type: "equity" },
+  { code: "4000", name: "Sales Revenue", type: "revenue" },
+  { code: "5000", name: "Operating Expense", type: "expense" },
+  { code: "5100", name: "Payroll Expense", type: "expense" },
+  { code: "5200", name: "Tax Expense", type: "expense" },
+];
+
+const resolveSystemAccount = async (code) => {
+  const account = await Account.findOne({ code: String(code), isActive: true }).lean();
+  if (!account) throw new Error(`Missing system account ${code}. Run /api/accounting/accounts/bootstrap first.`);
+  return account._id;
+};
+
+const parsePostingDate = (value, fallback = new Date()) => {
+  if ((value === undefined || value === null || value === "") && fallback === null) return null;
+  const date = value ? new Date(value) : new Date(fallback);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+};
+
+const isPeriodClosed = async (date) => {
+  const period = await AccountingPeriod.findOne({
+    startDate: { $lte: date },
+    endDate: { $gte: date },
+    status: { $in: ["closed", "locked"] },
+  }).lean();
+  return period;
+};
+
+const assertOpenPeriod = async (date) => {
+  const period = await isPeriodClosed(date);
+  if (period) {
+    const err = new Error(`Accounting period ${period.periodKey} is ${period.status}.`);
+    err.statusCode = 409;
+    throw err;
+  }
+};
+
+const normalizeLines = (lines = []) =>
+  lines.map((line) => ({
+    account: line.account,
+    debit: money(line.debit),
+    credit: money(line.credit),
+    description: clean(line.description),
+    contactType: clean(line.contactType),
+    contactId: isId(line.contactId) ? line.contactId : null,
+  }));
+
+const postJournalEntry = async ({
+  date,
+  lines,
+  sourceType = "manual",
+  sourceId = null,
+  reference = "",
+  memo = "",
+  currency = "BDT",
+  userId = null,
+}) => {
+  const postingDate = parsePostingDate(date);
+  if (!postingDate) {
+    const err = new Error("Valid posting date is required.");
+    err.statusCode = 400;
+    throw err;
+  }
+  await assertOpenPeriod(postingDate);
+  const entry = await JournalEntry.create({
+    date: postingDate,
+    status: "posted",
+    sourceType,
+    sourceId: isId(sourceId) ? sourceId : null,
+    reference: clean(reference),
+    memo: clean(memo),
+    currency: clean(currency || "BDT"),
+    lines: normalizeLines(lines),
+    createdBy: userId,
+    postedBy: userId,
+    postedAt: new Date(),
+  });
+  accountingCache.flushAll();
+  return entry;
+};
+
+const listCursor = (cursor) => {
+  if (!cursor) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(String(cursor), "base64url").toString("utf8"));
+    const date = decoded.date ? new Date(decoded.date) : null;
+    if (!decoded.id || !isId(decoded.id) || !date || Number.isNaN(date.getTime())) return null;
+    return { date, id: toId(decoded.id) };
+  } catch {
+    return null;
+  }
+};
+
+const makeListCursor = (doc, field = "date") =>
+  Buffer.from(JSON.stringify({ date: doc[field] || doc.createdAt, id: doc._id })).toString("base64url");
+
+const ledgerMatchForRange = ({ from, to }) => {
+  const match = { status: "posted" };
+  if (from || to) {
+    match.date = {};
+    if (from) match.date.$gte = from;
+    if (to) match.date.$lte = to;
+  }
+  return match;
+};
+
+const accountBalanceExpression = {
+  $cond: [
+    { $in: ["$account.type", ["asset", "expense"]] },
+    { $subtract: ["$debit", "$credit"] },
+    { $subtract: ["$credit", "$debit"] },
+  ],
+};
 
 const parseDateRange = (query = {}) => {
   const from = query.from ? new Date(query.from) : null;
@@ -405,5 +537,587 @@ export const getProfitLoss = async (req, res) => {
     return res.json(response);
   } catch (error) {
     return res.status(500).json({ message: "Failed to load profit and loss.", error: error.message });
+  }
+};
+
+export const bootstrapChartOfAccounts = async (req, res) => {
+  try {
+    const created = [];
+    const updated = [];
+    for (const item of SYSTEM_ACCOUNTS) {
+      const existing = await Account.findOne({ code: item.code });
+      if (existing) {
+        existing.set({ ...item, isSystem: true, isActive: existing.isActive !== false, updatedBy: req.user?._id || null });
+        await existing.save();
+        updated.push(existing);
+      } else {
+        created.push(await Account.create({ ...item, isSystem: true, createdBy: req.user?._id || null }));
+      }
+    }
+    return res.json({ message: "Chart of accounts bootstrapped.", created: created.length, updated: updated.length });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to bootstrap accounts.", error: error.message });
+  }
+};
+
+export const listAccounts = async (req, res) => {
+  try {
+    const limit = parseLimit(req.query.limit, 100);
+    const filter = {};
+    if (req.query.type) filter.type = clean(req.query.type);
+    if (req.query.active !== undefined && req.query.active !== "all") filter.isActive = String(req.query.active) === "true";
+    if (req.query.q) {
+      const rx = textRegex(req.query.q);
+      filter.$or = [{ code: rx }, { name: rx }];
+    }
+    const accounts = await Account.find(filter)
+      .populate("parent", "code name type")
+      .sort({ type: 1, code: 1, _id: 1 })
+      .limit(limit)
+      .lean();
+    return res.json({ accounts, count: accounts.length });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load accounts.", error: error.message });
+  }
+};
+
+export const createAccount = async (req, res) => {
+  try {
+    const account = await Account.create({
+      code: req.body.code,
+      name: req.body.name,
+      type: req.body.type,
+      parent: isId(req.body.parent) ? req.body.parent : null,
+      currency: clean(req.body.currency || "BDT"),
+      description: clean(req.body.description),
+      createdBy: req.user?._id || null,
+    });
+    return res.status(201).json({ message: "Account created.", account });
+  } catch (error) {
+    const status = error?.code === 11000 ? 409 : 500;
+    return res.status(status).json({ message: status === 409 ? "Account code already exists." : "Failed to create account.", error: error.message });
+  }
+};
+
+export const updateAccount = async (req, res) => {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid account ID." });
+    const patch = {};
+    for (const key of ["code", "name", "type", "currency", "description", "isActive"]) {
+      if (req.body[key] !== undefined) patch[key] = req.body[key];
+    }
+    if (req.body.parent !== undefined) patch.parent = isId(req.body.parent) ? req.body.parent : null;
+    patch.updatedBy = req.user?._id || null;
+    const account = await Account.findByIdAndUpdate(req.params.id, patch, { new: true, runValidators: true });
+    if (!account) return res.status(404).json({ message: "Account not found." });
+    return res.json({ message: "Account updated.", account });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to update account.", error: error.message });
+  }
+};
+
+export const listJournalEntries = async (req, res) => {
+  try {
+    const range = parseDateRange(req.query);
+    if (range.error) return res.status(400).json({ message: range.error });
+    const limit = parseLimit(req.query.limit);
+    const cursor = listCursor(req.query.cursor);
+    const filter = {};
+    if (req.query.status && req.query.status !== "all") filter.status = clean(req.query.status);
+    if (req.query.sourceType) filter.sourceType = clean(req.query.sourceType);
+    if (range.from || range.to) filter.date = {};
+    if (range.from) filter.date.$gte = range.from;
+    if (range.to) filter.date.$lte = range.to;
+    if (cursor) {
+      filter.$or = [{ date: { $lt: cursor.date } }, { date: cursor.date, _id: { $lt: cursor.id } }];
+    }
+    const rows = await JournalEntry.find(filter)
+      .populate("lines.account", "code name type normalBalance")
+      .sort({ date: -1, _id: -1 })
+      .limit(limit + 1)
+      .lean();
+    const hasNextPage = rows.length > limit;
+    const journalEntries = hasNextPage ? rows.slice(0, limit) : rows;
+    const nextCursor = hasNextPage && journalEntries.length ? makeListCursor(journalEntries[journalEntries.length - 1]) : "";
+    return res.json({ journalEntries, pageInfo: { limit, hasNextPage, nextCursor } });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load journal entries.", error: error.message });
+  }
+};
+
+export const createJournalEntry = async (req, res) => {
+  try {
+    const status = clean(req.body.status || "posted");
+    if (!["draft", "posted"].includes(status)) return res.status(400).json({ message: "Journal status must be draft or posted." });
+    if (status === "posted") {
+      const entry = await postJournalEntry({
+        date: req.body.date,
+        lines: req.body.lines,
+        sourceType: clean(req.body.sourceType || "manual"),
+        sourceId: req.body.sourceId,
+        reference: req.body.reference,
+        memo: req.body.memo,
+        currency: req.body.currency,
+        userId: req.user?._id || null,
+      });
+      return res.status(201).json({ message: "Journal entry posted.", journalEntry: entry });
+    }
+    const entry = await JournalEntry.create({
+      date: parsePostingDate(req.body.date),
+      status: "draft",
+      sourceType: clean(req.body.sourceType || "manual"),
+      sourceId: isId(req.body.sourceId) ? req.body.sourceId : null,
+      reference: clean(req.body.reference),
+      memo: clean(req.body.memo),
+      currency: clean(req.body.currency || "BDT"),
+      lines: normalizeLines(req.body.lines),
+      createdBy: req.user?._id || null,
+    });
+    return res.status(201).json({ message: "Journal entry saved as draft.", journalEntry: entry });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: "Failed to save journal entry.", error: error.message });
+  }
+};
+
+export const postDraftJournalEntry = async (req, res) => {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid journal entry ID." });
+    const entry = await JournalEntry.findById(req.params.id);
+    if (!entry) return res.status(404).json({ message: "Journal entry not found." });
+    if (entry.status !== "draft") return res.status(409).json({ message: "Only draft journal entries can be posted." });
+    await assertOpenPeriod(entry.date);
+    entry.status = "posted";
+    entry.postedAt = new Date();
+    entry.postedBy = req.user?._id || null;
+    await entry.save();
+    accountingCache.flushAll();
+    return res.json({ message: "Journal entry posted.", journalEntry: entry });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: "Failed to post journal entry.", error: error.message });
+  }
+};
+
+export const voidJournalEntry = async (req, res) => {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid journal entry ID." });
+    const entry = await JournalEntry.findById(req.params.id);
+    if (!entry) return res.status(404).json({ message: "Journal entry not found." });
+    if (entry.status !== "posted") return res.status(409).json({ message: "Only posted journal entries can be voided." });
+    await assertOpenPeriod(entry.date);
+    entry.status = "void";
+    entry.voidedAt = new Date();
+    entry.voidedBy = req.user?._id || null;
+    entry.voidReason = clean(req.body.reason);
+    await entry.save();
+    accountingCache.flushAll();
+    return res.json({ message: "Journal entry voided.", journalEntry: entry });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: "Failed to void journal entry.", error: error.message });
+  }
+};
+
+export const listAccountingPeriods = async (req, res) => {
+  try {
+    const periods = await AccountingPeriod.find({})
+      .sort({ startDate: -1, _id: -1 })
+      .limit(parseLimit(req.query.limit, 60))
+      .lean();
+    return res.json({ periods });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load accounting periods.", error: error.message });
+  }
+};
+
+export const upsertAccountingPeriod = async (req, res) => {
+  try {
+    const startDate = parsePostingDate(req.body.startDate);
+    const endDate = parsePostingDate(req.body.endDate);
+    if (!startDate || !endDate || startDate > endDate) return res.status(400).json({ message: "Valid start and end dates are required." });
+    const periodKey = clean(req.body.periodKey);
+    if (!periodKey) return res.status(400).json({ message: "Period key is required." });
+    const period = await AccountingPeriod.findOneAndUpdate(
+      { periodKey },
+      {
+        fiscalYear: clean(req.body.fiscalYear || periodKey.slice(0, 4)),
+        name: clean(req.body.name || periodKey),
+        startDate,
+        endDate,
+        status: clean(req.body.status || "open"),
+        note: clean(req.body.note),
+      },
+      { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+    );
+    return res.json({ message: "Accounting period saved.", period });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to save accounting period.", error: error.message });
+  }
+};
+
+export const closeAccountingPeriod = async (req, res) => {
+  try {
+    const period = await AccountingPeriod.findOneAndUpdate(
+      { periodKey: req.params.periodKey },
+      { status: "closed", closedAt: new Date(), closedBy: req.user?._id || null, note: clean(req.body.note) },
+      { new: true, runValidators: true }
+    );
+    if (!period) return res.status(404).json({ message: "Accounting period not found." });
+    return res.json({ message: "Accounting period closed.", period });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to close period.", error: error.message });
+  }
+};
+
+export const reopenAccountingPeriod = async (req, res) => {
+  try {
+    const period = await AccountingPeriod.findOneAndUpdate(
+      { periodKey: req.params.periodKey, status: { $ne: "locked" } },
+      { status: "open", closedAt: null, closedBy: null, note: clean(req.body.note) },
+      { new: true, runValidators: true }
+    );
+    if (!period) return res.status(404).json({ message: "Accounting period not found or locked." });
+    return res.json({ message: "Accounting period reopened.", period });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to reopen period.", error: error.message });
+  }
+};
+
+export const listCashAccounts = async (req, res) => {
+  try {
+    const accounts = await CashAccount.find(req.query.active === "all" ? {} : { isActive: { $ne: false } })
+      .populate("account", "code name type")
+      .sort({ type: 1, nameLower: 1, _id: 1 })
+      .limit(parseLimit(req.query.limit, 100))
+      .lean();
+    return res.json({ cashAccounts: accounts });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load cash/bank accounts.", error: error.message });
+  }
+};
+
+export const createCashAccount = async (req, res) => {
+  try {
+    const cashAccount = await CashAccount.create({
+      name: req.body.name,
+      type: clean(req.body.type || "bank"),
+      account: req.body.account || await resolveSystemAccount(clean(req.body.type) === "cash" ? "1000" : "1010"),
+      currency: clean(req.body.currency || "BDT"),
+      institution: clean(req.body.institution),
+      accountNo: clean(req.body.accountNo),
+      openingBalance: money(req.body.openingBalance),
+      createdBy: req.user?._id || null,
+    });
+    return res.status(201).json({ message: "Cash/bank account created.", cashAccount });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to create cash/bank account.", error: error.message });
+  }
+};
+
+export const reconcileCashAccount = async (req, res) => {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid cash account ID." });
+    const cashAccount = await CashAccount.findByIdAndUpdate(
+      req.params.id,
+      { lastReconciledAt: parsePostingDate(req.body.reconciledAt) || new Date(), lastReconciledBalance: money(req.body.balance), updatedBy: req.user?._id || null },
+      { new: true, runValidators: true }
+    );
+    if (!cashAccount) return res.status(404).json({ message: "Cash/bank account not found." });
+    return res.json({ message: "Cash/bank account reconciled.", cashAccount });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to reconcile cash/bank account.", error: error.message });
+  }
+};
+
+export const listVendorBills = async (req, res) => {
+  try {
+    const range = parseDateRange(req.query);
+    if (range.error) return res.status(400).json({ message: range.error });
+    const limit = parseLimit(req.query.limit);
+    const cursor = listCursor(req.query.cursor);
+    const filter = {};
+    if (req.query.status && req.query.status !== "all") filter.status = clean(req.query.status);
+    if (req.query.vendor) filter.vendorNameLower = textRegex(req.query.vendor);
+    if (range.from || range.to) filter.billDate = {};
+    if (range.from) filter.billDate.$gte = range.from;
+    if (range.to) filter.billDate.$lte = range.to;
+    if (cursor) filter.$or = [{ billDate: { $lt: cursor.date } }, { billDate: cursor.date, _id: { $lt: cursor.id } }];
+    const rows = await VendorBill.find(filter)
+      .populate("expenseAccount payableAccount", "code name type")
+      .sort({ billDate: -1, _id: -1 })
+      .limit(limit + 1)
+      .lean();
+    const hasNextPage = rows.length > limit;
+    const vendorBills = hasNextPage ? rows.slice(0, limit) : rows;
+    const nextCursor = hasNextPage && vendorBills.length ? makeListCursor(vendorBills[vendorBills.length - 1], "billDate") : "";
+    return res.json({ vendorBills, pageInfo: { limit, hasNextPage, nextCursor } });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load vendor bills.", error: error.message });
+  }
+};
+
+export const createVendorBill = async (req, res) => {
+  try {
+    const expenseAccount = req.body.expenseAccount || await resolveSystemAccount("5000");
+    const payableAccount = req.body.payableAccount || await resolveSystemAccount("2000");
+    const bill = await VendorBill.create({
+      vendorName: req.body.vendorName,
+      expense: isId(req.body.expense) ? req.body.expense : null,
+      expenseAccount,
+      payableAccount,
+      currency: clean(req.body.currency || "BDT"),
+      billDate: parsePostingDate(req.body.billDate) || new Date(),
+      dueDate: parsePostingDate(req.body.dueDate, null),
+      subtotal: money(req.body.subtotal || req.body.total),
+      taxAmount: money(req.body.taxAmount),
+      total: money(req.body.total),
+      memo: clean(req.body.memo),
+      createdBy: req.user?._id || null,
+    });
+    if (req.body.post === true || req.body.status === "approved") {
+      const journal = await postJournalEntry({
+        date: bill.billDate,
+        sourceType: "vendor_bill",
+        sourceId: bill._id,
+        reference: bill.billNo,
+        memo: bill.memo || `Vendor bill from ${bill.vendorName}`,
+        currency: bill.currency,
+        userId: req.user?._id || null,
+        lines: [
+          { account: bill.expenseAccount, debit: bill.total, credit: 0, description: bill.memo },
+          { account: bill.payableAccount, debit: 0, credit: bill.total, description: bill.vendorName, contactType: "vendor" },
+        ],
+      });
+      bill.status = "approved";
+      bill.approvedBy = req.user?._id || null;
+      bill.journalEntry = journal._id;
+      await bill.save();
+    }
+    return res.status(201).json({ message: "Vendor bill created.", vendorBill: bill });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: "Failed to create vendor bill.", error: error.message });
+  }
+};
+
+export const approveVendorBill = async (req, res) => {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid vendor bill ID." });
+    const bill = await VendorBill.findById(req.params.id);
+    if (!bill) return res.status(404).json({ message: "Vendor bill not found." });
+    if (bill.status !== "draft") return res.status(409).json({ message: "Only draft bills can be approved." });
+    const journal = await postJournalEntry({
+      date: bill.billDate,
+      sourceType: "vendor_bill",
+      sourceId: bill._id,
+      reference: bill.billNo,
+      memo: bill.memo || `Vendor bill from ${bill.vendorName}`,
+      currency: bill.currency,
+      userId: req.user?._id || null,
+      lines: [
+        { account: bill.expenseAccount, debit: bill.total, credit: 0, description: bill.memo },
+        { account: bill.payableAccount, debit: 0, credit: bill.total, description: bill.vendorName, contactType: "vendor" },
+      ],
+    });
+    bill.status = "approved";
+    bill.approvedBy = req.user?._id || null;
+    bill.journalEntry = journal._id;
+    await bill.save();
+    return res.json({ message: "Vendor bill approved and posted.", vendorBill: bill, journalEntry: journal });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: "Failed to approve vendor bill.", error: error.message });
+  }
+};
+
+export const payVendorBill = async (req, res) => {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid vendor bill ID." });
+    const bill = await VendorBill.findById(req.params.id);
+    if (!bill) return res.status(404).json({ message: "Vendor bill not found." });
+    if (!["approved", "partially_paid"].includes(bill.status)) return res.status(409).json({ message: "Bill must be approved before payment." });
+    const cashAccount = await CashAccount.findById(req.body.cashAccount).lean();
+    if (!cashAccount) return res.status(400).json({ message: "Valid cash/bank account is required." });
+    const amount = money(req.body.amount || bill.dueTotal);
+    if (amount <= 0 || amount > Number(bill.dueTotal || 0)) return res.status(400).json({ message: "Payment amount must be greater than 0 and not exceed bill due." });
+    const journal = await postJournalEntry({
+      date: req.body.paidAt || new Date(),
+      sourceType: "vendor_payment",
+      sourceId: bill._id,
+      reference: clean(req.body.reference || bill.billNo),
+      memo: clean(req.body.note || `Payment to ${bill.vendorName}`),
+      currency: bill.currency,
+      userId: req.user?._id || null,
+      lines: [
+        { account: bill.payableAccount, debit: amount, credit: 0, description: bill.vendorName, contactType: "vendor" },
+        { account: cashAccount.account, debit: 0, credit: amount, description: cashAccount.name },
+      ],
+    });
+    bill.payments.push({ amount, paidAt: parsePostingDate(req.body.paidAt) || new Date(), cashAccount: cashAccount._id, journalEntry: journal._id, reference: req.body.reference, note: req.body.note, paidBy: req.user?._id || null });
+    await bill.save();
+    return res.json({ message: "Vendor payment recorded.", vendorBill: bill, journalEntry: journal });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: "Failed to record vendor payment.", error: error.message });
+  }
+};
+
+export const recordCustomerPayment = async (req, res) => {
+  try {
+    const invoiceId = req.body.invoiceId || req.params.invoiceId;
+    if (!isId(invoiceId)) return res.status(400).json({ message: "Valid invoice is required." });
+    const invoice = await Invoice.findById(invoiceId);
+    if (!invoice || invoice.status === "void") return res.status(404).json({ message: "Invoice not found." });
+    const cashAccount = await CashAccount.findById(req.body.cashAccount).lean();
+    if (!cashAccount) return res.status(400).json({ message: "Valid cash/bank account is required." });
+    const amount = money(req.body.amount || invoice.dueTotal);
+    if (amount <= 0 || amount > Number(invoice.dueTotal || 0)) return res.status(400).json({ message: "Payment amount must be greater than 0 and not exceed invoice due." });
+    const arAccount = req.body.receivableAccount || await resolveSystemAccount("1100");
+    const journal = await postJournalEntry({
+      date: req.body.paidAt || new Date(),
+      sourceType: "customer_payment",
+      sourceId: invoice._id,
+      reference: clean(req.body.reference || invoice.invoiceNo),
+      memo: clean(req.body.note || `Payment for invoice ${invoice.invoiceNo}`),
+      currency: invoice.currency,
+      userId: req.user?._id || null,
+      lines: [
+        { account: cashAccount.account, debit: amount, credit: 0, description: cashAccount.name },
+        { account: arAccount, debit: 0, credit: amount, description: invoice.invoiceNo, contactType: "customer", contactId: invoice.customerId },
+      ],
+    });
+    invoice.payments.push({ amount, method: cashAccount.type === "mobile_banking" ? "other" : cashAccount.type, transactionId: clean(req.body.reference), paidAt: parsePostingDate(req.body.paidAt) || new Date(), note: clean(req.body.note), receivedBy: req.user?._id || null });
+    await invoice.save();
+    return res.json({ message: "Customer payment recorded.", invoice, journalEntry: journal });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: "Failed to record customer payment.", error: error.message });
+  }
+};
+
+export const postOpeningBalances = async (req, res) => {
+  try {
+    const date = parsePostingDate(req.body.date);
+    const lines = Array.isArray(req.body.lines) ? req.body.lines : [];
+    if (!date || !lines.length) return res.status(400).json({ message: "Opening balance date and lines are required." });
+    const equityAccount = req.body.equityAccount || await resolveSystemAccount("3100");
+    const normalized = lines.map((line) => ({ account: line.account, debit: money(line.debit), credit: money(line.credit), description: "Opening balance" }));
+    const debit = normalized.reduce((sum, line) => sum + Number(line.debit || 0), 0);
+    const credit = normalized.reduce((sum, line) => sum + Number(line.credit || 0), 0);
+    const difference = money(debit - credit);
+    if (difference > 0) normalized.push({ account: equityAccount, debit: 0, credit: difference, description: "Opening balance equity" });
+    if (difference < 0) normalized.push({ account: equityAccount, debit: Math.abs(difference), credit: 0, description: "Opening balance equity" });
+    const journal = await postJournalEntry({
+      date,
+      sourceType: "opening_balance",
+      reference: clean(req.body.reference || "OPENING-BALANCE"),
+      memo: clean(req.body.memo || "Opening balances"),
+      currency: clean(req.body.currency || "BDT"),
+      userId: req.user?._id || null,
+      lines: normalized,
+    });
+    return res.status(201).json({ message: "Opening balances posted.", journalEntry: journal });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: "Failed to post opening balances.", error: error.message });
+  }
+};
+
+export const getGeneralLedger = async (req, res) => {
+  try {
+    const range = parseDateRange(req.query);
+    if (range.error) return res.status(400).json({ message: range.error });
+    const limit = parseLimit(req.query.limit);
+    if (!isId(req.query.account)) return res.status(400).json({ message: "Account is required." });
+    const accountId = toId(req.query.account);
+    const cursor = listCursor(req.query.cursor);
+    const filter = { status: "posted", "lines.account": accountId };
+    if (range.from || range.to) filter.date = {};
+    if (range.from) filter.date.$gte = range.from;
+    if (range.to) filter.date.$lte = range.to;
+    if (cursor) filter.$or = [{ date: { $lt: cursor.date } }, { date: cursor.date, _id: { $lt: cursor.id } }];
+    const rows = await JournalEntry.find(filter)
+      .select("entryNo date sourceType reference memo currency lines")
+      .populate("lines.account", "code name type normalBalance")
+      .sort({ date: -1, _id: -1 })
+      .limit(limit + 1)
+      .lean();
+    const sliced = rows.map((entry) => ({ ...entry, lines: (entry.lines || []).filter((line) => String(line.account?._id || line.account) === String(accountId)) }));
+    const hasNextPage = sliced.length > limit;
+    const entries = hasNextPage ? sliced.slice(0, limit) : sliced;
+    const nextCursor = hasNextPage && entries.length ? makeListCursor(entries[entries.length - 1]) : "";
+    return res.json({ entries, pageInfo: { limit, hasNextPage, nextCursor } });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load general ledger.", error: error.message });
+  }
+};
+
+export const getTrialBalance = async (req, res) => {
+  try {
+    const range = parseDateRange(req.query);
+    if (range.error) return res.status(400).json({ message: range.error });
+    const rows = await JournalEntry.aggregate([
+      { $match: ledgerMatchForRange(range) },
+      { $unwind: "$lines" },
+      { $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
+      { $lookup: { from: "accounts", localField: "_id", foreignField: "_id", as: "account" } },
+      { $unwind: "$account" },
+      { $sort: { "account.type": 1, "account.code": 1 } },
+      { $project: { _id: 0, account: { _id: "$account._id", code: "$account.code", name: "$account.name", type: "$account.type" }, debit: 1, credit: 1, balance: { $subtract: ["$debit", "$credit"] } } },
+    ]).allowDiskUse(true);
+    const totals = rows.reduce((acc, row) => ({ debit: money(acc.debit + row.debit), credit: money(acc.credit + row.credit) }), { debit: 0, credit: 0 });
+    return res.json({ rows: rows.map((row) => ({ ...row, debit: money(row.debit), credit: money(row.credit), balance: money(row.balance) })), totals, isBalanced: totals.debit === totals.credit });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load trial balance.", error: error.message });
+  }
+};
+
+export const getBalanceSheet = async (req, res) => {
+  try {
+    const to = req.query.to ? new Date(req.query.to) : new Date();
+    if (Number.isNaN(to.getTime())) return res.status(400).json({ message: "Invalid to date." });
+    to.setHours(23, 59, 59, 999);
+    const rows = await JournalEntry.aggregate([
+      { $match: { status: "posted", date: { $lte: to } } },
+      { $unwind: "$lines" },
+      { $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
+      { $lookup: { from: "accounts", localField: "_id", foreignField: "_id", as: "account" } },
+      { $unwind: "$account" },
+      { $match: { "account.type": { $in: ["asset", "liability", "equity"] } } },
+      { $project: { account: { _id: "$account._id", code: "$account.code", name: "$account.name", type: "$account.type" }, balance: accountBalanceExpression } },
+      { $sort: { "account.type": 1, "account.code": 1 } },
+    ]).allowDiskUse(true);
+    const groups = { assets: [], liabilities: [], equity: [] };
+    for (const row of rows) {
+      const key = row.account.type === "asset" ? "assets" : row.account.type === "liability" ? "liabilities" : "equity";
+      groups[key].push({ ...row, balance: money(row.balance) });
+    }
+    const sum = (items) => money(items.reduce((total, item) => total + Number(item.balance || 0), 0));
+    return res.json({
+      asOf: to,
+      ...groups,
+      totals: {
+        assets: sum(groups.assets),
+        liabilities: sum(groups.liabilities),
+        equity: sum(groups.equity),
+        liabilitiesAndEquity: money(sum(groups.liabilities) + sum(groups.equity)),
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load balance sheet.", error: error.message });
+  }
+};
+
+export const getCashFlowStatement = async (req, res) => {
+  try {
+    const range = parseDateRange(req.query);
+    if (range.error) return res.status(400).json({ message: range.error });
+    const cashAccounts = await CashAccount.find({ isActive: { $ne: false } }).select("account name type").lean();
+    const cashIds = cashAccounts.map((item) => item.account);
+    const rows = await JournalEntry.aggregate([
+      { $match: ledgerMatchForRange(range) },
+      { $unwind: "$lines" },
+      { $match: { "lines.account": { $in: cashIds } } },
+      { $group: { _id: "$sourceType", inflow: { $sum: "$lines.debit" }, outflow: { $sum: "$lines.credit" }, count: { $sum: 1 } } },
+      { $sort: { _id: 1 } },
+    ]).allowDiskUse(true);
+    const items = rows.map((row) => ({ sourceType: row._id, inflow: money(row.inflow), outflow: money(row.outflow), net: money(row.inflow - row.outflow), count: row.count }));
+    const totals = items.reduce((acc, row) => ({ inflow: money(acc.inflow + row.inflow), outflow: money(acc.outflow + row.outflow), net: money(acc.net + row.net) }), { inflow: 0, outflow: 0, net: 0 });
+    return res.json({ items, totals, basis: "Cash flow is calculated from posted journal lines hitting configured cash/bank accounts." });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load cash flow.", error: error.message });
   }
 };

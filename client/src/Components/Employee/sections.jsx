@@ -30,6 +30,16 @@ import TaxSetup from "../Admin/TaxSetup"
 import TaxReport from "../Admin/TaxReport"
 import AccountingModules from "../Admin/AccountingModules"
 import Expenses from "../Admin/Expenses"
+import ChartOfAccounts from "../Admin/accounting/ChartOfAccounts"
+import JournalEntries from "../Admin/accounting/JournalEntries"
+import GeneralLedger from "../Admin/accounting/GeneralLedger"
+import OpeningBalances from "../Admin/accounting/OpeningBalances"
+import TrialBalance from "../Admin/accounting/TrialBalance"
+import BalanceSheet from "../Admin/accounting/BalanceSheet"
+import CashFlowStatement from "../Admin/accounting/CashFlowStatement"
+import BankTransactions from "../Admin/banking/BankTransactions"
+import MoneyTransfer from "../Admin/banking/MoneyTransfer"
+import BankReconciliation from "../Admin/banking/BankReconciliation"
 
 export const sections = {
   Dashboard: {
@@ -65,6 +75,66 @@ export const sections = {
   Finance: {
     icon: <FiDollarSign className="w-5 h-5" />,
     component: <AccountingModules />,
+    permission: PERMISSIONS.FINANCE_VIEW,
+  },
+
+  "Chart of Accounts": {
+    icon: <FiDollarSign className="w-5 h-5" />,
+    component: <ChartOfAccounts />,
+    permission: PERMISSIONS.FINANCE_VIEW,
+  },
+
+  "Journal Entries": {
+    icon: <FiDollarSign className="w-5 h-5" />,
+    component: <JournalEntries />,
+    permission: PERMISSIONS.FINANCE_VIEW,
+  },
+
+  "General Ledger": {
+    icon: <FiDollarSign className="w-5 h-5" />,
+    component: <GeneralLedger />,
+    permission: PERMISSIONS.FINANCE_VIEW,
+  },
+
+  "Opening Balances": {
+    icon: <FiDollarSign className="w-5 h-5" />,
+    component: <OpeningBalances />,
+    permission: PERMISSIONS.FINANCE_MANAGE,
+  },
+
+  "Trial Balance": {
+    icon: <FiDollarSign className="w-5 h-5" />,
+    component: <TrialBalance />,
+    permission: PERMISSIONS.FINANCE_VIEW,
+  },
+
+  "Balance Sheet": {
+    icon: <FiDollarSign className="w-5 h-5" />,
+    component: <BalanceSheet />,
+    permission: PERMISSIONS.FINANCE_VIEW,
+  },
+
+  "Cash Flow Statement": {
+    icon: <FiDollarSign className="w-5 h-5" />,
+    component: <CashFlowStatement />,
+    permission: PERMISSIONS.FINANCE_VIEW,
+  },
+
+  "Bank Transactions": {
+    icon: <FiCreditCard className="w-5 h-5" />,
+    component: <BankTransactions />,
+    permission: PERMISSIONS.FINANCE_VIEW,
+  },
+
+  "Money Transfer": {
+    icon: <FiCreditCard className="w-5 h-5" />,
+    component: <MoneyTransfer />,
+    permission: PERMISSIONS.FINANCE_VIEW,
+  },
+
+  "Bank Reconciliation": {
+    icon: <FiCreditCard className="w-5 h-5" />,
+    component: <BankReconciliation />,
     permission: PERMISSIONS.FINANCE_VIEW,
   },
 

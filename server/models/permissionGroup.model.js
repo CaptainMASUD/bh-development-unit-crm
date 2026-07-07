@@ -27,6 +27,8 @@ export const PERMISSION_KEYS = [
   "expenses:manage",
   "expense-setup:view",
   "expense-setup:manage",
+  "bank-setup:view",
+  "bank-setup:manage",
   "loans:view",
   "loans:manage",
   "leaves:view",

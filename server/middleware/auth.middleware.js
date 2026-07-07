@@ -96,6 +96,7 @@ export const requirePermission = (permission) => (req, res, next) => {
     "tax.view": ["tax.create", "tax.update", "tax.delete", "tax.assign_employee", "tax.report", "payroll:manage"],
     "expenses:view": ["expenses:manage"],
     "expense-setup:view": ["expense-setup:manage", "expenses:manage"],
+    "bank-setup:view": ["bank-setup:manage"],
   };
   const manageEquivalent = String(permission).endsWith(":view")
     ? String(permission).replace(/:view$/, ":manage")

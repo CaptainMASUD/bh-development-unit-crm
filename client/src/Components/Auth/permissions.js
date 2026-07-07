@@ -25,6 +25,8 @@ export const PERMISSIONS = {
   EXPENSES_MANAGE: "expenses:manage",
   EXPENSE_SETUP_VIEW: "expense-setup:view",
   EXPENSE_SETUP_MANAGE: "expense-setup:manage",
+  BANK_SETUP_VIEW: "bank-setup:view",
+  BANK_SETUP_MANAGE: "bank-setup:manage",
   LOANS_VIEW: "loans:view",
   LOANS_MANAGE: "loans:manage",
   LEAVES_VIEW: "leaves:view",

@@ -18,8 +18,19 @@ import LeaveSetup from "./LeaveSetup"
 import RosterShiftSetup from "./RosterShiftSetup"
 import TaxSetup from "./TaxSetup"
 import ExpenseSetup from "./ExpenseSetup"
+import BankSetup from "./BankSetup"
 import Expenses from "./Expenses"
 import AccountingModules from "./AccountingModules"
+import BankTransactions from "./banking/BankTransactions"
+import MoneyTransfer from "./banking/MoneyTransfer"
+import BankReconciliation from "./banking/BankReconciliation"
+import ChartOfAccounts from "./accounting/ChartOfAccounts"
+import JournalEntries from "./accounting/JournalEntries"
+import GeneralLedger from "./accounting/GeneralLedger"
+import OpeningBalances from "./accounting/OpeningBalances"
+import TrialBalance from "./accounting/TrialBalance"
+import BalanceSheet from "./accounting/BalanceSheet"
+import CashFlowStatement from "./accounting/CashFlowStatement"
 import ProfileSettings from "./ProfileSettings"
 import About from "./About"
 
@@ -118,6 +129,66 @@ const sections = {
     permission: "finance:view",
   },
 
+  "Chart of Accounts": {
+    icon: <FiLayers className="w-5 h-5" />,
+    component: <ChartOfAccounts />,
+    permission: "finance:view",
+  },
+
+  "Journal Entries": {
+    icon: <FiDollarSign className="w-5 h-5" />,
+    component: <JournalEntries />,
+    permission: "finance:view",
+  },
+
+  "General Ledger": {
+    icon: <FiLayers className="w-5 h-5" />,
+    component: <GeneralLedger />,
+    permission: "finance:view",
+  },
+
+  "Opening Balances": {
+    icon: <FiCreditCard className="w-5 h-5" />,
+    component: <OpeningBalances />,
+    permission: "finance:manage",
+  },
+
+  "Trial Balance": {
+    icon: <FaChartBar className="w-5 h-5" />,
+    component: <TrialBalance />,
+    permission: "finance:view",
+  },
+
+  "Balance Sheet": {
+    icon: <FiLayers className="w-5 h-5" />,
+    component: <BalanceSheet />,
+    permission: "finance:view",
+  },
+
+  "Cash Flow Statement": {
+    icon: <FaChartBar className="w-5 h-5" />,
+    component: <CashFlowStatement />,
+    permission: "finance:view",
+  },
+
+  "Bank Transactions": {
+    icon: <FiCreditCard className="w-5 h-5" />,
+    component: <BankTransactions />,
+    permission: "finance:view",
+  },
+
+  "Money Transfer": {
+    icon: <FiCreditCard className="w-5 h-5" />,
+    component: <MoneyTransfer />,
+    permission: "finance:view",
+  },
+
+  "Bank Reconciliation": {
+    icon: <FiCreditCard className="w-5 h-5" />,
+    component: <BankReconciliation />,
+    permission: "finance:view",
+  },
+
   "Employee Loans": {
     icon: <FiCreditCard className="w-5 h-5" />,
     component: <EmployeeLoans />,
@@ -135,12 +206,14 @@ const sections = {
       "Leave Setup": <LeaveSetup />,
       "Tax Setup": <TaxSetup />,
       "Expense Setup": <ExpenseSetup />,
+      "Bank Setup": <BankSetup />,
     },
     subcategoryPermissions: {
       "Roster / Shift Setup": "roster:view",
       "Leave Setup": "leaves:manage",
       "Tax Setup": "tax.view",
       "Expense Setup": "expense-setup:view",
+      "Bank Setup": "bank-setup:view",
     },
   },
 
