@@ -4,12 +4,16 @@ const accountingPeriodSchema = new mongoose.Schema(
   {
     periodKey: { type: String, required: true, trim: true, index: true },
     fiscalYear: { type: String, required: true, trim: true, index: true },
+    fiscalYearRef: { type: mongoose.Schema.Types.ObjectId, ref: "FiscalYear", default: null, index: true },
+    periodType: { type: String, enum: ["monthly", "quarterly", "custom"], default: "monthly" },
     name: { type: String, required: true, trim: true },
     startDate: { type: Date, required: true, index: true },
     endDate: { type: Date, required: true, index: true },
     status: { type: String, enum: ["open", "closed", "locked"], default: "open", index: true },
     closedAt: { type: Date, default: null },
     closedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    lockedAt: { type: Date, default: null },
+    lockedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     note: { type: String, trim: true, default: "" },
   },
   { timestamps: true }

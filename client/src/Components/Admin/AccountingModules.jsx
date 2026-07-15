@@ -103,11 +103,9 @@ const NAV_GROUPS = [
   },
   {
     key: "settings",
-    label: "Settings",
+    label: "Controls",
     icon: FiSettings,
     items: [
-      ["fiscal-year", "Fiscal Year", FiCalendar],
-      ["period-closing", "Period Closing", FiLock],
       ["approval-rules", "Approval Rules", FiShield],
       ["audit-trail", "Audit Trail", FiActivity],
     ],

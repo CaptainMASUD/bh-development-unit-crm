@@ -5,6 +5,9 @@ import Invoice from "../models/invoice.model.js";
 import Account from "../models/account.model.js";
 import JournalEntry from "../models/journalEntry.model.js";
 import AccountingPeriod from "../models/accountingPeriod.model.js";
+import AccountingSettings from "../models/accountingSettings.model.js";
+import FiscalYear from "../models/fiscalYear.model.js";
+import VoucherSequence from "../models/voucherSequence.model.js";
 import CashAccount from "../models/cashAccount.model.js";
 import VendorBill from "../models/vendorBill.model.js";
 import { accountingCache } from "../utils/cache.js";
@@ -26,11 +29,32 @@ const SYSTEM_ACCOUNTS = [
   { code: "3100", name: "Opening Balance Equity", type: "equity" },
   { code: "4000", name: "Sales Revenue", type: "revenue" },
   { code: "5000", name: "Operating Expense", type: "expense" },
+  { code: "5010", name: "Purchases", type: "expense" },
   { code: "5100", name: "Payroll Expense", type: "expense" },
+  { code: "5110", name: "Salary Expense", type: "expense" },
+  { code: "5120", name: "Rent Expense", type: "expense" },
   { code: "5200", name: "Tax Expense", type: "expense" },
 ];
 
 const resolveSystemAccount = async (code) => {
+  const settingField = {
+    1000: "defaultCashAccount",
+    1010: "defaultBankAccount",
+    1100: "receivableAccount",
+    2000: "payableAccount",
+    2100: "vatAccount",
+    4000: "salesAccount",
+    5000: "purchaseAccount",
+    5010: "purchaseAccount",
+  }[String(code)];
+  if (settingField) {
+    const settings = await AccountingSettings.findOne({ key: "company" }).select(settingField).lean();
+    const configured = settings?.[settingField];
+    if (configured) {
+      const account = await Account.findOne({ _id: configured, isActive: true }).lean();
+      if (account) return account._id;
+    }
+  }
   const account = await Account.findOne({ code: String(code), isActive: true }).lean();
   if (!account) throw new Error(`Missing system account ${code}. Run /api/accounting/accounts/bootstrap first.`);
   return account._id;
@@ -61,6 +85,29 @@ const assertOpenPeriod = async (date) => {
   }
 };
 
+const voucherNumber = async (date) => {
+  const settings = await AccountingSettings.findOne({ key: "company" }).lean();
+  const prefix = clean(settings?.voucherPrefix || "JV").toUpperCase();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const fiscalYear = await FiscalYear.findOne({ startDate: { $lte: date }, endDate: { $gte: date } }).lean();
+  const fy = fiscalYear?.name || String(year);
+  const reset = settings?.voucherReset || "fiscal_year";
+  const bucket = reset === "monthly" ? `${year}-${month}` : reset === "calendar_year" ? String(year) : reset === "fiscal_year" ? fy : "all";
+  const sequence = await VoucherSequence.findOneAndUpdate(
+    { sequenceKey: `${prefix}:${bucket}` },
+    { $inc: { value: 1 } },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  ).lean();
+  const number = String(sequence.value).padStart(Number(settings?.voucherNumberLength || 6), "0");
+  return clean(settings?.voucherFormat || "{PREFIX}-{FY}-{NUMBER}")
+    .replaceAll("{PREFIX}", prefix)
+    .replaceAll("{FY}", fy)
+    .replaceAll("{YYYY}", String(year))
+    .replaceAll("{MM}", month)
+    .replaceAll("{NUMBER}", number);
+};
+
 const normalizeLines = (lines = []) =>
   lines.map((line) => ({
     account: line.account,
@@ -88,7 +135,9 @@ const postJournalEntry = async ({
     throw err;
   }
   await assertOpenPeriod(postingDate);
+  const entryNo = await voucherNumber(postingDate);
   const entry = await JournalEntry.create({
+    entryNo,
     date: postingDate,
     status: "posted",
     sourceType,
@@ -560,6 +609,129 @@ export const bootstrapChartOfAccounts = async (req, res) => {
   }
 };
 
+const SETTINGS_ACCOUNT_FIELDS = [
+  "defaultCashAccount",
+  "defaultBankAccount",
+  "salesAccount",
+  "purchaseAccount",
+  "receivableAccount",
+  "payableAccount",
+  "vatAccount",
+];
+
+const populateSettings = (query) =>
+  query.populate([
+    ...SETTINGS_ACCOUNT_FIELDS.map((path) => ({ path, select: "code name type isActive" })),
+    { path: "defaultFiscalYear", select: "name startDate endDate status" },
+  ]);
+
+export const getAccountingSettings = async (req, res) => {
+  try {
+    let settings = await populateSettings(AccountingSettings.findOne({ key: "company" }));
+    if (!settings) settings = await AccountingSettings.create({ key: "company" });
+    settings = await populateSettings(AccountingSettings.findById(settings._id));
+    return res.json({ settings });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load accounting settings.", error: error.message });
+  }
+};
+
+export const updateAccountingSettings = async (req, res) => {
+  try {
+    const patch = {};
+    for (const key of ["fiscalYearStartMonth", "currency", "voucherPrefix", "voucherNumberLength", "voucherReset", "voucherFormat"]) {
+      if (req.body[key] !== undefined) patch[key] = req.body[key];
+    }
+    for (const key of SETTINGS_ACCOUNT_FIELDS) {
+      if (req.body[key] !== undefined) {
+        if (req.body[key] && !isId(req.body[key])) return res.status(400).json({ message: `${key} must be a valid account.` });
+        patch[key] = req.body[key] || null;
+      }
+    }
+    if (req.body.defaultFiscalYear !== undefined) {
+      if (req.body.defaultFiscalYear && !isId(req.body.defaultFiscalYear)) return res.status(400).json({ message: "defaultFiscalYear must be a valid fiscal year." });
+      if (req.body.defaultFiscalYear && !(await FiscalYear.exists({ _id: req.body.defaultFiscalYear }))) return res.status(400).json({ message: "Selected fiscal year does not exist." });
+      patch.defaultFiscalYear = req.body.defaultFiscalYear || null;
+    }
+    const ids = SETTINGS_ACCOUNT_FIELDS.map((key) => patch[key]).filter(Boolean);
+    if (ids.length) {
+      const count = await Account.countDocuments({ _id: { $in: ids }, isActive: true });
+      if (count !== new Set(ids.map(String)).size) return res.status(400).json({ message: "All selected default accounts must be active accounts." });
+    }
+    patch.updatedBy = req.user?._id || null;
+    const settings = await populateSettings(AccountingSettings.findOneAndUpdate(
+      { key: "company" },
+      { $set: patch, $setOnInsert: { key: "company" } },
+      { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
+    ));
+    return res.json({ message: "Accounting settings saved.", settings });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to save accounting settings.", error: error.message });
+  }
+};
+
+const addMonths = (date, months) => {
+  const next = new Date(date);
+  next.setUTCMonth(next.getUTCMonth() + months);
+  return next;
+};
+
+const generatePeriods = async (fiscalYear, userId) => {
+  const step = fiscalYear.periodFrequency === "quarterly" ? 3 : 1;
+  const rows = [];
+  let cursor = new Date(fiscalYear.startDate);
+  let sequence = 1;
+  while (cursor <= fiscalYear.endDate) {
+    const startDate = new Date(cursor);
+    const nextStart = addMonths(startDate, step);
+    const endDate = new Date(Math.min(nextStart.getTime() - 1, fiscalYear.endDate.getTime()));
+    const label = fiscalYear.periodFrequency === "quarterly" ? `Q${sequence}` : startDate.toLocaleString("en", { month: "long", timeZone: "UTC" });
+    const periodKey = `${fiscalYear.name}-${fiscalYear.periodFrequency === "quarterly" ? `Q${sequence}` : String(sequence).padStart(2, "0")}`;
+    rows.push({
+      updateOne: {
+        filter: { periodKey },
+        update: { $setOnInsert: { periodKey, fiscalYear: fiscalYear.name, fiscalYearRef: fiscalYear._id, periodType: fiscalYear.periodFrequency, name: `${label} (${fiscalYear.name})`, startDate, endDate, status: "open", closedBy: null, lockedBy: null, note: "" } },
+        upsert: true,
+      },
+    });
+    cursor = nextStart;
+    sequence += 1;
+  }
+  if (rows.length) await AccountingPeriod.bulkWrite(rows);
+};
+
+export const listFiscalYears = async (req, res) => {
+  try {
+    const fiscalYears = await FiscalYear.find({}).sort({ startDate: -1 }).lean();
+    return res.json({ fiscalYears });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load fiscal years.", error: error.message });
+  }
+};
+
+export const createFiscalYear = async (req, res) => {
+  try {
+    const startDate = parsePostingDate(req.body.startDate, null);
+    const endDate = parsePostingDate(req.body.endDate, null);
+    if (!startDate || !endDate || startDate >= endDate) return res.status(400).json({ message: "Fiscal year start date must be before its end date." });
+    const overlap = await FiscalYear.findOne({ startDate: { $lte: endDate }, endDate: { $gte: startDate } }).lean();
+    if (overlap) return res.status(409).json({ message: `Dates overlap fiscal year ${overlap.name}.` });
+    const fiscalYear = await FiscalYear.create({
+      name: clean(req.body.name),
+      startDate,
+      endDate,
+      periodFrequency: clean(req.body.periodFrequency || "monthly"),
+      note: clean(req.body.note),
+      createdBy: req.user?._id || null,
+    });
+    await generatePeriods(fiscalYear, req.user?._id || null);
+    return res.status(201).json({ message: "Fiscal year and accounting periods created.", fiscalYear });
+  } catch (error) {
+    const status = error?.code === 11000 ? 409 : 500;
+    return res.status(status).json({ message: status === 409 ? "Fiscal year name or dates already exist." : "Failed to create fiscal year.", error: error.message });
+  }
+};
+
 export const listAccounts = async (req, res) => {
   try {
     const limit = parseLimit(req.query.limit, 100);
@@ -686,6 +858,7 @@ export const postDraftJournalEntry = async (req, res) => {
     if (!entry) return res.status(404).json({ message: "Journal entry not found." });
     if (entry.status !== "draft") return res.status(409).json({ message: "Only draft journal entries can be posted." });
     await assertOpenPeriod(entry.date);
+    if (!entry.entryNo) entry.entryNo = await voucherNumber(entry.date);
     entry.status = "posted";
     entry.postedAt = new Date();
     entry.postedBy = req.user?._id || null;
@@ -718,7 +891,9 @@ export const voidJournalEntry = async (req, res) => {
 
 export const listAccountingPeriods = async (req, res) => {
   try {
-    const periods = await AccountingPeriod.find({})
+    const filter = req.query.fiscalYearRef && isId(req.query.fiscalYearRef) ? { fiscalYearRef: req.query.fiscalYearRef } : {};
+    const periods = await AccountingPeriod.find(filter)
+      .populate("fiscalYearRef", "name startDate endDate periodFrequency status")
       .sort({ startDate: -1, _id: -1 })
       .limit(parseLimit(req.query.limit, 60))
       .lean();
@@ -778,6 +953,34 @@ export const reopenAccountingPeriod = async (req, res) => {
     return res.json({ message: "Accounting period reopened.", period });
   } catch (error) {
     return res.status(500).json({ message: "Failed to reopen period.", error: error.message });
+  }
+};
+
+export const lockAccountingPeriod = async (req, res) => {
+  try {
+    const period = await AccountingPeriod.findOneAndUpdate(
+      { periodKey: req.params.periodKey },
+      { status: "locked", lockedAt: new Date(), lockedBy: req.user?._id || null, note: clean(req.body.note) },
+      { new: true, runValidators: true }
+    );
+    if (!period) return res.status(404).json({ message: "Accounting period not found." });
+    return res.json({ message: "Accounting period locked.", period });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to lock period.", error: error.message });
+  }
+};
+
+export const unlockAccountingPeriod = async (req, res) => {
+  try {
+    const period = await AccountingPeriod.findOneAndUpdate(
+      { periodKey: req.params.periodKey, status: "locked" },
+      { status: "open", lockedAt: null, lockedBy: null, closedAt: null, closedBy: null, note: clean(req.body.note) },
+      { new: true, runValidators: true }
+    );
+    if (!period) return res.status(404).json({ message: "Locked accounting period not found." });
+    return res.json({ message: "Accounting period unlocked.", period });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to unlock period.", error: error.message });
   }
 };
 
@@ -993,14 +1196,15 @@ export const postOpeningBalances = async (req, res) => {
   try {
     const date = parsePostingDate(req.body.date);
     const lines = Array.isArray(req.body.lines) ? req.body.lines : [];
-    if (!date || !lines.length) return res.status(400).json({ message: "Opening balance date and lines are required." });
-    const equityAccount = req.body.equityAccount || await resolveSystemAccount("3100");
-    const normalized = lines.map((line) => ({ account: line.account, debit: money(line.debit), credit: money(line.credit), description: "Opening balance" }));
+    if (!date || lines.length < 2) return res.status(400).json({ message: "Opening balance date and at least two account lines are required." });
+    const normalized = lines.map((line) => ({ account: line.account, debit: money(line.debit), credit: money(line.credit), description: clean(line.description || "Opening balance") }));
+    if (normalized.some((line) => !isId(line.account) || (line.debit > 0 && line.credit > 0) || (line.debit <= 0 && line.credit <= 0))) {
+      return res.status(400).json({ message: "Each line needs a valid account and either a debit or a credit amount." });
+    }
     const debit = normalized.reduce((sum, line) => sum + Number(line.debit || 0), 0);
     const credit = normalized.reduce((sum, line) => sum + Number(line.credit || 0), 0);
     const difference = money(debit - credit);
-    if (difference > 0) normalized.push({ account: equityAccount, debit: 0, credit: difference, description: "Opening balance equity" });
-    if (difference < 0) normalized.push({ account: equityAccount, debit: Math.abs(difference), credit: 0, description: "Opening balance equity" });
+    if (difference !== 0) return res.status(400).json({ message: "Opening balances are not balanced. Total debit must equal total credit.", totals: { debit: money(debit), credit: money(credit), difference } });
     const journal = await postJournalEntry({
       date,
       sourceType: "opening_balance",

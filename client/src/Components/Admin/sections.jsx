@@ -28,6 +28,8 @@ import ChartOfAccounts from "./accounting/ChartOfAccounts"
 import JournalEntries from "./accounting/JournalEntries"
 import GeneralLedger from "./accounting/GeneralLedger"
 import OpeningBalances from "./accounting/OpeningBalances"
+import AccountingSettings from "./accounting/AccountingSettings"
+import FiscalYearPeriods from "./accounting/FiscalYearPeriods"
 import TrialBalance from "./accounting/TrialBalance"
 import BalanceSheet from "./accounting/BalanceSheet"
 import CashFlowStatement from "./accounting/CashFlowStatement"
@@ -129,10 +131,21 @@ const sections = {
     permission: "finance:view",
   },
 
-  "Chart of Accounts": {
+  "Accounting Setup": {
     icon: <FiLayers className="w-5 h-5" />,
-    component: <ChartOfAccounts />,
     permission: "finance:view",
+    subcategories: {
+      "Accounting Settings": <AccountingSettings />,
+      "Chart of Accounts": <ChartOfAccounts />,
+      "Opening Balance": <OpeningBalances />,
+      "Fiscal Year / Period": <FiscalYearPeriods />,
+    },
+    subcategoryPermissions: {
+      "Accounting Settings": "finance:manage",
+      "Chart of Accounts": "finance:manage",
+      "Opening Balance": "finance:manage",
+      "Fiscal Year / Period": "finance:manage",
+    },
   },
 
   "Journal Entries": {
@@ -145,12 +158,6 @@ const sections = {
     icon: <FiLayers className="w-5 h-5" />,
     component: <GeneralLedger />,
     permission: "finance:view",
-  },
-
-  "Opening Balances": {
-    icon: <FiCreditCard className="w-5 h-5" />,
-    component: <OpeningBalances />,
-    permission: "finance:manage",
   },
 
   "Trial Balance": {

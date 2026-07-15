@@ -3,6 +3,7 @@ import {
   approveVendorBill,
   bootstrapChartOfAccounts,
   closeAccountingPeriod,
+  createFiscalYear,
   createAccount,
   createCashAccount,
   createJournalEntry,
@@ -10,12 +11,14 @@ import {
   getBalanceSheet,
   getCashFlowStatement,
   getGeneralLedger,
+  getAccountingSettings,
   getPayables,
   getProfitLoss,
   getReceivables,
   getTrialBalance,
   listAccounts,
   listAccountingPeriods,
+  listFiscalYears,
   listCashAccounts,
   listJournalEntries,
   listVendorBills,
@@ -25,6 +28,9 @@ import {
   reconcileCashAccount,
   recordCustomerPayment,
   reopenAccountingPeriod,
+  lockAccountingPeriod,
+  unlockAccountingPeriod,
+  updateAccountingSettings,
   updateAccount,
   upsertAccountingPeriod,
   voidJournalEntry,
@@ -44,6 +50,12 @@ router.post("/accounts/bootstrap", requirePermission("finance:manage"), bootstra
 router.post("/accounts", requirePermission("finance:manage"), createAccount);
 router.patch("/accounts/:id", requirePermission("finance:manage"), updateAccount);
 
+router.get("/settings", getAccountingSettings);
+router.put("/settings", requirePermission("finance:manage"), updateAccountingSettings);
+
+router.get("/fiscal-years", listFiscalYears);
+router.post("/fiscal-years", requirePermission("finance:manage"), createFiscalYear);
+
 router.get("/journals", listJournalEntries);
 router.post("/journals", requirePermission("finance:manage"), createJournalEntry);
 router.patch("/journals/:id/post", requirePermission("finance:manage"), postDraftJournalEntry);
@@ -53,6 +65,8 @@ router.get("/periods", listAccountingPeriods);
 router.post("/periods", requirePermission("finance:manage"), upsertAccountingPeriod);
 router.patch("/periods/:periodKey/close", requirePermission("finance:manage"), closeAccountingPeriod);
 router.patch("/periods/:periodKey/reopen", requirePermission("finance:manage"), reopenAccountingPeriod);
+router.patch("/periods/:periodKey/lock", requirePermission("finance:manage"), lockAccountingPeriod);
+router.patch("/periods/:periodKey/unlock", requirePermission("finance:manage"), unlockAccountingPeriod);
 
 router.get("/cash-accounts", listCashAccounts);
 router.post("/cash-accounts", requirePermission("finance:manage"), createCashAccount);

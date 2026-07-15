@@ -26,6 +26,7 @@ async function api(path, options = {}) {
 }
 
 function pretty(value) {
+  if (value === "revenue") return "Income"
   return String(value || "-").replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
@@ -71,7 +72,7 @@ export default function ChartOfAccounts() {
   const [loading, setLoading] = useState(false)
   const [q, setQ] = useState("")
   const [type, setType] = useState("all")
-  const [form, setForm] = useState({ code: "", name: "", type: "asset" })
+  const [form, setForm] = useState({ code: "", name: "", type: "asset", parent: "", currency: "BDT" })
 
   const loadAccounts = async () => {
     setLoading(true)
@@ -110,7 +111,7 @@ export default function ChartOfAccounts() {
     try {
       await api("/accounting/accounts", { method: "POST", body: JSON.stringify(form) })
       toast.success("Account created")
-      setForm({ code: "", name: "", type: "asset" })
+      setForm({ code: "", name: "", type: "asset", parent: "", currency: "BDT" })
       loadAccounts()
     } catch (error) {
       toast.error(error.message)
@@ -149,10 +150,12 @@ export default function ChartOfAccounts() {
       </div>
 
       <form onSubmit={createAccount} className={`${card} mb-6 p-5`}>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_2fr_1fr_auto]">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_2fr_1fr_1.5fr_100px_auto]">
           <Field title="Code"><input className={input} value={form.code} onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))} required /></Field>
           <Field title="Name"><input className={input} value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required /></Field>
           <Field title="Type"><select className={input} value={form.type} onChange={(e) => setForm((p) => ({ ...p, type: e.target.value }))}>{["asset", "liability", "equity", "revenue", "expense"].map((item) => <option key={item} value={item}>{pretty(item)}</option>)}</select></Field>
+          <Field title="Parent Account"><select className={input} value={form.parent} onChange={(e) => setForm((p) => ({ ...p, parent: e.target.value }))}><option value="">Top level</option>{accounts.filter((account) => account.type === form.type).map((account) => <option key={account._id} value={account._id}>{account.code} - {account.name}</option>)}</select></Field>
+          <Field title="Currency"><input className={input} value={form.currency} maxLength={3} onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value.toUpperCase() }))} /></Field>
           <div className="flex items-end"><button className={cn(btn, btnPrimary, "h-11")} type="submit"><FiPlus /> Add</button></div>
         </div>
       </form>
@@ -160,19 +163,20 @@ export default function ChartOfAccounts() {
       <div className={`${card} overflow-hidden`}>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-100 text-left">
-            <thead className="bg-gray-50 text-xs font-black uppercase tracking-[0.12em] text-gray-400"><tr>{["Code", "Account", "Type", "Normal", "System", "Status"].map((h) => <th key={h} className="px-5 py-3">{h}</th>)}</tr></thead>
+            <thead className="bg-gray-50 text-xs font-black uppercase tracking-[0.12em] text-gray-400"><tr>{["Code", "Account", "Parent", "Type", "Normal", "System", "Status"].map((h) => <th key={h} className="px-5 py-3">{h}</th>)}</tr></thead>
             <tbody className="divide-y divide-gray-100">
               {accounts.map((row) => (
                 <tr key={row._id} className="hover:bg-gray-50/60">
                   <td className="px-5 py-4 text-sm font-black text-gray-950">{row.code}</td>
                   <td className="px-5 py-4 text-sm font-bold text-gray-800">{row.name}</td>
+                  <td className="px-5 py-4 text-sm font-semibold text-gray-500">{row.parent ? `${row.parent.code} - ${row.parent.name}` : "—"}</td>
                   <td className="px-5 py-4"><Badge value={row.type} /></td>
                   <td className="px-5 py-4 text-sm font-bold text-gray-600">{pretty(row.normalBalance)}</td>
                   <td className="px-5 py-4 text-sm font-bold text-gray-600">{row.isSystem ? "Yes" : "No"}</td>
                   <td className="px-5 py-4"><Badge value={row.isActive ? "active" : "inactive"} /></td>
                 </tr>
               ))}
-              {!accounts.length ? <tr><td colSpan={6} className="px-5 py-16 text-center text-sm font-bold text-gray-500">No accounts found.</td></tr> : null}
+              {!accounts.length ? <tr><td colSpan={7} className="px-5 py-16 text-center text-sm font-bold text-gray-500">No accounts found.</td></tr> : null}
             </tbody>
           </table>
         </div>
