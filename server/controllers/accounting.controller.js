@@ -9,6 +9,8 @@ import AccountingSettings from "../models/accountingSettings.model.js";
 import FiscalYear from "../models/fiscalYear.model.js";
 import OpeningBalance from "../models/openingBalance.model.js";
 import CashAccount from "../models/cashAccount.model.js";
+import BankAccount from "../models/bankAccount.model.js";
+import BankReconciliation from "../models/bankReconciliation.model.js";
 import VendorBill from "../models/vendorBill.model.js";
 import { accountingCache } from "../utils/cache.js";
 import { getReqMeta, writeAudit } from "../utils/audit.js";
@@ -50,10 +52,12 @@ const resolveSystemAccount = async (code) => {
     1010: "defaultBankAccount",
     1100: "receivableAccount",
     2000: "payableAccount",
+    2200: "payrollPayableAccount",
     2100: "vatAccount",
     4000: "salesAccount",
     5000: "purchaseAccount",
     5010: "purchaseAccount",
+    5100: "payrollExpenseAccount",
   }[String(code)];
   if (settingField) {
     const settings = await AccountingSettings.findOne({ key: "company" }).select(settingField).lean();
@@ -401,7 +405,7 @@ const receivablePipeline = ({ from, to, q, limit, cursor, includeSummary = true 
               overdueCount: { $sum: { $cond: ["$isOverdue", 1, 0] } },
             },
           },
-        ] : [{ $limit: 0 }],
+        ] : [{ $match: { _id: { $exists: false } } }],
       },
     },
   ];
@@ -480,8 +484,8 @@ export const getPayables = async (req, res) => {
             { $addFields: { category: { $first: "$category" } } },
             { $project: { title: 1, category: 1, expenseDate: 1, amount: 1, status: 1, paymentMethod: 1, payeeVendor: 1, invoiceBillNo: 1, referenceNo: 1, branch: 1 } },
           ],
-          statusSummary: cachedSummary ? [{ $limit: 0 }] : [{ $group: { _id: "$status", count: { $sum: 1 }, amount: { $sum: "$amount" } } }],
-          vendorSummary: cachedSummary ? [{ $limit: 0 }] : [
+          statusSummary: cachedSummary ? [{ $match: { _id: { $exists: false } } }] : [{ $group: { _id: "$status", count: { $sum: 1 }, amount: { $sum: "$amount" } } }],
+          vendorSummary: cachedSummary ? [{ $match: { _id: { $exists: false } } }] : [
             { $match: { status: { $in: ["pending", "approved"] } } },
             { $group: { _id: { $ifNull: ["$payeeVendor", ""] }, amount: { $sum: "$amount" }, count: { $sum: 1 } } },
             { $sort: { amount: -1 } },
@@ -630,6 +634,8 @@ const SETTINGS_ACCOUNT_FIELDS = [
   "purchaseAccount",
   "receivableAccount",
   "payableAccount",
+  "payrollExpenseAccount",
+  "payrollPayableAccount",
   "retainedEarningsAccount",
   "exchangeGainAccount",
   "exchangeLossAccount",
@@ -1038,7 +1044,12 @@ export const closeAccountingPeriod = async (req, res) => {
     if (drafts) return res.status(409).json({ message: `Period has ${drafts} unposted draft journal entr${drafts === 1 ? "y" : "ies"}. Post or void them before closing.` });
     const settings = await AccountingSettings.findOne({ key: "company" }).select("periodCloseRequireReconciliation").lean();
     if (settings?.periodCloseRequireReconciliation) {
-      const unreconciled = await CashAccount.countDocuments({ type: { $in: ["bank", "mobile_banking", "card"] }, isActive: true, $or: [{ lastReconciledAt: null }, { lastReconciledAt: { $lt: current.endDate } }] });
+      const [legacyUnreconciled, reconciledBankIds] = await Promise.all([
+        CashAccount.countDocuments({ type: { $in: ["bank", "mobile_banking", "card"] }, isActive: true, $or: [{ lastReconciledAt: null }, { lastReconciledAt: { $lt: current.endDate } }] }),
+        BankReconciliation.distinct("bankAccount", { status: "reconciled", statementDate: { $gte: current.endDate } }),
+      ]);
+      const connectedUnreconciled = await BankAccount.countDocuments({ status: "active", _id: { $nin: reconciledBankIds } });
+      const unreconciled = legacyUnreconciled + connectedUnreconciled;
       if (unreconciled) return res.status(409).json({ message: `${unreconciled} active bank account(s) are not reconciled through the period end.` });
     }
     const period = await AccountingPeriod.findOneAndUpdate(
@@ -1596,8 +1607,15 @@ export const getCashFlowStatement = async (req, res) => {
   try {
     const range = parseDateRange(req.query);
     if (range.error) return res.status(400).json({ message: range.error });
-    const cashAccounts = await CashAccount.find({ isActive: { $ne: false } }).select("account name type").lean();
-    const cashIds = cashAccounts.map((item) => item.account);
+    const [cashAccounts, bankAccounts] = await Promise.all([
+      CashAccount.find({ isActive: { $ne: false } }).select("account name type").lean(),
+      BankAccount.find({ status: "active", ledgerAccount: { $ne: null } }).select("ledgerAccount").lean(),
+    ]);
+    const cashIds = [...new Map(
+      [...cashAccounts.map((item) => item.account), ...bankAccounts.map((item) => item.ledgerAccount)]
+        .filter(Boolean)
+        .map((id) => [String(id), id])
+    ).values()];
     const rows = await JournalEntry.aggregate([
       { $match: ledgerMatchForRange(range) },
       { $unwind: "$lines" },

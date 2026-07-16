@@ -1,211 +1,221 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { motion, AnimatePresence } from "framer-motion"
+import { useEffect, useMemo, useState } from "react"
+import { useSelector } from "react-redux"
+import { useNavigate } from "react-router-dom"
+import { AnimatePresence, motion } from "framer-motion"
+import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  FiArrowRight,
-  FiCheck,
-  FiCreditCard,
-  FiDollarSign,
-  FiFileText,
-  FiGrid,
-  FiHome,
-  FiLayers,
-  FiPackage,
-  FiSearch,
-  FiShoppingBag,
-  FiShoppingCart,
-  FiStar,
-  FiTrendingUp,
-  FiTruck,
-  FiUsers,
-  FiX,
-} from "react-icons/fi"
+  Add01Icon,
+  Cancel01Icon,
+  ChartLineData01Icon,
+  CreditCardIcon,
+  DeliveryTruck01Icon,
+  File01Icon,
+  Home01Icon,
+  Invoice01Icon,
+  Layers01Icon,
+  Package01Icon,
+  Search01Icon,
+  Settings01Icon,
+  ShoppingBag01Icon,
+  ShoppingCart01Icon,
+  Tick01Icon,
+  UserGroupIcon,
+} from "@hugeicons/core-free-icons"
+import suitelogo from "../../assets/logo/logosuite.png"
+import { canAccessModule, getModuleBasePath, MODULES } from "../Navigation/moduleConfig"
+import { getJwtExpirationMs } from "../Auth/authRouting"
 
 const cn = (...classes) => classes.filter(Boolean).join(" ")
 
-const shell = "min-h-screen bg-slate-50"
-const panel = "rounded-3xl border border-slate-200/70 bg-white shadow-[0_18px_55px_-45px_rgba(15,23,42,0.55)]"
-const btn =
-  "inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-bold transition active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-const btnPrimary = "bg-indigo-600 text-white shadow-sm shadow-indigo-600/20 hover:bg-indigo-700"
-const btnGhost = "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-const iconButton =
-  "inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
-const smallChip =
-  "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ring-1"
-
-const categories = ["All", "Sales", "Operations", "Finance", "Website"]
+const navigationTabs = [
+  {
+    id: "my-modules",
+    label: "My Modules",
+  },
+  {
+    id: "all",
+    label: "All",
+  },
+  {
+    id: "sales",
+    label: "Sales",
+    category: "Sales",
+  },
+  {
+    id: "operations",
+    label: "Operations",
+    category: "Operations",
+  },
+  {
+    id: "finance",
+    label: "Finance",
+    category: "Finance",
+  },
+  {
+    id: "website",
+    label: "Website",
+    category: "Website",
+  },
+]
 
 const modules = [
   {
     id: "payroll",
     name: "HR Payroll",
     category: "Finance",
-    description: "Employee salary, loans, deductions, approvals and payslip management.",
+    status: "active",
+    subscribed: true,
     route: "/admin/payroll",
-    status: "Active",
-    icon: FiCreditCard,
+    icon: CreditCardIcon,
     tone: "indigo",
-    favorite: true,
   },
   {
     id: "crm",
     name: "CRM",
     category: "Sales",
-    description: "Leads, customers, pipelines, follow-ups and conversion tracking.",
+    status: "active",
+    subscribed: true,
     route: "/admin/leads",
-    status: "Active",
-    icon: FiUsers,
+    icon: UserGroupIcon,
     tone: "sky",
-    favorite: true,
   },
   {
     id: "inventory",
     name: "Inventory",
     category: "Operations",
-    description: "Products, stock movement, warehouses, transfers and low-stock alerts.",
+    status: "upcoming",
+    subscribed: false,
     route: "/admin/inventory",
-    status: "Active",
-    icon: FiPackage,
+    icon: Package01Icon,
     tone: "emerald",
-    favorite: true,
-  },
-  {
-    id: "pos",
-    name: "POS",
-    category: "Sales",
-    description: "Retail checkout, sales invoices, discounts and daily closing.",
-    route: "/admin/pos",
-    status: "Ready",
-    icon: FiShoppingCart,
-    tone: "violet",
   },
   {
     id: "accounting",
     name: "Accounting",
     category: "Finance",
-    description: "Income, expenses, ledgers, vendor bills and financial reports.",
+    status: "active",
+    subscribed: true,
     route: "/admin/accounting",
-    status: "Active",
-    icon: FiDollarSign,
+    icon: Invoice01Icon,
     tone: "amber",
   },
-
   {
     id: "sales",
     name: "Sales",
     category: "Sales",
-    description: "Quotations, orders, clients, payment status and sales performance.",
+    status: "upcoming",
+    subscribed: false,
     route: "/admin/sales",
-    status: "Ready",
-    icon: FiTrendingUp,
+    icon: ChartLineData01Icon,
     tone: "cyan",
+  },
+  {
+    id: "administration",
+    name: "Administration",
+    category: "Operations",
+    status: "active",
+    subscribed: true,
+    route: "/admin/administration",
+    icon: Settings01Icon,
+    tone: "slate",
+  },
+  {
+    id: "pos",
+    name: "POS",
+    category: "Sales",
+    status: "active",
+    subscribed: false,
+    route: "/admin/pos",
+    icon: ShoppingCart01Icon,
+    tone: "violet",
   },
   {
     id: "purchase",
     name: "Purchase",
     category: "Operations",
-    description: "Supplier requests, purchase orders, receiving and vendor tracking.",
+    status: "upcoming",
+    subscribed: false,
     route: "/admin/purchase",
-    status: "Ready",
-    icon: FiShoppingBag,
+    icon: ShoppingBag01Icon,
     tone: "orange",
   },
   {
     id: "fleet",
     name: "Fleet",
     category: "Operations",
-    description: "Vehicles, maintenance, drivers, fuel and route records.",
+    status: "maintenance",
+    subscribed: false,
     route: "/admin/fleet",
-    status: "Optional",
-    icon: FiTruck,
+    icon: DeliveryTruck01Icon,
     tone: "slate",
   },
   {
     id: "projects",
     name: "Projects",
     category: "Operations",
-    description: "Tasks, milestones, deadlines, delivery status and client work.",
+    status: "upcoming",
+    subscribed: false,
     route: "/admin/projects",
-    status: "Ready",
-    icon: FiLayers,
+    icon: Layers01Icon,
     tone: "fuchsia",
   },
   {
     id: "website",
     name: "Website",
     category: "Website",
-    description: "Pages, blogs, service content, contact requests and SEO basics.",
+    status: "active",
+    subscribed: false,
     route: "/admin/website",
-    status: "Ready",
-    icon: FiHome,
+    icon: Home01Icon,
     tone: "blue",
   },
-
   {
     id: "documents",
     name: "Documents",
     category: "Operations",
-    description: "Contracts, attachments, approvals and company file archive.",
+    status: "upcoming",
+    subscribed: false,
     route: "/admin/documents",
-    status: "Optional",
-    icon: FiFileText,
+    icon: File01Icon,
     tone: "lime",
   },
-
-
 ]
 
-const tone = {
-  indigo: {
-    icon: "bg-indigo-600 text-white shadow-indigo-600/20",
-    soft: "bg-indigo-50 text-indigo-700 ring-indigo-600/10",
+const iconTones = {
+  indigo: "bg-indigo-600 text-white shadow-indigo-600/20",
+  sky: "bg-sky-500 text-white shadow-sky-500/20",
+  emerald: "bg-emerald-500 text-white shadow-emerald-500/20",
+  violet: "bg-violet-600 text-white shadow-violet-600/20",
+  amber: "bg-amber-500 text-white shadow-amber-500/20",
+  cyan: "bg-cyan-500 text-white shadow-cyan-500/20",
+  orange: "bg-orange-500 text-white shadow-orange-500/20",
+  slate: "bg-slate-600 text-white shadow-slate-600/20",
+  fuchsia: "bg-fuchsia-600 text-white shadow-fuchsia-600/20",
+  blue: "bg-blue-600 text-white shadow-blue-600/20",
+  lime: "bg-lime-600 text-white shadow-lime-600/20",
+}
+
+const statusStyles = {
+  active: {
+    label: "Active",
+    badge: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    dot: "bg-emerald-500",
   },
-  sky: {
-    icon: "bg-sky-600 text-white shadow-sky-600/20",
-    soft: "bg-sky-50 text-sky-700 ring-sky-600/10",
+  maintenance: {
+    label: "Maintenance",
+    badge: "border-rose-200 bg-rose-50 text-rose-700",
+    dot: "bg-rose-500",
   },
-  emerald: {
-    icon: "bg-emerald-600 text-white shadow-emerald-600/20",
-    soft: "bg-emerald-50 text-emerald-700 ring-emerald-600/10",
-  },
-  violet: {
-    icon: "bg-violet-600 text-white shadow-violet-600/20",
-    soft: "bg-violet-50 text-violet-700 ring-violet-600/10",
-  },
-  amber: {
-    icon: "bg-amber-500 text-white shadow-amber-500/20",
-    soft: "bg-amber-50 text-amber-700 ring-amber-600/10",
-  },
-  cyan: {
-    icon: "bg-cyan-600 text-white shadow-cyan-600/20",
-    soft: "bg-cyan-50 text-cyan-700 ring-cyan-600/10",
-  },
-  orange: {
-    icon: "bg-orange-600 text-white shadow-orange-600/20",
-    soft: "bg-orange-50 text-orange-700 ring-orange-600/10",
-  },
-  slate: {
-    icon: "bg-slate-700 text-white shadow-slate-700/20",
-    soft: "bg-slate-100 text-slate-700 ring-slate-600/10",
-  },
-  fuchsia: {
-    icon: "bg-fuchsia-600 text-white shadow-fuchsia-600/20",
-    soft: "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-600/10",
-  },
-  blue: {
-    icon: "bg-blue-600 text-white shadow-blue-600/20",
-    soft: "bg-blue-50 text-blue-700 ring-blue-600/10",
-  },
-  lime: {
-    icon: "bg-lime-600 text-white shadow-lime-600/20",
-    soft: "bg-lime-50 text-lime-700 ring-lime-600/10",
+  upcoming: {
+    label: "Upcoming",
+    badge: "border-amber-200 bg-amber-50 text-amber-700",
+    dot: "bg-amber-500",
   },
 }
 
-
-function ScrollbarHideStyle() {
+function PageStyles() {
   return (
     <style>{`
       .no-scrollbar::-webkit-scrollbar {
@@ -221,7 +231,7 @@ function ScrollbarHideStyle() {
 }
 
 function openModule(module, onOpenModule) {
-  if (!module) return
+  if (!module || module.status !== "active") return
 
   if (typeof onOpenModule === "function") {
     onOpenModule(module)
@@ -229,269 +239,670 @@ function openModule(module, onOpenModule) {
   }
 
   if (typeof window !== "undefined" && module.route) {
-    window.location.href = module.route
+    window.location.assign(module.route)
   }
 }
 
-function AppTile({ module, selected, onSelect, onOpen }) {
-  const Icon = module.icon
-  const styles = tone[module.tone] || tone.indigo
+function StatusBadge({ status }) {
+  const style = statusStyles[status] || statusStyles.active
+
+  return (
+    <span
+      className={cn(
+        `
+          inline-flex items-center gap-1.5 rounded-full border
+          px-2.5 py-1 text-[10px] font-extrabold uppercase
+          tracking-[0.04em] sm:text-[11px]
+        `,
+        style.badge
+      )}
+    >
+      <span className={cn("h-1.5 w-1.5 rounded-full", style.dot)} />
+
+      {style.label}
+    </span>
+  )
+}
+
+function ModuleTile({
+  module,
+  index,
+  subscribed,
+  subscribing,
+  onOpen,
+  onSubscribe,
+}) {
+  const moduleIcon = module.icon
+  const iconStyle = iconTones[module.tone] || iconTones.indigo
+
+  const canOpen = subscribed && module.status === "active"
+
+  const handleCardClick = () => {
+    if (canOpen) {
+      onOpen(module)
+    }
+  }
+
+  const handleCardKeyDown = (event) => {
+    if (!canOpen) return
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault()
+      onOpen(module)
+    }
+  }
+
+  const handleSubscribe = (event) => {
+    event.stopPropagation()
+    onSubscribe(module)
+  }
 
   return (
     <motion.article
       layout
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 8 }}
-      transition={{ duration: 0.16 }}
+      initial={{
+        opacity: 0,
+        y: 14,
+        scale: 0.98,
+      }}
+      animate={{
+        opacity: 1,
+        y: 0,
+        scale: 1,
+      }}
+      exit={{
+        opacity: 0,
+        y: 8,
+        scale: 0.97,
+      }}
+      transition={{
+        duration: 0.24,
+        delay: Math.min(index * 0.025, 0.16),
+        ease: [0.22, 1, 0.36, 1],
+      }}
+      whileTap={canOpen ? { scale: 0.985 } : undefined}
+      role={canOpen ? "button" : undefined}
+      tabIndex={canOpen ? 0 : -1}
+      aria-label={canOpen ? `Open ${module.name}` : undefined}
+      onClick={handleCardClick}
+      onKeyDown={handleCardKeyDown}
       className={cn(
-        "group relative rounded-2xl border bg-white p-3 transition sm:rounded-3xl sm:p-4",
-        selected
-          ? "border-indigo-300 shadow-[0_18px_45px_-28px_rgba(79,70,229,0.65)] ring-4 ring-indigo-50"
-          : "border-slate-200/70 shadow-[0_14px_40px_-35px_rgba(15,23,42,0.5)] hover:border-indigo-200 hover:shadow-[0_18px_50px_-35px_rgba(15,23,42,0.55)]"
+        `
+          group relative flex min-h-[190px] flex-col overflow-hidden
+          rounded-[26px] border bg-white px-4 pb-4 pt-5 text-center
+          shadow-[0_10px_30px_-24px_rgba(15,23,42,0.42)]
+          transition duration-300
+          hover:-translate-y-1 hover:border-slate-300
+          hover:shadow-[0_20px_42px_-26px_rgba(15,23,42,0.34)]
+          focus:outline-none focus-visible:border-indigo-400
+          focus-visible:ring-4 focus-visible:ring-indigo-100
+          sm:min-h-[206px] sm:px-5
+        `,
+        canOpen ? "cursor-pointer border-slate-200" : "border-slate-200/80",
+        !subscribed && "pb-4",
+        subscribed && !canOpen && "cursor-default",
+        !subscribed && "cursor-default"
       )}
     >
-      <button
-        type="button"
-        onClick={() => onSelect(module)}
-        aria-pressed={selected}
-        aria-label={`Select ${module.name} module`}
-        className="block w-full rounded-2xl text-left outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/35"
+      <div className="absolute right-3 top-3 z-10">
+        <StatusBadge status={module.status} />
+      </div>
+
+      {subscribed ? (
+        <span
+          className="
+            absolute left-3 top-3 flex h-7 w-7 items-center
+            justify-center rounded-full border border-indigo-100
+            bg-indigo-50 text-indigo-600
+          "
+          title="Subscribed module"
+          aria-label="Subscribed module"
+        >
+          <HugeiconsIcon
+            icon={Tick01Icon}
+            size={14}
+            color="currentColor"
+            strokeWidth={2}
+            aria-hidden="true"
+          />
+        </span>
+      ) : null}
+
+      <div
+        className={cn(
+          `
+            flex flex-1 flex-col items-center justify-center pt-7
+          `,
+          !subscribed && "pb-2"
+        )}
       >
-        <div className="flex items-start gap-2 sm:gap-3">
-          <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-lg sm:h-12 sm:w-12 sm:rounded-2xl", styles.icon)}>
-            <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
-          </div>
-
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <h3 className="truncate text-sm font-black text-slate-950 sm:text-base">{module.name}</h3>
-              {module.favorite ? <FiStar className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-400" /> : null}
-            </div>
-            <p className="mt-1 hidden text-xs font-bold uppercase tracking-wide text-slate-400 sm:block">{module.category}</p>
-          </div>
-
+        <span
+          className="
+            relative mb-4 flex h-[74px] w-[74px] items-center
+            justify-center rounded-[24px] border border-slate-200
+            bg-slate-50
+            shadow-[0_10px_26px_-20px_rgba(15,23,42,0.42)]
+            transition duration-300 group-hover:-translate-y-0.5
+            group-hover:shadow-[0_14px_30px_-20px_rgba(15,23,42,0.38)]
+            sm:h-20 sm:w-20
+          "
+        >
           <span
             className={cn(
-              "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition",
-              selected ? "border-indigo-600 bg-indigo-600 text-white" : "border-slate-200 bg-white text-transparent"
+              `
+                flex h-14 w-14 items-center justify-center
+                rounded-[18px] shadow-lg transition duration-300
+                group-hover:scale-[1.04] sm:h-16 sm:w-16
+                sm:rounded-[20px]
+              `,
+              iconStyle
             )}
           >
-            <FiCheck className="h-3.5 w-3.5" />
+            <HugeiconsIcon
+              icon={moduleIcon}
+              size={29}
+              color="currentColor"
+              strokeWidth={1.7}
+              aria-hidden="true"
+            />
           </span>
-        </div>
+        </span>
 
-        <p className="mt-3 line-clamp-2 min-h-[38px] text-xs font-medium leading-5 text-slate-500 sm:mt-4 sm:min-h-[44px] sm:text-sm sm:leading-6">
-          {module.description}
-        </p>
-      </button>
+        <h2
+          className="
+            max-w-full truncate text-[15px] font-extrabold
+            tracking-[-0.025em] text-slate-800 sm:text-[17px]
+          "
+        >
+          {module.name}
+        </h2>
 
-      <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3 sm:mt-4 sm:gap-3">
-        <span className={cn(smallChip, "hidden sm:inline-flex", styles.soft)}>{module.status}</span>
+        {subscribed && module.status !== "active" ? (
+          <p className="mt-2 text-xs font-semibold text-slate-400">
+            {module.status === "maintenance"
+              ? "Temporarily unavailable"
+              : "Available soon"}
+          </p>
+        ) : null}
+      </div>
 
+      {!subscribed ? (
         <button
           type="button"
-          onClick={() => onOpen(module)}
-          aria-label={`Open ${module.name} module`}
-          className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-indigo-50 px-2 py-2 text-xs font-black text-indigo-700 transition hover:bg-indigo-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 sm:w-auto sm:bg-transparent sm:px-2.5 sm:text-sm sm:hover:bg-indigo-50"
+          onClick={handleSubscribe}
+          disabled={subscribing}
+          className="
+            mt-3 inline-flex min-h-10 w-full cursor-pointer
+            items-center justify-center gap-2 rounded-xl border
+            border-indigo-200 bg-indigo-50 px-3 text-sm
+            font-extrabold text-indigo-700 transition duration-200
+            hover:border-indigo-600 hover:bg-indigo-600
+            hover:text-white focus:outline-none
+            focus-visible:ring-4 focus-visible:ring-indigo-100
+            disabled:cursor-not-allowed disabled:opacity-60
+          "
         >
-          Open
-          <FiArrowRight className="h-4 w-4" />
+          {subscribing ? (
+            "Subscribing..."
+          ) : (
+            <>
+              <HugeiconsIcon
+                icon={Add01Icon}
+                size={16}
+                color="currentColor"
+                strokeWidth={2}
+                aria-hidden="true"
+              />
+              <span>Subscribe</span>
+            </>
+          )}
         </button>
-      </div>
+      ) : null}
     </motion.article>
   )
 }
 
-function SidebarCategory({ item, count, active, onClick }) {
+function SectionHeader({ title, count, type = "default" }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-2.5 text-sm font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30",
-        active ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/20" : "text-slate-600 hover:bg-slate-100"
-      )}
-    >
-      <span>{item}</span>
-      <span className={cn("rounded-full px-2 py-0.5 text-[11px]", active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500")}>
-        {count}
-      </span>
-    </button>
+    <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2.5">
+        <h2
+          className="
+            text-base font-black tracking-[-0.025em]
+            text-slate-900 sm:text-lg
+          "
+        >
+          {title}
+        </h2>
+
+        <span
+          className={cn(
+            `
+              inline-flex min-w-6 items-center justify-center
+              rounded-full px-2 py-0.5 text-xs font-extrabold
+            `,
+            type === "available"
+              ? "bg-slate-200 text-slate-600"
+              : "bg-indigo-100 text-indigo-700"
+          )}
+        >
+          {count}
+        </span>
+      </div>
+    </div>
   )
 }
 
-function EmptyState({ onReset }) {
+function ModuleGrid({
+  items,
+  subscribedIds,
+  subscribingId,
+  onOpen,
+  onSubscribe,
+}) {
   return (
-    <div className={cn(panel, "flex min-h-[360px] flex-col items-center justify-center p-8 text-center")}>
-      <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-slate-100 text-slate-500">
-        <FiSearch className="h-7 w-7" />
+    <motion.div
+      layout
+      className="
+        grid grid-cols-1 gap-4
+        min-[420px]:grid-cols-2
+        sm:grid-cols-3 sm:gap-5
+        lg:grid-cols-4
+        xl:grid-cols-5
+        2xl:grid-cols-6
+      "
+    >
+      <AnimatePresence mode="popLayout">
+        {items.map((module, index) => (
+          <ModuleTile
+            key={module.id}
+            module={module}
+            index={index}
+            subscribed={subscribedIds.has(module.id)}
+            subscribing={subscribingId === module.id}
+            onOpen={onOpen}
+            onSubscribe={onSubscribe}
+          />
+        ))}
+      </AnimatePresence>
+    </motion.div>
+  )
+}
+
+function EmptyState({ isMyModules, onReset }) {
+  return (
+    <div
+      className="
+        flex min-h-[300px] flex-col items-center justify-center
+        rounded-[28px] border border-dashed border-slate-300
+        bg-white px-6 text-center
+        shadow-[0_12px_34px_-28px_rgba(15,23,42,0.4)]
+      "
+    >
+      <div
+        className="
+          flex h-14 w-14 items-center justify-center rounded-2xl
+          border border-slate-200 bg-slate-50 text-slate-500
+        "
+      >
+        <HugeiconsIcon
+          icon={Search01Icon}
+          size={21}
+          color="currentColor"
+          strokeWidth={1.8}
+          aria-hidden="true"
+        />
       </div>
-      <h3 className="mt-5 text-lg font-black text-slate-950">No module found</h3>
-      <p className="mt-2 max-w-md text-sm font-medium leading-6 text-slate-500">
-        Try a different keyword or reset the selected category.
-      </p>
-      <button type="button" className={cn(btn, btnPrimary, "mt-5")} onClick={onReset}>
+
+      <h2 className="mt-4 text-base font-extrabold text-slate-900">
+        {isMyModules
+          ? "No subscribed modules found"
+          : "No modules found"}
+      </h2>
+
+      <button
+        type="button"
+        onClick={onReset}
+        className="
+          mt-4 cursor-pointer rounded-xl bg-indigo-600
+          px-4 py-2.5 text-sm font-bold text-white
+          transition hover:bg-indigo-700 focus:outline-none
+          focus-visible:ring-4 focus-visible:ring-indigo-100
+        "
+      >
         Reset filters
       </button>
     </div>
   )
 }
 
-export default function OdooStyleModulesPage({ onOpenModule }) {
-  const [query, setQuery] = useState("")
-  const [category, setCategory] = useState("All")
-  const [selectedId, setSelectedId] = useState("payroll")
+export default function OdooStyleModulesPage({
+  onOpenModule,
+  onSubscribeModule,
+}) {
+  const navigate = useNavigate()
+  const currentUserRedux = useSelector((state) => state.user?.currentUser)
+  const currentUser = useMemo(() => {
+    if (currentUserRedux) return currentUserRedux
 
-  const categoryCounts = useMemo(() => {
-    return categories.reduce((acc, item) => {
-      acc[item] = item === "All" ? modules.length : modules.filter((module) => module.category === item).length
-      return acc
-    }, {})
-  }, [])
+    try {
+      return JSON.parse(localStorage.getItem("user") || "null")
+    } catch {
+      return null
+    }
+  }, [currentUserRedux])
+  const [query, setQuery] = useState("")
+  const [activeTab, setActiveTab] = useState("my-modules")
+  const [subscribingId, setSubscribingId] = useState(null)
+
+  const accessibleIds = useMemo(
+    () =>
+      new Set(
+        Object.keys(MODULES).filter((id) =>
+          canAccessModule(currentUser, id)
+        )
+      ),
+    [currentUser]
+  )
+  const [subscribedIds, setSubscribedIds] = useState(() => new Set())
+
+  useEffect(() => {
+    const token = localStorage.getItem("token")
+    const expiresAt = getJwtExpirationMs(token)
+    const invalidSession =
+      !token ||
+      (expiresAt !== null && expiresAt <= Date.now()) ||
+      !currentUser?.isActive ||
+      !["admin", "superadmin", "employee"].includes(currentUser.role)
+
+    if (invalidSession) {
+      navigate("/login", { replace: true })
+      return
+    }
+    setSubscribedIds(new Set(accessibleIds))
+  }, [accessibleIds, currentUser, navigate])
 
   const filteredModules = useMemo(() => {
     const search = query.trim().toLowerCase()
 
+    const selectedTab = navigationTabs.find(
+      (tab) => tab.id === activeTab
+    )
+
     return modules.filter((module) => {
-      const matchesCategory = category === "All" || module.category === category
+      const isSubscribed = subscribedIds.has(module.id)
+
+      const matchesSubscription =
+        activeTab !== "my-modules" || isSubscribed
+
+      const matchesCategory =
+        !selectedTab?.category ||
+        module.category === selectedTab.category
+
       const matchesSearch =
         !search ||
         module.name.toLowerCase().includes(search) ||
         module.category.toLowerCase().includes(search) ||
-        module.description.toLowerCase().includes(search) ||
         module.status.toLowerCase().includes(search)
 
-      return matchesCategory && matchesSearch
+      return (
+        matchesSubscription &&
+        matchesCategory &&
+        matchesSearch
+      )
     })
-  }, [category, query])
+  }, [activeTab, query, subscribedIds])
 
-  const selectedModule = useMemo(() => {
-    return modules.find((module) => module.id === selectedId) || null
-  }, [selectedId])
+  const subscribedModules = useMemo(
+    () =>
+      filteredModules.filter((module) =>
+        subscribedIds.has(module.id)
+      ),
+    [filteredModules, subscribedIds]
+  )
 
-  const selectedVisible = selectedModule && filteredModules.some((module) => module.id === selectedModule.id)
+  const availableModules = useMemo(
+    () =>
+      filteredModules.filter(
+        (module) => !subscribedIds.has(module.id)
+      ),
+    [filteredModules, subscribedIds]
+  )
 
   const resetFilters = () => {
     setQuery("")
-    setCategory("All")
+    setActiveTab("my-modules")
   }
 
-  const selectModule = (module) => setSelectedId(module.id)
-  const handleOpen = (module) => openModule(module, onOpenModule)
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId)
+    setQuery("")
+  }
+
+  const handleOpen = (module) => {
+    if (!accessibleIds.has(module.id)) return
+    if (typeof onOpenModule === "function") {
+      openModule(module, onOpenModule)
+      return
+    }
+    navigate(getModuleBasePath(currentUser?.role, module.id))
+  }
+
+  const handleSubscribe = async (module) => {
+    if (MODULES[module.id] && !accessibleIds.has(module.id)) return
+    if (subscribedIds.has(module.id) || subscribingId) {
+      return
+    }
+
+    setSubscribingId(module.id)
+
+    try {
+      if (typeof onSubscribeModule === "function") {
+        const result = await onSubscribeModule(module)
+
+        if (result === false) {
+          return
+        }
+      }
+
+      setSubscribedIds((currentIds) => {
+        const nextIds = new Set(currentIds)
+        nextIds.add(module.id)
+        return nextIds
+      })
+    } catch (error) {
+      console.error("Unable to subscribe to module:", error)
+    } finally {
+      setSubscribingId(null)
+    }
+  }
+
+  const hasModules = filteredModules.length > 0
+  const isMyModules = activeTab === "my-modules"
 
   return (
-    <main className={shell}>
-      <ScrollbarHideStyle />
-      <section className="mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8">
-        <div className="mb-5 flex flex-col gap-4 rounded-3xl border border-slate-200/70 bg-white p-5 shadow-[0_18px_55px_-45px_rgba(15,23,42,0.55)] lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-black text-indigo-700 ring-1 ring-indigo-600/10">
-              <FiGrid className="h-3.5 w-3.5" />
-              App launcher
-            </div>
-            <h1 className="mt-3 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">
-              Business modules
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm font-medium leading-6 text-slate-500">
-              Open HR Payroll, CRM, Inventory, Accounting and other tools from one clean dashboard.
-            </p>
+    <main className="min-h-screen bg-slate-50 text-slate-950">
+      <PageStyles />
+
+      <section
+        className="
+          mx-auto w-full max-w-[1480px]
+          px-4 pb-12 pt-7
+          sm:px-6 sm:pb-16 sm:pt-10
+          lg:px-8
+        "
+      >
+        <header className="flex flex-col items-center text-center">
+          <div
+            className="
+              flex w-full items-center justify-center
+              px-2
+            "
+          >
+            <img
+              src={suitelogo}
+              alt="Business Hub Suite"
+              className="
+                h-auto w-auto max-w-[190px]
+                select-none object-contain
+                sm:max-w-[230px]
+                lg:max-w-[250px]
+              "
+              draggable={false}
+            />
           </div>
 
-          <div className="flex w-full max-w-xl items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 transition focus-within:border-transparent focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-500/35">
-            <FiSearch className="h-4 w-4 shrink-0 text-slate-400" />
+          <div
+            className="
+              mt-5 flex w-full max-w-[430px] items-center gap-2.5
+              rounded-[18px] border border-slate-200 bg-white
+              px-3.5 py-3
+              shadow-[0_10px_30px_-25px_rgba(15,23,42,0.45)]
+              transition duration-200
+              focus-within:border-indigo-300
+              focus-within:ring-4 focus-within:ring-indigo-100
+            "
+          >
+            <HugeiconsIcon
+              icon={Search01Icon}
+              size={19}
+              color="currentColor"
+              strokeWidth={1.8}
+              className="shrink-0 text-slate-400"
+              aria-hidden="true"
+            />
+
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search modules..."
-              className="min-h-[34px] w-full border-0 bg-transparent text-sm font-semibold text-slate-800 outline-none placeholder:text-slate-400"
+              placeholder="Search modules"
               aria-label="Search modules"
+              className="
+                w-full border-0 bg-transparent text-left
+                text-sm font-semibold text-slate-800
+                outline-none placeholder:font-medium
+                placeholder:text-slate-400
+              "
             />
+
             {query ? (
               <button
                 type="button"
-                className="rounded-xl p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                 onClick={() => setQuery("")}
                 aria-label="Clear search"
+                className="
+                  flex h-8 w-8 shrink-0 cursor-pointer
+                  items-center justify-center rounded-xl
+                  text-slate-400 transition hover:bg-slate-100
+                  hover:text-slate-700 focus:outline-none
+                  focus-visible:ring-2 focus-visible:ring-indigo-300
+                "
               >
-                <FiX className="h-4 w-4" />
+                <HugeiconsIcon
+                  icon={Cancel01Icon}
+                  size={17}
+                  color="currentColor"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                />
               </button>
             ) : null}
           </div>
-        </div>
+        </header>
 
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[250px_1fr]">
-          <aside className={cn(panel, "sticky top-5 hidden h-fit self-start p-3 xl:block")}>
-            <div className="mb-3 px-2 py-2">
-              <p className="text-xs font-black uppercase tracking-wide text-slate-400">Categories</p>
-            </div>
+        <nav
+          className="
+            no-scrollbar mx-auto mt-5 flex max-w-max gap-2
+            overflow-x-auto pb-1 sm:mt-6
+          "
+          aria-label="Module navigation"
+        >
+          {navigationTabs.map((tab) => {
+            const active = activeTab === tab.id
 
-            <nav className="space-y-1" aria-label="Module categories">
-              {categories.map((item) => (
-                <SidebarCategory
-                  key={item}
-                  item={item}
-                  count={categoryCounts[item] || 0}
-                  active={category === item}
-                  onClick={() => setCategory(item)}
-                />
-              ))}
-            </nav>
-          </aside>
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => handleTabChange(tab.id)}
+                aria-pressed={active}
+                className={cn(
+                  `
+                    shrink-0 cursor-pointer rounded-full border
+                    px-4 py-2.5 text-[13px] font-extrabold
+                    transition duration-200 focus:outline-none
+                    focus-visible:ring-4 focus-visible:ring-indigo-100
+                    sm:px-5 sm:text-sm
+                  `,
+                  active
+                    ? `
+                        border-indigo-600 bg-indigo-600 text-white
+                        shadow-sm shadow-indigo-600/20
+                      `
+                    : `
+                        border-slate-200 bg-white text-slate-700
+                        hover:border-slate-300 hover:text-slate-950
+                      `
+                )}
+              >
+                {tab.label}
+              </button>
+            )
+          })}
+        </nav>
 
-          <div className="min-w-0">
-            <div className="no-scrollbar mb-4 flex gap-2 overflow-x-auto pb-1 xl:hidden" aria-label="Mobile module categories">
-              {categories.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setCategory(item)}
-                  aria-pressed={category === item}
-                  className={cn(
-                    "shrink-0 rounded-2xl px-4 py-2 text-sm font-black transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30",
-                    category === item ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/20" : "border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                  )}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
+        <div className="mt-8 sm:mt-10">
+          {!hasModules ? (
+            <EmptyState
+              isMyModules={isMyModules}
+              onReset={resetFilters}
+            />
+          ) : isMyModules ? (
+            <ModuleGrid
+              items={subscribedModules}
+              subscribedIds={subscribedIds}
+              subscribingId={subscribingId}
+              onOpen={handleOpen}
+              onSubscribe={handleSubscribe}
+            />
+          ) : (
+            <div className="space-y-10">
+              {subscribedModules.length > 0 ? (
+                <section>
+                  <SectionHeader
+                    title="My Modules"
+                    count={subscribedModules.length}
+                  />
 
-            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm font-black text-slate-950">Available modules</p>
-                <p className="mt-1 text-sm font-medium text-slate-500">
-                  {filteredModules.length} module{filteredModules.length === 1 ? "" : "s"} found
-                </p>
-              </div>
+                  <ModuleGrid
+                    items={subscribedModules}
+                    subscribedIds={subscribedIds}
+                    subscribingId={subscribingId}
+                    onOpen={handleOpen}
+                    onSubscribe={handleSubscribe}
+                  />
+                </section>
+              ) : null}
 
-              {(query || category !== "All") ? (
-                <button type="button" className={cn(btn, btnGhost, "h-10 px-3 py-2")} onClick={resetFilters}>
-                  Clear filters
-                </button>
+              {availableModules.length > 0 ? (
+                <section>
+                  <SectionHeader
+                    title="Available Modules"
+                    count={availableModules.length}
+                    type="available"
+                  />
+
+                  <ModuleGrid
+                    items={availableModules}
+                    subscribedIds={subscribedIds}
+                    subscribingId={subscribingId}
+                    onOpen={handleOpen}
+                    onSubscribe={handleSubscribe}
+                  />
+                </section>
               ) : null}
             </div>
-
-            {filteredModules.length ? (
-              <motion.div layout className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 2xl:grid-cols-4">
-                <AnimatePresence mode="popLayout">
-                  {filteredModules.map((module) => (
-                    <AppTile
-                      key={module.id}
-                      module={module}
-                      selected={selectedVisible && selectedModule?.id === module.id}
-                      onSelect={selectModule}
-                      onOpen={handleOpen}
-                    />
-                  ))}
-                </AnimatePresence>
-              </motion.div>
-            ) : (
-              <EmptyState onReset={resetFilters} />
-            )}
-          </div>
-
+          )}
         </div>
       </section>
     </main>

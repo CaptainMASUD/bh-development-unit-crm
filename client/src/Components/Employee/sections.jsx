@@ -1,3 +1,5 @@
+/* eslint-disable react-refresh/only-export-components -- route registry intentionally owns lazy page references */
+import { lazy } from "react"
 import { MdDashboard } from "react-icons/md"
 import { FiCalendar, FiClock, FiCreditCard, FiDollarSign, FiUsers } from "react-icons/fi"
 import { FaInfoCircle, FaClipboardList } from "react-icons/fa"
@@ -5,44 +7,55 @@ import { FiSettings, FiTarget } from "react-icons/fi"
 import { PERMISSIONS } from "../Auth/permissions"
 
 // components
-import UnifiedDashboard from "./UnifiedDashboard"
-import CustomersPage from "./ClientsPage"
-import AboutPage from "./About"
+const UnifiedDashboard = lazy(() => import("./UnifiedDashboard"))
+const CustomersPage = lazy(() => import("./ClientsPage"))
+const AboutPage = lazy(() => import("./About"))
 
 // ✅ NEW: Workflow Procedure (Employee Read-only page)
-import WorkflowProcedurePage from "./Workflowprocedure" // <-- adjust path if needed
+const WorkflowProcedurePage = lazy(() => import("./Workflowprocedure"))
 
 // ✅ NEW: Profile (Employee) — keep BELOW Workflow Procedure and ABOVE About
-import ProfileSettingsEmployee from "./ProfileSettings" // <-- adjust path if needed
-import LeadPage from "./LeadPage"
-import DealsPage from "./DealsPage"
-import { EmployeeAttendancePage, EmployeeLoansPage, EmployeePayrollPage, EmployeeRosterPage } from "./SelfServicePages"
-import EmployeeLeaveRequests from "./LeaveRequests"
-import EmployeeManager from "../Admin/Employee"
-import AttendanceManager from "../Admin/Attendance"
-import SalaryManager from "../Admin/AdminSalaryPage"
-import PayrollManager from "../Admin/PayrollManager"
-import LoanManager from "../Admin/EmployeeLoans"
-import LeaveManager from "../Admin/LeaveRequests"
-import RosterManager from "../Admin/RosterShiftSetup"
-import AccessControl from "../Admin/AccessControl"
-import TaxSetup from "../Admin/TaxSetup"
-import TaxReport from "../Admin/TaxReport"
-import AccountingModules from "../Admin/AccountingModules"
-import Expenses from "../Admin/Expenses"
-import ChartOfAccounts from "../Admin/accounting/ChartOfAccounts"
-import JournalEntries from "../Admin/accounting/JournalEntries"
-import GeneralLedger from "../Admin/accounting/GeneralLedger"
-import OpeningBalances from "../Admin/accounting/OpeningBalances"
-import TrialBalance from "../Admin/accounting/TrialBalance"
-import BalanceSheet from "../Admin/accounting/BalanceSheet"
-import CashFlowStatement from "../Admin/accounting/CashFlowStatement"
-import BankTransactions from "../Admin/banking/BankTransactions"
-import MoneyTransfer from "../Admin/banking/MoneyTransfer"
-import BankReconciliation from "../Admin/banking/BankReconciliation"
+const ProfileSettingsEmployee = lazy(() => import("./ProfileSettings"))
+const LeadPage = lazy(() => import("./LeadPage"))
+const DealsPage = lazy(() => import("./DealsPage"))
+const EmployeeLeaveRequests = lazy(() => import("./LeaveRequests"))
+const EmployeeAttendancePage = lazy(() => import("./SelfServicePages").then((module) => ({ default: module.EmployeeAttendancePage })))
+const EmployeeLoansPage = lazy(() => import("./SelfServicePages").then((module) => ({ default: module.EmployeeLoansPage })))
+const EmployeePayrollPage = lazy(() => import("./SelfServicePages").then((module) => ({ default: module.EmployeePayrollPage })))
+const EmployeeRosterPage = lazy(() => import("./SelfServicePages").then((module) => ({ default: module.EmployeeRosterPage })))
+const EmployeeManager = lazy(() => import("../Admin/payroll/Employee"))
+const AttendanceManager = lazy(() => import("../Admin/payroll/Attendance"))
+const SalaryManager = lazy(() => import("../Admin/payroll/AdminSalaryPage"))
+const PayrollManager = lazy(() => import("../Admin/payroll/PayrollManager"))
+const LoanManager = lazy(() => import("../Admin/payroll/EmployeeLoans"))
+const LeaveManager = lazy(() => import("../Admin/payroll/LeaveRequests"))
+const RosterManager = lazy(() => import("../Admin/payroll/RosterShiftSetup"))
+const AccessControl = lazy(() => import("../Admin/system/AccessControl"))
+const TaxSetup = lazy(() => import("../Admin/payroll/TaxSetup"))
+const TaxReport = lazy(() => import("../Admin/reports/TaxReport"))
+const AccountingModules = lazy(() => import("../Admin/accounting/AccountingModules"))
+const Expenses = lazy(() => import("../Admin/accounting/Expenses"))
+const ChartOfAccounts = lazy(() => import("../Admin/accounting/ChartOfAccounts"))
+const AccountingSettings = lazy(() => import("../Admin/accounting/AccountingSettings"))
+const FiscalYearPeriods = lazy(() => import("../Admin/accounting/FiscalYearPeriods"))
+const JournalEntries = lazy(() => import("../Admin/accounting/JournalEntries"))
+const GeneralLedger = lazy(() => import("../Admin/accounting/GeneralLedger"))
+const OpeningBalances = lazy(() => import("../Admin/accounting/OpeningBalances"))
+const TrialBalance = lazy(() => import("../Admin/accounting/TrialBalance"))
+const BalanceSheet = lazy(() => import("../Admin/accounting/BalanceSheet"))
+const CashFlowStatement = lazy(() => import("../Admin/accounting/CashFlowStatement"))
+const BankTransactions = lazy(() => import("../Admin/banking/BankTransactions"))
+const MoneyTransfer = lazy(() => import("../Admin/banking/MoneyTransfer"))
+const BankReconciliation = lazy(() => import("../Admin/banking/BankReconciliation"))
 
 export const sections = {
   Dashboard: {
+    icon: <MdDashboard className="w-5 h-5" />,
+    component: <UnifiedDashboard />,
+    permission: PERMISSIONS.DASHBOARD_VIEW,
+  },
+
+  "CRM Analytics": {
     icon: <MdDashboard className="w-5 h-5" />,
     component: <UnifiedDashboard />,
     permission: PERMISSIONS.DASHBOARD_VIEW,
@@ -78,10 +91,21 @@ export const sections = {
     permission: PERMISSIONS.FINANCE_VIEW,
   },
 
-  "Chart of Accounts": {
+  "Accounting Setup": {
     icon: <FiDollarSign className="w-5 h-5" />,
-    component: <ChartOfAccounts />,
     permission: PERMISSIONS.FINANCE_VIEW,
+    subcategories: {
+      "Chart of Accounts": <ChartOfAccounts />,
+      "Fiscal Year / Period": <FiscalYearPeriods />,
+      "Accounting Settings": <AccountingSettings />,
+      "Opening Balance": <OpeningBalances />,
+    },
+    subcategoryPermissions: {
+      "Chart of Accounts": PERMISSIONS.FINANCE_MANAGE,
+      "Fiscal Year / Period": PERMISSIONS.FINANCE_MANAGE,
+      "Accounting Settings": PERMISSIONS.FINANCE_MANAGE,
+      "Opening Balance": PERMISSIONS.FINANCE_MANAGE,
+    },
   },
 
   "Journal Entries": {
@@ -94,12 +118,6 @@ export const sections = {
     icon: <FiDollarSign className="w-5 h-5" />,
     component: <GeneralLedger />,
     permission: PERMISSIONS.FINANCE_VIEW,
-  },
-
-  "Opening Balances": {
-    icon: <FiDollarSign className="w-5 h-5" />,
-    component: <OpeningBalances />,
-    permission: PERMISSIONS.FINANCE_MANAGE,
   },
 
   "Trial Balance": {

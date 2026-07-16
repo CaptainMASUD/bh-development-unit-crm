@@ -3,22 +3,24 @@
 
 import { useState, useEffect, useCallback, memo, useRef, useMemo, useId } from "react"
 import { useNavigate } from "react-router-dom"
+import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  FaChevronDown,
-  FaSignOutAlt,
-  FaMoon,
-  FaSun,
-  FaSearch,
-  FaTimes,
-  FaAngleDoubleLeft,
-} from "react-icons/fa"
+  ArrowLeftDoubleIcon,
+  BellIcon,
+  Cancel01Icon,
+  ChevronDownIcon,
+  GridViewIcon,
+  Logout03Icon,
+  Moon02Icon,
+  Search01Icon,
+  Sun03Icon,
+} from "@hugeicons/core-free-icons"
 import { useDispatch } from "react-redux"
 import { signOut } from "../../Redux/UserSlice/UserSlice"
 
 import jetsky from "../../../public/jetsky.svg"
 import JetskyModal from "./JetskyModal"
 import NotificationModal from "./NotificationModal"
-import { Bell } from "lucide-react"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const NOTIF_BADGE_COLOR = "#5850EC"
@@ -496,6 +498,8 @@ export default function Sidebar({
   toggleSidebar,
   isDarkMode,
   setIsDarkMode,
+  moduleLabel,
+  onOpenModules,
 }) {
   const [expandedSection, setExpandedSection] = useState(null)
   const [user, setUser] = useState(null)
@@ -786,6 +790,7 @@ export default function Sidebar({
   }, [orderedSectionKeys, safeSections, searchTerm])
 
   const groupedSectionBlocks = useMemo(() => {
+    if (moduleLabel) return [{ title: moduleLabel, sections: filteredSectionKeys }]
     const groupMap = new Map(
       SIDEBAR_GROUPS.map((group) => [group.title, { ...group, sections: [] }])
     )
@@ -799,7 +804,7 @@ export default function Sidebar({
     return SIDEBAR_GROUPS.map((group) => groupMap.get(group.title)).filter(
       (group) => group?.sections?.length
     )
-  }, [filteredSectionKeys])
+  }, [filteredSectionKeys, moduleLabel])
 
   const shouldRingBell = !reducedMotion && notifCount7d > 0 && showBellTip && !isMobileViewport
   const initials = getInitials(user?.username)
@@ -1063,7 +1068,11 @@ export default function Sidebar({
                 aria-label={compact ? "Expand sidebar" : "Collapse sidebar"}
                 title={compact ? "Expand" : "Collapse"}
               >
-                <FaAngleDoubleLeft
+                <HugeiconsIcon
+                  icon={ArrowLeftDoubleIcon}
+                  size={17}
+                  color="currentColor"
+                  strokeWidth={1.9}
                   className={`${compact ? "rotate-180" : ""} ${
                     reducedMotion ? "" : "transition-transform duration-200"
                   }`}
@@ -1087,7 +1096,12 @@ export default function Sidebar({
                 title="Toggle theme"
                 type="button"
               >
-                {isDarkMode ? <FaMoon size={16} /> : <FaSun size={16} />}
+                <HugeiconsIcon
+                  icon={isDarkMode ? Moon02Icon : Sun03Icon}
+                  size={17}
+                  color="currentColor"
+                  strokeWidth={1.9}
+                />
               </button>
             ) : null}
 
@@ -1108,7 +1122,12 @@ export default function Sidebar({
                 type="button"
               >
                 <span className={shouldRingBell ? "bell-ring" : ""}>
-                  <Bell className="h-4 w-4" />
+                  <HugeiconsIcon
+                    icon={BellIcon}
+                    size={17}
+                    color="currentColor"
+                    strokeWidth={1.9}
+                  />
                 </span>
 
                 {notifCount7d > 0 ? (
@@ -1165,14 +1184,39 @@ export default function Sidebar({
         </div>
 
         <div className={`${navPad} pb-2 pt-3`}>
+          <button
+            type="button"
+            onClick={onOpenModules}
+            className={`mb-2 flex h-10 w-full items-center rounded-xl border ${compact ? "justify-center px-2" : "gap-2.5 px-3"} ${
+              isDarkMode
+                ? "border-indigo-400/20 bg-indigo-500/10 text-indigo-200 hover:bg-indigo-500/20"
+                : "border-indigo-100 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+            } ${reducedMotion ? "" : "transition-all duration-200"}`}
+            aria-label="Open module selection"
+            title="All Modules"
+          >
+            <HugeiconsIcon
+              icon={GridViewIcon}
+              size={17}
+              color="currentColor"
+              strokeWidth={1.9}
+              className="shrink-0"
+            />
+            {!compact ? <span className="min-w-0 truncate text-sm font-bold">{moduleLabel || "All Modules"}</span> : null}
+            {!compact ? <span className="ml-auto text-[10px] font-black uppercase opacity-60">Switch</span> : null}
+          </button>
           <div className={`relative ${compact ? "flex justify-center" : ""}`}>
             {!compact ? (
               <div className="group relative w-full">
-                <FaSearch
+                <HugeiconsIcon
+                  icon={Search01Icon}
+                  size={16}
+                  color="currentColor"
+                  strokeWidth={1.9}
                   className={`absolute left-3 top-1/2 -translate-y-1/2 ${
                     isDarkMode ? "text-gray-500" : "text-gray-400"
                   } ${reducedMotion ? "" : "transition-colors duration-200"} group-focus-within:text-purple-500`}
-                  aria-hidden
+                  aria-hidden="true"
                 />
 
                 <input
@@ -1202,7 +1246,12 @@ export default function Sidebar({
                     aria-label="Clear search"
                     title="Clear search"
                   >
-                    <FaTimes size={13} />
+                    <HugeiconsIcon
+                      icon={Cancel01Icon}
+                      size={14}
+                      color="currentColor"
+                      strokeWidth={2}
+                    />
                   </button>
                 ) : null}
               </div>
@@ -1233,7 +1282,12 @@ export default function Sidebar({
                 aria-label="Search"
                 title="Search"
               >
-                <FaSearch size={14} />
+                <HugeiconsIcon
+                  icon={Search01Icon}
+                  size={16}
+                  color="currentColor"
+                  strokeWidth={1.9}
+                />
               </button>
             )}
           </div>
@@ -1345,11 +1399,15 @@ export default function Sidebar({
                       </div>
 
                       {hasSubs && !compact ? (
-                        <FaChevronDown
-                          className={`relative z-10 text-[11px] ${
+                        <HugeiconsIcon
+                          icon={ChevronDownIcon}
+                          size={15}
+                          color="currentColor"
+                          strokeWidth={2}
+                          className={`relative z-10 ${
                             reducedMotion ? "" : "transition-transform duration-300"
                           } ${isExpanded ? "rotate-180" : ""}`}
-                          aria-hidden
+                          aria-hidden="true"
                         />
                       ) : null}
                     </button>
@@ -1390,8 +1448,12 @@ export default function Sidebar({
           title="Logout"
           type="button"
         >
-          <FaSignOutAlt
-            className={`relative z-10 text-base ${
+          <HugeiconsIcon
+            icon={Logout03Icon}
+            size={18}
+            color="currentColor"
+            strokeWidth={1.9}
+            className={`relative z-10 ${
               reducedMotion ? "" : "transition-transform duration-200 group-hover:-translate-x-1"
             }`}
           />

@@ -9,6 +9,8 @@ import {
   listBankTransactions,
   listMoneyTransfers,
   updateBankTransaction,
+  voidBankTransaction,
+  postDraftBankTransaction,
 } from "../controllers/banking.controller.js";
 import { protect, requirePermission } from "../middleware/auth.middleware.js";
 
@@ -21,6 +23,8 @@ router.get("/summary", getBankingSummary);
 router.get("/transactions", listBankTransactions);
 router.post("/transactions", requirePermission("finance:manage"), createBankTransaction);
 router.patch("/transactions/:id", requirePermission("finance:manage"), updateBankTransaction);
+router.patch("/transactions/:id/void", requirePermission("finance:manage"), voidBankTransaction);
+router.patch("/transactions/:id/post", requirePermission("finance:manage"), postDraftBankTransaction);
 router.delete("/transactions/:id", requirePermission("finance:manage"), deleteBankTransaction);
 
 router.get("/transfers", listMoneyTransfers);

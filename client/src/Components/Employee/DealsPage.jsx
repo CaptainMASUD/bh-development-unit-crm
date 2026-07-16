@@ -1,6 +1,6 @@
 "use client"
 
-import AdminDealsPage from "../Admin/AdminDealsPage"
+import AdminDealsPage from "../Admin/crm/AdminDealsPage"
 import { useSelector } from "react-redux"
 import { hasPermission, PERMISSIONS } from "../Auth/permissions"
 

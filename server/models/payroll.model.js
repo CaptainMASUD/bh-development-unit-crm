@@ -371,6 +371,34 @@ const payrollSchema = new mongoose.Schema(
       default: "",
     },
 
+    bankAccount: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "BankAccount",
+      default: null,
+      index: true,
+    },
+
+    bankTransaction: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "BankTransaction",
+      default: null,
+      index: true,
+    },
+
+    accrualJournalEntry: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "JournalEntry",
+      default: null,
+      index: true,
+    },
+
+    paymentJournalEntry: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "JournalEntry",
+      default: null,
+      index: true,
+    },
+
     note: {
       type: String,
       trim: true,

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import toast, { Toaster } from "react-hot-toast"
-import { FiCreditCard, FiEdit2, FiPlus, FiRefreshCcw, FiSave, FiSearch, FiTrash2, FiX } from "react-icons/fi"
+import { FiCheckCircle, FiCreditCard, FiEdit2, FiPlus, FiRefreshCcw, FiSave, FiSearch, FiSlash, FiTrash2, FiX } from "react-icons/fi"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const card = "rounded-2xl border border-gray-100 bg-white shadow-[0_14px_35px_-28px_rgba(15,23,42,0.55)]"
@@ -14,7 +14,7 @@ const input = "h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-
 const label = "mb-1.5 block text-sm font-extrabold text-gray-900"
 
 const KINDS = ["deposit", "withdrawal", "opening_balance", "adjustment", "bank_charge", "interest"]
-const emptyForm = { bankAccount: "", kind: "deposit", direction: "in", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", description: "", status: "posted" }
+const emptyForm = { bankAccount: "", counterpartLedgerAccount: "", kind: "deposit", direction: "in", amount: "", transactionDate: new Date().toISOString().slice(0, 10), reference: "", description: "", status: "posted" }
 
 function headers() {
   const token = localStorage.getItem("token")
@@ -43,6 +43,7 @@ function Badge({ value }) {
 
 export default function BankTransactions() {
   const [accounts, setAccounts] = useState([])
+  const [ledgerAccounts, setLedgerAccounts] = useState([])
   const [rows, setRows] = useState([])
   const [nextCursor, setNextCursor] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -56,8 +57,12 @@ export default function BankTransactions() {
   const accountOptions = useMemo(() => accounts.map((item) => [item._id, `${item.accountName} - ${item.accountNumber}`]), [accounts])
 
   const loadAccounts = async () => {
-    const data = await api("/banks/accounts?limit=150&status=active")
-    setAccounts(data.accounts || [])
+    const [bankData, ledgerData] = await Promise.all([
+      api("/banks/accounts?limit=150&status=active"),
+      api("/accounting/accounts?limit=200"),
+    ])
+    setAccounts((bankData.accounts || []).filter((item) => item.ledgerAccount))
+    setLedgerAccounts((ledgerData.accounts || []).filter((item) => !item.isGroup && item.isActive !== false))
   }
 
   const loadRows = async ({ append = false, cursor = "" } = {}) => {
@@ -89,6 +94,7 @@ export default function BankTransactions() {
     setModal({ open: true, item })
     setForm(item ? {
       bankAccount: item.bankAccount?._id || "",
+      counterpartLedgerAccount: item.counterpartLedgerAccount?._id || "",
       kind: item.kind || "deposit",
       direction: item.direction || "in",
       amount: item.amount || "",
@@ -125,6 +131,28 @@ export default function BankTransactions() {
     }
   }
 
+  const voidTransaction = async (item) => {
+    const reason = window.prompt("Reason for voiding this posted transaction:", "Entry correction")
+    if (reason === null) return
+    try {
+      await api(`/banking/transactions/${item._id}/void`, { method: "PATCH", body: JSON.stringify({ reason }) })
+      toast.success("Transaction and journal voided")
+      loadRows()
+    } catch (error) {
+      toast.error(error.message || "Void failed")
+    }
+  }
+
+  const postDraft = async (item) => {
+    try {
+      await api(`/banking/transactions/${item._id}/post`, { method: "PATCH", body: JSON.stringify({}) })
+      toast.success("Transaction posted to accounting")
+      loadRows()
+    } catch (error) {
+      toast.error(error.message || "Posting failed")
+    }
+  }
+
   const chips = [
     q ? ["Search", q, () => setQ("")] : null,
     status !== "all" ? ["Status", pretty(status), () => setStatus("all")] : null,
@@ -152,7 +180,7 @@ export default function BankTransactions() {
       <div className={`${card} overflow-hidden`}>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-100 text-left">
-            <thead className="bg-gray-50 text-xs font-black uppercase tracking-[0.12em] text-gray-400"><tr>{["Date", "Account", "Kind", "Direction", "Amount", "Reference", "Reconciled", "Actions"].map((h) => <th key={h} className="px-5 py-3">{h}</th>)}</tr></thead>
+            <thead className="bg-gray-50 text-xs font-black uppercase tracking-[0.12em] text-gray-400"><tr>{["Date", "Account", "Kind", "Direction", "Amount", "Reference", "Journal", "Reconciled", "Actions"].map((h) => <th key={h} className="px-5 py-3">{h}</th>)}</tr></thead>
             <tbody className="divide-y divide-gray-100">
               {rows.map((row) => <tr key={row._id} className="hover:bg-gray-50/70">
                 <td className="px-5 py-4 text-sm font-bold text-gray-700">{new Date(row.transactionDate).toLocaleDateString()}</td>
@@ -161,10 +189,11 @@ export default function BankTransactions() {
                 <td className="px-5 py-4"><Badge value={row.direction} /></td>
                 <td className={cn("px-5 py-4 text-sm font-black", row.direction === "in" ? "text-emerald-700" : "text-rose-700")}>{money(row.amount, row.bankAccount?.currency || "BDT")}</td>
                 <td className="px-5 py-4 text-sm font-semibold text-gray-600">{row.reference || "-"}</td>
+                <td className="px-5 py-4">{row.journalEntry ? <div><span className="text-xs font-black text-indigo-700">{row.journalEntry.entryNo}</span><div className="mt-1"><Badge value={row.journalEntry.status} /></div></div> : <span className="text-xs font-bold text-amber-700">Not posted</span>}</td>
                 <td className="px-5 py-4"><Badge value={row.reconciled ? "reconciled" : "open"} /></td>
-                <td className="px-5 py-4"><div className="flex gap-2"><button className={`${btn} ${btnGhost} px-3`} disabled={row.reconciled} onClick={() => openModal(row)}><FiEdit2 /></button><button className={`${btn} ${btnDanger} px-3`} disabled={row.reconciled} onClick={() => remove(row)}><FiTrash2 /></button></div></td>
+                <td className="px-5 py-4"><div className="flex gap-2"><button className={`${btn} ${btnGhost} px-3`} disabled={row.reconciled || Boolean(row.journalEntry)} onClick={() => openModal(row)} title={row.journalEntry ? "Posted entries are immutable" : "Edit"}><FiEdit2 /></button>{row.status === "draft" ? <button className={`${btn} ${btnPrimary} px-3`} onClick={() => postDraft(row)} title="Post to accounting"><FiCheckCircle /></button> : null}{row.status === "posted" && !row.reconciled ? <button className={`${btn} ${btnDanger} px-3`} onClick={() => voidTransaction(row)} title="Void transaction and journal"><FiSlash /></button> : row.status !== "draft" ? <button className={`${btn} ${btnDanger} px-3`} disabled={row.reconciled || Boolean(row.journalEntry)} onClick={() => remove(row)}><FiTrash2 /></button> : <button className={`${btn} ${btnDanger} px-3`} onClick={() => remove(row)}><FiTrash2 /></button>}</div></td>
               </tr>)}
-              {!rows.length ? <tr><td colSpan={8} className="px-5 py-16 text-center text-sm font-bold text-gray-500">No bank transactions found.</td></tr> : null}
+              {!rows.length ? <tr><td colSpan={9} className="px-5 py-16 text-center text-sm font-bold text-gray-500">No bank transactions found.</td></tr> : null}
             </tbody>
           </table>
         </div>
@@ -175,11 +204,12 @@ export default function BankTransactions() {
         <div className="flex items-center justify-between border-b border-gray-100 p-5"><div><h2 className="text-lg font-extrabold text-gray-900">{modal.item ? "Update Transaction" : "Add Transaction"}</h2><p className="text-sm font-semibold text-gray-500">Fields marked with * are required.</p></div><button className="rounded-xl p-2 hover:bg-gray-100" onClick={() => setModal({ open: false, item: null })}><FiX /></button></div>
         <form onSubmit={save}><div className="grid gap-4 p-5 md:grid-cols-2">
           <Field title="Bank Account" required><select className={input} value={form.bankAccount} onChange={(e) => setForm((p) => ({ ...p, bankAccount: e.target.value }))} required><option value="">Select Account</option>{accountOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></Field>
+          <Field title="Offset Accounting Ledger" required={form.status === "posted"} hint="The other side of the balanced journal entry."><select className={input} value={form.counterpartLedgerAccount} onChange={(e) => setForm((p) => ({ ...p, counterpartLedgerAccount: e.target.value }))} required={form.status === "posted" && !["opening_balance", "bank_charge", "interest"].includes(form.kind)}><option value="">Select Ledger</option>{ledgerAccounts.map((item) => <option key={item._id} value={item._id}>{item.code} - {item.name}</option>)}</select></Field>
           <Field title="Kind" required><select className={input} value={form.kind} onChange={(e) => setForm((p) => ({ ...p, kind: e.target.value, direction: ["deposit", "opening_balance", "interest"].includes(e.target.value) ? "in" : "out" }))} required>{KINDS.map((item) => <option key={item} value={item}>{pretty(item)}</option>)}</select></Field>
           <Field title="Direction" required><select className={input} value={form.direction} onChange={(e) => setForm((p) => ({ ...p, direction: e.target.value }))} required><option value="in">In</option><option value="out">Out</option></select></Field>
           <Field title="Amount" required><input className={input} type="number" min="0.01" step="0.01" value={form.amount} onChange={(e) => setForm((p) => ({ ...p, amount: e.target.value }))} required /></Field>
           <Field title="Transaction Date" required><input className={input} type="date" value={form.transactionDate} onChange={(e) => setForm((p) => ({ ...p, transactionDate: e.target.value }))} required /></Field>
-          <Field title="Status" required><select className={input} value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))} required><option value="draft">Draft</option><option value="posted">Posted</option><option value="void">Void</option></select></Field>
+          <Field title="Status" required><select className={input} value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))} required><option value="draft">Draft</option><option value="posted">Posted</option></select></Field>
           <Field title="Reference"><input className={input} value={form.reference} onChange={(e) => setForm((p) => ({ ...p, reference: e.target.value }))} /></Field>
           <Field title="Description"><textarea className={cn(input, "h-24 resize-none py-3")} value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} /></Field>
         </div><div className="flex justify-end gap-2 border-t border-gray-100 p-5"><button className={`${btn} ${btnGhost}`} type="button" onClick={() => setModal({ open: false, item: null })}>Cancel</button><button className={`${btn} ${btnPrimary}`} type="submit"><FiSave />Save Transaction</button></div></form>

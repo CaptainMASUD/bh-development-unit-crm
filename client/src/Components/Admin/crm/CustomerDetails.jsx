@@ -16,7 +16,7 @@ import CustomerOverview from "./CustomerOverview"
 import CustomerCRM from "./CustomerCRM"
 
 // ✅ banner image import
-import bannerimg from "../../images/banner/legacy.png"
+import bannerimg from "../../../images/banner/legacy.png"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 

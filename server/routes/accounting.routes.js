@@ -40,14 +40,17 @@ import {
   upsertAccountingPeriod,
   voidJournalEntry,
 } from "../controllers/accounting.controller.js";
-import { protect, requirePermission } from "../middleware/auth.middleware.js";
+import { protect, requireAnyPermission, requirePermission } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-router.use(protect, requirePermission("finance:view"));
+router.use(protect);
+
+router.get("/payables", requireAnyPermission(["finance:view", "expenses:view"]), getPayables);
+
+router.use(requirePermission("finance:view"));
 
 router.get("/receivables", getReceivables);
-router.get("/payables", getPayables);
 router.get("/profit-loss", getProfitLoss);
 
 router.get("/accounts", listAccounts);

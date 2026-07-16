@@ -1,61 +1,102 @@
-// sections.js
-import { FaUsers, FaCog, FaInfoCircle, FaChartBar, FaUserFriends } from "react-icons/fa"
-import { LuLayoutDashboard } from "react-icons/lu"
-import { FiBriefcase, FiCalendar, FiCreditCard, FiDollarSign, FiLayers, FiTarget } from "react-icons/fi"
+/* eslint-disable react-refresh/only-export-components -- route registry intentionally owns lazy page references */
+// sections.jsx
+import { lazy } from "react"
+import { HugeiconsIcon } from "@hugeicons/react"
+import {
+  Analytics01Icon,
+  ArrowDataTransferHorizontalIcon,
+  BalanceScaleIcon,
+  BankIcon,
+  BanknoteIcon,
+  BookOpen01Icon,
+  Briefcase01Icon,
+  Calculator01Icon,
+  Calendar03Icon,
+  CalendarMinus01Icon,
+  ChartLineData01Icon,
+  ChartLineData02Icon,
+  DashboardSquare01Icon,
+  DollarCircleIcon,
+  FileChartColumnIcon,
+  HandCoinsIcon,
+  InformationCircleIcon,
+  Layers01Icon,
+  NoteEditIcon,
+  ReceiptDollarIcon,
+  Setup02Icon,
+  ShieldUserIcon,
+  Target01Icon,
+  UserGroup03Icon,
+  UserIcon,
+  UserMultiple02Icon,
+  UserSettings01Icon,
+  Wallet03Icon,
+  WorkflowSquare03Icon,
+} from "@hugeicons/core-free-icons"
 
-import Dashboard from "./DashboardContent"
-import Customers from "./CustomersPage"
-import AdminLead from "./AdminLeadPage"
-import AdminDealsPage from "./AdminDealsPage"
-import Users from "./UserContent"
-import Employee from "./Employee"
-import Attendance from "./Attendance"
-import AdminSalaryPage from "./AdminSalaryPage"
-import PayrollManager from "./PayrollManager"
-import EmployeeLoans from "./EmployeeLoans"
-import LeaveRequests from "./LeaveRequests"
-import LeaveSetup from "./LeaveSetup"
-import RosterShiftSetup from "./RosterShiftSetup"
-import TaxSetup from "./TaxSetup"
-import ExpenseSetup from "./ExpenseSetup"
-import BankSetup from "./BankSetup"
-import Expenses from "./Expenses"
-import AccountingModules from "./AccountingModules"
-import BankTransactions from "./banking/BankTransactions"
-import MoneyTransfer from "./banking/MoneyTransfer"
-import BankReconciliation from "./banking/BankReconciliation"
-import ChartOfAccounts from "./accounting/ChartOfAccounts"
-import JournalEntries from "./accounting/JournalEntries"
-import GeneralLedger from "./accounting/GeneralLedger"
-import OpeningBalances from "./accounting/OpeningBalances"
-import AccountingSettings from "./accounting/AccountingSettings"
-import FiscalYearPeriods from "./accounting/FiscalYearPeriods"
-import TrialBalance from "./accounting/TrialBalance"
-import BalanceSheet from "./accounting/BalanceSheet"
-import CashFlowStatement from "./accounting/CashFlowStatement"
-import ProfileSettings from "./ProfileSettings"
-import About from "./About"
+const Dashboard = lazy(() => import("./crm/DashboardContent"))
+const Customers = lazy(() => import("./crm/CustomersPage"))
+const AdminLead = lazy(() => import("./crm/AdminLeadPage"))
+const AdminDealsPage = lazy(() => import("./crm/AdminDealsPage"))
+const Users = lazy(() => import("./system/UserContent"))
+const Employee = lazy(() => import("./payroll/Employee"))
+const Attendance = lazy(() => import("./payroll/Attendance"))
+const AdminSalaryPage = lazy(() => import("./payroll/AdminSalaryPage"))
+const PayrollManager = lazy(() => import("./payroll/PayrollManager"))
+const EmployeeLoans = lazy(() => import("./payroll/EmployeeLoans"))
+const LeaveRequests = lazy(() => import("./payroll/LeaveRequests"))
+const LeaveSetup = lazy(() => import("./payroll/LeaveSetup"))
+const RosterShiftSetup = lazy(() => import("./payroll/RosterShiftSetup"))
+const TaxSetup = lazy(() => import("./payroll/TaxSetup"))
+const ExpenseSetup = lazy(() => import("./accounting/ExpenseSetup"))
+const BankSetup = lazy(() => import("./banking/BankSetup"))
+const Expenses = lazy(() => import("./accounting/Expenses"))
+const AccountingModules = lazy(() => import("./accounting/AccountingModules"))
+const BankTransactions = lazy(() => import("./banking/BankTransactions"))
+const MoneyTransfer = lazy(() => import("./banking/MoneyTransfer"))
+const BankReconciliation = lazy(() => import("./banking/BankReconciliation"))
+const ChartOfAccounts = lazy(() => import("./accounting/ChartOfAccounts"))
+const JournalEntries = lazy(() => import("./accounting/JournalEntries"))
+const GeneralLedger = lazy(() => import("./accounting/GeneralLedger"))
+const OpeningBalances = lazy(() => import("./accounting/OpeningBalances"))
+const AccountingSettings = lazy(() => import("./accounting/AccountingSettings"))
+const FiscalYearPeriods = lazy(() => import("./accounting/FiscalYearPeriods"))
+const TrialBalance = lazy(() => import("./accounting/TrialBalance"))
+const BalanceSheet = lazy(() => import("./accounting/BalanceSheet"))
+const CashFlowStatement = lazy(() => import("./accounting/CashFlowStatement"))
+const ProfileSettings = lazy(() => import("./system/ProfileSettings"))
+const About = lazy(() => import("./system/About"))
+const TitlesAdd = lazy(() => import("./workflow/TittlesAdd"))
+const EngagementTemplatePage = lazy(() => import("./workflow/EngagementTemplatePage"))
+const PurchaseTypePage = lazy(() => import("./workflow/PurchaseTypePage"))
+const CustomerCRMInner = lazy(() => import("./crm/CustomerCRMInner"))
+const ClientReport = lazy(() => import("./reports/ClientReport"))
+const AdminEmployeeReportPage = lazy(() => import("./reports/EmployeeReportPage"))
+const TaxReport = lazy(() => import("./reports/TaxReport"))
+const AccessControl = lazy(() => import("./system/AccessControl"))
 
-import TitlesAdd from "./TittlesAdd"
-import EngagementTemplatePage from "./EngagementTemplatePage"
-import PurchaseTypePage from "./PurchaseTypePage"
-
-import CustomerCRMInner from "./CustomerCRMInner"
-import ClientReport from "./ClientReport"
-import AdminEmployeeReportPage from "./EmployeeReportPage"
-import TaxReport from "./TaxReport"
-import AccessControl from "./AccessControl"
-
-
+const createSectionIcon = (icon) => (
+  <HugeiconsIcon
+    icon={icon}
+    size={20}
+    color="currentColor"
+    strokeWidth={1.8}
+  />
+)
 
 const sections = {
   Dashboard: {
-    icon: <LuLayoutDashboard className="w-5 h-5" />,
+    icon: createSectionIcon(DashboardSquare01Icon),
+    component: <Dashboard />,
+  },
+
+  "CRM Analytics": {
+    icon: createSectionIcon(Analytics01Icon),
     component: <Dashboard />,
   },
 
   Clients: {
-    icon: <FaUserFriends className="w-5 h-5" />,
+    icon: createSectionIcon(UserGroup03Icon),
     subcategories: {
       Clients: <Customers />,
       "Client Tasks": <CustomerCRMInner />,
@@ -63,17 +104,17 @@ const sections = {
   },
 
   Leads: {
-    icon: <FiTarget className="w-5 h-5" />,
+    icon: createSectionIcon(Target01Icon),
     component: <AdminLead />,
   },
 
   Deals: {
-    icon: <FiBriefcase className="w-5 h-5" />,
+    icon: createSectionIcon(Briefcase01Icon),
     component: <AdminDealsPage />,
   },
 
   "Workflow Setup": {
-    icon: <FiLayers className="w-5 h-5" />,
+    icon: createSectionIcon(WorkflowSquare03Icon),
     subcategories: {
       "Task Titles": <TitlesAdd />,
       "Engagement Types": <EngagementTemplatePage />,
@@ -82,10 +123,9 @@ const sections = {
   },
 
   Report: {
-    icon: <FaChartBar className="w-5 h-5" />,
+    icon: createSectionIcon(ChartLineData01Icon),
     subcategories: {
       "Client Report": <ClientReport />,
-      // ✅ NEW sub option
       "Employee Report": <AdminEmployeeReportPage />,
       "Tax Report": <TaxReport />,
     },
@@ -95,44 +135,44 @@ const sections = {
   },
 
   Users: {
-    icon: <FaUsers className="w-5 h-5" />,
+    icon: createSectionIcon(UserMultiple02Icon),
     component: <Users />,
   },
 
   Employee: {
-    icon: <FaUsers className="w-5 h-5" />,
+    icon: createSectionIcon(UserIcon),
     component: <Employee />,
   },
 
   Attendance: {
-    icon: <FiCalendar className="w-5 h-5" />,
+    icon: createSectionIcon(Calendar03Icon),
     component: <Attendance />,
   },
 
   Salary: {
-    icon: <FiDollarSign className="w-5 h-5" />,
+    icon: createSectionIcon(DollarCircleIcon),
     component: <AdminSalaryPage />,
   },
 
   "Payroll Manager": {
-    icon: <FiDollarSign className="w-5 h-5" />,
+    icon: createSectionIcon(Wallet03Icon),
     component: <PayrollManager />,
   },
 
   Expenses: {
-    icon: <FiCreditCard className="w-5 h-5" />,
+    icon: createSectionIcon(ReceiptDollarIcon),
     component: <Expenses />,
     permission: "expenses:view",
   },
 
   Finance: {
-    icon: <FiDollarSign className="w-5 h-5" />,
+    icon: createSectionIcon(Calculator01Icon),
     component: <AccountingModules />,
     permission: "finance:view",
   },
 
   "Accounting Setup": {
-    icon: <FiLayers className="w-5 h-5" />,
+    icon: createSectionIcon(Layers01Icon),
     permission: "finance:view",
     subcategories: {
       "Chart of Accounts": <ChartOfAccounts />,
@@ -149,65 +189,65 @@ const sections = {
   },
 
   "Journal Entries": {
-    icon: <FiDollarSign className="w-5 h-5" />,
+    icon: createSectionIcon(NoteEditIcon),
     component: <JournalEntries />,
     permission: "finance:view",
   },
 
   "General Ledger": {
-    icon: <FiLayers className="w-5 h-5" />,
+    icon: createSectionIcon(BookOpen01Icon),
     component: <GeneralLedger />,
     permission: "finance:view",
   },
 
   "Trial Balance": {
-    icon: <FaChartBar className="w-5 h-5" />,
+    icon: createSectionIcon(BalanceScaleIcon),
     component: <TrialBalance />,
     permission: "finance:view",
   },
 
   "Balance Sheet": {
-    icon: <FiLayers className="w-5 h-5" />,
+    icon: createSectionIcon(FileChartColumnIcon),
     component: <BalanceSheet />,
     permission: "finance:view",
   },
 
   "Cash Flow Statement": {
-    icon: <FaChartBar className="w-5 h-5" />,
+    icon: createSectionIcon(ChartLineData02Icon),
     component: <CashFlowStatement />,
     permission: "finance:view",
   },
 
   "Bank Transactions": {
-    icon: <FiCreditCard className="w-5 h-5" />,
+    icon: createSectionIcon(BankIcon),
     component: <BankTransactions />,
     permission: "finance:view",
   },
 
   "Money Transfer": {
-    icon: <FiCreditCard className="w-5 h-5" />,
+    icon: createSectionIcon(ArrowDataTransferHorizontalIcon),
     component: <MoneyTransfer />,
     permission: "finance:view",
   },
 
   "Bank Reconciliation": {
-    icon: <FiCreditCard className="w-5 h-5" />,
+    icon: createSectionIcon(BanknoteIcon),
     component: <BankReconciliation />,
     permission: "finance:view",
   },
 
   "Employee Loans": {
-    icon: <FiCreditCard className="w-5 h-5" />,
+    icon: createSectionIcon(HandCoinsIcon),
     component: <EmployeeLoans />,
   },
 
   "Leave Requests": {
-    icon: <FiCalendar className="w-5 h-5" />,
+    icon: createSectionIcon(CalendarMinus01Icon),
     component: <LeaveRequests />,
   },
 
   Setup: {
-    icon: <FiLayers className="w-5 h-5" />,
+    icon: createSectionIcon(Setup02Icon),
     subcategories: {
       "Roster / Shift Setup": <RosterShiftSetup />,
       "Leave Setup": <LeaveSetup />,
@@ -225,17 +265,17 @@ const sections = {
   },
 
   "Access Control": {
-    icon: <FiLayers className="w-5 h-5" />,
+    icon: createSectionIcon(ShieldUserIcon),
     component: <AccessControl />,
   },
 
   "Profile Settings": {
-    icon: <FaCog className="w-5 h-5" />,
+    icon: createSectionIcon(UserSettings01Icon),
     component: <ProfileSettings />,
   },
 
   About: {
-    icon: <FaInfoCircle className="w-5 h-5" />,
+    icon: createSectionIcon(InformationCircleIcon),
     component: <About />,
   },
 }

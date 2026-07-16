@@ -23,7 +23,7 @@ import {
   FiUsers,
   FiX,
 } from "react-icons/fi"
-import { hasPermission, PERMISSIONS } from "../Auth/permissions"
+import { hasPermission, PERMISSIONS } from "../../Auth/permissions"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const PAGE_SIZE = 25

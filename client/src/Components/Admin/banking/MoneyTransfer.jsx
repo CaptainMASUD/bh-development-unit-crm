@@ -36,7 +36,7 @@ export default function MoneyTransfer() {
 
   const loadAccounts = async () => {
     const data = await api("/banks/accounts?limit=150&status=active")
-    setAccounts(data.accounts || [])
+    setAccounts((data.accounts || []).filter((item) => item.ledgerAccount))
   }
 
   const loadRows = async () => {
@@ -73,7 +73,7 @@ export default function MoneyTransfer() {
       <Toaster position="top-right" />
       <div className={`${card} mb-6 p-5 sm:p-6`}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex items-center gap-4"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white"><FiShuffle className="h-6 w-6" /></div><div><p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-600">Banking</p><h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Money Transfer</h1><p className="mt-1 text-sm font-semibold text-gray-500">Move money between company bank accounts with equal transfer-in and transfer-out records.</p></div></div>
+          <div className="flex items-center gap-4"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white"><FiShuffle className="h-6 w-6" /></div><div><p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-600">Banking + Accounting</p><h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Money Transfer</h1><p className="mt-1 text-sm font-semibold text-gray-500">Move money between connected bank accounts and post one balanced accounting journal.</p></div></div>
           <button className={`${btn} ${btnGhost}`} onClick={loadRows} disabled={loading}><FiRefreshCcw className={loading ? "animate-spin" : ""} /> Refresh</button>
         </div>
         <div className="mt-5 relative"><FiSearch className="absolute left-3 top-3.5 text-gray-400" /><input className={cn(input, "pl-10")} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search transfer reference or description..." /></div>

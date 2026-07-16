@@ -12,14 +12,10 @@ import ErrorBoundary, { RouteError } from './Components/ErrorBoundary/ErrorKit';
 import NotFoundPremium from './Components/ErrorBoundary/NotFoundPremium';
 import EmployeeDashboard from './Components/Employee/Dashboard';
 import RegisterForm from './Components/Register/Register';
-import EcommerceHomePage from './Components/test/Admin';
-import CustomerServiceReport from './Components/Admin/ServiceReport';
 import { installSessionExpiryInterceptors } from './Components/Auth/sessionEvents';
-import AttendanceCalendar from './Components/Admin/Attendance';
-import AdminSalaryPage from './Components/Admin/AdminSalaryPage';
-import PayrollManager from './Components/Admin/PayrollManager';
-import AdminEmployeeLoansPage from './Components/Admin/EmployeeLoans';
 import OdooStyleModulesPage from './Components/MainPage/MianPage';
+import AccountingCurvedTopBar from './Components/CurvedTopBar/CurvedTopBar';
+
 
 installSessionExpiryInterceptors();
 
@@ -36,7 +32,8 @@ const router = createBrowserRouter([
       { path: 'admin/*', element: <Dashboard /> },
       { path: 'employee/*', element: <EmployeeDashboard /> },
       { path: 'crm', element: <RegisterForm /> },
-      { path: 't', element: <OdooStyleModulesPage /> },
+      { path: 'module', element: <OdooStyleModulesPage /> },
+      { path: 't', element: <AccountingCurvedTopBar /> },
   
       
     ],

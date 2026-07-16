@@ -9,6 +9,7 @@ import {
   FiEdit2,
   FiFilter,
   FiGlobe,
+  FiLink,
   FiPlus,
   FiRefreshCcw,
   FiSave,
@@ -43,6 +44,7 @@ const emptyBankForm = {
 
 const emptyAccountForm = {
   bank: "",
+  ledgerAccount: "",
   accountName: "",
   accountNumber: "",
   accountType: "current",
@@ -439,6 +441,7 @@ export default function BankSetup() {
   const [activeTab, setActiveTab] = useState("banks")
   const [banks, setBanks] = useState([])
   const [accounts, setAccounts] = useState([])
+  const [ledgerAccounts, setLedgerAccounts] = useState([])
   const [loading, setLoading] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [modal, setModal] = useState({ open: false, mode: "bank", item: null })
@@ -536,13 +539,22 @@ export default function BankSetup() {
     }
   }
 
+  const loadLedgerAccounts = async () => {
+    try {
+      const data = await api("/accounting/accounts?limit=200")
+      setLedgerAccounts((data.accounts || []).filter((item) => !item.isGroup && item.isActive !== false && ["asset", "liability"].includes(item.type)))
+    } catch (error) {
+      toast.error(error.message || "Failed to load accounting ledgers")
+    }
+  }
+
   const refresh = async () => {
     if (activeTab === "banks") {
       await loadBanks()
       return
     }
 
-    await Promise.all([loadBanks(false), loadAccounts()])
+    await Promise.all([loadBanks(false), loadAccounts(), loadLedgerAccounts()])
   }
 
   useEffect(() => {
@@ -552,6 +564,7 @@ export default function BankSetup() {
       } else {
         loadBanks(false)
         loadAccounts()
+        loadLedgerAccounts()
       }
     }, 250)
 
@@ -591,6 +604,7 @@ export default function BankSetup() {
       item
         ? {
             bank: item.bank?._id || item.bank || "",
+            ledgerAccount: item.ledgerAccount?._id || item.ledgerAccount || "",
             accountName: item.accountName || "",
             accountNumber: item.accountNumber || "",
             accountType: item.accountType || "current",
@@ -705,6 +719,16 @@ export default function BankSetup() {
     }
   }
 
+  const connectLedgers = async () => {
+    try {
+      const data = await api("/banks/accounts/connect-ledgers", { method: "POST" })
+      toast.success(data.message || "Bank accounts connected to accounting")
+      await Promise.all([loadAccounts(), loadLedgerAccounts()])
+    } catch (error) {
+      toast.error(error.message || "Connection failed")
+    }
+  }
+
   const showingCount = activeTab === "banks" ? banks.length : accounts.length
 
   return (
@@ -729,6 +753,11 @@ export default function BankSetup() {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            {activeTab === "accounts" && accounts.some((account) => !account.ledgerAccount) ? (
+              <button className={cn(btn, btnGhost)} onClick={connectLedgers} disabled={loading}>
+                <FiLink className="h-4 w-4" /> Connect Accounting
+              </button>
+            ) : null}
             <button className={cn(btn, btnGhost)} onClick={refresh} disabled={loading}>
               <FiRefreshCcw className={cn("h-4 w-4", loading ? "animate-spin" : "")} />
               Refresh
@@ -829,6 +858,7 @@ export default function BankSetup() {
         form={accountForm}
         setForm={setAccountForm}
         banks={banks}
+        ledgerAccounts={ledgerAccounts}
         error={formError}
         onClose={closeModal}
         onSubmit={saveAccount}
@@ -1078,6 +1108,7 @@ function AccountTable({ accounts, loading, openAccountModal, removeAccount }) {
               <th className="px-5 py-3">Account Name</th>
               <th className="px-5 py-3">Account Number</th>
               <th className="px-5 py-3">Type</th>
+              <th className="px-5 py-3">Accounting Ledger</th>
               <th className="px-5 py-3">Opening Balance</th>
               <th className="px-5 py-3">Branch</th>
               <th className="px-5 py-3">Status</th>
@@ -1107,6 +1138,10 @@ function AccountTable({ accounts, loading, openAccountModal, removeAccount }) {
 
                 <td className="px-5 py-4">
                   <Badge value={account.accountType} />
+                </td>
+
+                <td className="px-5 py-4">
+                  {account.ledgerAccount ? <div><p className="text-sm font-black text-emerald-700">{account.ledgerAccount.code}</p><p className="text-xs font-semibold text-gray-500">{account.ledgerAccount.name}</p></div> : <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-black text-amber-700">Not connected</span>}
                 </td>
 
                 <td className="px-5 py-4 text-sm font-black text-gray-900">
@@ -1147,7 +1182,7 @@ function AccountTable({ accounts, loading, openAccountModal, removeAccount }) {
 
             {!accounts.length ? (
               <tr>
-                <td colSpan={8} className="px-5 py-12 text-center text-sm font-bold text-gray-500">
+                <td colSpan={9} className="px-5 py-12 text-center text-sm font-bold text-gray-500">
                   {loading ? "Loading bank accounts..." : "No bank accounts found."}
                 </td>
               </tr>
@@ -1278,6 +1313,7 @@ function AccountFormModal({
   form,
   setForm,
   banks,
+  ledgerAccounts,
   error,
   onClose,
   onSubmit,
@@ -1369,6 +1405,13 @@ function AccountFormModal({
                   {labelText}
                 </option>
               ))}
+            </select>
+          </Field>
+
+          <Field label="Accounting Ledger" hint="Leave empty to create and link a dedicated ledger automatically.">
+            <select className={input} value={form.ledgerAccount} onChange={(event) => setForm((prev) => ({ ...prev, ledgerAccount: event.target.value }))}>
+              <option value="">Auto-create dedicated ledger</option>
+              {ledgerAccounts.map((account) => <option key={account._id} value={account._id}>{account.code} — {account.name}</option>)}
             </select>
           </Field>
 

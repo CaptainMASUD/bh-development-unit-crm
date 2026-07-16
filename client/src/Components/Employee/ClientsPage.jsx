@@ -1,7 +1,7 @@
 "use client"
 
 import { useSelector } from "react-redux"
-import AdminCustomersPage from "../Admin/CustomersPage"
+import AdminCustomersPage from "../Admin/crm/CustomersPage"
 import EmployeeCustomersPage from "./CustomersPage"
 import { hasPermission, PERMISSIONS } from "../Auth/permissions"
 

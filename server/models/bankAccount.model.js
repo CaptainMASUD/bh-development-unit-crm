@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 const bankAccountSchema = new mongoose.Schema(
   {
     bank: { type: mongoose.Schema.Types.ObjectId, ref: "Bank", required: true, index: true },
+    ledgerAccount: { type: mongoose.Schema.Types.ObjectId, ref: "Account" },
     accountName: { type: String, required: true, trim: true },
     accountNameLower: { type: String, trim: true, default: "", index: true },
     accountNumber: { type: String, required: true, trim: true, index: true },
@@ -28,6 +29,7 @@ const bankAccountSchema = new mongoose.Schema(
 bankAccountSchema.index({ bank: 1, accountNumber: 1 }, { unique: true });
 bankAccountSchema.index({ bank: 1, status: 1, accountNameLower: 1, _id: 1 });
 bankAccountSchema.index({ status: 1, accountType: 1, accountNameLower: 1, _id: 1 });
+bankAccountSchema.index({ ledgerAccount: 1 }, { unique: true, sparse: true });
 bankAccountSchema.index(
   { accountName: "text", accountNumber: "text", branchName: "text", routingNumber: "text", swiftCode: "text" },
   { default_language: "none" }

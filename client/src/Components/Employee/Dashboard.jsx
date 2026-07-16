@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useMemo, useRef, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSelector } from "react-redux"
 import { useLocation, useNavigate } from "react-router-dom"
 import { FaAngleDoubleLeft, FaAngleDoubleRight } from "react-icons/fa"
@@ -9,6 +9,9 @@ import { sections } from "./sections"
 import SessionExpiryGuard from "../Auth/SessionExpiredModal"
 import { buildDashboardRouteMap, matchDashboardRoute } from "../Navigation/dashboardRoutes"
 import { filterSectionsByPermission } from "../Auth/permissions"
+import { buildModuleSections, canAccessModule, findModuleForSection, isKnownModule, MODULES } from "../Navigation/moduleConfig"
+
+const ModuleDashboard = React.lazy(() => import("../Admin/dashboard/ModuleDashboard"))
 
 export default function EmployeeDashboard() {
   const navigate = useNavigate()
@@ -16,19 +19,22 @@ export default function EmployeeDashboard() {
   const currentUserRedux = useSelector((state) => state.user?.currentUser)
   const [currentUser, setCurrentUser] = useState(null)
   const [authChecked, setAuthChecked] = useState(false)
-  const allowedSections = useMemo(
-    () => filterSectionsByPermission(sections, currentUser || currentUserRedux),
-    [currentUser, currentUserRedux]
-  )
-  const routeMap = useMemo(() => buildDashboardRouteMap("/employee", allowedSections), [allowedSections])
+  const allowedSections = useMemo(() => {
+    const permitted = filterSectionsByPermission(sections, currentUser || currentUserRedux)
+    return { ...permitted, Dashboard: sections.Dashboard }
+  }, [currentUser, currentUserRedux])
+  const moduleId = location.pathname.split("/").filter(Boolean)[1] || ""
+  const validModule = isKnownModule(moduleId) && canAccessModule(currentUser || currentUserRedux, moduleId)
+  const moduleBasePath = validModule ? `/employee/${moduleId}` : "/employee"
+  const moduleSections = useMemo(() => validModule ? buildModuleSections(allowedSections, moduleId, "employee") : {}, [allowedSections, moduleId, validModule])
+  const routeMap = useMemo(() => buildDashboardRouteMap(moduleBasePath, moduleSections), [moduleBasePath, moduleSections])
   const routeState = useMemo(
-    () => matchDashboardRoute(location.pathname, "/employee", routeMap),
-    [location.pathname, routeMap]
+    () => matchDashboardRoute(location.pathname, moduleBasePath, routeMap),
+    [location.pathname, moduleBasePath, routeMap]
   )
   const defaultEmployeePath = useMemo(() => {
-    if (routeMap.routes?.["/employee"]) return "/employee"
-    return Object.keys(routeMap.routes || {})[0] || "/employee"
-  }, [routeMap])
+    return Object.keys(routeMap.routes || {})[0] || moduleBasePath
+  }, [moduleBasePath, routeMap])
   const activeSection = routeState.section
   const activeSubcategory = routeState.subcategory
   const pendingSectionRef = useRef(activeSection)
@@ -76,28 +82,45 @@ export default function EmployeeDashboard() {
   }, [authChecked, currentUser, navigate])
 
   useEffect(() => {
+    if (!authChecked || !currentUser || currentUser.role !== "employee" || !currentUser.isActive || validModule) return
+    if (location.pathname.replace(/\/+$/, "") === "/employee") {
+      navigate("/module", { replace: true })
+      return
+    }
+    const legacyMap = buildDashboardRouteMap("/employee", allowedSections)
+    const legacy = matchDashboardRoute(location.pathname, "/employee", legacyMap)
+    const targetModule = findModuleForSection(legacy.section, "employee")
+    if (!targetModule || !canAccessModule(currentUser, targetModule)) return navigate("/module", { replace: true })
+    const targetSections = buildModuleSections(allowedSections, targetModule, "employee")
+    const targetMap = buildDashboardRouteMap(`/employee/${targetModule}`, targetSections)
+    navigate(targetMap.reverse[`${legacy.section}::${legacy.subcategory || ""}`] || `/employee/${targetModule}`, { replace: true })
+  }, [allowedSections, authChecked, currentUser, location.pathname, navigate, validModule])
+
+  useEffect(() => {
     if (!authChecked || !currentUser || currentUser.role !== "employee" || !currentUser.isActive) return
 
     const cleanPath = location.pathname.replace(/\/+$/, "") || "/"
     const isCustomerDetailPath =
-      cleanPath.startsWith("/employee/customers/") || cleanPath.startsWith("/employee/clients/")
+      cleanPath.startsWith(`${moduleBasePath}/customers/`) || cleanPath.startsWith(`${moduleBasePath}/clients/`)
     const routeIsAllowed =
       Boolean(routeMap.routes?.[cleanPath]) ||
-      (isCustomerDetailPath && Boolean(allowedSections.Clients))
-    const sectionIsAllowed = Boolean(allowedSections[activeSection])
+      (isCustomerDetailPath && Boolean(moduleSections.Clients))
+    const sectionIsAllowed = Boolean(moduleSections[activeSection])
 
-    if (!routeIsAllowed || !sectionIsAllowed) {
+    if (validModule && (!routeIsAllowed || !sectionIsAllowed)) {
       navigate(defaultEmployeePath, { replace: true })
     }
   }, [
     activeSection,
-    allowedSections,
+    moduleSections,
     authChecked,
     currentUser,
     defaultEmployeePath,
     location.pathname,
     navigate,
     routeMap,
+    validModule,
+    moduleBasePath,
   ])
 
   useEffect(() => {
@@ -109,11 +132,11 @@ export default function EmployeeDashboard() {
     if (isMobile) setIsSidebarOpen(false)
   }
 
-  const setActiveSection = (section) => {
+  const setActiveSection = useCallback((section) => {
     pendingSectionRef.current = section
-    navigate(routeMap.reverse[`${section}::`] || "/employee")
-    closeMobileSidebar()
-  }
+    navigate(routeMap.reverse[`${section}::`] || moduleBasePath)
+    if (isMobile) setIsSidebarOpen(false)
+  }, [isMobile, moduleBasePath, navigate, routeMap])
 
   const setActiveSubcategory = (subcategory) => {
     if (!subcategory) return
@@ -121,29 +144,39 @@ export default function EmployeeDashboard() {
     navigate(
       routeMap.reverse[`${section}::${subcategory}`] ||
         routeMap.reverse[`${section}::`] ||
-        "/employee"
+        moduleBasePath
     )
     closeMobileSidebar()
   }
 
   const activeView = useMemo(() => {
-    const section = allowedSections[activeSection]
+    const section = moduleSections[activeSection]
     if (!section) return null
     if (section.subcategories) {
       return section.subcategories[activeSubcategory] || Object.values(section.subcategories)[0] || null
     }
     return section.component || null
-  }, [activeSection, activeSubcategory, allowedSections])
+  }, [activeSection, activeSubcategory, moduleSections])
 
   const content = useMemo(() => {
+    if (activeSection === "Dashboard") {
+      return (
+        <ModuleDashboard
+          moduleId={moduleId}
+          moduleSections={moduleSections}
+          currentUser={currentUser}
+          onNavigateSection={setActiveSection}
+        />
+      )
+    }
     if (!activeView) return null
     const injectedProps =
       activeSection === "Clients"
         ? {
             routeCustomerId: routeState.customerId || null,
             onNavigateCustomer: (customerId) =>
-              navigate(`/employee/clients/${customerId}/overview`),
-            onBackToCustomers: () => navigate("/employee/clients"),
+              navigate(`${moduleBasePath}/clients/${customerId}/overview`),
+            onBackToCustomers: () => navigate(`${moduleBasePath}/clients`),
           }
         : {}
 
@@ -153,7 +186,7 @@ export default function EmployeeDashboard() {
       return <Component {...injectedProps} />
     }
     return null
-  }, [activeView, activeSection, routeState.customerId, navigate])
+  }, [activeView, activeSection, routeState.customerId, navigate, moduleBasePath, moduleId, moduleSections, currentUser, setActiveSection])
 
   if (!authChecked) return <div className="h-screen w-full bg-gray-50" />
 
@@ -163,7 +196,9 @@ export default function EmployeeDashboard() {
       <Sidebar
         setActiveSection={setActiveSection}
         setActiveSubcategory={setActiveSubcategory}
-        sections={allowedSections}
+        sections={moduleSections}
+        moduleLabel={MODULES[moduleId]?.name}
+        onOpenModules={() => navigate("/module")}
         activeSection={activeSection}
         activeSubcategory={activeSubcategory}
         isMobile={isMobile}
@@ -173,7 +208,9 @@ export default function EmployeeDashboard() {
         setIsDarkMode={setIsDarkMode}
       />
 
-      <main className="h-screen flex-1 overflow-auto p-5 transition-colors">{content}</main>
+      <main className="h-screen flex-1 overflow-auto p-5 transition-colors">
+        <React.Suspense fallback={<div className="h-48 animate-pulse rounded-2xl bg-gray-100" />}>{content}</React.Suspense>
+      </main>
 
       {isMobile && (
         <button

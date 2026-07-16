@@ -30,6 +30,8 @@ const accountingSettingsSchema = new mongoose.Schema(
     purchaseAccount: { type: mongoose.Schema.Types.ObjectId, ref: "Account", default: null },
     receivableAccount: { type: mongoose.Schema.Types.ObjectId, ref: "Account", default: null },
     payableAccount: { type: mongoose.Schema.Types.ObjectId, ref: "Account", default: null },
+    payrollExpenseAccount: { type: mongoose.Schema.Types.ObjectId, ref: "Account", default: null },
+    payrollPayableAccount: { type: mongoose.Schema.Types.ObjectId, ref: "Account", default: null },
     retainedEarningsAccount: { type: mongoose.Schema.Types.ObjectId, ref: "Account", default: null },
     exchangeGainAccount: { type: mongoose.Schema.Types.ObjectId, ref: "Account", default: null },
     exchangeLossAccount: { type: mongoose.Schema.Types.ObjectId, ref: "Account", default: null },

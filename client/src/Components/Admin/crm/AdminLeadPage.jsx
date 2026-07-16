@@ -41,7 +41,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { createPortal } from "react-dom"
 import toast, { Toaster } from "react-hot-toast"
-import { hasPermission, PERMISSIONS } from "../Auth/permissions"
+import { hasPermission, PERMISSIONS } from "../../Auth/permissions"
 import {
   FiActivity,
   FiAlertCircle,
@@ -89,7 +89,7 @@ import {
 } from "react-icons/fi"
 import { SiMicrosoftexcel } from "react-icons/si"
 import * as XLSX from "xlsx"
-import LeadInboxPanel from "../LeadInbox/LeadInboxPanel"
+import LeadInboxPanel from "../../LeadInbox/LeadInboxPanel"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 

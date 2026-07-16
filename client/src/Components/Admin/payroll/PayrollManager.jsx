@@ -295,6 +295,7 @@ export default function PayrollManager() {
   const [payrolls, setPayrolls] = useState([])
   const [departments, setDepartments] = useState([])
   const [positions, setPositions] = useState([])
+  const [bankAccounts, setBankAccounts] = useState([])
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
@@ -323,11 +324,11 @@ export default function PayrollManager() {
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [selectedPayroll, setSelectedPayroll] = useState(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
-  const [payModal, setPayModal] = useState({ open: false, payroll: null, paymentMethod: "cash", paymentDate: dateInput(), transactionRef: "" })
+  const [payModal, setPayModal] = useState({ open: false, payroll: null, paymentMethod: "cash", bankAccount: "", paymentDate: dateInput(), transactionRef: "" })
   const [cancelModal, setCancelModal] = useState({ open: false, payroll: null, reason: "" })
   const [selectedPayrollIds, setSelectedPayrollIds] = useState([])
   const [bulkActionLoading, setBulkActionLoading] = useState("")
-  const [bulkPayModal, setBulkPayModal] = useState({ open: false, paymentMethod: "cash", paymentDate: dateInput(), transactionRef: "" })
+  const [bulkPayModal, setBulkPayModal] = useState({ open: false, paymentMethod: "cash", bankAccount: "", paymentDate: dateInput(), transactionRef: "" })
   const [bulkCancelModal, setBulkCancelModal] = useState({ open: false, reason: "" })
 
   const draftPositionOptions = useMemo(() => {
@@ -407,9 +408,10 @@ export default function PayrollManager() {
 
   const loadAccessLists = useCallback(async () => {
     try {
-      const [depRes, posRes] = await Promise.all([api("/access-control/departments"), api("/access-control/positions")])
+      const [depRes, posRes, bankRes] = await Promise.all([api("/access-control/departments"), api("/access-control/positions"), api("/banks/accounts?limit=150&status=active")])
       setDepartments(depRes.departments || [])
       setPositions(posRes.positions || [])
+      setBankAccounts((bankRes.accounts || []).filter((item) => item.ledgerAccount))
     } catch (error) {
       toast.error(error.message || "Failed to load filter data")
     }
@@ -598,11 +600,11 @@ export default function PayrollManager() {
     try {
       const data = await api(`/payroll/${payModal.payroll._id}/pay`, {
         method: "PATCH",
-        body: JSON.stringify({ paymentMethod: payModal.paymentMethod, paymentDate: payModal.paymentDate, transactionRef: payModal.transactionRef }),
+        body: JSON.stringify({ paymentMethod: payModal.paymentMethod, bankAccount: payModal.bankAccount, paymentDate: payModal.paymentDate, transactionRef: payModal.transactionRef }),
       })
       toast.success("Payroll marked as paid")
       setSelectedPayroll(data.payroll || null)
-      setPayModal({ open: false, payroll: null, paymentMethod: "cash", paymentDate: dateInput(), transactionRef: "" })
+      setPayModal({ open: false, payroll: null, paymentMethod: "cash", bankAccount: "", paymentDate: dateInput(), transactionRef: "" })
       loadPayrolls(page)
     } catch (error) {
       toast.error(error.message || "Payment update failed")
@@ -692,6 +694,7 @@ export default function PayrollManager() {
           method: "PATCH",
           body: JSON.stringify({
             paymentMethod: bulkPayModal.paymentMethod,
+            bankAccount: bulkPayModal.bankAccount,
             paymentDate: bulkPayModal.paymentDate,
             transactionRef: bulkPayModal.transactionRef,
           }),
@@ -703,7 +706,7 @@ export default function PayrollManager() {
     }
 
     toast.success(`Marked paid ${success}${failed ? `, failed ${failed}` : ""}`)
-    setBulkPayModal({ open: false, paymentMethod: "cash", paymentDate: dateInput(), transactionRef: "" })
+    setBulkPayModal({ open: false, paymentMethod: "cash", bankAccount: "", paymentDate: dateInput(), transactionRef: "" })
     clearSelection()
     setBulkActionLoading("")
     loadPayrolls(page)
@@ -1003,17 +1006,19 @@ export default function PayrollManager() {
         </form>
       </Modal>
 
-      <Modal open={payModal.open} title="Mark Payroll Paid" subtitle={payModal.payroll?.employee?.name || "Payment details"} icon={<FiCreditCard className="h-5 w-5" />} onClose={() => setPayModal({ open: false, payroll: null, paymentMethod: "cash", paymentDate: dateInput(), transactionRef: "" })} maxWidth="max-w-lg" footer={<div className="flex justify-end gap-2"><button className={`${btn} ${btnGhost}`} type="button" onClick={() => setPayModal({ open: false, payroll: null, paymentMethod: "cash", paymentDate: dateInput(), transactionRef: "" })}>Cancel</button><button className={`${btn} ${btnPrimary}`} form="payroll-pay-form" type="submit">Mark Paid</button></div>}>
+      <Modal open={payModal.open} title="Mark Payroll Paid" subtitle={payModal.payroll?.employee?.name || "Payment details"} icon={<FiCreditCard className="h-5 w-5" />} onClose={() => setPayModal({ open: false, payroll: null, paymentMethod: "cash", bankAccount: "", paymentDate: dateInput(), transactionRef: "" })} maxWidth="max-w-lg" footer={<div className="flex justify-end gap-2"><button className={`${btn} ${btnGhost}`} type="button" onClick={() => setPayModal({ open: false, payroll: null, paymentMethod: "cash", bankAccount: "", paymentDate: dateInput(), transactionRef: "" })}>Cancel</button><button className={`${btn} ${btnPrimary}`} form="payroll-pay-form" type="submit">Post Payment</button></div>}>
         <form id="payroll-pay-form" className="space-y-4" onSubmit={payPayroll}>
           <Field title="Payment Method"><select className={input} value={payModal.paymentMethod} onChange={(e) => setPayModal((p) => ({ ...p, paymentMethod: e.target.value }))}>{PAYMENT_METHODS.map((x) => <option key={x} value={x}>{pretty(x)}</option>)}</select></Field>
+          {["bank", "mobile_banking", "cheque"].includes(payModal.paymentMethod) ? <Field title="Pay From Bank Account"><select className={input} value={payModal.bankAccount || ""} onChange={(e) => setPayModal((p) => ({ ...p, bankAccount: e.target.value }))} required><option value="">Select connected account</option>{bankAccounts.map((item) => <option key={item._id} value={item._id}>{item.bank?.shortName || item.bank?.bankName} — {item.accountName} ({item.accountNumber})</option>)}</select></Field> : null}
           <Field title="Payment Date"><input className={input} type="date" value={payModal.paymentDate} onChange={(e) => setPayModal((p) => ({ ...p, paymentDate: e.target.value }))} /></Field>
           <Field title="Transaction Reference"><input className={input} value={payModal.transactionRef} onChange={(e) => setPayModal((p) => ({ ...p, transactionRef: e.target.value }))} placeholder="Bank / bKash / cheque reference" /></Field>
         </form>
       </Modal>
 
-      <Modal open={bulkPayModal.open} title="Mark Selected Paid" subtitle={`${selectedPayrolls.length} selected payroll record(s)`} icon={<FiCreditCard className="h-5 w-5" />} onClose={() => !bulkActionLoading && setBulkPayModal({ open: false, paymentMethod: "cash", paymentDate: dateInput(), transactionRef: "" })} maxWidth="max-w-lg" footer={<div className="flex justify-end gap-2"><button className={`${btn} ${btnGhost}`} type="button" disabled={Boolean(bulkActionLoading)} onClick={() => setBulkPayModal({ open: false, paymentMethod: "cash", paymentDate: dateInput(), transactionRef: "" })}>Cancel</button><button className={`${btn} ${btnPrimary}`} form="payroll-bulk-pay-form" disabled={bulkActionLoading === "pay"} type="submit">{bulkActionLoading === "pay" ? "Paying..." : "Mark Selected Paid"}</button></div>}>
+      <Modal open={bulkPayModal.open} title="Post Selected Payroll Payments" subtitle={`${selectedPayrolls.length} selected payroll record(s)`} icon={<FiCreditCard className="h-5 w-5" />} onClose={() => !bulkActionLoading && setBulkPayModal({ open: false, paymentMethod: "cash", bankAccount: "", paymentDate: dateInput(), transactionRef: "" })} maxWidth="max-w-lg" footer={<div className="flex justify-end gap-2"><button className={`${btn} ${btnGhost}`} type="button" disabled={Boolean(bulkActionLoading)} onClick={() => setBulkPayModal({ open: false, paymentMethod: "cash", bankAccount: "", paymentDate: dateInput(), transactionRef: "" })}>Cancel</button><button className={`${btn} ${btnPrimary}`} form="payroll-bulk-pay-form" disabled={bulkActionLoading === "pay"} type="submit">{bulkActionLoading === "pay" ? "Posting..." : "Post Payments"}</button></div>}>
         <form id="payroll-bulk-pay-form" className="space-y-4" onSubmit={bulkPaySelected}>
           <Field title="Payment Method"><select className={input} value={bulkPayModal.paymentMethod} onChange={(e) => setBulkPayModal((p) => ({ ...p, paymentMethod: e.target.value }))}>{PAYMENT_METHODS.map((x) => <option key={x} value={x}>{pretty(x)}</option>)}</select></Field>
+          {["bank", "mobile_banking", "cheque"].includes(bulkPayModal.paymentMethod) ? <Field title="Pay From Bank Account"><select className={input} value={bulkPayModal.bankAccount || ""} onChange={(e) => setBulkPayModal((p) => ({ ...p, bankAccount: e.target.value }))} required><option value="">Select connected account</option>{bankAccounts.map((item) => <option key={item._id} value={item._id}>{item.bank?.shortName || item.bank?.bankName} — {item.accountName} ({item.accountNumber})</option>)}</select></Field> : null}
           <Field title="Payment Date"><input className={input} type="date" value={bulkPayModal.paymentDate} onChange={(e) => setBulkPayModal((p) => ({ ...p, paymentDate: e.target.value }))} /></Field>
           <Field title="Transaction Reference"><input className={input} value={bulkPayModal.transactionRef} onChange={(e) => setBulkPayModal((p) => ({ ...p, transactionRef: e.target.value }))} placeholder="Optional shared payment note/reference" /></Field>
         </form>
@@ -1179,6 +1184,7 @@ function PayrollActionMenu({ payroll, readPayroll, approvePayroll, setPayModal, 
                         open: true,
                         payroll,
                         paymentMethod: payroll.paymentMethod || "cash",
+                        bankAccount: payroll.bankAccount?._id || payroll.bankAccount || "",
                         paymentDate: dateInput(),
                         transactionRef: payroll.transactionRef || "",
                       })
@@ -1519,7 +1525,7 @@ function FilterModal({ open, onClose, filterDraft, setFilterDraft, apply, clear,
 }
 
 function DetailFooter({ payroll, approvePayroll, setPayModal, setCancelModal, deletePayroll }) {
-  return <div className="flex flex-wrap justify-end gap-2">{payroll.status !== "paid" && payroll.status !== "cancelled" ? <button className={`${btn} ${btnSoft}`} type="button" onClick={() => approvePayroll(payroll)}><FiCheckCircle /> Approve</button> : null}{payroll.status !== "paid" && payroll.status !== "cancelled" ? <button className={`${btn} ${btnPrimary}`} type="button" onClick={() => setPayModal({ open: true, payroll, paymentMethod: payroll.paymentMethod || "cash", paymentDate: dateInput(), transactionRef: payroll.transactionRef || "" })}><FiCreditCard /> Mark Paid</button> : null}{payroll.status !== "paid" && payroll.status !== "cancelled" ? <button className={`${btn} ${btnGhost} text-rose-600`} type="button" onClick={() => setCancelModal({ open: true, payroll, reason: "" })}><FiX /> Cancel</button> : null}{!["approved", "paid"].includes(payroll.status) ? <button className={`${btn} ${btnDanger}`} type="button" onClick={() => deletePayroll(payroll)}><FiTrash2 /> Delete</button> : null}</div>
+  return <div className="flex flex-wrap justify-end gap-2">{payroll.status !== "paid" && payroll.status !== "cancelled" ? <button className={`${btn} ${btnSoft}`} type="button" onClick={() => approvePayroll(payroll)}><FiCheckCircle /> Approve</button> : null}{payroll.status !== "paid" && payroll.status !== "cancelled" ? <button className={`${btn} ${btnPrimary}`} type="button" onClick={() => setPayModal({ open: true, payroll, paymentMethod: payroll.paymentMethod || "cash", bankAccount: payroll.bankAccount?._id || payroll.bankAccount || "", paymentDate: dateInput(), transactionRef: payroll.transactionRef || "" })}><FiCreditCard /> Mark Paid</button> : null}{payroll.status !== "paid" && payroll.status !== "cancelled" ? <button className={`${btn} ${btnGhost} text-rose-600`} type="button" onClick={() => setCancelModal({ open: true, payroll, reason: "" })}><FiX /> Cancel</button> : null}{!["approved", "paid"].includes(payroll.status) ? <button className={`${btn} ${btnDanger}`} type="button" onClick={() => deletePayroll(payroll)}><FiTrash2 /> Delete</button> : null}</div>
 }
 
 function PayslipView({ payroll }) {

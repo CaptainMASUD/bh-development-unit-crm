@@ -3,6 +3,9 @@ import User from "../models/user.model.js";
 import Attendance from "../models/attendance.model.js";
 import SalaryProfile from "../models/salaryProfile.model.js";
 import Payroll from "../models/payroll.model.js";
+import BankAccount from "../models/bankAccount.model.js";
+import BankTransaction from "../models/bankTransaction.model.js";
+import JournalEntry from "../models/journalEntry.model.js";
 import {
   applyPayrollLoanRepayments,
   getEmployeeLoanDeductionsForPayroll,
@@ -10,6 +13,8 @@ import {
 import { getEmployeeRosterSummaryForPayroll } from "./roster.controller.js";
 import { ensureEmployeeAttendanceForRange } from "./attendance.controller.js";
 import { calculateEmployeeTaxDeduction } from "../services/tax.service.js";
+import { createPostedJournal, movementLines, resolveAccountingAccount } from "../services/accountingPosting.service.js";
+import { accountingCache } from "../utils/cache.js";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -115,9 +120,37 @@ const PAYROLL_POPULATE = [
   { path: "approvedBy", select: "name email role" },
   { path: "paidBy", select: "name email role" },
   { path: "cancelledBy", select: "name email role" },
+  { path: "bankAccount", select: "accountName accountNumber currency accountType", populate: { path: "bank", select: "bankName shortName" } },
+  { path: "bankTransaction", select: "reference amount status journalEntry" },
+  { path: "accrualJournalEntry", select: "entryNo status date" },
+  { path: "paymentJournalEntry", select: "entryNo status date" },
 ];
 
 const populatePayrollQuery = (query) => query.populate(PAYROLL_POPULATE);
+
+const ensurePayrollAccrual = async ({ payroll, userId, session }) => {
+  if (payroll.accrualJournalEntry) return payroll.accrualJournalEntry;
+  const expenseAccount = await resolveAccountingAccount("payrollExpenseAccount", "5100");
+  const payableAccount = await resolveAccountingAccount("payrollPayableAccount", "2200");
+  const amount = roundMoney(payroll.grossSalary || payroll.netPayable || payroll.netSalary);
+  if (amount <= 0) throw Object.assign(new Error("Payroll amount must be greater than zero before approval."), { statusCode: 400 });
+  const journal = await createPostedJournal({
+    date: payroll.periodEnd || new Date(payroll.year, payroll.month, 0),
+    sourceType: "payroll",
+    sourceId: payroll._id,
+    reference: payroll.payrollKey || `PAYROLL-${payroll.year}-${payroll.month}`,
+    memo: `Payroll accrual for ${payroll.year}-${String(payroll.month).padStart(2, "0")}`,
+    currency: payroll.currency,
+    userId,
+    session,
+    lines: [
+      { account: expenseAccount._id, debit: amount, credit: 0, description: "Payroll expense", contactType: "employee", contactId: payroll.employee },
+      { account: payableAccount._id, debit: 0, credit: amount, description: "Payroll payable", contactType: "employee", contactId: payroll.employee },
+    ],
+  });
+  payroll.accrualJournalEntry = journal._id;
+  return journal._id;
+};
 
 const loadEmployee = async (employeeId) => {
   if (!isValidObjectId(employeeId)) return null;
@@ -1148,6 +1181,7 @@ export const getEmployeePayrolls = async (req, res) => {
    APPROVE PAYROLL
 ================================ */
 export const approvePayroll = async (req, res) => {
+  const session = await mongoose.startSession();
   try {
     if (!requireAdmin(req, res)) return;
 
@@ -1155,34 +1189,32 @@ export const approvePayroll = async (req, res) => {
       return res.status(400).json({ message: "Invalid payroll ID." });
     }
 
-    const payroll = await Payroll.findById(req.params.id);
-    if (!payroll) return res.status(404).json({ message: "Payroll not found." });
-
-    if (payroll.status === "paid") {
-      return res.status(400).json({ message: "Paid payroll cannot be approved again." });
-    }
-
-    if (payroll.status === "cancelled") {
-      return res.status(400).json({ message: "Cancelled payroll cannot be approved." });
-    }
-
-    payroll.status = "approved";
-    payroll.approvedBy = req.user?._id || null;
-    payroll.approvedAt = new Date();
-
-    await payroll.save();
+    let payroll;
+    await session.withTransaction(async () => {
+      payroll = await Payroll.findById(req.params.id).session(session);
+      if (!payroll) throw Object.assign(new Error("Payroll not found."), { statusCode: 404 });
+      if (payroll.status === "paid") throw Object.assign(new Error("Paid payroll cannot be approved again."), { statusCode: 400 });
+      if (payroll.status === "cancelled") throw Object.assign(new Error("Cancelled payroll cannot be approved."), { statusCode: 400 });
+      await ensurePayrollAccrual({ payroll, userId: req.user?._id || null, session });
+      payroll.status = "approved";
+      payroll.approvedBy = req.user?._id || null;
+      payroll.approvedAt = new Date();
+      await payroll.save({ session });
+    });
 
     const full = await populatePayrollQuery(Payroll.findById(payroll._id)).lean();
 
     return res.json({
-      message: "Payroll approved.",
+      message: "Payroll approved and accrued to accounting.",
       payroll: full,
     });
   } catch (err) {
-    return res.status(500).json({
+    return res.status(err.statusCode || 500).json({
       message: "Server error in approvePayroll.",
       error: err.message,
     });
+  } finally {
+    session.endSession();
   }
 };
 
@@ -1190,6 +1222,7 @@ export const approvePayroll = async (req, res) => {
    MARK PAYROLL PAID
 ================================ */
 export const markPayrollPaid = async (req, res) => {
+  const session = await mongoose.startSession();
   try {
     if (!requireAdmin(req, res)) return;
 
@@ -1197,30 +1230,97 @@ export const markPayrollPaid = async (req, res) => {
       return res.status(400).json({ message: "Invalid payroll ID." });
     }
 
-    const payroll = await Payroll.findById(req.params.id);
-    if (!payroll) return res.status(404).json({ message: "Payroll not found." });
+    let payroll;
+    await session.withTransaction(async () => {
+      payroll = await Payroll.findById(req.params.id).session(session);
+      if (!payroll) throw Object.assign(new Error("Payroll not found."), { statusCode: 404 });
+      if (payroll.status === "cancelled") throw Object.assign(new Error("Cancelled payroll cannot be paid."), { statusCode: 400 });
+      if (payroll.status === "paid") throw Object.assign(new Error("Payroll is already paid."), { statusCode: 400 });
 
-    if (payroll.status === "cancelled") {
-      return res.status(400).json({ message: "Cancelled payroll cannot be paid." });
-    }
+      const paymentMethod = clean(req.body.paymentMethod || payroll.paymentMethod || "cash");
+      const paymentDate = req.body.paymentDate ? new Date(req.body.paymentDate) : new Date();
+      if (Number.isNaN(paymentDate.getTime())) throw Object.assign(new Error("Valid payment date is required."), { statusCode: 400 });
+      const amount = roundMoney(payroll.netPayable || payroll.netSalary);
+      if (amount <= 0) throw Object.assign(new Error("Net payroll amount must be greater than zero."), { statusCode: 400 });
 
-    if (payroll.status === "paid") {
-      return res.status(400).json({ message: "Payroll is already paid." });
-    }
+      await ensurePayrollAccrual({ payroll, userId: req.user?._id || null, session });
+      const payableAccount = await resolveAccountingAccount("payrollPayableAccount", "2200");
+      let paymentJournal;
+      let bankTransaction = null;
+      const useBank = ["bank", "mobile_banking", "cheque"].includes(paymentMethod) || Boolean(req.body.bankAccount);
 
-    payroll.status = "paid";
-    payroll.paymentMethod = clean(req.body.paymentMethod || payroll.paymentMethod || "cash");
-    payroll.paymentDate = req.body.paymentDate ? new Date(req.body.paymentDate) : new Date();
-    payroll.transactionRef = clean(req.body.transactionRef);
-    payroll.paidBy = req.user?._id || null;
-    payroll.paidAt = new Date();
+      if (useBank) {
+        const bankAccount = await BankAccount.findOne({ _id: req.body.bankAccount, status: "active" })
+          .populate("ledgerAccount", "code name type currency isActive isGroup publishedAt")
+          .session(session)
+          .lean();
+        if (!bankAccount?.ledgerAccount?._id) throw Object.assign(new Error("Select an active bank account connected to accounting."), { statusCode: 400 });
+        if (String(bankAccount.currency || "").toUpperCase() !== String(payroll.currency || "").toUpperCase()) {
+          throw Object.assign(new Error("Payroll and bank account currencies must match."), { statusCode: 409 });
+        }
+        bankTransaction = new BankTransaction({
+          bankAccount: bankAccount._id,
+          kind: "withdrawal",
+          direction: "out",
+          amount,
+          transactionDate: paymentDate,
+          reference: clean(req.body.transactionRef) || payroll.payrollKey,
+          description: `Payroll payment for ${payroll.year}-${String(payroll.month).padStart(2, "0")}`,
+          status: "posted",
+          sourceType: "payroll",
+          sourceId: payroll._id,
+          counterpartLedgerAccount: payableAccount._id,
+          createdBy: req.user?._id || null,
+          updatedBy: req.user?._id || null,
+        });
+        paymentJournal = await createPostedJournal({
+          date: paymentDate,
+          sourceType: "payroll",
+          sourceId: payroll._id,
+          reference: bankTransaction.reference,
+          memo: bankTransaction.description,
+          currency: payroll.currency,
+          userId: req.user?._id || null,
+          session,
+          lines: movementLines({ bankLedger: bankAccount.ledgerAccount, counterpartLedger: payableAccount, direction: "out", amount, description: bankTransaction.description }),
+        });
+        bankTransaction.journalEntry = paymentJournal._id;
+        await bankTransaction.save({ session });
+        payroll.bankAccount = bankAccount._id;
+        payroll.bankTransaction = bankTransaction._id;
+      } else {
+        const cashAccount = await resolveAccountingAccount("defaultCashAccount", "1000");
+        paymentJournal = await createPostedJournal({
+          date: paymentDate,
+          sourceType: "payroll",
+          sourceId: payroll._id,
+          reference: clean(req.body.transactionRef) || payroll.payrollKey,
+          memo: `Cash payroll payment for ${payroll.year}-${String(payroll.month).padStart(2, "0")}`,
+          currency: payroll.currency,
+          userId: req.user?._id || null,
+          session,
+          lines: [
+            { account: payableAccount._id, debit: amount, credit: 0, description: "Payroll payable settled", contactType: "employee", contactId: payroll.employee },
+            { account: cashAccount._id, debit: 0, credit: amount, description: "Cash payroll payment", contactType: "employee", contactId: payroll.employee },
+          ],
+        });
+        payroll.bankAccount = null;
+        payroll.bankTransaction = null;
+      }
 
-    if (!payroll.approvedAt) {
-      payroll.approvedBy = req.user?._id || null;
-      payroll.approvedAt = new Date();
-    }
-
-    await payroll.save();
+      payroll.status = "paid";
+      payroll.paymentMethod = paymentMethod;
+      payroll.paymentDate = paymentDate;
+      payroll.transactionRef = clean(req.body.transactionRef) || paymentJournal.entryNo;
+      payroll.paymentJournalEntry = paymentJournal._id;
+      payroll.paidBy = req.user?._id || null;
+      payroll.paidAt = new Date();
+      if (!payroll.approvedAt) {
+        payroll.approvedBy = req.user?._id || null;
+        payroll.approvedAt = new Date();
+      }
+      await payroll.save({ session });
+    });
 
     await applyPayrollLoanRepayments({
       payroll,
@@ -1230,14 +1330,16 @@ export const markPayrollPaid = async (req, res) => {
     const full = await populatePayrollQuery(Payroll.findById(payroll._id)).lean();
 
     return res.json({
-      message: "Payroll marked as paid.",
+      message: "Payroll paid and posted to banking and accounting.",
       payroll: full,
     });
   } catch (err) {
-    return res.status(500).json({
+    return res.status(err.statusCode || 500).json({
       message: "Server error in markPayrollPaid.",
       error: err.message,
     });
+  } finally {
+    session.endSession();
   }
 };
 
@@ -1265,6 +1367,14 @@ export const cancelPayroll = async (req, res) => {
     payroll.cancelReason = clean(req.body.reason || req.body.cancelReason);
 
     await payroll.save();
+
+    if (payroll.accrualJournalEntry) {
+      await JournalEntry.updateOne(
+        { _id: payroll.accrualJournalEntry, status: "posted" },
+        { $set: { status: "void", voidedAt: new Date(), voidReason: payroll.cancelReason || "Payroll cancelled", voidedBy: req.user?._id || null } }
+      );
+      accountingCache.flushAll();
+    }
 
     const full = await populatePayrollQuery(Payroll.findById(payroll._id)).lean();
 

@@ -31,7 +31,7 @@ export function matchDashboardRoute(pathname, basePath, routeMap) {
   if (routeMap.routes[cleanPath]) return routeMap.routes[cleanPath]
 
   const segments = cleanPath.slice(basePath.length).split("/").filter(Boolean)
-  if (basePath === "/admin" && segments[0] === "clients" && segments[1]) {
+  if (basePath.startsWith("/admin") && segments[0] === "clients" && segments[1]) {
     return {
       section: "Clients",
       subcategory: "Clients",
@@ -39,14 +39,14 @@ export function matchDashboardRoute(pathname, basePath, routeMap) {
       customerTab: segments[2] === "crm" ? "crm" : "overview",
     }
   }
-  if (basePath === "/admin" && segments[0] === "client-tasks" && segments[1]) {
+  if (basePath.startsWith("/admin") && segments[0] === "client-tasks" && segments[1]) {
     return {
       section: "Clients",
       subcategory: "Client Tasks",
       customerId: segments[1],
     }
   }
-  if (basePath === "/employee" && ["customers", "clients"].includes(segments[0]) && segments[1]) {
+  if (basePath.startsWith("/employee") && ["customers", "clients"].includes(segments[0]) && segments[1]) {
     return {
       section: "Clients",
       subcategory: "",

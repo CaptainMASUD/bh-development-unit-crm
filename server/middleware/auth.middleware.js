@@ -96,7 +96,7 @@ export const requirePermission = (permission) => (req, res, next) => {
     "tax.view": ["tax.create", "tax.update", "tax.delete", "tax.assign_employee", "tax.report", "payroll:manage"],
     "expenses:view": ["expenses:manage"],
     "expense-setup:view": ["expense-setup:manage", "expenses:manage"],
-    "bank-setup:view": ["bank-setup:manage"],
+    "bank-setup:view": ["bank-setup:manage", "finance:manage", "payroll:manage"],
   };
   const manageEquivalent = String(permission).endsWith(":view")
     ? String(permission).replace(/:view$/, ":manage")
@@ -110,5 +110,23 @@ export const requirePermission = (permission) => (req, res, next) => {
     return res.status(403).json({ message: "Permission denied." });
   }
 
+  return next();
+};
+
+export const requireAnyPermission = (requiredPermissions = []) => (req, res, next) => {
+  if (["admin", "superadmin"].includes(req.user?.role)) return next();
+
+  const permissions = req.user?.permissionGroup?.isActive === false
+    ? []
+    : req.user?.permissionGroup?.permissions || [];
+  const allowed = requiredPermissions.some((permission) => {
+    if (permissions.includes(permission)) return true;
+    if (String(permission).endsWith(":view")) {
+      return permissions.includes(String(permission).replace(/:view$/, ":manage"));
+    }
+    return false;
+  });
+
+  if (!allowed) return res.status(403).json({ message: "Permission denied." });
   return next();
 };
