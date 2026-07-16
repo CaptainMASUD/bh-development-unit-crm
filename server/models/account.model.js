@@ -15,12 +15,19 @@ const accountSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     nameLower: { type: String, trim: true, default: "", index: true },
     type: { type: String, enum: TYPES, required: true, index: true },
+    subType: { type: String, trim: true, default: "", index: true },
     normalBalance: { type: String, enum: ["debit", "credit"], required: true },
     parent: { type: mongoose.Schema.Types.ObjectId, ref: "Account", default: null, index: true },
+    isGroup: { type: Boolean, default: false, index: true },
+    isControlAccount: { type: Boolean, default: false, index: true },
+    controlType: { type: String, enum: ["receivable", "payable", "inventory", "tax", "", null], default: "" },
+    taxApplicability: { type: String, enum: ["none", "taxable", "exempt", "zero_rated"], default: "none", index: true },
     currency: { type: String, trim: true, default: "BDT", index: true },
     description: { type: String, trim: true, default: "" },
     isSystem: { type: Boolean, default: false, index: true },
     isActive: { type: Boolean, default: true, index: true },
+    publishedAt: { type: Date, default: null, index: true },
+    publishedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null, index: true },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },
@@ -29,6 +36,7 @@ const accountSchema = new mongoose.Schema(
 
 accountSchema.index({ code: 1 }, { unique: true });
 accountSchema.index({ type: 1, isActive: 1, code: 1, _id: 1 });
+accountSchema.index({ parent: 1, isActive: 1, code: 1 });
 accountSchema.index({ nameLower: 1, _id: 1 });
 
 accountSchema.pre("validate", function (next) {

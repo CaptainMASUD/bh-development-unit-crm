@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Invoice from "../models/invoice.model.js";
 import Deal from "../models/deal.model.js";
 import { getReqMeta, writeAudit, writeActivity } from "../utils/audit.js";
+import { nextAccountingNumber } from "../services/accountingNumbering.service.js";
 
 const toObjectId = (value) =>
   value && mongoose.Types.ObjectId.isValid(value)
@@ -83,6 +84,7 @@ export const createInvoiceFromDeal = async (req, res) => {
       : [];
 
     const invoice = await Invoice.create({
+      invoiceNo: await nextAccountingNumber("invoice", issuedAt),
       customerId: deal.customerId,
       dealId: deal._id,
       proposalId: deal.proposalId || null,

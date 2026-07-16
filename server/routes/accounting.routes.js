@@ -3,6 +3,8 @@ import {
   approveVendorBill,
   bootstrapChartOfAccounts,
   closeAccountingPeriod,
+  closeFiscalYear,
+  carryForwardOpeningBalance,
   createFiscalYear,
   createAccount,
   createCashAccount,
@@ -19,12 +21,15 @@ import {
   listAccounts,
   listAccountingPeriods,
   listFiscalYears,
+  listOpeningBalances,
   listCashAccounts,
   listJournalEntries,
   listVendorBills,
   payVendorBill,
   postDraftJournalEntry,
   postOpeningBalances,
+  postOpeningBalanceDraft,
+  publishChartOfAccounts,
   reconcileCashAccount,
   recordCustomerPayment,
   reopenAccountingPeriod,
@@ -49,12 +54,14 @@ router.get("/accounts", listAccounts);
 router.post("/accounts/bootstrap", requirePermission("finance:manage"), bootstrapChartOfAccounts);
 router.post("/accounts", requirePermission("finance:manage"), createAccount);
 router.patch("/accounts/:id", requirePermission("finance:manage"), updateAccount);
+router.post("/accounts/publish", requirePermission("finance:manage"), publishChartOfAccounts);
 
 router.get("/settings", getAccountingSettings);
 router.put("/settings", requirePermission("finance:manage"), updateAccountingSettings);
 
 router.get("/fiscal-years", listFiscalYears);
 router.post("/fiscal-years", requirePermission("finance:manage"), createFiscalYear);
+router.patch("/fiscal-years/:id/close", requirePermission("finance:manage"), closeFiscalYear);
 
 router.get("/journals", listJournalEntries);
 router.post("/journals", requirePermission("finance:manage"), createJournalEntry);
@@ -79,7 +86,10 @@ router.post("/vendor-bills/:id/payments", requirePermission("finance:manage"), p
 
 router.post("/customer-payments", requirePermission("finance:manage"), recordCustomerPayment);
 router.post("/invoices/:invoiceId/payments", requirePermission("finance:manage"), recordCustomerPayment);
+router.get("/opening-balances", listOpeningBalances);
 router.post("/opening-balances", requirePermission("finance:manage"), postOpeningBalances);
+router.patch("/opening-balances/:id/post", requirePermission("finance:manage"), postOpeningBalanceDraft);
+router.post("/opening-balances/carry-forward/:fiscalYearId", requirePermission("finance:manage"), carryForwardOpeningBalance);
 
 router.get("/general-ledger", getGeneralLedger);
 router.get("/trial-balance", getTrialBalance);

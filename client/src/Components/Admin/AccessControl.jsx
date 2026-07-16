@@ -104,8 +104,8 @@ const PERMISSION_LABELS = {
     helper: "Open receivable, payable, and profit & loss accounting reports.",
   },
   "finance:manage": {
-    label: "Manage Finance",
-    helper: "Administer finance and accounting reports.",
+    label: "Manage Accounting",
+    helper: "Configure the Chart of Accounts, fiscal periods, accounting settings, opening balances, and finance operations.",
   },
   "tasks:view": { label: "View Client Tasks", helper: "See tasks, subtitles, files, and notes assigned to clients." },
   "tasks:manage": { label: "Manage Client Tasks", helper: "Update task status, files, notes, and task details." },

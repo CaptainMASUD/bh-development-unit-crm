@@ -2,185 +2,34 @@
 
 import { useEffect, useMemo, useState } from "react"
 import toast, { Toaster } from "react-hot-toast"
-import { FiDownload, FiLayers, FiPlus, FiRefreshCcw, FiSearch, FiX } from "react-icons/fi"
+import { FiCheckCircle, FiChevronDown, FiChevronRight, FiEdit3, FiFolder, FiLayers, FiPlus, FiRefreshCcw, FiSave, FiSearch, FiSlash } from "react-icons/fi"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const card = "rounded-2xl border border-gray-100 bg-white shadow-[0_14px_35px_-28px_rgba(15,23,42,0.55)]"
-const btn = "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-const btnPrimary = "bg-indigo-600 text-white shadow-sm hover:bg-indigo-700"
-const btnGhost = "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
-const btnSoft = "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10 hover:bg-indigo-100"
-const input = "h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10"
-const label = "mb-1.5 block text-sm font-extrabold text-gray-900"
-
-function headers() {
-  const token = localStorage.getItem("token")
-  return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }
-}
-
-async function api(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, { credentials: "include", ...options, headers: { ...headers(), ...(options.headers || {}) } })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || data?.error || "Request failed")
-  return data
-}
-
-function pretty(value) {
-  if (value === "revenue") return "Income"
-  return String(value || "-").replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
-}
-
-function cn(...classes) {
-  return classes.filter(Boolean).join(" ")
-}
-
-function Badge({ value }) {
-  const key = String(value || "").toLowerCase()
-  const styles = {
-    asset: "bg-sky-50 text-sky-700 ring-sky-600/10",
-    liability: "bg-amber-50 text-amber-700 ring-amber-600/10",
-    equity: "bg-violet-50 text-violet-700 ring-violet-600/10",
-    revenue: "bg-emerald-50 text-emerald-700 ring-emerald-600/10",
-    expense: "bg-rose-50 text-rose-700 ring-rose-600/10",
-    active: "bg-emerald-50 text-emerald-700 ring-emerald-600/10",
-    inactive: "bg-gray-100 text-gray-700 ring-gray-600/10",
-  }
-  return <span className={cn("inline-flex rounded-full px-2.5 py-1 text-xs font-extrabold ring-1", styles[key] || "bg-gray-100 text-gray-700 ring-gray-600/10")}>{pretty(value)}</span>
-}
-
-function Field({ title, children }) {
-  return <label className="block"><span className={label}>{title}</span>{children}</label>
-}
-
-function exportCsv(rows) {
-  if (!rows.length) return toast.error("No rows to export")
-  const csv = [
-    "code,name,type,normalBalance,status",
-    ...rows.map((r) => [r.code, r.name, r.type, r.normalBalance, r.isActive ? "active" : "inactive"].map((v) => JSON.stringify(v ?? "")).join(",")),
-  ].join("\n")
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement("a")
-  link.href = url
-  link.download = "chart-of-accounts.csv"
-  link.click()
-  URL.revokeObjectURL(url)
-}
+const input = "h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-800 outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10"
+const button = "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition disabled:opacity-50"
+const empty = { code: "", name: "", type: "asset", subType: "Current Asset", parent: "", currency: "BDT", isGroup: false, isControlAccount: false, controlType: "", taxApplicability: "none", description: "" }
+const subTypes = { asset: ["Current Asset", "Fixed Asset", "Other Asset"], liability: ["Current Liability", "Long-term Liability", "Other Liability"], equity: ["Capital", "Retained Earnings", "Other Equity"], revenue: ["Operating Income", "Other Income"], expense: ["Direct Expense", "Indirect Expense", "Cost of Goods Sold", "Other Expense"] }
+function headers() { const token = localStorage.getItem("token"); return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) } }
+async function api(path, options = {}) { const response = await fetch(`${API_BASE}${path}`, { credentials: "include", ...options, headers: { ...headers(), ...(options.headers || {}) } }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.message || "Request failed"); return data }
+function Field({ label, children }) { return <label><span className="mb-1.5 block text-sm font-extrabold">{label}</span>{children}</label> }
+const pretty = (value) => value === "revenue" ? "Income" : String(value || "").replaceAll("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())
 
 export default function ChartOfAccounts() {
-  const [accounts, setAccounts] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [q, setQ] = useState("")
-  const [type, setType] = useState("all")
-  const [form, setForm] = useState({ code: "", name: "", type: "asset", parent: "", currency: "BDT" })
-
-  const loadAccounts = async () => {
-    setLoading(true)
-    try {
-      const params = new URLSearchParams({ limit: "200", active: "all" })
-      if (type !== "all") params.set("type", type)
-      if (q.trim()) params.set("q", q.trim())
-      const data = await api(`/accounting/accounts?${params.toString()}`)
-      setAccounts(data.accounts || [])
-    } catch (error) {
-      toast.error(error.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    const timer = setTimeout(loadAccounts, 250)
-    return () => clearTimeout(timer)
-  }, [q, type])
-
-  const activeFilters = useMemo(() => [type !== "all" ? ["Type", pretty(type), () => setType("all")] : null, q ? ["Search", q, () => setQ("")] : null].filter(Boolean), [type, q])
-
-  const bootstrap = async () => {
-    try {
-      await api("/accounting/accounts/bootstrap", { method: "POST", body: JSON.stringify({}) })
-      toast.success("Default chart created")
-      loadAccounts()
-    } catch (error) {
-      toast.error(error.message)
-    }
-  }
-
-  const createAccount = async (event) => {
-    event.preventDefault()
-    try {
-      await api("/accounting/accounts", { method: "POST", body: JSON.stringify(form) })
-      toast.success("Account created")
-      setForm({ code: "", name: "", type: "asset", parent: "", currency: "BDT" })
-      loadAccounts()
-    } catch (error) {
-      toast.error(error.message)
-    }
-  }
-
-  return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white px-4 py-6 sm:px-6 lg:px-8">
-      <Toaster position="top-right" />
-      <div className={`${card} mb-6 p-5`}>
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div className="flex min-w-0 items-center gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm"><FiLayers className="h-6 w-6" /></div>
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-600">Accounting</p>
-              <h1 className="text-2xl font-black tracking-tight text-gray-950">Chart of Accounts</h1>
-              <p className="mt-1 text-sm font-semibold text-gray-500">Assets, liabilities, equity, revenue, and expense accounts.</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button className={cn(btn, btnSoft)} onClick={bootstrap} type="button"><FiRefreshCcw /> Bootstrap</button>
-            <button className={cn(btn, btnGhost)} onClick={() => exportCsv(accounts)} type="button"><FiDownload /> Export</button>
-            <button className={cn(btn, btnGhost)} onClick={loadAccounts} disabled={loading} type="button"><FiRefreshCcw className={loading ? "animate-spin" : ""} /> Refresh</button>
-          </div>
-        </div>
-        <div className="mt-5 grid grid-cols-1 gap-3 border-t border-gray-100 pt-4 lg:grid-cols-[1fr_220px]">
-          <div className="relative">
-            <FiSearch className="absolute left-3 top-3.5 text-gray-400" />
-            <input className={cn(input, "pl-10")} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by code or account name" />
-          </div>
-          <select className={input} value={type} onChange={(e) => setType(e.target.value)}>
-            {["all", "asset", "liability", "equity", "revenue", "expense"].map((item) => <option key={item} value={item}>{pretty(item)}</option>)}
-          </select>
-        </div>
-        {activeFilters.length ? <div className="mt-3 flex flex-wrap gap-2">{activeFilters.map(([name, value, clear]) => <button key={name} className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-extrabold text-indigo-700 ring-1 ring-indigo-600/10" onClick={clear} type="button"><span>{name}: {value}</span><FiX /></button>)}</div> : null}
-      </div>
-
-      <form onSubmit={createAccount} className={`${card} mb-6 p-5`}>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_2fr_1fr_1.5fr_100px_auto]">
-          <Field title="Code"><input className={input} value={form.code} onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))} required /></Field>
-          <Field title="Name"><input className={input} value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required /></Field>
-          <Field title="Type"><select className={input} value={form.type} onChange={(e) => setForm((p) => ({ ...p, type: e.target.value }))}>{["asset", "liability", "equity", "revenue", "expense"].map((item) => <option key={item} value={item}>{pretty(item)}</option>)}</select></Field>
-          <Field title="Parent Account"><select className={input} value={form.parent} onChange={(e) => setForm((p) => ({ ...p, parent: e.target.value }))}><option value="">Top level</option>{accounts.filter((account) => account.type === form.type).map((account) => <option key={account._id} value={account._id}>{account.code} - {account.name}</option>)}</select></Field>
-          <Field title="Currency"><input className={input} value={form.currency} maxLength={3} onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value.toUpperCase() }))} /></Field>
-          <div className="flex items-end"><button className={cn(btn, btnPrimary, "h-11")} type="submit"><FiPlus /> Add</button></div>
-        </div>
-      </form>
-
-      <div className={`${card} overflow-hidden`}>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-100 text-left">
-            <thead className="bg-gray-50 text-xs font-black uppercase tracking-[0.12em] text-gray-400"><tr>{["Code", "Account", "Parent", "Type", "Normal", "System", "Status"].map((h) => <th key={h} className="px-5 py-3">{h}</th>)}</tr></thead>
-            <tbody className="divide-y divide-gray-100">
-              {accounts.map((row) => (
-                <tr key={row._id} className="hover:bg-gray-50/60">
-                  <td className="px-5 py-4 text-sm font-black text-gray-950">{row.code}</td>
-                  <td className="px-5 py-4 text-sm font-bold text-gray-800">{row.name}</td>
-                  <td className="px-5 py-4 text-sm font-semibold text-gray-500">{row.parent ? `${row.parent.code} - ${row.parent.name}` : "—"}</td>
-                  <td className="px-5 py-4"><Badge value={row.type} /></td>
-                  <td className="px-5 py-4 text-sm font-bold text-gray-600">{pretty(row.normalBalance)}</td>
-                  <td className="px-5 py-4 text-sm font-bold text-gray-600">{row.isSystem ? "Yes" : "No"}</td>
-                  <td className="px-5 py-4"><Badge value={row.isActive ? "active" : "inactive"} /></td>
-                </tr>
-              ))}
-              {!accounts.length ? <tr><td colSpan={7} className="px-5 py-16 text-center text-sm font-bold text-gray-500">No accounts found.</td></tr> : null}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  )
+  const [accounts, setAccounts] = useState([]); const [form, setForm] = useState(empty); const [editing, setEditing] = useState(""); const [expanded, setExpanded] = useState({}); const [q, setQ] = useState(""); const [type, setType] = useState("all"); const [loading, setLoading] = useState(false)
+  const load = async () => { setLoading(true); try { const data = await api("/accounting/accounts?limit=200&active=all&includeBalances=true"); setAccounts(data.accounts || []); setExpanded(Object.fromEntries((data.accounts || []).filter((a) => a.isGroup).map((a) => [a._id, true]))) } catch (error) { toast.error(error.message) } finally { setLoading(false) } }
+  useEffect(() => { load() }, [])
+  const tree = useMemo(() => { const children = new Map(); accounts.forEach((a) => { const key = a.parent?._id || a.parent || "root"; children.set(key, [...(children.get(key) || []), a]) }); const balance = (account) => account.isGroup ? (children.get(account._id) || []).reduce((sum, child) => sum + balance(child), 0) : Number(account.currentBalance || 0); const roots = accounts.filter((a) => !(a.parent?._id || a.parent) || !accounts.some((p) => p._id === (a.parent?._id || a.parent))); return { children, roots, balance } }, [accounts])
+  const visible = (account) => { const matches = (type === "all" || account.type === type) && (!q || `${account.code} ${account.name} ${account.subType}`.toLowerCase().includes(q.toLowerCase())); return matches || (tree.children.get(account._id) || []).some(visible) }
+  const save = async (event) => { event.preventDefault(); try { await api(editing ? `/accounting/accounts/${editing}` : "/accounting/accounts", { method: editing ? "PATCH" : "POST", body: JSON.stringify(form) }); toast.success(editing ? "Account updated" : "Account created"); setForm(empty); setEditing(""); load() } catch (error) { toast.error(error.message) } }
+  const edit = (account) => { setEditing(account._id); setForm({ code: account.code, name: account.name, type: account.type, subType: account.subType || "", parent: account.parent?._id || "", currency: account.currency || "BDT", isGroup: Boolean(account.isGroup), isControlAccount: Boolean(account.isControlAccount), controlType: account.controlType || "", taxApplicability: account.taxApplicability || "none", description: account.description || "" }); window.scrollTo({ top: 0, behavior: "smooth" }) }
+  const deactivate = async (account) => { try { await api(`/accounting/accounts/${account._id}`, { method: "PATCH", body: JSON.stringify({ isActive: !account.isActive }) }); toast.success(account.isActive ? "Account deactivated" : "Account activated"); load() } catch (error) { toast.error(error.message) } }
+  const bootstrap = async () => { try { await api("/accounting/accounts/bootstrap", { method: "POST", body: "{}" }); toast.success("Standard account structure prepared"); load() } catch (error) { toast.error(error.message) } }
+  const publish = async () => { try { await api("/accounting/accounts/publish", { method: "POST", body: "{}" }); toast.success("Chart of Accounts published"); load() } catch (error) { toast.error(error.message) } }
+  const row = (account, depth = 0) => { if (!visible(account)) return null; const children = tree.children.get(account._id) || []; const open = expanded[account._id]; return <div key={account._id}>{<div className={`grid min-w-[1050px] grid-cols-[110px_minmax(260px,1fr)_160px_150px_130px_130px_150px] items-center border-b border-gray-100 px-5 py-3 ${account.isActive ? "" : "opacity-50"}`}><span className="text-sm font-black">{account.code}</span><div className="flex items-center gap-2" style={{ paddingLeft: depth * 20 }}>{account.isGroup ? <button type="button" onClick={() => setExpanded((p) => ({ ...p, [account._id]: !open }))} className="rounded p-1 hover:bg-gray-100">{open ? <FiChevronDown /> : <FiChevronRight />}</button> : <span className="w-6" />} {account.isGroup ? <FiFolder className="text-indigo-600" /> : <span className="h-2 w-2 rounded-full bg-gray-300" />}<span className={`text-sm ${account.isGroup ? "font-black" : "font-bold"}`}>{account.name}</span>{account.isControlAccount ? <span className="rounded bg-violet-50 px-2 py-0.5 text-[10px] font-black text-violet-700">CONTROL</span> : null}</div><span className="text-sm font-semibold">{account.subType || "—"}</span><span className="text-sm font-bold">{pretty(account.type)}</span><span className="text-sm font-bold">{account.isGroup ? "Group" : "Postable"}</span><span className="text-right text-sm font-black">{tree.balance(account).toLocaleString()}</span><div className="flex justify-end gap-1"><button type="button" onClick={() => edit(account)} className="rounded-lg p-2 text-indigo-600 hover:bg-indigo-50"><FiEdit3 /></button><button type="button" onClick={() => deactivate(account)} className="rounded-lg p-2 text-rose-600 hover:bg-rose-50"><FiSlash /></button></div></div>}{open ? children.map((child) => row(child, depth + 1)) : null}</div> }
+  return <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white px-4 py-6 sm:px-6 lg:px-8"><Toaster position="top-right" />
+    <div className={`${card} mb-5 p-5`}><div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between"><div className="flex items-center gap-4"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white"><FiLayers className="h-6 w-6" /></div><div><p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-600">Step 1 · Accounting Setup</p><h1 className="text-2xl font-black">Chart of Accounts</h1><p className="mt-1 text-sm font-semibold text-gray-500">Build groups and postable leaf accounts. Group accounts are blocked from all postings.</p></div></div><div className="flex flex-wrap gap-2"><button className={`${button} border border-gray-200 bg-white`} onClick={bootstrap}><FiRefreshCcw /> Standard Structure</button><button className={`${button} bg-emerald-600 text-white`} onClick={publish}><FiCheckCircle /> Publish COA</button></div></div></div>
+    <form onSubmit={save} className={`${card} mb-5 p-5`}><div className="flex items-center justify-between"><h2 className="font-black">{editing ? "Edit Account" : "Create Account"}</h2>{editing ? <button type="button" onClick={() => { setEditing(""); setForm(empty) }} className="text-sm font-bold text-gray-500">Cancel edit</button> : null}</div><div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"><Field label="Account Code"><input className={input} value={form.code} onChange={(e) => setForm((p) => ({ ...p, code: e.target.value }))} required /></Field><Field label="Account Name"><input className={input} value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required /></Field><Field label="Type"><select className={input} value={form.type} onChange={(e) => setForm((p) => ({ ...p, type: e.target.value, parent: "", subType: subTypes[e.target.value][0] }))}>{Object.keys(subTypes).map((item) => <option key={item} value={item}>{pretty(item)}</option>)}</select></Field><Field label="Sub-type"><select className={input} value={form.subType} onChange={(e) => setForm((p) => ({ ...p, subType: e.target.value }))}>{subTypes[form.type].map((item) => <option key={item}>{item}</option>)}</select></Field><Field label="Parent Group"><select className={input} value={form.parent} onChange={(e) => setForm((p) => ({ ...p, parent: e.target.value }))}><option value="">Top level</option>{accounts.filter((a) => a.isGroup && a.isActive && a.type === form.type && a._id !== editing).map((a) => <option key={a._id} value={a._id}>{a.code} — {a.name}</option>)}</select></Field><Field label="Currency"><input className={input} value={form.currency} maxLength="3" onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value.toUpperCase() }))} /></Field><Field label="Tax Applicability"><select className={input} value={form.taxApplicability} onChange={(e) => setForm((p) => ({ ...p, taxApplicability: e.target.value }))}><option value="none">None</option><option value="taxable">Taxable</option><option value="exempt">Exempt</option><option value="zero_rated">Zero rated</option></select></Field><Field label="Control Type"><select className={input} disabled={!form.isControlAccount} value={form.controlType} onChange={(e) => setForm((p) => ({ ...p, controlType: e.target.value }))}><option value="">Select</option><option value="receivable">Receivable</option><option value="payable">Payable</option><option value="inventory">Inventory</option><option value="tax">Tax</option></select></Field></div><div className="mt-4 flex flex-wrap items-center gap-5"><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={form.isGroup} onChange={(e) => setForm((p) => ({ ...p, isGroup: e.target.checked, isControlAccount: e.target.checked ? false : p.isControlAccount }))} /> Group/header account</label><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" disabled={form.isGroup} checked={form.isControlAccount} onChange={(e) => setForm((p) => ({ ...p, isControlAccount: e.target.checked }))} /> Control account</label><button className={`${button} ml-auto bg-indigo-600 text-white`}><FiSave /> {editing ? "Update" : "Add Account"}</button></div></form>
+    <div className={`${card} overflow-hidden`}><div className="grid grid-cols-1 gap-3 border-b border-gray-100 p-5 md:grid-cols-[1fr_220px_auto]"><div className="relative"><FiSearch className="absolute left-3 top-3.5 text-gray-400" /><input className={`${input} pl-10`} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search code, name, or sub-type" /></div><select className={input} value={type} onChange={(e) => setType(e.target.value)}><option value="all">All account types</option>{Object.keys(subTypes).map((item) => <option key={item} value={item}>{pretty(item)}</option>)}</select><button className={`${button} border border-gray-200 bg-white`} onClick={load}><FiRefreshCcw className={loading ? "animate-spin" : ""} /> Refresh</button></div><div className="overflow-x-auto"><div className="grid min-w-[1050px] grid-cols-[110px_minmax(260px,1fr)_160px_150px_130px_130px_150px] bg-gray-50 px-5 py-3 text-xs font-black uppercase tracking-wider text-gray-400"><span>Code</span><span>Account hierarchy</span><span>Sub-type</span><span>Type</span><span>Posting</span><span className="text-right">Balance</span><span className="text-right">Actions</span></div>{tree.roots.map((account) => row(account))}{!accounts.length ? <div className="p-14 text-center text-sm font-bold text-gray-500">No accounts found.</div> : null}</div></div>
+  </div>
 }

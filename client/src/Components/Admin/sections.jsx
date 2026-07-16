@@ -135,10 +135,10 @@ const sections = {
     icon: <FiLayers className="w-5 h-5" />,
     permission: "finance:view",
     subcategories: {
-      "Accounting Settings": <AccountingSettings />,
       "Chart of Accounts": <ChartOfAccounts />,
-      "Opening Balance": <OpeningBalances />,
       "Fiscal Year / Period": <FiscalYearPeriods />,
+      "Accounting Settings": <AccountingSettings />,
+      "Opening Balance": <OpeningBalances />,
     },
     subcategoryPermissions: {
       "Accounting Settings": "finance:manage",
