@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { useSelector } from "react-redux"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useDispatch, useSelector } from "react-redux"
 import { useNavigate } from "react-router-dom"
 import { AnimatePresence, motion } from "framer-motion"
 import { HugeiconsIcon } from "@hugeicons/react"
@@ -9,23 +9,25 @@ import {
   Add01Icon,
   Cancel01Icon,
   ChartLineData01Icon,
+  ChevronDownIcon,
   DeliveryTruck01Icon,
   File01Icon,
   Home01Icon,
-  Invoice01Icon,
   Layers01Icon,
   Package01Icon,
   Search01Icon,
-  Settings01Icon,
   ShoppingBag01Icon,
   ShoppingCart01Icon,
-  Tick01Icon,
+  Logout03Icon,
 } from "@hugeicons/core-free-icons"
-import suitelogo from "../../assets/logo/bh-suite.png"
+import suitelogo from "../../assets/logo/textsuitelogo.png"
 import payroll from "../../assets/icon-pack/payroll.png"
 import crm from "../../assets/icon-pack/crm.png"
+import accounting from "../../assets/icon-pack/accounting.png"
+import administration from "../../assets/icon-pack/adminstration.png"
 import { canAccessModule, getModuleBasePath, MODULES } from "../Navigation/moduleConfig"
 import { getJwtExpirationMs } from "../Auth/authRouting"
+import { signOut } from "../../Redux/UserSlice/UserSlice"
 
 const cn = (...classes) => classes.filter(Boolean).join(" ")
 
@@ -98,7 +100,7 @@ const modules = [
     status: "active",
     subscribed: true,
     route: "/admin/accounting",
-    icon: Invoice01Icon,
+    image: accounting,
     tone: "amber",
   },
   {
@@ -118,7 +120,7 @@ const modules = [
     status: "active",
     subscribed: true,
     route: "/admin/administration",
-    icon: Settings01Icon,
+    image: administration,
     tone: "slate",
   },
   {
@@ -200,18 +202,24 @@ const iconTones = {
 const statusStyles = {
   active: {
     label: "Active",
-    badge: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    dot: "bg-emerald-500",
+    badge:
+      "border-emerald-200/90 bg-emerald-50/90 text-emerald-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]",
+    dot:
+      "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.11)]",
   },
   maintenance: {
     label: "Maintenance",
-    badge: "border-rose-200 bg-rose-50 text-rose-700",
-    dot: "bg-rose-500",
+    badge:
+      "border-rose-200/90 bg-rose-50/90 text-rose-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]",
+    dot:
+      "bg-rose-500 shadow-[0_0_0_3px_rgba(244,63,94,0.11)]",
   },
   upcoming: {
     label: "Upcoming",
-    badge: "border-amber-200 bg-amber-50 text-amber-700",
-    dot: "bg-amber-500",
+    badge:
+      "border-amber-200/90 bg-amber-50/90 text-amber-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]",
+    dot:
+      "bg-amber-500 shadow-[0_0_0_3px_rgba(245,158,11,0.11)]",
   },
 }
 
@@ -250,16 +258,23 @@ function StatusBadge({ status }) {
     <span
       className={cn(
         `
-          inline-flex items-center gap-1.5 rounded-full border
-          px-2.5 py-1 text-[10px] font-extrabold uppercase
-          tracking-[0.04em] sm:text-[11px]
+          inline-flex min-h-7 items-center gap-1.5 rounded-full border
+          px-2.5 py-1 text-[9px] font-black uppercase
+          tracking-[0.06em] backdrop-blur-sm
+          sm:text-[9.5px]
         `,
         style.badge
       )}
     >
-      <span className={cn("h-1.5 w-1.5 rounded-full", style.dot)} />
+      <span
+        className={cn(
+          "h-1.5 w-1.5 shrink-0 rounded-full",
+          style.dot
+        )}
+        aria-hidden="true"
+      />
 
-      {style.label}
+      <span>{style.label}</span>
     </span>
   )
 }
@@ -303,7 +318,7 @@ function ModuleTile({
       initial={{
         opacity: 0,
         y: 14,
-        scale: 0.98,
+        scale: 0.985,
       }}
       animate={{
         opacity: 1,
@@ -313,14 +328,14 @@ function ModuleTile({
       exit={{
         opacity: 0,
         y: 8,
-        scale: 0.97,
+        scale: 0.975,
       }}
       transition={{
         duration: 0.24,
         delay: Math.min(index * 0.025, 0.16),
         ease: [0.22, 1, 0.36, 1],
       }}
-      whileTap={canOpen ? { scale: 0.985 } : undefined}
+      whileTap={canOpen ? { scale: 0.988 } : undefined}
       role={canOpen ? "button" : undefined}
       tabIndex={canOpen ? 0 : -1}
       aria-label={canOpen ? `Open ${module.name}` : undefined}
@@ -328,79 +343,105 @@ function ModuleTile({
       onKeyDown={handleCardKeyDown}
       className={cn(
         `
-          group relative flex min-h-[190px] flex-col overflow-hidden
-          rounded-[26px] border bg-white px-4 pb-4 pt-5 text-center
-          shadow-[0_10px_30px_-24px_rgba(15,23,42,0.42)]
-          transition duration-300
-          hover:-translate-y-1 hover:border-slate-300
-          hover:shadow-[0_20px_42px_-26px_rgba(15,23,42,0.34)]
-          focus:outline-none focus-visible:border-indigo-400
+          group relative flex min-h-[204px] flex-col overflow-hidden
+          rounded-[26px] border bg-white px-4 pb-4 pt-4 text-center
+          shadow-[0_12px_32px_-27px_rgba(15,23,42,0.42)]
+          transition-[transform,border-color,box-shadow] duration-300
+          focus:outline-none focus-visible:border-indigo-300
           focus-visible:ring-4 focus-visible:ring-indigo-100
-          sm:min-h-[206px] sm:px-5
+          sm:min-h-[218px] sm:px-5 sm:pb-5 sm:pt-5
         `,
-        canOpen ? "cursor-pointer border-slate-200" : "border-slate-200/80",
-        !subscribed && "pb-4",
-        subscribed && !canOpen && "cursor-default",
-        !subscribed && "cursor-default"
+        canOpen
+          ? `
+              cursor-pointer border-slate-200/90
+              hover:-translate-y-1.5 hover:border-indigo-200
+              hover:shadow-[0_24px_48px_-31px_rgba(79,70,229,0.28)]
+            `
+          : `
+              cursor-default border-slate-200/80
+              hover:-translate-y-0.5 hover:border-slate-300
+              hover:shadow-[0_20px_40px_-31px_rgba(15,23,42,0.27)]
+            `
       )}
     >
-      <div className="absolute right-3 top-3 z-10">
+      <span
+        className="
+          pointer-events-none absolute inset-x-10 top-0 h-px
+          bg-gradient-to-r from-transparent via-indigo-300/65
+          to-transparent opacity-0 transition-opacity duration-300
+          group-hover:opacity-100
+        "
+        aria-hidden="true"
+      />
+
+      <span
+        className="
+          pointer-events-none absolute -right-16 -top-16
+          h-32 w-32 rounded-full bg-indigo-50/60 blur-3xl
+          transition duration-500 group-hover:bg-indigo-100/65
+        "
+        aria-hidden="true"
+      />
+
+      <div className="relative z-10 flex min-h-7 justify-end">
         <StatusBadge status={module.status} />
       </div>
-
-      {subscribed ? (
-        <span
-          className="
-            absolute left-3 top-3 flex h-7 w-7 items-center
-            justify-center rounded-full border border-indigo-100
-            bg-indigo-50 text-indigo-600
-          "
-          title="Subscribed module"
-          aria-label="Subscribed module"
-        >
-          <HugeiconsIcon
-            icon={Tick01Icon}
-            size={14}
-            color="currentColor"
-            strokeWidth={2}
-            aria-hidden="true"
-          />
-        </span>
-      ) : null}
 
       <div
         className={cn(
           `
-            flex flex-1 flex-col items-center justify-center pt-7
+            relative z-10 flex flex-1 flex-col
+            items-center justify-center
           `,
-          !subscribed && "pb-2"
+          subscribed ? "pb-1 pt-1" : "pb-2 pt-1"
         )}
       >
         <span
           className="
-            relative mb-4 flex h-[74px] w-[74px] items-center
-            justify-center rounded-[24px] border border-slate-200
-            bg-slate-50
-            shadow-[0_10px_26px_-20px_rgba(15,23,42,0.42)]
-            transition duration-300 group-hover:-translate-y-0.5
-            group-hover:shadow-[0_14px_30px_-20px_rgba(15,23,42,0.38)]
-            sm:h-20 sm:w-20
+            relative mb-4 flex h-[88px] w-[88px]
+            transform-gpu items-center justify-center
+            rounded-[27px] border border-slate-200/90
+            bg-gradient-to-b from-white to-slate-50/90
+            shadow-[0_16px_32px_-24px_rgba(15,23,42,0.48)]
+            ring-1 ring-white
+            transition-[transform,border-color,box-shadow]
+            duration-200 ease-out
+            will-change-transform
+            [backface-visibility:hidden]
+            group-hover:-translate-y-1
+            group-hover:border-indigo-200/80
+            group-hover:shadow-[0_20px_36px_-24px_rgba(79,70,229,0.3)]
+            sm:h-[94px] sm:w-[94px] sm:rounded-[29px]
           "
         >
+          <span
+            className="
+              pointer-events-none absolute inset-[6px] rounded-[21px]
+              border border-white/90
+            "
+            aria-hidden="true"
+          />
+
           {module.image ? (
             <span
               className="
-                flex h-14 w-14 items-center justify-center
-                overflow-hidden rounded-[18px] bg-white p-1.5
-                shadow-lg ring-1 ring-slate-200
-                transition duration-300 group-hover:scale-[1.04]
-                sm:h-16 sm:w-16 sm:rounded-[20px] sm:p-2
+                relative z-10 flex h-[62px] w-[62px]
+                transform-gpu items-center justify-center
+                transition-transform duration-200 ease-out
+                will-change-transform
+                [backface-visibility:hidden]
+                group-hover:scale-[1.035]
+                sm:h-[68px] sm:w-[68px]
               "
             >
               <img
                 src={module.image}
                 alt={`${module.name} logo`}
-                className="h-full w-full select-none object-contain"
+                className="
+                  block h-full w-full select-none
+                  object-contain
+                  [image-rendering:auto]
+                "
                 draggable={false}
               />
             </span>
@@ -408,17 +449,21 @@ function ModuleTile({
             <span
               className={cn(
                 `
-                  flex h-14 w-14 items-center justify-center
-                  rounded-[18px] shadow-lg transition duration-300
-                  group-hover:scale-[1.04] sm:h-16 sm:w-16
-                  sm:rounded-[20px]
+                  relative z-10 flex h-[62px] w-[62px]
+                  transform-gpu items-center justify-center
+                  rounded-[20px] shadow-lg
+                  transition-transform duration-200 ease-out
+                  will-change-transform
+                  [backface-visibility:hidden]
+                  group-hover:scale-[1.035]
+                  sm:h-[68px] sm:w-[68px] sm:rounded-[22px]
                 `,
                 iconStyle
               )}
             >
               <HugeiconsIcon
                 icon={moduleIcon}
-                size={29}
+                size={30}
                 color="currentColor"
                 strokeWidth={1.7}
                 aria-hidden="true"
@@ -429,8 +474,9 @@ function ModuleTile({
 
         <h2
           className="
-            max-w-full truncate text-[15px] font-extrabold
-            tracking-[-0.025em] text-slate-800 sm:text-[17px]
+            max-w-full truncate text-[16px] font-black
+            tracking-[-0.03em] text-slate-900
+            sm:text-[18px]
           "
         >
           {module.name}
@@ -451,13 +497,15 @@ function ModuleTile({
           onClick={handleSubscribe}
           disabled={subscribing}
           className="
-            mt-3 inline-flex min-h-10 w-full cursor-pointer
-            items-center justify-center gap-2 rounded-xl border
-            border-indigo-200 bg-indigo-50 px-3 text-sm
-            font-extrabold text-indigo-700 transition duration-200
+            relative z-10 mt-3 inline-flex min-h-11 w-full
+            cursor-pointer items-center justify-center gap-2
+            rounded-[14px] border border-indigo-200
+            bg-indigo-50 px-3 text-sm font-extrabold
+            text-indigo-700 transition duration-200
             hover:border-indigo-600 hover:bg-indigo-600
-            hover:text-white focus:outline-none
-            focus-visible:ring-4 focus-visible:ring-indigo-100
+            hover:text-white hover:shadow-[0_10px_22px_-14px_rgba(79,70,229,0.75)]
+            focus:outline-none focus-visible:ring-4
+            focus-visible:ring-indigo-100
             disabled:cursor-not-allowed disabled:opacity-60
           "
         >
@@ -501,8 +549,8 @@ function SectionHeader({ title, count, type = "default" }) {
               rounded-full px-2 py-0.5 text-xs font-extrabold
             `,
             type === "available"
-              ? "bg-slate-200 text-slate-600"
-              : "bg-indigo-100 text-indigo-700"
+              ? "border border-slate-200 bg-white text-slate-600 shadow-sm"
+              : "border border-indigo-100 bg-indigo-50 text-indigo-700 shadow-sm"
           )}
         >
           {count}
@@ -600,16 +648,22 @@ export default function OdooStyleModulesPage({
   onSubscribeModule,
 }) {
   const navigate = useNavigate()
+  const dispatch = useDispatch()
   const currentUserRedux = useSelector((state) => state.user?.currentUser)
   const currentUser = useMemo(() => {
-    if (currentUserRedux) return currentUserRedux
-
+    let storedUser = null
     try {
-      return JSON.parse(localStorage.getItem("user") || "null")
+      storedUser = JSON.parse(localStorage.getItem("user") || "null")
     } catch {
-      return null
+      storedUser = null
     }
+
+    const resolved = currentUserRedux || storedUser
+    return resolved?.user || resolved
   }, [currentUserRedux])
+  const [avatarBroken, setAvatarBroken] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const profileMenuRef = useRef(null)
   const [query, setQuery] = useState("")
   const [activeTab, setActiveTab] = useState("my-modules")
   const [subscribingId, setSubscribingId] = useState(null)
@@ -640,6 +694,24 @@ export default function OdooStyleModulesPage({
     }
     setSubscribedIds(new Set(accessibleIds))
   }, [accessibleIds, currentUser, navigate])
+
+  useEffect(() => {
+    if (!profileOpen) return undefined
+
+    const closeOnOutsideClick = (event) => {
+      if (!profileMenuRef.current?.contains(event.target)) setProfileOpen(false)
+    }
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setProfileOpen(false)
+    }
+
+    document.addEventListener("mousedown", closeOnOutsideClick)
+    document.addEventListener("keydown", closeOnEscape)
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick)
+      document.removeEventListener("keydown", closeOnEscape)
+    }
+  }, [profileOpen])
 
   const filteredModules = useMemo(() => {
     const search = query.trim().toLowerCase()
@@ -738,6 +810,42 @@ export default function OdooStyleModulesPage({
 
   const hasModules = filteredModules.length > 0
   const isMyModules = activeTab === "my-modules"
+  const displayName =
+    currentUser?.name ||
+    currentUser?.username ||
+    currentUser?.email ||
+    "User"
+
+  const roleLabel =
+    currentUser?.role === "superadmin"
+      ? "Super Admin"
+      : currentUser?.role === "admin"
+        ? "Administrator"
+        : currentUser?.role === "employee"
+          ? "Employee"
+          : currentUser?.role || "Member"
+
+  const profileImageUrl =
+    currentUser?.avatarUrl ||
+    currentUser?.profileImage ||
+    currentUser?.image ||
+    currentUser?.avatar ||
+    ""
+
+  const initials =
+    displayName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "U"
+
+  const handleLogout = () => {
+    localStorage.removeItem("user")
+    localStorage.removeItem("token")
+    dispatch(signOut())
+    navigate("/login", { replace: true })
+  }
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
@@ -751,7 +859,238 @@ export default function OdooStyleModulesPage({
           lg:px-8
         "
       >
-        <header className="flex flex-col items-center text-center">
+        <header className="relative flex flex-col items-center pt-16 text-center sm:pt-0">
+          <div
+            ref={profileMenuRef}
+            className="absolute right-0 top-0 z-30 text-left"
+          >
+            <button
+              type="button"
+              onClick={() => setProfileOpen((open) => !open)}
+              className="
+                group flex max-w-[230px] items-center gap-2.5
+                rounded-xl px-1 py-1 text-left
+                transition duration-200
+                focus:outline-none focus-visible:ring-4
+                focus-visible:ring-indigo-100
+                sm:max-w-[280px] sm:gap-3
+              "
+              aria-label={`Open profile menu for ${displayName}`}
+              aria-expanded={profileOpen}
+              aria-haspopup="menu"
+            >
+              <span
+                className="
+                  relative flex h-10 w-10 shrink-0 items-center
+                  justify-center rounded-full
+                  bg-gradient-to-br from-indigo-100 to-violet-100
+                  text-sm font-black text-indigo-700
+                  shadow-[0_8px_20px_-12px_rgba(79,70,229,0.7)]
+                  ring-2 ring-white outline outline-1 outline-slate-200
+                  transition duration-200
+                  group-hover:outline-indigo-200
+                  sm:h-11 sm:w-11
+                "
+              >
+                <span className="h-full w-full overflow-hidden rounded-full">
+                  {profileImageUrl && !avatarBroken ? (
+                    <img
+                      src={profileImageUrl}
+                      alt={`${displayName} profile`}
+                      className="h-full w-full object-cover"
+                      onError={() => setAvatarBroken(true)}
+                    />
+                  ) : (
+                    <span className="flex h-full w-full items-center justify-center">
+                      {initials}
+                    </span>
+                  )}
+                </span>
+
+                <span
+                  className="
+                    absolute bottom-0 right-0 h-3 w-3
+                    rounded-full border-2 border-white bg-emerald-500
+                    shadow-[0_0_0_2px_rgba(16,185,129,0.1)]
+                  "
+                  aria-label="Online"
+                  title="Online"
+                />
+              </span>
+
+              <span className="min-w-0">
+                <span
+                  className="
+                    block max-w-[118px] truncate
+                    text-[12px] font-extrabold leading-tight
+                    text-slate-900 transition-colors
+                    group-hover:text-indigo-700
+                    sm:max-w-[165px] sm:text-[13px]
+                  "
+                >
+                  {displayName}
+                </span>
+
+                <span
+                  className="
+                    mt-1 block max-w-[118px] truncate
+                    text-[10px] font-semibold leading-none
+                    text-slate-400
+                    sm:max-w-[165px] sm:text-[11px]
+                  "
+                >
+                  {roleLabel}
+                </span>
+              </span>
+
+              <span
+                className={cn(
+                  `
+                    flex h-7 w-7 shrink-0 items-center justify-center
+                    text-slate-400 transition duration-200
+                    group-hover:text-indigo-600
+                  `,
+                  profileOpen && "rotate-180 text-indigo-600"
+                )}
+              >
+                <HugeiconsIcon
+                  icon={ChevronDownIcon}
+                  size={16}
+                  color="currentColor"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                />
+              </span>
+            </button>
+
+            <AnimatePresence>
+              {profileOpen ? (
+                <motion.div
+                  initial={{ opacity: 0, y: -8, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -5, scale: 0.98 }}
+                  transition={{
+                    duration: 0.17,
+                    ease: [0.22, 1, 0.36, 1],
+                  }}
+                  role="menu"
+                  className="
+                    absolute right-0 mt-3 w-[290px]
+                    origin-top-right overflow-hidden rounded-[22px]
+                    border border-slate-200 bg-white
+                    shadow-[0_24px_60px_-28px_rgba(15,23,42,0.48)]
+                  "
+                >
+                  <div
+                    className="
+                      flex items-center gap-3 border-b border-slate-100
+                      bg-gradient-to-b from-slate-50/80 to-white
+                      px-4 py-4
+                    "
+                  >
+                    <span
+                      className="
+                        relative flex h-12 w-12 shrink-0 items-center
+                        justify-center overflow-visible rounded-2xl
+                        bg-gradient-to-br from-indigo-100 to-violet-100
+                        text-sm font-black text-indigo-700
+                        ring-1 ring-indigo-100
+                      "
+                    >
+                      <span className="h-full w-full overflow-hidden rounded-[inherit]">
+                        {profileImageUrl && !avatarBroken ? (
+                          <img
+                            src={profileImageUrl}
+                            alt=""
+                            className="h-full w-full object-cover"
+                            onError={() => setAvatarBroken(true)}
+                          />
+                        ) : (
+                          <span className="flex h-full w-full items-center justify-center">
+                            {initials}
+                          </span>
+                        )}
+                      </span>
+
+                      <span
+                        className="
+                          absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5
+                          rounded-full border-2 border-white bg-emerald-500
+                        "
+                        aria-hidden="true"
+                      />
+                    </span>
+
+                    <span className="min-w-0 flex-1">
+                      <span
+                        className="
+                          block truncate text-sm font-extrabold
+                          text-slate-900
+                        "
+                      >
+                        {displayName}
+                      </span>
+
+                      <span
+                        className="
+                          mt-1 block truncate text-[11px]
+                          font-bold text-indigo-600
+                        "
+                      >
+                        {roleLabel}
+                      </span>
+
+                      <span
+                        className="
+                          mt-1 block truncate text-xs
+                          font-medium text-slate-400
+                        "
+                      >
+                        {currentUser?.email || "No email available"}
+                      </span>
+                    </span>
+                  </div>
+
+                  <div className="p-2">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={handleLogout}
+                      className="
+                        group/logout flex w-full items-center gap-3
+                        rounded-[14px] px-3 py-3 text-sm
+                        font-extrabold text-rose-600
+                        transition duration-200
+                        hover:bg-rose-50
+                        focus:outline-none
+                        focus-visible:ring-2 focus-visible:ring-rose-200
+                      "
+                    >
+                      <span
+                        className="
+                          flex h-9 w-9 shrink-0 items-center
+                          justify-center rounded-xl bg-rose-50
+                          text-rose-600 transition duration-200
+                          group-hover/logout:bg-rose-100
+                        "
+                      >
+                        <HugeiconsIcon
+                          icon={Logout03Icon}
+                          size={18}
+                          color="currentColor"
+                          strokeWidth={1.9}
+                          aria-hidden="true"
+                        />
+                      </span>
+
+                      <span className="flex-1 text-left">Logout</span>
+                    </button>
+                  </div>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          </div>
+
           <div
             className="
               flex w-full items-center justify-center
