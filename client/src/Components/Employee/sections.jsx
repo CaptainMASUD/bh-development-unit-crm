@@ -33,7 +33,6 @@ const RosterManager = lazy(() => import("../Admin/payroll/RosterShiftSetup"))
 const AccessControl = lazy(() => import("../Admin/system/AccessControl"))
 const TaxSetup = lazy(() => import("../Admin/payroll/TaxSetup"))
 const TaxReport = lazy(() => import("../Admin/reports/TaxReport"))
-const AccountingModules = lazy(() => import("../Admin/accounting/AccountingModules"))
 const Expenses = lazy(() => import("../Admin/accounting/Expenses"))
 const ChartOfAccounts = lazy(() => import("../Admin/accounting/ChartOfAccounts"))
 const AccountingSettings = lazy(() => import("../Admin/accounting/AccountingSettings"))
@@ -86,12 +85,6 @@ export const sections = {
     icon: <FiCreditCard className="w-5 h-5" />,
     component: <Expenses />,
     permission: PERMISSIONS.EXPENSES_VIEW,
-  },
-
-  Finance: {
-    icon: <FiDollarSign className="w-5 h-5" />,
-    component: <AccountingModules />,
-    permission: PERMISSIONS.FINANCE_VIEW,
   },
 
   "Cash Management": { icon: <FiDollarSign className="w-5 h-5" />, component: <CashManagement />, permission: PERMISSIONS.FINANCE_VIEW },

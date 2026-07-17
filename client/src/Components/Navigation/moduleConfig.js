@@ -14,8 +14,8 @@ export const MODULES = {
     name: "Accounting",
     description: "Finance operations, accounting setup, ledgers, reports, and banking.",
     permissions: ["finance:view", "finance:manage", "expenses:view", "expenses:manage", "bank-setup:view", "bank-setup:manage"],
-    adminSections: ["Finance", "Accounting Setup", "Cash Management", "Bank Management", "Payment Voucher", "Receive Voucher", "Contra Voucher", "Bank Reconciliation", "Journal Entries", "General Ledger", "Trial Balance", "Balance Sheet", "Cash Flow Statement", "Expenses", "Bank Transactions", "Money Transfer", "Setup"],
-    employeeSections: ["Finance", "Accounting Setup", "Cash Management", "Bank Management", "Payment Voucher", "Receive Voucher", "Contra Voucher", "Bank Reconciliation", "Journal Entries", "General Ledger", "Trial Balance", "Balance Sheet", "Cash Flow Statement", "Expenses", "Bank Transactions", "Money Transfer"],
+    adminSections: ["Dashboard", "Accounting Setup", "Cash Management", "Bank Management", "Payment Voucher", "Receive Voucher", "Contra Voucher", "Bank Reconciliation", "Journal Entries", "General Ledger", "Trial Balance", "Balance Sheet", "Cash Flow Statement", "Expenses", "Bank Transactions", "Money Transfer", "Setup"],
+    employeeSections: ["Dashboard", "Accounting Setup", "Cash Management", "Bank Management", "Payment Voucher", "Receive Voucher", "Contra Voucher", "Bank Reconciliation", "Journal Entries", "General Ledger", "Trial Balance", "Balance Sheet", "Cash Flow Statement", "Expenses", "Bank Transactions", "Money Transfer"],
     subcategories: { Setup: ["Expense Setup", "Bank Setup"] },
   },
   payroll: {
@@ -81,10 +81,12 @@ export function buildModuleSections(sections, moduleId, role = "admin") {
   if (!result.Dashboard) {
     const first = Object.values(result)[0]
     if (first) {
+      const dashboard = sections?.Dashboard
       return {
         Dashboard: {
-          ...first,
-          icon: sections?.Dashboard?.icon || first.icon,
+          icon: dashboard?.icon || first.icon,
+          component: dashboard?.component || first.component,
+          ...(dashboard?.permission ? { permission: dashboard.permission } : {}),
         },
         ...result,
       }

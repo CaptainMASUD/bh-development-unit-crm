@@ -51,7 +51,6 @@ const TaxSetup = lazy(() => import("./payroll/TaxSetup"))
 const ExpenseSetup = lazy(() => import("./accounting/ExpenseSetup"))
 const BankSetup = lazy(() => import("./banking/BankSetup"))
 const Expenses = lazy(() => import("./accounting/Expenses"))
-const AccountingModules = lazy(() => import("./accounting/AccountingModules"))
 const BankTransactions = lazy(() => import("./banking/BankTransactions"))
 const MoneyTransfer = lazy(() => import("./banking/MoneyTransfer"))
 const BankReconciliation = lazy(() => import("./banking/BankReconciliation"))
@@ -165,12 +164,6 @@ const sections = {
     icon: createSectionIcon(ReceiptDollarIcon),
     component: <Expenses />,
     permission: "expenses:view",
-  },
-
-  Finance: {
-    icon: createSectionIcon(Calculator01Icon),
-    component: <AccountingModules />,
-    permission: "finance:view",
   },
 
   "Cash Management": { icon: createSectionIcon(Wallet03Icon), component: <CashManagement />, permission: "finance:view" },

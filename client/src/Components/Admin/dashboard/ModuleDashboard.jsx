@@ -55,7 +55,7 @@ const MODULE_PRESENTATION = {
     eyebrow: "Financial operations",
     title: "Accounting Dashboard",
     description: "Revenue, receivables, payables, cash collection, and finance controls.",
-    actions: ["Finance", "Accounting Setup", "Journal Entries", "Bank Transactions", "Expenses"],
+    actions: ["Accounting Setup", "Journal Entries", "Bank Transactions", "Expenses"],
   },
   payroll: {
     eyebrow: "People operations",
