@@ -1,16 +1,15 @@
 "use client"
 
-import { useMemo, useState, useCallback } from "react"
+import { useCallback, useMemo, useState } from "react"
 import {
   FiExternalLink,
   FiFolder,
+  FiInfo,
+  FiMail,
+  FiMapPin,
+  FiPhone,
   FiUpload,
   FiUser,
-  FiCheckCircle,
-  FiMail,
-  FiPhone,
-  FiInfo,
-  FiMapPin,
   FiUsers,
 } from "react-icons/fi"
 import {
@@ -24,30 +23,45 @@ import { Loader2 } from "lucide-react"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
-const cn = (...c) => c.filter(Boolean).join(" ")
+const cn = (...classes) => classes.filter(Boolean).join(" ")
 
 function getAuthHeaders() {
   const token = localStorage.getItem("token")
+
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   }
 }
 
+function formatLabel(value) {
+  const text = String(value || "").replaceAll("_", " ").trim()
+
+  if (!text) return "Not set"
+
+  return text
+    .toLowerCase()
+    .replace(/\b\w/g, (character) => character.toUpperCase())
+}
+
 function Badge({ children, tone = "gray" }) {
   const tones = {
-    gray: "bg-gray-100 text-gray-700 border-gray-200",
-    indigo: "bg-indigo-50 text-indigo-700 border-indigo-200",
-    amber: "bg-amber-50 text-amber-800 border-amber-200",
-    emerald: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    rose: "bg-rose-50 text-rose-700 border-rose-200",
+    gray: "border-slate-200 bg-slate-50 text-slate-600",
+    indigo: "border-indigo-200 bg-indigo-50 text-indigo-700",
+    amber: "border-amber-200 bg-amber-50 text-amber-700",
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    rose: "border-rose-200 bg-rose-50 text-rose-700",
   }
-  const cls = tones[tone] || tones.gray
+
   return (
     <span
       className={cn(
-        "inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-extrabold tracking-wide border",
-        cls
+        `
+          inline-flex min-h-7 items-center rounded-full border
+          px-2.5 py-1 text-[10px] font-extrabold
+          tracking-[0.035em] whitespace-nowrap
+        `,
+        tones[tone] || tones.gray
       )}
     >
       {children}
@@ -55,122 +69,333 @@ function Badge({ children, tone = "gray" }) {
   )
 }
 
-function SectionCard({ title, icon, subtitle = "Overview section", right, children }) {
+function SectionCard({
+  title,
+  icon,
+  right,
+  children,
+  className,
+  bodyClassName,
+}) {
   return (
-    <div className="rounded-3xl border border-gray-100 bg-white shadow-[0_18px_60px_-45px_rgba(0,0,0,0.55)] overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-100 bg-gray-50/60 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-sm shrink-0">
+    <section
+      className={cn(
+        `
+          overflow-hidden rounded-2xl border border-slate-200/80
+          bg-white shadow-[0_14px_36px_-30px_rgba(15,23,42,0.34)]
+        `,
+        className
+      )}
+    >
+      <header
+        className="
+          flex flex-col gap-3 border-b border-slate-100
+          px-4 py-3.5
+          sm:flex-row sm:items-center sm:justify-between
+          sm:px-5 sm:py-4
+        "
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            className="
+              flex h-9 w-9 shrink-0 items-center justify-center
+              rounded-xl border border-indigo-100
+              bg-indigo-50 text-indigo-600
+            "
+          >
             {icon}
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-extrabold text-gray-900 truncate">{title}</p>
-            <p className="text-xs text-gray-500 truncate">{subtitle}</p>
-          </div>
+          </span>
+
+          <h2
+            className="
+              min-w-0 truncate text-sm font-extrabold
+              tracking-[-0.015em] text-slate-900
+              sm:text-[15px]
+            "
+          >
+            {title}
+          </h2>
         </div>
-        <div className="shrink-0">{right}</div>
-      </div>
-      <div className="p-5">{children}</div>
+
+        {right ? (
+          <div
+            className="
+              flex w-full flex-wrap items-center gap-2
+              sm:w-auto sm:justify-end
+            "
+          >
+            {right}
+          </div>
+        ) : null}
+      </header>
+
+      <div className={cn("p-4 sm:p-5", bodyClassName)}>{children}</div>
+    </section>
+  )
+}
+
+function MetricCard({ label, value, icon, tone = "indigo" }) {
+  const tones = {
+    indigo: "border-indigo-100 bg-indigo-50/70 text-indigo-700",
+    amber: "border-amber-100 bg-amber-50/70 text-amber-700",
+    emerald: "border-emerald-100 bg-emerald-50/70 text-emerald-700",
+    gray: "border-slate-200 bg-slate-50 text-slate-700",
+  }
+
+  return (
+    <div
+      className={cn(
+        `
+          flex min-w-0 items-center gap-3 rounded-xl
+          border p-3.5
+        `,
+        tones[tone] || tones.gray
+      )}
+    >
+      <span
+        className="
+          flex h-9 w-9 shrink-0 items-center justify-center
+          rounded-xl border border-white/80 bg-white/80
+          text-current shadow-sm
+        "
+      >
+        {icon}
+      </span>
+
+      <span className="min-w-0">
+        <span
+          className="
+            block text-[10px] font-bold uppercase
+            tracking-[0.055em] text-slate-500
+          "
+        >
+          {label}
+        </span>
+
+        <span
+          className="
+            mt-0.5 block text-xl font-black
+            tracking-[-0.035em] text-slate-900
+          "
+        >
+          {value}
+        </span>
+      </span>
     </div>
   )
 }
 
-function StatTile({ label, value, tone = "gray", icon }) {
-  const tones = {
-    gray: "bg-gray-50 border-gray-100 text-gray-900",
-    indigo: "bg-indigo-50 border-indigo-100 text-indigo-900",
-    amber: "bg-amber-50 border-amber-100 text-amber-900",
-    emerald: "bg-emerald-50 border-emerald-100 text-emerald-900",
-  }
-  const cls = tones[tone] || tones.gray
-  return (
-    <div className={cn("rounded-2xl border p-4 flex items-center justify-between gap-3", cls)}>
-      <div className="min-w-0">
-        <p className="text-xs font-extrabold text-gray-500">{label}</p>
-        <p className="mt-1 text-xl font-extrabold">{value}</p>
-      </div>
-      {icon ? (
-        <div className="w-10 h-10 rounded-2xl bg-white/60 border border-gray-200 flex items-center justify-center text-gray-700 shrink-0">
-          {icon}
-        </div>
+function InfoItem({ label, value, icon, href }) {
+  const content = (
+    <>
+      <span
+        className="
+          flex h-9 w-9 shrink-0 items-center justify-center
+          rounded-xl border border-slate-200
+          bg-white text-slate-500 shadow-sm
+        "
+      >
+        {icon}
+      </span>
+
+      <span className="min-w-0 flex-1">
+        <span
+          className="
+            block text-[10px] font-bold uppercase
+            tracking-[0.055em] text-slate-400
+          "
+        >
+          {label}
+        </span>
+
+        <span
+          className="
+            mt-1 block break-words text-sm
+            font-semibold leading-5 text-slate-900
+          "
+        >
+          {value || "Not set"}
+        </span>
+      </span>
+
+      {href ? (
+        <FiExternalLink
+          className="
+            h-4 w-4 shrink-0 text-slate-400
+            transition group-hover:text-indigo-600
+          "
+          aria-hidden="true"
+        />
       ) : null}
-    </div>
+    </>
   )
+
+  const className = `
+    group flex min-h-[72px] items-start gap-3
+    rounded-xl border border-slate-200/80
+    bg-slate-50/55 p-3.5
+    transition duration-200
+    hover:border-slate-300 hover:bg-white
+  `
+
+  if (href) {
+    return (
+      <a
+        href={href}
+        target={href.startsWith("http") ? "_blank" : undefined}
+        rel={href.startsWith("http") ? "noreferrer" : undefined}
+        className={className}
+      >
+        {content}
+      </a>
+    )
+  }
+
+  return <div className={className}>{content}</div>
+}
+
+function ContactItem({ label, value, icon, href }) {
+  const content = (
+    <>
+      <span
+        className="
+          flex h-9 w-9 shrink-0 items-center justify-center
+          rounded-xl bg-slate-100 text-slate-600
+        "
+      >
+        {icon}
+      </span>
+
+      <span className="min-w-0 flex-1">
+        <span className="block text-xs font-bold text-slate-500">
+          {label}
+        </span>
+
+        <span
+          className="
+            mt-0.5 block break-words text-sm
+            font-semibold leading-5 text-slate-900
+          "
+        >
+          {value || "Not set"}
+        </span>
+      </span>
+    </>
+  )
+
+  const className = `
+    flex min-h-[68px] items-center gap-3
+    rounded-xl border border-slate-200/80
+    bg-white p-3.5 transition duration-200
+    hover:border-indigo-200 hover:bg-indigo-50/30
+  `
+
+  if (href) {
+    return (
+      <a href={href} className={className}>
+        {content}
+      </a>
+    )
+  }
+
+  return <div className={className}>{content}</div>
 }
 
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes)) return ""
+
   const units = ["B", "KB", "MB", "GB"]
-  let v = bytes
-  let i = 0
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i++
+  let value = bytes
+  let index = 0
+
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024
+    index += 1
   }
-  return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+
+  return `${value.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
 }
 
 function formatDateTime(value) {
-  if (!value) return "—"
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return "—"
-  return d.toLocaleString()
+  if (!value) return "Date unavailable"
+
+  const date = new Date(value)
+
+  if (Number.isNaN(date.getTime())) return "Date unavailable"
+
+  return date.toLocaleString([], {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
 }
 
 function fileIcon(mimeType = "", name = "") {
-  const n = (name || "").toLowerCase()
-  const m = (mimeType || "").toLowerCase()
+  const normalizedName = String(name || "").toLowerCase()
+  const normalizedMime = String(mimeType || "").toLowerCase()
 
-  const isPdf = m.includes("pdf") || n.endsWith(".pdf")
-  if (isPdf) return <HiOutlineDocumentText className="w-5 h-5" />
+  const isPdf =
+    normalizedMime.includes("pdf") ||
+    normalizedName.endsWith(".pdf")
+
+  if (isPdf) return <HiOutlineDocumentText className="h-5 w-5" />
 
   const isWord =
-    m.includes("msword") ||
-    m.includes("officedocument.wordprocessingml") ||
-    n.endsWith(".doc") ||
-    n.endsWith(".docx")
-  if (isWord) return <HiOutlineDocument className="w-5 h-5" />
+    normalizedMime.includes("msword") ||
+    normalizedMime.includes("officedocument.wordprocessingml") ||
+    normalizedName.endsWith(".doc") ||
+    normalizedName.endsWith(".docx")
+
+  if (isWord) return <HiOutlineDocument className="h-5 w-5" />
 
   const isExcel =
-    m.includes("ms-excel") ||
-    m.includes("officedocument.spreadsheetml") ||
-    n.endsWith(".xls") ||
-    n.endsWith(".xlsx") ||
-    n.endsWith(".csv")
-  if (isExcel) return <HiOutlineTable className="w-5 h-5" />
+    normalizedMime.includes("ms-excel") ||
+    normalizedMime.includes("officedocument.spreadsheetml") ||
+    normalizedName.endsWith(".xls") ||
+    normalizedName.endsWith(".xlsx") ||
+    normalizedName.endsWith(".csv")
+
+  if (isExcel) return <HiOutlineTable className="h-5 w-5" />
 
   const isImage =
-    m.startsWith("image/") || [".png", ".jpg", ".jpeg", ".webp", ".gif"].some((x) => n.endsWith(x))
-  if (isImage) return <HiOutlinePhotograph className="w-5 h-5" />
+    normalizedMime.startsWith("image/") ||
+    [".png", ".jpg", ".jpeg", ".webp", ".gif"].some((extension) =>
+      normalizedName.endsWith(extension)
+    )
 
-  const isZip =
-    m.includes("zip") ||
-    m.includes("rar") ||
-    m.includes("7z") ||
-    [".zip", ".rar", ".7z"].some((x) => n.endsWith(x))
-  if (isZip) return <HiOutlineArchive className="w-5 h-5" />
+  if (isImage) return <HiOutlinePhotograph className="h-5 w-5" />
 
-  return <HiOutlineDocument className="w-5 h-5" />
-}
+  const isArchive =
+    normalizedMime.includes("zip") ||
+    normalizedMime.includes("rar") ||
+    normalizedMime.includes("7z") ||
+    [".zip", ".rar", ".7z"].some((extension) =>
+      normalizedName.endsWith(extension)
+    )
 
-function roleBadgeClasses(role) {
-  const r = String(role || "").toLowerCase()
-  if (r === "employee") return "bg-amber-500 text-white border border-amber-500"
-  return "bg-indigo-600 text-white border border-indigo-600"
-}
+  if (isArchive) return <HiOutlineArchive className="h-5 w-5" />
 
-function roleLabel(role) {
-  const r = String(role || "").toLowerCase()
-  return r === "employee" ? "EMPLOYEE" : "ADMIN"
+  return <HiOutlineDocument className="h-5 w-5" />
 }
 
 function normalizeRole(role) {
-  const r = String(role || "").toLowerCase()
-  return r === "employee" ? "employee" : "admin"
+  return String(role || "").toLowerCase() === "employee"
+    ? "employee"
+    : "admin"
+}
+
+function roleLabel(role) {
+  return normalizeRole(role) === "employee" ? "Employee" : "Admin"
+}
+
+function roleBadgeTone(role) {
+  return normalizeRole(role) === "employee" ? "amber" : "indigo"
 }
 
 async function presignUploadForCustomer({ file, customerId }) {
-  const res = await fetch(`${API_BASE}/upload/presign`, {
+  const response = await fetch(`${API_BASE}/upload/presign`, {
     method: "POST",
     headers: getAuthHeaders(),
     body: JSON.stringify({
@@ -180,64 +405,83 @@ async function presignUploadForCustomer({ file, customerId }) {
       taskId: "customer-files",
     }),
   })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Failed to presign upload")
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(data?.message || "Failed to prepare upload")
+  }
+
   return data
 }
 
 async function putToS3({ uploadUrl, file }) {
-  const res = await fetch(uploadUrl, {
+  const response = await fetch(uploadUrl, {
     method: "PUT",
-    headers: { "Content-Type": file.type || "application/octet-stream" },
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+    },
     body: file,
   })
-  if (!res.ok) throw new Error("S3 upload failed")
+
+  if (!response.ok) {
+    throw new Error("File upload failed")
+  }
 }
 
 async function patchCustomerFiles({ customerId, customerFiles }) {
-  const res = await fetch(`${API_BASE}/customers/${customerId}`, {
+  const response = await fetch(`${API_BASE}/customers/${customerId}`, {
     method: "PATCH",
     headers: getAuthHeaders(),
     body: JSON.stringify({ customerFiles }),
   })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || "Failed to update customer files")
+
+  const data = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(data?.message || "Failed to update customer files")
+  }
+
   return data
 }
 
-function FieldGrid({ children }) {
-  return <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{children}</div>
-}
+function LoadingState() {
+  return (
+    <div
+      className="
+        grid animate-pulse grid-cols-1 gap-4
+        xl:grid-cols-12
+      "
+    >
+      <div
+        className="
+          h-64 rounded-2xl border border-slate-200
+          bg-white xl:col-span-4
+        "
+      />
 
-function FieldItem({ label, value, icon, href }) {
-  const inner = (
-    <div className="rounded-2xl border border-gray-100 bg-white p-4 hover:bg-gray-50/40 transition-colors">
-      <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-2xl bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-700 shrink-0">
-          {icon}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-extrabold text-gray-500">{label}</p>
-          <p className="mt-1 text-sm font-semibold text-gray-900 break-words">{value || "—"}</p>
-        </div>
-        {href ? (
-          <span className="shrink-0 inline-flex items-center gap-2 px-2.5 py-1 rounded-xl border border-gray-200 bg-white text-xs font-extrabold text-gray-700">
-            <FiExternalLink className="w-3.5 h-3.5" />
-            Open
-          </span>
-        ) : null}
-      </div>
+      <div
+        className="
+          h-[420px] rounded-2xl border border-slate-200
+          bg-white xl:col-span-8
+        "
+      />
+
+      <div
+        className="
+          h-72 rounded-2xl border border-slate-200
+          bg-white xl:col-span-4
+        "
+      />
+
+      <div
+        className="
+          h-56 rounded-2xl border border-slate-200
+          bg-white xl:col-span-12
+        "
+      />
     </div>
   )
-
-  if (href) {
-    return (
-      <a href={href} target="_blank" rel="noreferrer" className="block">
-        {inner}
-      </a>
-    )
-  }
-  return inner
 }
 
 export default function CustomerOverview({
@@ -251,85 +495,135 @@ export default function CustomerOverview({
 }) {
   const [uploading, setUploading] = useState(false)
 
-  const assignedTo = Array.isArray(customer?.assignedTo) ? customer.assignedTo : []
+  const assignedTo = Array.isArray(customer?.assignedTo)
+    ? customer.assignedTo
+    : []
+
   const assignedNames = assignedTo
-    .map((u) => (typeof u === "string" ? u : u?.name || u?.email || "Employee"))
+    .map((user) =>
+      typeof user === "string"
+        ? user
+        : user?.name || user?.email || "Employee"
+    )
     .filter(Boolean)
 
-  const customerFiles = Array.isArray(customer?.customerFiles) ? customer.customerFiles : []
+  const customerFiles = Array.isArray(customer?.customerFiles)
+    ? customer.customerFiles
+    : []
 
   const latestEngagement = useMemo(() => {
-    const arr = Array.isArray(customer?.engagements) ? customer.engagements : []
-    if (!arr.length) return null
-    const sorted = arr.slice().sort((a, b) => Number(b?.year || 0) - Number(a?.year || 0))
-    return sorted[0] || null
+    const engagements = Array.isArray(customer?.engagements)
+      ? customer.engagements
+      : []
+
+    if (!engagements.length) return null
+
+    return (
+      engagements
+        .slice()
+        .sort(
+          (first, second) =>
+            Number(second?.year || 0) - Number(first?.year || 0)
+        )[0] || null
+    )
   }, [customer])
 
   const engagementYear = latestEngagement?.year || null
 
   const engagementTitle = useMemo(() => {
     if (!latestEngagement) return ""
-    const t = String(latestEngagement?.engagementTitle || "").trim()
-    if (t) return t
-    return latestEngagement?.engagementTemplateId ? String(latestEngagement.engagementTemplateId) : ""
+
+    const title = String(
+      latestEngagement?.engagementTitle || ""
+    ).trim()
+
+    if (title) return title
+
+    return latestEngagement?.engagementTemplateId
+      ? String(latestEngagement.engagementTemplateId)
+      : ""
   }, [latestEngagement])
 
   const subEngagementTexts = useMemo(() => {
-    const arr = Array.isArray(latestEngagement?.subEngagements) ? latestEngagement.subEngagements : []
-    return arr.map((x) => String(x?.text || "").trim()).filter(Boolean)
+    const subEngagements = Array.isArray(
+      latestEngagement?.subEngagements
+    )
+      ? latestEngagement.subEngagements
+      : []
+
+    return subEngagements
+      .map((item) => String(item?.text || "").trim())
+      .filter(Boolean)
   }, [latestEngagement])
 
   const inferActorRole = useCallback(
     (uploadedBy) => {
-      const uid = String(uploadedBy || "")
-      if (!uid) return "admin"
-      const assignedIds = assignedTo.map((x) => String(x?._id || x)).filter(Boolean)
-      if (assignedIds.includes(uid)) return "employee"
-      return "admin"
+      const uploadedById = String(uploadedBy || "")
+
+      if (!uploadedById) return "admin"
+
+      const assignedIds = assignedTo
+        .map((user) => String(user?._id || user))
+        .filter(Boolean)
+
+      return assignedIds.includes(uploadedById)
+        ? "employee"
+        : "admin"
     },
     [assignedTo]
   )
 
   const fileStats = useMemo(() => {
-    const counts = { admin: 0, employee: 0 }
-    for (const f of customerFiles) {
-      const r = normalizeRole(inferActorRole(f?.uploadedBy))
-      counts[r] = (counts[r] || 0) + 1
+    const counts = {
+      admin: 0,
+      employee: 0,
     }
+
+    customerFiles.forEach((file) => {
+      const role = normalizeRole(inferActorRole(file?.uploadedBy))
+      counts[role] += 1
+    })
+
     return counts
   }, [customerFiles, inferActorRole])
 
   const sortedFiles = useMemo(() => {
-    const list = customerFiles.slice()
-    list.sort((a, b) => {
-      const ra = normalizeRole(inferActorRole(a?.uploadedBy))
-      const rb = normalizeRole(inferActorRole(b?.uploadedBy))
-      const wa = ra === "admin" ? 0 : 1
-      const wb = rb === "admin" ? 0 : 1
-      if (wa !== wb) return wa - wb
+    return customerFiles.slice().sort((first, second) => {
+      const firstTime = first?.uploadedAt
+        ? new Date(first.uploadedAt).getTime()
+        : 0
 
-      const ta = a?.uploadedAt ? new Date(a.uploadedAt).getTime() : 0
-      const tb = b?.uploadedAt ? new Date(b.uploadedAt).getTime() : 0
-      return tb - ta
+      const secondTime = second?.uploadedAt
+        ? new Date(second.uploadedAt).getTime()
+        : 0
+
+      return secondTime - firstTime
     })
-    return list
-  }, [customerFiles, inferActorRole])
+  }, [customerFiles])
 
   const uploadPermanentFiles = useCallback(
     async (fileList) => {
       if (!customerId || !fileList?.length) return
-      if (!canManageCustomerFiles) return
+      if (!canManageCustomerFiles || uploading) return
+
       setPageError?.("")
       setUploading(true)
 
       try {
-        const uploadedMeta = []
+        const uploadedFiles = []
 
         for (const file of fileList) {
-          const presigned = await presignUploadForCustomer({ file, customerId })
-          await putToS3({ uploadUrl: presigned.uploadUrl, file })
+          const presigned = await presignUploadForCustomer({
+            file,
+            customerId,
+          })
 
-          uploadedMeta.push({
+          await putToS3({
+            uploadUrl: presigned.uploadUrl,
+            file,
+          })
+
+          uploadedFiles.push({
             key: presigned.key,
             url: presigned.url || "",
             originalName: file.name,
@@ -339,352 +633,465 @@ export default function CustomerOverview({
           })
         }
 
-        const nextFiles = [...customerFiles, ...uploadedMeta]
-        await patchCustomerFiles({ customerId, customerFiles: nextFiles })
+        await patchCustomerFiles({
+          customerId,
+          customerFiles: [...customerFiles, ...uploadedFiles],
+        })
+
         await onSoftRefreshCustomer?.()
-        showToast?.("Files uploaded")
-      } catch (e) {
-        setPageError?.(e?.message || "Upload failed.")
+        showToast?.("Files uploaded successfully")
+      } catch (error) {
+        setPageError?.(error?.message || "Upload failed.")
       } finally {
         setUploading(false)
       }
     },
-    [customerId, canManageCustomerFiles, customerFiles, onSoftRefreshCustomer, setPageError, showToast]
+    [
+      canManageCustomerFiles,
+      customerFiles,
+      customerId,
+      onSoftRefreshCustomer,
+      setPageError,
+      showToast,
+      uploading,
+    ]
   )
 
   const renderFileRow = useCallback(
-    (f, idx) => {
-      const shown = (f.displayName || "").trim() || f.originalName || f.key
-      const role = inferActorRole(f?.uploadedBy)
-      const isEmp = String(role).toLowerCase() === "employee"
-      const isAdmin = !isEmp
+    (file, index) => {
+      const displayName =
+        String(file?.displayName || "").trim() ||
+        file?.originalName ||
+        file?.key ||
+        "Untitled file"
 
-      const rowClass = isAdmin ? "border-indigo-200 bg-indigo-50/60" : "border-amber-200 bg-amber-50/60"
-      const leftBar = isAdmin ? "bg-indigo-600" : "bg-amber-500"
-      const iconBox = isAdmin
-        ? "bg-indigo-100 border-indigo-200 text-indigo-800"
-        : "bg-amber-100 border-amber-200 text-amber-800"
+      const role = inferActorRole(file?.uploadedBy)
 
       return (
-        <div
-          key={`${String(f?._id || f.key)}-${idx}`}
-          className={cn(
-            "relative p-3 rounded-2xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 overflow-hidden",
-            rowClass
-          )}
+        <article
+          key={`${String(file?._id || file?.key)}-${index}`}
+          className="
+            flex flex-col gap-3 rounded-xl
+            border border-slate-200/80 bg-white
+            p-3.5 transition duration-200
+            hover:border-slate-300
+            sm:flex-row sm:items-center sm:justify-between
+          "
         >
-          <div className={cn("absolute left-0 top-0 bottom-0 w-1.5 pointer-events-none", leftBar)} />
+          <div className="flex min-w-0 items-start gap-3">
+            <span
+              className="
+                flex h-10 w-10 shrink-0 items-center justify-center
+                rounded-xl border border-slate-200
+                bg-slate-50 text-slate-600
+              "
+            >
+              {fileIcon(file?.mimeType, file?.originalName)}
+            </span>
 
-          <div className="flex items-center gap-3 min-w-0 pl-2">
-            <div className={cn("w-10 h-10 rounded-xl border flex items-center justify-center shrink-0", iconBox)}>
-              {fileIcon(f.mimeType, f.originalName)}
-            </div>
-
-            <div className="min-w-0">
-              <p className="text-sm font-extrabold text-gray-900 truncate">
-                {shown}
-                <span
-                  className={cn(
-                    "ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold tracking-wide border",
-                    roleBadgeClasses(role)
-                  )}
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <h3
+                  className="
+                    min-w-0 max-w-full truncate
+                    text-sm font-extrabold text-slate-900
+                  "
+                  title={displayName}
                 >
-                  {roleLabel(role)}
-                </span>
-              </p>
+                  {displayName}
+                </h3>
 
-              <p className="text-xs text-gray-600">
-                {f.size ? `${formatBytes(Number(f.size) || 0)} • ` : ""}
-                {f.uploadedAt ? formatDateTime(f.uploadedAt) : "—"}
+                <Badge tone={roleBadgeTone(role)}>
+                  {roleLabel(role)}
+                </Badge>
+              </div>
+
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                {file?.size
+                  ? `${formatBytes(Number(file.size) || 0)} · `
+                  : ""}
+                {formatDateTime(file?.uploadedAt)}
               </p>
             </div>
           </div>
 
-          {f.url ? (
+          {file?.url ? (
             <a
-              href={f.url}
+              href={file.url}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex w-full sm:w-auto items-center justify-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
+              className="
+                inline-flex min-h-10 w-full items-center
+                justify-center gap-2 rounded-xl border
+                border-slate-200 bg-white px-3
+                text-sm font-bold text-slate-700
+                transition duration-200
+                hover:border-indigo-200 hover:bg-indigo-50
+                hover:text-indigo-700
+                focus:outline-none focus-visible:ring-4
+                focus-visible:ring-indigo-100
+                sm:w-auto
+              "
             >
-              <FiExternalLink className="w-4 h-4" />
-              Open
+              <FiExternalLink className="h-4 w-4" />
+              View
             </a>
-          ) : (
-            <span className="text-xs text-gray-500">No link</span>
-          )}
-        </div>
+          ) : null}
+        </article>
       )
     },
     [inferActorRole]
   )
 
   if (loading) {
+    return <LoadingState />
+  }
+
+  if (!customer) {
     return (
-      <div className="rounded-3xl border border-gray-100 bg-white p-6 shadow-sm">
-        <div className="animate-pulse space-y-3">
-          <div className="h-4 w-40 bg-gray-200 rounded" />
-          <div className="h-4 w-72 bg-gray-200 rounded" />
-          <div className="h-4 w-56 bg-gray-200 rounded" />
-          <div className="h-24 bg-gray-200 rounded-2xl" />
-        </div>
+      <div
+        className="
+          rounded-2xl border border-dashed border-slate-300
+          bg-white px-6 py-14 text-center
+        "
+      >
+        <p className="text-sm font-bold text-slate-700">
+          Customer information is unavailable.
+        </p>
       </div>
     )
   }
 
-  if (!customer) return <div className="p-8 text-center text-gray-500">No customer data found.</div>
-
-  const emailHref = customer?.email ? `mailto:${customer.email}` : ""
-  const phoneHref = customer?.phone ? `tel:${customer.phone}` : ""
-  const mapHref = customer?.address
-    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(customer.address)}`
+  const emailHref = customer?.email
+    ? `mailto:${customer.email}`
     : ""
 
-  const cpName = customer?.contactPerson?.name || "—"
-  const cpPhone = customer?.contactPerson?.phone || "—"
-  const cpEmail = customer?.contactPerson?.email || "—"
-  const cpDesignation = customer?.contactPerson?.designation || "—"
-  const cpPhoneHref = customer?.contactPerson?.phone ? `tel:${customer.contactPerson.phone}` : ""
-  const cpEmailHref = customer?.contactPerson?.email ? `mailto:${customer.contactPerson.email}` : ""
+  const phoneHref = customer?.phone
+    ? `tel:${customer.phone}`
+    : ""
+
+  const mapHref = customer?.address
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+        customer.address
+      )}`
+    : ""
+
+  const contactPerson = customer?.contactPerson || {}
+
+  const contactName = contactPerson?.name || ""
+  const contactPhone = contactPerson?.phone || ""
+  const contactEmail = contactPerson?.email || ""
+  const contactDesignation = contactPerson?.designation || ""
+
+  const contactPhoneHref = contactPhone
+    ? `tel:${contactPhone}`
+    : ""
+
+  const contactEmailHref = contactEmail
+    ? `mailto:${contactEmail}`
+    : ""
+
+  const hasContactPerson = Boolean(
+    contactName ||
+      contactPhone ||
+      contactEmail ||
+      contactDesignation
+  )
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-      {/* LEFT COLUMN */}
-      <div className="xl:col-span-4 space-y-4">
+    <div
+      className="
+        grid grid-cols-1 gap-4
+        md:gap-5 xl:grid-cols-12
+      "
+    >
+      <div className="xl:col-span-4">
         <SectionCard
-          title="Profile Summary"
-          subtitle="Quick stats + engagement"
-          icon={<FiUser className="w-5 h-5" />}
+          title="Overview"
+          icon={<FiUser className="h-[18px] w-[18px]" />}
           right={
-            <div className="flex items-center gap-2">
-              <Badge tone="indigo">{String(customer?.status || "—").replaceAll("_", " ").toUpperCase()}</Badge>
-              {customer?.customerType ? <Badge tone="amber">{String(customer.customerType).toUpperCase()}</Badge> : null}
-            </div>
+            <>
+              <Badge tone="indigo">
+                {formatLabel(customer?.status)}
+              </Badge>
+
+              {customer?.customerType ? (
+                <Badge tone="amber">
+                  {formatLabel(customer.customerType)}
+                </Badge>
+              ) : null}
+            </>
           }
         >
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <StatTile label="Assigned Employees" value={assignedNames.length || 0} tone="indigo" icon={<FiUsers />} />
-              <StatTile label="Total Files" value={customerFiles.length || 0} tone="amber" icon={<FiFolder />} />
-            </div>
+          <div className="grid grid-cols-2 gap-3">
+            <MetricCard
+              label="Assigned"
+              value={assignedNames.length}
+              icon={<FiUsers className="h-4 w-4" />}
+              tone="indigo"
+            />
 
-            <div className="rounded-2xl border border-gray-100 bg-white p-4">
-              <p className="text-xs font-extrabold text-gray-500">Engagement</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {engagementYear ? <Badge tone="amber">YEAR {engagementYear}</Badge> : <Badge>YEAR —</Badge>}
-                {engagementTitle ? <Badge tone="indigo">{engagementTitle}</Badge> : <Badge>TYPE —</Badge>}
-              </div>
-
-              {subEngagementTexts.length ? (
-                <div className="mt-3">
-                  <p className="text-xs font-extrabold text-gray-500 mb-2">Sub engagements</p>
-                  <div className="flex flex-wrap gap-2">
-                    {subEngagementTexts.map((t, i) => (
-                      <span
-                        key={`${t}-${i}`}
-                        className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-gray-50 text-gray-700 border border-gray-200"
-                        title={t}
-                      >
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-3 text-xs text-gray-500">No sub engagements.</p>
-              )}
-            </div>
+            <MetricCard
+              label="Files"
+              value={customerFiles.length}
+              icon={<FiFolder className="h-4 w-4" />}
+              tone="amber"
+            />
           </div>
-        </SectionCard>
 
-        {/* REPLACED: VALIDATION -> CONTACT PERSON DETAILS (same validation design rows) */}
-        <SectionCard
-          title="Contact Person Details"
-          subtitle="Primary contact person information"
-          icon={<FiCheckCircle className="w-5 h-5" />}
-          right={<Badge tone={cpName !== "—" ? "emerald" : "rose"}>{cpName !== "—" ? "SET" : "MISSING"}</Badge>}
-        >
-          <div className="grid grid-cols-1 gap-3">
-            {/* Name */}
-            <div className="flex items-center justify-between rounded-2xl border border-gray-100 bg-white p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-700">
-                  <FiUser />
-                </div>
-                <div>
-                  <p className="text-sm font-extrabold text-gray-900">Name</p>
-                  <p className="text-xs text-gray-500 break-words">{cpName}</p>
-                </div>
+          <div
+            className="
+              mt-4 rounded-xl border border-slate-200/80
+              bg-slate-50/55 p-4
+            "
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p
+                  className="
+                    text-[10px] font-bold uppercase
+                    tracking-[0.055em] text-slate-400
+                  "
+                >
+                  Latest Engagement
+                </p>
+
+                <p
+                  className="
+                    mt-1.5 truncate text-sm
+                    font-extrabold text-slate-900
+                  "
+                  title={engagementTitle}
+                >
+                  {engagementTitle || "No engagement added"}
+                </p>
               </div>
-              <Badge tone={cpName !== "—" ? "emerald" : "rose"}>{cpName !== "—" ? "OK" : "MISSING"}</Badge>
+
+              {engagementYear ? (
+                <Badge tone="amber">{engagementYear}</Badge>
+              ) : null}
             </div>
 
-            {/* Designation */}
-            <div className="flex items-center justify-between rounded-2xl border border-gray-100 bg-white p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-700">
-                  <FiInfo />
-                </div>
-                <div>
-                  <p className="text-sm font-extrabold text-gray-900">Designation</p>
-                  <p className="text-xs text-gray-500 break-words">{cpDesignation}</p>
-                </div>
+            {subEngagementTexts.length ? (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {subEngagementTexts.map((text, index) => (
+                  <span
+                    key={`${text}-${index}`}
+                    className="
+                      inline-flex max-w-full items-center
+                      truncate rounded-full border
+                      border-slate-200 bg-white
+                      px-2.5 py-1 text-[10px]
+                      font-bold text-slate-600
+                    "
+                    title={text}
+                  >
+                    {text}
+                  </span>
+                ))}
               </div>
-              <Badge tone={cpDesignation !== "—" ? "emerald" : "rose"}>{cpDesignation !== "—" ? "OK" : "MISSING"}</Badge>
-            </div>
-
-            {/* Phone */}
-            <div className="flex items-center justify-between rounded-2xl border border-gray-100 bg-white p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-700">
-                  <FiPhone />
-                </div>
-                <div>
-                  <p className="text-sm font-extrabold text-gray-900">Phone</p>
-                  {cpPhoneHref ? (
-                    <a href={cpPhoneHref} className="text-xs text-gray-500 hover:underline break-words">
-                      {cpPhone}
-                    </a>
-                  ) : (
-                    <p className="text-xs text-gray-500 break-words">{cpPhone}</p>
-                  )}
-                </div>
-              </div>
-              <Badge tone={cpPhone !== "—" ? "emerald" : "rose"}>{cpPhone !== "—" ? "OK" : "MISSING"}</Badge>
-            </div>
-
-            {/* Email */}
-            <div className="flex items-center justify-between rounded-2xl border border-gray-100 bg-white p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-700">
-                  <FiMail />
-                </div>
-                <div>
-                  <p className="text-sm font-extrabold text-gray-900">Email</p>
-                  {cpEmailHref ? (
-                    <a href={cpEmailHref} className="text-xs text-gray-500 hover:underline break-all">
-                      {cpEmail}
-                    </a>
-                  ) : (
-                    <p className="text-xs text-gray-500 break-all">{cpEmail}</p>
-                  )}
-                </div>
-              </div>
-              <Badge tone={cpEmail !== "—" ? "emerald" : "rose"}>{cpEmail !== "—" ? "OK" : "MISSING"}</Badge>
-            </div>
+            ) : null}
           </div>
         </SectionCard>
       </div>
 
-      {/* RIGHT COLUMN */}
-      <div className="xl:col-span-8 space-y-4">
-        {/* CUSTOMER DETAILS */}
+      <div className="xl:col-span-8 xl:row-span-2">
         <SectionCard
           title="Customer Details"
-          subtitle="Structured customer information"
-          icon={<FiInfo className="w-5 h-5" />}
+          icon={<FiInfo className="h-[18px] w-[18px]" />}
           right={
-            assignedNames.length ? <Badge tone="indigo">ASSIGNED {assignedNames.length}</Badge> : <Badge>ASSIGNED —</Badge>
+            assignedNames.length ? (
+              <Badge tone="indigo">
+                {assignedNames.length} Assigned
+              </Badge>
+            ) : null
           }
         >
-          <div className="space-y-5">
-            <div>
-              <p className="text-xs font-extrabold text-gray-500 mb-3">Identity</p>
-              <FieldGrid>
-                <FieldItem label="Customer Name" value={customer?.name || "—"} icon={<FiUser />} />
-                <FieldItem label="Company Name" value={customer?.companyName || "—"} icon={<FiInfo />} />
-              </FieldGrid>
-            </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <InfoItem
+              label="Customer Name"
+              value={customer?.name}
+              icon={<FiUser className="h-4 w-4" />}
+            />
 
-            <div>
-              <p className="text-xs font-extrabold text-gray-500 mb-3">Status & Type</p>
-              <FieldGrid>
-                <FieldItem label="Status" value={customer?.status || "—"} icon={<FiInfo />} />
-                <FieldItem label="Customer Type" value={customer?.customerType || "—"} icon={<FiInfo />} />
-              </FieldGrid>
-            </div>
+            <InfoItem
+              label="Company"
+              value={customer?.companyName}
+              icon={<FiInfo className="h-4 w-4" />}
+            />
 
-            <div>
-              <p className="text-xs font-extrabold text-gray-500 mb-3">Assignment</p>
-              <div className="rounded-2xl border border-gray-100 bg-white p-4">
-                <p className="text-xs font-extrabold text-gray-500">Assigned To</p>
-                <p className="mt-1 text-sm font-semibold text-gray-900">
-                  {assignedNames.length ? assignedNames.join(", ") : "—"}
-                </p>
-              </div>
-            </div>
+            <InfoItem
+              label="Email"
+              value={customer?.email}
+              icon={<FiMail className="h-4 w-4" />}
+              href={emailHref || undefined}
+            />
 
-            {/* CUSTOMER CONTACT */}
-            <div>
-              <p className="text-xs font-extrabold text-gray-500 mb-3">Customer Contact</p>
-              <FieldGrid>
-                <FieldItem label="Email" value={customer?.email || "—"} icon={<FiMail />} href={emailHref || undefined} />
-                <FieldItem label="Phone" value={customer?.phone || "—"} icon={<FiPhone />} href={phoneHref || undefined} />
-              </FieldGrid>
-            </div>
+            <InfoItem
+              label="Phone"
+              value={customer?.phone}
+              icon={<FiPhone className="h-4 w-4" />}
+              href={phoneHref || undefined}
+            />
+          </div>
 
-            <div>
-              <p className="text-xs font-extrabold text-gray-500 mb-3">Address</p>
-              <div className="rounded-2xl border border-gray-100 bg-white p-4">
-                <p className="text-xs font-extrabold text-gray-500">Full Address</p>
-                <p className="mt-1 text-sm font-semibold text-gray-900 break-words">{customer?.address || "—"}</p>
-                {mapHref ? (
-                  <a
-                    href={mapHref}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-3 inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-sm font-semibold"
-                  >
-                    <FiExternalLink className="w-4 h-4" />
-                    Open in Maps
-                  </a>
-                ) : null}
-              </div>
-            </div>
+          <div
+            className="
+              mt-3 grid grid-cols-1 gap-3
+              lg:grid-cols-2
+            "
+          >
+            <InfoItem
+              label="Assigned Team"
+              value={
+                assignedNames.length
+                  ? assignedNames.join(", ")
+                  : "Not assigned"
+              }
+              icon={<FiUsers className="h-4 w-4" />}
+            />
+
+            <InfoItem
+              label="Address"
+              value={customer?.address}
+              icon={<FiMapPin className="h-4 w-4" />}
+              href={mapHref || undefined}
+            />
           </div>
         </SectionCard>
+      </div>
 
-        {/* FILES */}
+      <div className="xl:col-span-4">
         <SectionCard
-          title="Customer Permanent Files"
-          subtitle="Stored in customerFiles"
-          icon={<FiFolder className="w-5 h-5" />}
+          title="Contact Person"
+          icon={<FiUsers className="h-[18px] w-[18px]" />}
           right={
-            <div className="flex flex-wrap items-center gap-2">
-              {fileStats.admin ? <Badge tone="indigo">ADMIN {fileStats.admin}</Badge> : null}
-              {fileStats.employee ? <Badge tone="amber">EMPLOYEE {fileStats.employee}</Badge> : null}
+            <Badge tone={hasContactPerson ? "emerald" : "gray"}>
+              {hasContactPerson ? "Available" : "Not Set"}
+            </Badge>
+          }
+        >
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
+            <ContactItem
+              label="Name"
+              value={contactName}
+              icon={<FiUser className="h-4 w-4" />}
+            />
+
+            <ContactItem
+              label="Designation"
+              value={contactDesignation}
+              icon={<FiInfo className="h-4 w-4" />}
+            />
+
+            <ContactItem
+              label="Phone"
+              value={contactPhone}
+              icon={<FiPhone className="h-4 w-4" />}
+              href={contactPhoneHref || undefined}
+            />
+
+            <ContactItem
+              label="Email"
+              value={contactEmail}
+              icon={<FiMail className="h-4 w-4" />}
+              href={contactEmailHref || undefined}
+            />
+          </div>
+        </SectionCard>
+      </div>
+
+      <div className="xl:col-span-12">
+        <SectionCard
+          title="Files"
+          icon={<FiFolder className="h-[18px] w-[18px]" />}
+          right={
+            <>
+              {fileStats.admin > 0 ? (
+                <Badge tone="indigo">
+                  {fileStats.admin} Admin
+                </Badge>
+              ) : null}
+
+              {fileStats.employee > 0 ? (
+                <Badge tone="amber">
+                  {fileStats.employee} Employee
+                </Badge>
+              ) : null}
 
               <label
                 className={cn(
-                  "inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold",
+                  `
+                    inline-flex min-h-10 w-full items-center
+                    justify-center gap-2 rounded-xl px-4
+                    text-sm font-extrabold transition duration-200
+                    sm:w-auto
+                  `,
                   canManageCustomerFiles
-                    ? "bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer"
-                    : "bg-gray-200 text-gray-500 cursor-not-allowed",
-                  uploading ? "opacity-70" : ""
+                    ? `
+                        cursor-pointer bg-indigo-600 text-white
+                        hover:bg-indigo-700
+                        focus-within:ring-4
+                        focus-within:ring-indigo-100
+                      `
+                    : `
+                        cursor-not-allowed bg-slate-200
+                        text-slate-500
+                      `,
+                  uploading && "pointer-events-none opacity-70"
                 )}
               >
-                {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FiUpload />}
-                {uploading ? "Uploading..." : "Upload"}
+                {uploading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FiUpload className="h-4 w-4" />
+                )}
+
+                <span>{uploading ? "Uploading" : "Upload Files"}</span>
+
                 <input
                   type="file"
                   hidden
                   multiple
-                  disabled={uploading || !canManageCustomerFiles}
-                  onChange={(e) => {
-                    const list = Array.from(e.target.files || [])
-                    e.target.value = ""
-                    if (list.length) uploadPermanentFiles(list)
+                  disabled={
+                    uploading || !canManageCustomerFiles
+                  }
+                  onChange={(event) => {
+                    const files = Array.from(
+                      event.target.files || []
+                    )
+
+                    event.target.value = ""
+
+                    if (files.length) {
+                      uploadPermanentFiles(files)
+                    }
                   }}
                 />
               </label>
-            </div>
+            </>
           }
         >
           {sortedFiles.length ? (
-            <div className="space-y-2">{sortedFiles.map((f, idx) => renderFileRow(f, idx))}</div>
+            <div className="space-y-2.5">
+              {sortedFiles.map((file, index) =>
+                renderFileRow(file, index)
+              )}
+            </div>
           ) : (
-            <div className="p-10 rounded-2xl border border-gray-100 bg-gray-50 text-sm text-gray-500 text-center">
-              No permanent files uploaded for this customer.
+            <div
+              className="
+                flex min-h-36 flex-col items-center
+                justify-center rounded-xl border
+                border-dashed border-slate-300
+                bg-slate-50 px-5 text-center
+              "
+            >
+              <FiFolder className="h-6 w-6 text-slate-400" />
+
+              <p className="mt-2 text-sm font-bold text-slate-700">
+                No files uploaded
+              </p>
             </div>
           )}
         </SectionCard>
