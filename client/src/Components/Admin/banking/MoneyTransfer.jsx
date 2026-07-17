@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import toast, { Toaster } from "react-hot-toast"
 import { FiRefreshCcw, FiSave, FiSearch, FiShuffle } from "react-icons/fi"
+import { hasPermission, PERMISSIONS } from "../../Auth/permissions"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const card = "rounded-2xl border border-gray-100 bg-white shadow-[0_14px_35px_-28px_rgba(15,23,42,0.55)]"
@@ -27,6 +28,8 @@ function Field({ title, children, required = false }) { return <label className=
 function Badge({ value }) { return <span className="inline-flex rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-extrabold text-indigo-700 ring-1 ring-indigo-600/10">{pretty(value)}</span> }
 
 export default function MoneyTransfer() {
+  const currentUser = useMemo(() => { try { const stored = JSON.parse(localStorage.getItem("user") || "null"); return stored?.user || stored } catch { return null } }, [])
+  const canManage = hasPermission(currentUser, PERMISSIONS.FINANCE_MANAGE)
   const [accounts, setAccounts] = useState([])
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
@@ -35,7 +38,7 @@ export default function MoneyTransfer() {
   const accountOptions = useMemo(() => accounts.map((item) => [item._id, `${item.accountName} - ${item.accountNumber}`, item.currency || "BDT"]), [accounts])
 
   const loadAccounts = async () => {
-    const data = await api("/banks/accounts?limit=150&status=active")
+    const data = await api("/banking/accounts")
     setAccounts((data.accounts || []).filter((item) => item.ledgerAccount))
   }
 
@@ -79,8 +82,8 @@ export default function MoneyTransfer() {
         <div className="mt-5 relative"><FiSearch className="absolute left-3 top-3.5 text-gray-400" /><input className={cn(input, "pl-10")} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search transfer reference or description..." /></div>
       </div>
 
-      <div className="mb-6 grid gap-6 xl:grid-cols-[420px_1fr]">
-        <form className={`${card} p-5`} onSubmit={save}>
+      <div className={`mb-6 grid gap-6 ${canManage ? "xl:grid-cols-[420px_1fr]" : "grid-cols-1"}`}>
+        {canManage ? <form className={`${card} p-5`} onSubmit={save}>
           <h2 className="mb-4 text-lg font-extrabold text-gray-900">New Transfer</h2>
           <div className="grid gap-4">
             <Field title="From Account" required><select className={input} value={form.fromAccount} onChange={(e) => setForm((p) => ({ ...p, fromAccount: e.target.value }))} required><option value="">Select Account</option>{accountOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></Field>
@@ -91,7 +94,7 @@ export default function MoneyTransfer() {
             <Field title="Description"><textarea className={cn(input, "h-24 resize-none py-3")} value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} /></Field>
             <button className={`${btn} ${btnPrimary}`} type="submit"><FiSave /> Post Transfer</button>
           </div>
-        </form>
+        </form> : null}
 
         <div className={`${card} overflow-hidden`}>
           <div className="overflow-x-auto"><table className="min-w-full divide-y divide-gray-100 text-left">

@@ -855,18 +855,19 @@ function GeneralLedgerView({ filters, setFilters }) {
           <div className="flex items-end"><button className={cn(btn, btnGhost, "h-11 w-full")} onClick={ledger.reload} disabled={!account || ledger.loading}><FiRefreshCcw className={ledger.loading ? "animate-spin" : ""} /> Refresh</button></div>
         </div>
       </div>
-      <LedgerTable rows={ledger.data?.entries || []} />
+      <LedgerTable data={ledger.data} />
     </>
   )
 }
 
-function LedgerTable({ rows }) {
+function LedgerTable({ data }) {
+  const rows = data?.rows || []
   if (!rows.length) return <EmptyState title="No ledger rows" text="Select an account to view ledger activity." />
   return (
     <TableShell>
       <table className="min-w-full divide-y divide-gray-100 text-left">
-        <thead className="bg-gray-50 text-xs font-black uppercase tracking-[0.12em] text-gray-400"><tr>{["Date", "Entry", "Source", "Account", "Debit", "Credit", "Memo"].map((h) => <th key={h} className="px-5 py-3">{h}</th>)}</tr></thead>
-        <tbody className="divide-y divide-gray-100">{rows.flatMap((entry) => (entry.lines || []).map((line) => <tr key={`${entry._id}-${line._id}`}><td className="px-5 py-4 text-sm font-bold">{dateText(entry.date)}</td><td className="px-5 py-4 text-sm font-black">{entry.entryNo || "-"}</td><td className="px-5 py-4 text-sm font-bold">{pretty(entry.sourceType)}</td><td className="px-5 py-4 text-sm font-bold">{line.account?.code} - {line.account?.name}</td><td className="px-5 py-4 text-sm font-black">{money(line.debit, entry.currency)}</td><td className="px-5 py-4 text-sm font-black">{money(line.credit, entry.currency)}</td><td className="px-5 py-4 text-sm font-semibold text-gray-600">{entry.memo || line.description}</td></tr>))}</tbody>
+        <thead className="bg-gray-50 text-xs font-black uppercase tracking-[0.12em] text-gray-400"><tr>{["Date", "Voucher", "Type", "Account", "Debit", "Credit", "Balance", "Description"].map((h) => <th key={h} className="px-5 py-3">{h}</th>)}</tr></thead>
+        <tbody className="divide-y divide-gray-100"><tr className="bg-indigo-50"><td colSpan={6} className="px-5 py-3 text-sm font-black">Opening Balance</td><td className="px-5 py-3 text-sm font-black text-indigo-700">{money(data?.openingBalance?.amount)} {data?.openingBalance?.side}</td><td /></tr>{rows.map((row) => <tr key={`${row.journalEntryId}-${row._id}`}><td className="px-5 py-4 text-sm font-bold">{dateText(row.date)}</td><td className="px-5 py-4 text-sm font-black">{row.entryNo || "-"}</td><td className="px-5 py-4 text-sm font-bold">{pretty(row.voucherType || row.sourceType)}</td><td className="px-5 py-4 text-sm font-bold">{row.account?.code} - {row.account?.name}</td><td className="px-5 py-4 text-sm font-black">{row.debit ? money(row.debit, row.currency) : "-"}</td><td className="px-5 py-4 text-sm font-black">{row.credit ? money(row.credit, row.currency) : "-"}</td><td className="px-5 py-4 text-sm font-black">{money(row.balance, row.currency)} {row.balanceSide}</td><td className="px-5 py-4 text-sm font-semibold text-gray-600">{row.description || row.reference}</td></tr>)}</tbody>
       </table>
     </TableShell>
   )
@@ -930,7 +931,7 @@ function TrialBalanceView({ filters, setFilters }) {
 
 function TrialTable({ rows }) {
   if (!rows.length) return <EmptyState title="No trial balance rows" />
-  return <TableShell><table className="min-w-full divide-y divide-gray-100 text-left"><thead className="bg-gray-50 text-xs font-black uppercase tracking-[0.12em] text-gray-400"><tr>{["Account", "Type", "Debit", "Credit", "Balance"].map((h) => <th key={h} className="px-5 py-3">{h}</th>)}</tr></thead><tbody className="divide-y divide-gray-100">{rows.map((r) => <tr key={r.account?._id}><td className="px-5 py-4 text-sm font-black">{r.account?.code} - {r.account?.name}</td><td className="px-5 py-4"><Badge value={r.account?.type} /></td><td className="px-5 py-4 text-sm font-black">{money(r.debit)}</td><td className="px-5 py-4 text-sm font-black">{money(r.credit)}</td><td className="px-5 py-4 text-sm font-black">{money(r.balance)}</td></tr>)}</tbody></table></TableShell>
+  return <TableShell><table className="min-w-full divide-y divide-gray-100 text-left"><thead className="bg-gray-50 text-xs font-black uppercase tracking-[0.12em] text-gray-400"><tr>{["Account", "Type", "Opening Dr", "Opening Cr", "Period Dr", "Period Cr", "Closing Dr", "Closing Cr"].map((h) => <th key={h} className="px-5 py-3">{h}</th>)}</tr></thead><tbody className="divide-y divide-gray-100">{rows.map((r) => <tr key={r.account?._id}><td className="px-5 py-4 text-sm font-black">{r.account?.code} - {r.account?.name}</td><td className="px-5 py-4"><Badge value={r.account?.type} /></td>{["openingDebit", "openingCredit", "periodDebit", "periodCredit", "closingDebit", "closingCredit"].map((field) => <td key={field} className="px-5 py-4 text-sm font-black">{r[field] ? money(r[field]) : "-"}</td>)}</tr>)}</tbody></table></TableShell>
 }
 
 function BalanceSheetView() {

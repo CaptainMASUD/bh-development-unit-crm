@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import toast, { Toaster } from "react-hot-toast"
 import { FiCheckCircle, FiCreditCard, FiEdit2, FiPlus, FiRefreshCcw, FiSave, FiSearch, FiSlash, FiTrash2, FiX } from "react-icons/fi"
+import { hasPermission, PERMISSIONS } from "../../Auth/permissions"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const card = "rounded-2xl border border-gray-100 bg-white shadow-[0_14px_35px_-28px_rgba(15,23,42,0.55)]"
@@ -42,6 +43,8 @@ function Badge({ value }) {
 }
 
 export default function BankTransactions() {
+  const currentUser = useMemo(() => { try { const stored = JSON.parse(localStorage.getItem("user") || "null"); return stored?.user || stored } catch { return null } }, [])
+  const canManage = hasPermission(currentUser, PERMISSIONS.FINANCE_MANAGE)
   const [accounts, setAccounts] = useState([])
   const [ledgerAccounts, setLedgerAccounts] = useState([])
   const [rows, setRows] = useState([])
@@ -58,7 +61,7 @@ export default function BankTransactions() {
 
   const loadAccounts = async () => {
     const [bankData, ledgerData] = await Promise.all([
-      api("/banks/accounts?limit=150&status=active"),
+      api("/banking/accounts"),
       api("/accounting/accounts?limit=200"),
     ])
     setAccounts((bankData.accounts || []).filter((item) => item.ledgerAccount))
@@ -166,7 +169,7 @@ export default function BankTransactions() {
       <div className={`${card} mb-6 p-5 sm:p-6`}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex items-center gap-4"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white"><FiCreditCard className="h-6 w-6" /></div><div><p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-600">Banking</p><h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Bank Transactions</h1><p className="mt-1 text-sm font-semibold text-gray-500">Optimized bank ledger with deposits, withdrawals, charges, and adjustments.</p></div></div>
-          <div className="flex flex-wrap gap-2"><button className={`${btn} ${btnGhost}`} onClick={() => loadRows()} disabled={loading}><FiRefreshCcw className={loading ? "animate-spin" : ""} /> Refresh</button><button className={`${btn} ${btnPrimary}`} onClick={() => openModal()}><FiPlus /> Add Transaction</button></div>
+          <div className="flex flex-wrap gap-2"><button className={`${btn} ${btnGhost}`} onClick={() => loadRows()} disabled={loading}><FiRefreshCcw className={loading ? "animate-spin" : ""} /> Refresh</button>{canManage ? <button className={`${btn} ${btnPrimary}`} onClick={() => openModal()}><FiPlus /> Add Transaction</button> : null}</div>
         </div>
         <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_220px_220px_240px]">
           <div className="relative"><FiSearch className="absolute left-3 top-3.5 text-gray-400" /><input className={cn(input, "pl-10")} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search reference or description..." /></div>
@@ -191,7 +194,7 @@ export default function BankTransactions() {
                 <td className="px-5 py-4 text-sm font-semibold text-gray-600">{row.reference || "-"}</td>
                 <td className="px-5 py-4">{row.journalEntry ? <div><span className="text-xs font-black text-indigo-700">{row.journalEntry.entryNo}</span><div className="mt-1"><Badge value={row.journalEntry.status} /></div></div> : <span className="text-xs font-bold text-amber-700">Not posted</span>}</td>
                 <td className="px-5 py-4"><Badge value={row.reconciled ? "reconciled" : "open"} /></td>
-                <td className="px-5 py-4"><div className="flex gap-2"><button className={`${btn} ${btnGhost} px-3`} disabled={row.reconciled || Boolean(row.journalEntry)} onClick={() => openModal(row)} title={row.journalEntry ? "Posted entries are immutable" : "Edit"}><FiEdit2 /></button>{row.status === "draft" ? <button className={`${btn} ${btnPrimary} px-3`} onClick={() => postDraft(row)} title="Post to accounting"><FiCheckCircle /></button> : null}{row.status === "posted" && !row.reconciled ? <button className={`${btn} ${btnDanger} px-3`} onClick={() => voidTransaction(row)} title="Void transaction and journal"><FiSlash /></button> : row.status !== "draft" ? <button className={`${btn} ${btnDanger} px-3`} disabled={row.reconciled || Boolean(row.journalEntry)} onClick={() => remove(row)}><FiTrash2 /></button> : <button className={`${btn} ${btnDanger} px-3`} onClick={() => remove(row)}><FiTrash2 /></button>}</div></td>
+                <td className="px-5 py-4">{canManage ? <div className="flex gap-2"><button className={`${btn} ${btnGhost} px-3`} disabled={row.reconciled || Boolean(row.journalEntry)} onClick={() => openModal(row)} title={row.journalEntry ? "Posted entries are immutable" : "Edit"}><FiEdit2 /></button>{row.status === "draft" ? <button className={`${btn} ${btnPrimary} px-3`} onClick={() => postDraft(row)} title="Post to accounting"><FiCheckCircle /></button> : null}{row.status === "posted" && !row.reconciled ? <button className={`${btn} ${btnDanger} px-3`} onClick={() => voidTransaction(row)} title="Void transaction and journal"><FiSlash /></button> : row.status !== "draft" ? <button className={`${btn} ${btnDanger} px-3`} disabled={row.reconciled || Boolean(row.journalEntry)} onClick={() => remove(row)}><FiTrash2 /></button> : <button className={`${btn} ${btnDanger} px-3`} onClick={() => remove(row)}><FiTrash2 /></button>}</div> : <span className="text-xs font-bold text-gray-400">View only</span>}</td>
               </tr>)}
               {!rows.length ? <tr><td colSpan={9} className="px-5 py-16 text-center text-sm font-bold text-gray-500">No bank transactions found.</td></tr> : null}
             </tbody>
@@ -200,7 +203,7 @@ export default function BankTransactions() {
         {nextCursor ? <div className="border-t border-gray-100 p-4 text-center"><button className={`${btn} ${btnGhost}`} disabled={loading} onClick={() => loadRows({ append: true, cursor: nextCursor })}>Load More</button></div> : null}
       </div>
 
-      {modal.open ? <div className="fixed inset-0 z-[90] flex items-center justify-center bg-gray-950/50 p-4 backdrop-blur-sm"><div className="w-full max-w-4xl overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl">
+      {canManage && modal.open ? <div className="fixed inset-0 z-[90] flex items-center justify-center bg-gray-950/50 p-4 backdrop-blur-sm"><div className="w-full max-w-4xl overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-gray-100 p-5"><div><h2 className="text-lg font-extrabold text-gray-900">{modal.item ? "Update Transaction" : "Add Transaction"}</h2><p className="text-sm font-semibold text-gray-500">Fields marked with * are required.</p></div><button className="rounded-xl p-2 hover:bg-gray-100" onClick={() => setModal({ open: false, item: null })}><FiX /></button></div>
         <form onSubmit={save}><div className="grid gap-4 p-5 md:grid-cols-2">
           <Field title="Bank Account" required><select className={input} value={form.bankAccount} onChange={(e) => setForm((p) => ({ ...p, bankAccount: e.target.value }))} required><option value="">Select Account</option>{accountOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></Field>

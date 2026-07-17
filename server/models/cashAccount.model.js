@@ -10,8 +10,14 @@ const cashAccountSchema = new mongoose.Schema(
     institution: { type: String, trim: true, default: "" },
     accountNo: { type: String, trim: true, default: "" },
     openingBalance: { type: Number, default: 0 },
+    location: { type: String, trim: true, default: "" },
+    custodian: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null, index: true },
+    minimumBalance: { type: Number, min: 0, default: 0 },
+    maximumBalance: { type: Number, min: 0, default: 0 },
     lastReconciledAt: { type: Date, default: null },
     lastReconciledBalance: { type: Number, default: 0 },
+    lastVerifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    lastVerificationNote: { type: String, trim: true, default: "" },
     isActive: { type: Boolean, default: true, index: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null, index: true },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
@@ -25,6 +31,11 @@ cashAccountSchema.index({ account: 1 }, { unique: true });
 cashAccountSchema.pre("validate", function (next) {
   this.name = String(this.name || "").trim();
   this.nameLower = this.name.toLowerCase();
+  this.location = String(this.location || "").trim();
+  this.lastVerificationNote = String(this.lastVerificationNote || "").trim();
+  if (this.maximumBalance > 0 && this.minimumBalance > this.maximumBalance) {
+    return next(new Error("Maximum cash balance must be greater than the minimum balance."));
+  }
   next();
 });
 

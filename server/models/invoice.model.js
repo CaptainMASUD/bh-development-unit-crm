@@ -23,6 +23,7 @@ const paymentSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    journalEntry: { type: mongoose.Schema.Types.ObjectId, ref: "JournalEntry", default: null, index: true },
   },
   { _id: true }
 );

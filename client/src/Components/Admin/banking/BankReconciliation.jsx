@@ -2,115 +2,42 @@
 
 import { useEffect, useMemo, useState } from "react"
 import toast, { Toaster } from "react-hot-toast"
-import { FiCheckCircle, FiRefreshCcw, FiSave } from "react-icons/fi"
+import { FiCheckCircle, FiFileText, FiLink, FiPlus, FiRefreshCcw, FiRotateCcw, FiUpload, FiX } from "react-icons/fi"
+import { hasPermission, PERMISSIONS } from "../../Auth/permissions"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
-const card = "rounded-2xl border border-gray-100 bg-white shadow-[0_14px_35px_-28px_rgba(15,23,42,0.55)]"
-const btn = "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-const btnPrimary = "bg-indigo-600 text-white shadow-sm hover:bg-indigo-700"
-const btnGhost = "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
-const input = "h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10"
-const label = "mb-1.5 block text-sm font-extrabold text-gray-900"
-const emptyForm = { bankAccount: "", statementDate: new Date().toISOString().slice(0, 10), statementBalance: "", status: "draft", notes: "" }
-
+const card = "rounded-2xl border border-gray-100 bg-white shadow-[0_14px_35px_-28px_rgba(15,23,42,.55)]"
+const btn = "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black transition disabled:cursor-not-allowed disabled:opacity-50"
+const input = "h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-bold outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10"
+const statementLine = () => ({ statementDate: new Date().toISOString().slice(0, 10), description: "", reference: "", direction: "out", amount: "" })
 function headers() { const token = localStorage.getItem("token"); return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) } }
-async function api(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, { credentials: "include", ...options, headers: { ...headers(), ...(options.headers || {}) } })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.message || data?.error || "Request failed")
-  return data
-}
-function cn(...classes) { return classes.filter(Boolean).join(" ") }
-function pretty(value) { return String(value || "-").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) }
-function money(value, currency = "BDT") { return `${currency} ${Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })}` }
-function Field({ title, children, required = false }) { return <label className="block"><span className={label}>{title}{required ? <span className="ml-1 text-rose-500">*</span> : null}</span>{children}</label> }
-function Badge({ value }) {
-  const key = String(value || "").toLowerCase()
-  const style = key === "reconciled" ? "bg-emerald-50 text-emerald-700 ring-emerald-600/10" : key === "void" ? "bg-rose-50 text-rose-700 ring-rose-600/10" : "bg-indigo-50 text-indigo-700 ring-indigo-600/10"
-  return <span className={cn("inline-flex rounded-full px-2.5 py-1 text-xs font-extrabold ring-1", style)}>{pretty(value)}</span>
-}
+async function api(path, options = {}) { const response = await fetch(`${API_BASE}${path}`, { credentials: "include", ...options, headers: { ...headers(), ...(options.headers || {}) } }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.message || data.error || "Request failed"); return data }
+function money(value, currency = "BDT") { return `${Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: 2 })} ${currency}` }
+function id(value) { return value?._id || value || "" }
 
 export default function BankReconciliation() {
-  const [accounts, setAccounts] = useState([])
-  const [rows, setRows] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [status, setStatus] = useState("all")
-  const [bankAccount, setBankAccount] = useState("all")
-  const [form, setForm] = useState(emptyForm)
-  const accountOptions = useMemo(() => accounts.map((item) => [item._id, `${item.accountName} - ${item.accountNumber}`, item.currency || "BDT"]), [accounts])
-
-  const loadAccounts = async () => {
-    const data = await api("/banks/accounts?limit=150&status=active")
-    setAccounts(data.accounts || [])
-  }
-
-  const loadRows = async () => {
-    setLoading(true)
-    try {
-      const params = new URLSearchParams({ limit: "75" })
-      if (status !== "all") params.set("status", status)
-      if (bankAccount !== "all") params.set("bankAccount", bankAccount)
-      const data = await api(`/banking/reconciliations?${params.toString()}`)
-      setRows(data.reconciliations || [])
-    } catch (error) {
-      toast.error(error.message || "Failed to load reconciliations")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => { loadAccounts().catch((error) => toast.error(error.message)) }, [])
-  useEffect(() => { loadRows() }, [status, bankAccount])
-
-  const save = async (event) => {
-    event.preventDefault()
-    try {
-      await api("/banking/reconciliations", { method: "POST", body: JSON.stringify({ ...form, statementBalance: Number(form.statementBalance || 0) }) })
-      toast.success("Reconciliation saved")
-      setForm(emptyForm)
-      loadRows()
-    } catch (error) {
-      toast.error(error.message || "Save failed")
-    }
-  }
-
-  return (
-    <div className="min-h-screen bg-[#f6f7fb] p-4 sm:p-6 lg:p-8">
-      <Toaster position="top-right" />
-      <div className={`${card} mb-6 p-5 sm:p-6`}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex items-center gap-4"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white"><FiCheckCircle className="h-6 w-6" /></div><div><p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-600">Banking</p><h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Bank Reconciliation</h1><p className="mt-1 text-sm font-semibold text-gray-500">Compare statement balance with book balance and lock matched checkpoints.</p></div></div>
-          <button className={`${btn} ${btnGhost}`} onClick={loadRows} disabled={loading}><FiRefreshCcw className={loading ? "animate-spin" : ""} /> Refresh</button>
-        </div>
-        <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_220px]">
-          <select className={input} value={bankAccount} onChange={(e) => setBankAccount(e.target.value)}><option value="all">All Accounts</option>{accountOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select>
-          <select className={input} value={status} onChange={(e) => setStatus(e.target.value)}><option value="all">All Status</option><option value="draft">Draft</option><option value="reconciled">Reconciled</option><option value="void">Void</option></select>
-        </div>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
-        <form className={`${card} p-5`} onSubmit={save}>
-          <h2 className="mb-4 text-lg font-extrabold text-gray-900">New Reconciliation</h2>
-          <div className="grid gap-4">
-            <Field title="Bank Account" required><select className={input} value={form.bankAccount} onChange={(e) => setForm((p) => ({ ...p, bankAccount: e.target.value }))} required><option value="">Select Account</option>{accountOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></Field>
-            <Field title="Statement Date" required><input className={input} type="date" value={form.statementDate} onChange={(e) => setForm((p) => ({ ...p, statementDate: e.target.value }))} required /></Field>
-            <Field title="Statement Balance" required><input className={input} type="number" step="0.01" value={form.statementBalance} onChange={(e) => setForm((p) => ({ ...p, statementBalance: e.target.value }))} required /></Field>
-            <Field title="Status" required><select className={input} value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))} required><option value="draft">Draft</option><option value="reconciled">Reconciled</option></select></Field>
-            <Field title="Notes"><textarea className={cn(input, "h-24 resize-none py-3")} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></Field>
-            <button className={`${btn} ${btnPrimary}`} type="submit"><FiSave /> Save Reconciliation</button>
-          </div>
-        </form>
-
-        <div className={`${card} overflow-hidden`}>
-          <div className="overflow-x-auto"><table className="min-w-full divide-y divide-gray-100 text-left">
-            <thead className="bg-gray-50 text-xs font-black uppercase tracking-[0.12em] text-gray-400"><tr>{["Date", "Account", "Statement", "Book", "Difference", "Status"].map((h) => <th key={h} className="px-5 py-3">{h}</th>)}</tr></thead>
-            <tbody className="divide-y divide-gray-100">
-              {rows.map((row) => <tr key={row._id} className="hover:bg-gray-50/70"><td className="px-5 py-4 text-sm font-bold">{new Date(row.statementDate).toLocaleDateString()}</td><td className="px-5 py-4"><div className="text-sm font-black">{row.bankAccount?.accountName || "-"}</div><div className="text-xs font-semibold text-gray-500">{row.bankAccount?.bank?.shortName || ""} {row.bankAccount?.accountNumber || ""}</div></td><td className="px-5 py-4 text-sm font-black">{money(row.statementBalance, row.bankAccount?.currency || "BDT")}</td><td className="px-5 py-4 text-sm font-black">{money(row.bookBalance, row.bankAccount?.currency || "BDT")}</td><td className={cn("px-5 py-4 text-sm font-black", Number(row.difference || 0) === 0 ? "text-emerald-700" : "text-rose-700")}>{money(row.difference, row.bankAccount?.currency || "BDT")}</td><td className="px-5 py-4"><Badge value={row.status} /></td></tr>)}
-              {!rows.length ? <tr><td colSpan={6} className="px-5 py-16 text-center text-sm font-bold text-gray-500">No reconciliations found.</td></tr> : null}
-            </tbody>
-          </table></div>
-        </div>
-      </div>
-    </div>
-  )
+  const user = useMemo(() => { try { const stored = JSON.parse(localStorage.getItem("user") || "null"); return stored?.user || stored } catch { return null } }, [])
+  const canManage = hasPermission(user, PERMISSIONS.FINANCE_MANAGE)
+  const [accounts, setAccounts] = useState([]); const [sessions, setSessions] = useState([]); const [ledgerAccounts, setLedgerAccounts] = useState([]); const [workspace, setWorkspace] = useState(null); const [loading, setLoading] = useState(false)
+  const [start, setStart] = useState({ bankAccount: "", statementDate: new Date().toISOString().slice(0, 10), statementBalance: "", notes: "", statementLines: [statementLine()] }); const [booking, setBooking] = useState({})
+  const currency = workspace?.bankAccount?.currency || accounts.find((item) => item._id === start.bankAccount)?.currency || "BDT"
+  const completed = ["completed", "reconciled"].includes(workspace?.reconciliation?.status)
+  const load = async () => { setLoading(true); try { const [accountData, sessionData, ledgerData] = await Promise.all([api("/banking/accounts"), api("/banking/reconciliations?limit=100"), api("/accounting/accounts?limit=500")]); setAccounts(accountData.accounts || []); setSessions(sessionData.reconciliations || []); setLedgerAccounts((ledgerData.accounts || []).filter((item) => !item.isGroup && item.isActive !== false)) } catch (error) { toast.error(error.message) } finally { setLoading(false) } }
+  useEffect(() => { load() }, [])
+  const open = async (reconciliationId) => { setLoading(true); try { setWorkspace(await api(`/banking/reconciliations/${reconciliationId}`)) } catch (error) { toast.error(error.message) } finally { setLoading(false) } }
+  const updateStatement = (index, key, value) => setStart((prev) => ({ ...prev, statementLines: prev.statementLines.map((item, i) => i === index ? { ...item, [key]: value } : item) }))
+  const create = async (event) => { event.preventDefault(); try { const data = await api("/banking/reconciliations", { method: "POST", body: JSON.stringify({ ...start, statementBalance: Number(start.statementBalance || 0), statementLines: start.statementLines.map((line) => ({ ...line, amount: Number(line.amount || 0) })) }) }); toast.success("Reconciliation session started"); setStart({ bankAccount: "", statementDate: new Date().toISOString().slice(0, 10), statementBalance: "", notes: "", statementLines: [statementLine()] }); await load(); open(data.reconciliation._id) } catch (error) { toast.error(error.message) } }
+  const run = async (path, message, method = "POST", body = {}) => { try { await api(path, { method, body: JSON.stringify(body) }); toast.success(message); if (workspace) await open(workspace.reconciliation._id); await load() } catch (error) { toast.error(error.message) } }
+  const match = (lineId, journalEntry) => run(`/banking/reconciliations/${workspace.reconciliation._id}/lines/${lineId}/match`, journalEntry ? "Line matched" : "Match removed", "PATCH", { journalEntry })
+  const importCsv = (file) => { if (!file) return; const reader = new FileReader(); reader.onload = () => { try { const rows = String(reader.result).split(/\r?\n/).filter(Boolean).map((row) => row.split(",").map((cell) => cell.trim().replace(/^"|"$/g, ""))); const header = rows.shift().map((item) => item.toLowerCase()); const at = (row, name) => row[header.indexOf(name)] || ""; const lines = rows.map((row) => ({ statementDate: at(row, "date") || at(row, "statementdate"), description: at(row, "description"), reference: at(row, "reference"), direction: (at(row, "direction") || "out").toLowerCase(), amount: at(row, "amount") })).filter((line) => line.statementDate && Number(line.amount) > 0); if (!lines.length) throw new Error("No valid rows found"); setStart((prev) => ({ ...prev, statementLines: lines })); toast.success(`${lines.length} statement lines imported`) } catch (error) { toast.error(error.message) } }; reader.readAsText(file) }
+  const bookStatementItem = async (line) => { const account = booking[line._id]; if (!account) return toast.error("Select the offset GL account first"); try { const voucherType = line.direction === "in" ? "receipt" : "payment"; const data = await api("/banking/vouchers", { method: "POST", body: JSON.stringify({ voucherType, date: new Date(line.statementDate).toISOString().slice(0, 10), treasuryType: "bank", treasuryAccount: workspace.bankAccount._id, paymentMode: "bank", reference: line.reference, narration: line.description, partyType: "other", partyName: "Bank statement item", lines: [{ account, amount: line.amount, description: line.description }] }) }); await api(`/accounting/journals/${data.voucher._id}/submit`, { method: "PATCH", body: "{}" }); toast.success("Voucher created from statement item"); await open(workspace.reconciliation._id); await run(`/banking/reconciliations/${workspace.reconciliation._id}/auto-match`, "New voucher matched") } catch (error) { toast.error(error.message) } }
+  return <div className="min-h-screen bg-[#f6f7fb] p-4 sm:p-6 lg:p-8"><Toaster position="top-right" />
+    <section className={`${card} mb-6 p-5`}><div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><p className="text-xs font-black uppercase tracking-[.18em] text-indigo-600">Cash &amp; Bank · Control</p><h1 className="text-2xl font-black">Bank Reconciliation</h1><p className="mt-1 text-sm font-semibold text-gray-500">Match imported statement lines to posted Payment, Receipt, Contra, and system vouchers.</p></div><div className="flex gap-2"><button className={`${btn} border border-gray-200 bg-white`} onClick={load}><FiRefreshCcw className={loading ? "animate-spin" : ""} />Refresh</button>{workspace ? <button className={`${btn} border border-gray-200 bg-white`} onClick={() => setWorkspace(null)}><FiX />Close Workspace</button> : null}</div></div></section>
+    {!workspace ? <div className="grid gap-6 xl:grid-cols-[460px_1fr]">{canManage ? <form className={`${card} p-5`} onSubmit={create}><h2 className="text-lg font-black">Start Reconciliation</h2><div className="mt-4 grid gap-4"><select className={input} value={start.bankAccount} onChange={(e) => setStart((p) => ({ ...p, bankAccount: e.target.value }))} required><option value="">Select Bank Account</option>{accounts.map((item) => <option key={item._id} value={item._id}>{item.bank?.shortName || item.bank?.bankName} · {item.accountName} ({item.accountNumber})</option>)}</select><input className={input} type="date" value={start.statementDate} onChange={(e) => setStart((p) => ({ ...p, statementDate: e.target.value }))} required /><input className={input} type="number" step=".01" value={start.statementBalance} onChange={(e) => setStart((p) => ({ ...p, statementBalance: e.target.value }))} placeholder="Statement closing balance" required /><textarea className={`${input} h-20 py-3`} value={start.notes} onChange={(e) => setStart((p) => ({ ...p, notes: e.target.value }))} placeholder="Notes" /><label className={`${btn} cursor-pointer border border-indigo-200 bg-indigo-50 text-indigo-700`}><FiUpload />Import CSV<input className="hidden" type="file" accept=".csv,text/csv" onChange={(e) => importCsv(e.target.files?.[0])} /></label><div className="space-y-3"><div className="flex items-center justify-between"><h3 className="font-black">Statement Lines</h3><button type="button" className={`${btn} border border-gray-200 px-3`} onClick={() => setStart((p) => ({ ...p, statementLines: [...p.statementLines, statementLine()] }))}><FiPlus /></button></div>{start.statementLines.map((line, index) => <div key={index} className="grid gap-2 rounded-xl border border-gray-100 p-3 sm:grid-cols-2"><input className={input} type="date" value={line.statementDate} onChange={(e) => updateStatement(index, "statementDate", e.target.value)} required /><select className={input} value={line.direction} onChange={(e) => updateStatement(index, "direction", e.target.value)}><option value="in">Money In / Credit</option><option value="out">Money Out / Debit</option></select><input className={input} value={line.description} onChange={(e) => updateStatement(index, "description", e.target.value)} placeholder="Description" /><input className={input} value={line.reference} onChange={(e) => updateStatement(index, "reference", e.target.value)} placeholder="Reference" /><input className={input} type="number" min=".01" step=".01" value={line.amount} onChange={(e) => updateStatement(index, "amount", e.target.value)} placeholder="Amount" required /><button type="button" className={`${btn} border border-rose-200 text-rose-700`} disabled={start.statementLines.length === 1} onClick={() => setStart((p) => ({ ...p, statementLines: p.statementLines.filter((_, i) => i !== index) }))}>Remove</button></div>)}</div><button className={`${btn} bg-indigo-600 text-white`}><FiFileText />Start Session</button></div></form> : null}<section className={`${card} overflow-hidden`}><div className="border-b p-5"><h2 className="text-lg font-black">Reconciliation History</h2></div><div className="divide-y">{sessions.map((item) => <button key={item._id} className="flex w-full items-center justify-between p-5 text-left hover:bg-gray-50" onClick={() => open(item._id)}><div><p className="font-black">{item.bankAccount?.accountName}</p><p className="text-xs font-semibold text-gray-500">{new Date(item.statementDate).toLocaleDateString()} · {item.statementLines?.length || 0} statement lines</p></div><div className="text-right"><p className="font-black">{money(item.statementBalance, item.bankAccount?.currency)}</p><span className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-black text-indigo-700">{item.status}</span></div></button>)}{!sessions.length ? <p className="p-12 text-center text-sm font-bold text-gray-500">No reconciliation sessions yet.</p> : null}</div></section></div> : <>
+      <section className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">{[["Statement Balance", workspace.reconciliation.statementBalance], ["Book Balance (GL)", workspace.reconciliation.bookBalance], ["Adjusted Bank", workspace.adjustedBankBalance], ["Adjusted Book", workspace.adjustedBookBalance], ["Difference", workspace.difference]].map(([label, value]) => <article key={label} className={`${card} p-4`}><p className="text-xs font-black uppercase tracking-wider text-gray-400">{label}</p><p className={`mt-2 text-xl font-black ${label === "Difference" && Math.abs(value) > .009 ? "text-rose-600" : "text-gray-950"}`}>{money(value, currency)}</p></article>)}</section>
+      <section className={`${card} mb-6 p-5`}><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-black">{workspace.bankAccount.bank?.shortName || workspace.bankAccount.bank?.bankName} · {workspace.bankAccount.accountName}</h2><p className="text-sm font-semibold text-gray-500">Statement through {new Date(workspace.reconciliation.statementDate).toLocaleDateString()} · Status {workspace.reconciliation.status}</p></div>{canManage ? <div className="flex flex-wrap gap-2">{!completed ? <><button className={`${btn} border border-indigo-200 bg-indigo-50 text-indigo-700`} onClick={() => run(`/banking/reconciliations/${workspace.reconciliation._id}/auto-match`, "Auto-match completed")}><FiLink />Auto Match ±3 Days</button><button className={`${btn} bg-emerald-600 text-white`} disabled={Math.abs(workspace.difference) > .009} onClick={() => run(`/banking/reconciliations/${workspace.reconciliation._id}/complete`, "Reconciliation completed", "PATCH")}><FiCheckCircle />Complete &amp; Lock</button></> : <button className={`${btn} border border-amber-200 bg-amber-50 text-amber-700`} onClick={() => run(`/banking/reconciliations/${workspace.reconciliation._id}/reopen`, "Reconciliation reopened", "PATCH")}><FiRotateCcw />Reopen</button>}</div> : null}</div></section>
+      <div className="grid gap-6 xl:grid-cols-2"><section className={`${card} overflow-hidden`}><div className="border-b p-4"><h3 className="font-black">Bank Statement Lines</h3><p className="text-xs font-semibold text-gray-500">Unmatched bank-only items can create a voucher directly.</p></div><div className="divide-y">{workspace.reconciliation.statementLines.map((line) => { const matched = id(line.matchedJournalEntry); return <div key={line._id} className={`p-4 ${matched ? "bg-emerald-50/40" : ""}`}><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-black">{line.description || "Statement item"}</p><p className="text-xs font-semibold text-gray-500">{new Date(line.statementDate).toLocaleDateString()} · {line.reference || "No reference"}</p></div><p className={`font-black ${line.direction === "in" ? "text-emerald-700" : "text-rose-700"}`}>{line.direction === "in" ? "+" : "-"}{money(line.amount, currency)}</p></div>{!completed ? <select className={`${input} mt-3`} value={matched} onChange={(e) => match(line._id, e.target.value)}><option value="">Unmatched</option>{workspace.bookTransactions.filter((book) => !book.matched || String(book.journalEntry) === String(matched)).map((book) => <option key={book.journalEntry} value={book.journalEntry}>{book.entryNo} · {new Date(book.date).toLocaleDateString()} · {book.direction === "in" ? "+" : "-"}{money(book.amount, currency)}</option>)}</select> : <p className="mt-2 text-xs font-black text-emerald-700">{matched ? `Matched: ${line.matchedJournalEntry?.entryNo || matched}` : "Outstanding bank-only item"}</p>}{!matched && !completed && canManage ? <div className="mt-3 flex gap-2"><select className={input} value={booking[line._id] || ""} onChange={(e) => setBooking((p) => ({ ...p, [line._id]: e.target.value }))}><option value="">Offset GL account</option>{ledgerAccounts.filter((account) => String(account._id) !== String(workspace.bankAccount.ledgerAccount?._id)).map((account) => <option key={account._id} value={account._id}>{account.code} - {account.name}</option>)}</select><button className={`${btn} bg-indigo-600 text-white`} onClick={() => bookStatementItem(line)}>Book</button></div> : null}</div> })}</div></section>
+        <section className={`${card} overflow-hidden`}><div className="border-b p-4"><h3 className="font-black">Book Vouchers from General Ledger</h3><p className="text-xs font-semibold text-gray-500">Unmatched items remain outstanding and carry forward.</p></div><div className="divide-y">{workspace.bookTransactions.map((book) => <div key={book.journalEntry} className={`flex items-start justify-between gap-3 p-4 ${book.matched ? "bg-emerald-50/40" : ""}`}><div><p className="text-sm font-black text-indigo-700">{book.entryNo} · {book.voucherType}</p><p className="text-xs font-semibold text-gray-500">{new Date(book.date).toLocaleDateString()} · {book.description || book.reference || "-"}</p>{book.chequeNo ? <p className="mt-1 text-xs font-black text-amber-700">Cheque {book.chequeNo} · {book.chequeStatus}</p> : null}</div><div className="text-right"><p className={`font-black ${book.direction === "in" ? "text-emerald-700" : "text-rose-700"}`}>{book.direction === "in" ? "+" : "-"}{money(book.amount, currency)}</p><span className={`text-xs font-black ${book.matched ? "text-emerald-700" : "text-amber-700"}`}>{book.matched ? "Matched" : "Outstanding"}</span></div></div>)}</div></section></div>
+    </>}
+  </div>
 }

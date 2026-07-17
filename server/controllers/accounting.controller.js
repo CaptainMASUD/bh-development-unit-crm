@@ -11,15 +11,93 @@ import OpeningBalance from "../models/openingBalance.model.js";
 import CashAccount from "../models/cashAccount.model.js";
 import BankAccount from "../models/bankAccount.model.js";
 import BankReconciliation from "../models/bankReconciliation.model.js";
+import BankTransaction from "../models/bankTransaction.model.js";
+import VoucherType from "../models/voucherType.model.js";
 import VendorBill from "../models/vendorBill.model.js";
+import User from "../models/user.model.js";
 import { accountingCache } from "../utils/cache.js";
 import { getReqMeta, writeAudit } from "../utils/audit.js";
 import { nextAccountingNumber } from "../services/accountingNumbering.service.js";
+import { createPostedJournal } from "../services/accountingPosting.service.js";
 
 const money = (value) => Math.round(Number(value || 0) * 100) / 100;
 const clean = (value) => String(value ?? "").trim();
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const toId = (value) => new mongoose.Types.ObjectId(String(value));
+const ACTIVE_LEDGER_STATUSES = ["posted", "reversed"];
+const VOUCHER_TYPES = ["journal", "payment", "receipt", "contra", "opening", "closing", "sales", "purchase", "payroll", "tax", "adjustment"];
+const validateVoucherSettlements = async (entry, session = null) => {
+  if (entry.settlementAppliedAt || !entry.linkedDocuments?.length) return;
+  for (const allocation of entry.linkedDocuments) {
+    const amount = money(allocation.appliedAmount);
+    if (amount <= 0) continue;
+    if (allocation.documentType === "invoice") {
+      const query = Invoice.findById(allocation.documentId).select("invoiceNo status dueTotal");
+      if (session) query.session(session);
+      const invoice = await query.lean();
+      if (!invoice || ["draft", "void"].includes(invoice.status)) throw Object.assign(new Error("A linked customer invoice is no longer available."), { statusCode: 409 });
+      if (amount > money(invoice.dueTotal) + 0.009) throw Object.assign(new Error(`Receipt allocation exceeds invoice ${invoice.invoiceNo} balance.`), { statusCode: 409 });
+    }
+    if (allocation.documentType === "supplier_bill") {
+      const query = VendorBill.findById(allocation.documentId).select("billNo status dueTotal");
+      if (session) query.session(session);
+      const bill = await query.lean();
+      if (!bill || ["draft", "void"].includes(bill.status)) throw Object.assign(new Error("A linked supplier bill is no longer available."), { statusCode: 409 });
+      if (amount > money(bill.dueTotal) + 0.009) throw Object.assign(new Error(`Payment allocation exceeds bill ${bill.billNo} balance.`), { statusCode: 409 });
+    }
+  }
+};
+const applyVoucherSettlements = async (entry, userId, session = null) => {
+  if (entry.settlementAppliedAt || !entry.linkedDocuments?.length) return;
+  for (const allocation of entry.linkedDocuments) {
+    const amount = money(allocation.appliedAmount);
+    if (amount <= 0) continue;
+    if (allocation.documentType === "invoice") {
+      const query = Invoice.findById(allocation.documentId); if (session) query.session(session); const invoice = await query;
+      if (!invoice || ["draft", "void"].includes(invoice.status)) throw Object.assign(new Error("A linked customer invoice is no longer available."), { statusCode: 409 });
+      if (invoice.payments.some((payment) => String(payment.journalEntry || "") === String(entry._id))) continue;
+      if (amount > money(invoice.dueTotal) + 0.009) throw Object.assign(new Error(`Receipt allocation exceeds invoice ${invoice.invoiceNo} balance.`), { statusCode: 409 });
+      invoice.payments.push({ amount, method: ["cash", "bank", "card"].includes(entry.paymentMode) ? entry.paymentMode : "other", transactionId: entry.reference, paidAt: entry.date, note: entry.memo, receivedBy: userId, journalEntry: entry._id });
+      await invoice.save(session ? { session } : undefined);
+    }
+    if (allocation.documentType === "supplier_bill") {
+      const query = VendorBill.findById(allocation.documentId); if (session) query.session(session); const bill = await query;
+      if (!bill || ["draft", "void"].includes(bill.status)) throw Object.assign(new Error("A linked supplier bill is no longer available."), { statusCode: 409 });
+      if (bill.payments.some((payment) => String(payment.journalEntry || "") === String(entry._id))) continue;
+      if (amount > money(bill.dueTotal) + 0.009) throw Object.assign(new Error(`Payment allocation exceeds bill ${bill.billNo} balance.`), { statusCode: 409 });
+      bill.payments.push({ amount, paidAt: entry.date, cashAccount: entry.cashAccount || null, journalEntry: entry._id, reference: entry.reference, note: entry.memo, paidBy: userId });
+      await bill.save(session ? { session } : undefined);
+    }
+  }
+  entry.settlementAppliedAt = new Date();
+  await entry.save(session ? { session } : undefined);
+};
+
+const reverseVoucherSettlements = async (entry, session = null) => {
+  if (!entry.settlementAppliedAt || entry.settlementReversedAt) return;
+  const invoiceQuery = Invoice.find({ "payments.journalEntry": entry._id }); if (session) invoiceQuery.session(session);
+  for (const invoice of await invoiceQuery) { invoice.payments = invoice.payments.filter((payment) => String(payment.journalEntry || "") !== String(entry._id)); await invoice.save(session ? { session } : undefined); }
+  const billQuery = VendorBill.find({ "payments.journalEntry": entry._id }); if (session) billQuery.session(session);
+  for (const bill of await billQuery) { bill.payments = bill.payments.filter((payment) => String(payment.journalEntry || "") !== String(entry._id)); await bill.save(session ? { session } : undefined); }
+  entry.settlementReversedAt = new Date();
+};
+const voucherTypeForSource = (sourceType = "manual", requested = "") => {
+  if (VOUCHER_TYPES.includes(clean(requested).toLowerCase())) return clean(requested).toLowerCase();
+  const map = {
+    opening_balance: "opening", fiscal_closing: "closing", invoice: "sales", customer_payment: "receipt",
+    vendor_bill: "purchase", vendor_payment: "payment", expense: "payment", bank_transfer: "contra",
+    payroll: "payroll", tax: "tax", manual: "journal",
+  };
+  return map[clean(sourceType).toLowerCase()] || "adjustment";
+};
+const DEFAULT_VOUCHER_TYPES = [
+  { key: "journal", code: "JV", name: "Journal Voucher", numberingRule: "journal", defaultPattern: "flexible", applicableModule: "accounting" },
+  { key: "payment", code: "PV", name: "Payment Voucher", numberingRule: "voucher", defaultPattern: "cash_credit", applicableModule: "cash_bank" },
+  { key: "receipt", code: "RV", name: "Receipt Voucher", numberingRule: "voucher", defaultPattern: "cash_debit", applicableModule: "cash_bank" },
+  { key: "contra", code: "CV", name: "Contra Voucher", numberingRule: "voucher", defaultPattern: "bank_to_bank", applicableModule: "cash_bank" },
+  { key: "adjustment", code: "AV", name: "Adjustment Voucher", numberingRule: "voucher", defaultPattern: "flexible", applicableModule: "accounting" },
+];
+const numberingRuleForVoucher = async (voucherType) => (await VoucherType.findOne({ key: voucherType, isActive: true }).select("numberingRule").lean())?.numberingRule || (voucherType === "journal" ? "journal" : "voucher");
 
 const SYSTEM_ACCOUNTS = [
   { code: "A000", name: "ASSETS", type: "asset", subType: "Asset", isGroup: true },
@@ -104,6 +182,7 @@ const assertOpenPeriod = async (date) => {
   if (period && period.status !== "open") {
     const err = new Error(`Accounting period ${period.periodKey} is ${period.status}.`); err.statusCode = 409; throw err;
   }
+  return period;
 };
 
 const normalizeLines = (lines = []) =>
@@ -114,6 +193,9 @@ const normalizeLines = (lines = []) =>
     description: clean(line.description),
     contactType: clean(line.contactType),
     contactId: isId(line.contactId) ? line.contactId : null,
+    costCenter: isId(line.costCenter) ? line.costCenter : null,
+    project: isId(line.project) ? line.project : null,
+    taxCode: clean(line.taxCode).toUpperCase(),
   }));
 
 const assertPostableAccounts = async (lines = []) => {
@@ -138,6 +220,9 @@ const postJournalEntry = async ({
   reference = "",
   memo = "",
   currency = "BDT",
+  voucherType = "",
+  paymentMode = "",
+  attachment = {},
   userId = null,
   allowClosedPeriod = false,
 }) => {
@@ -147,18 +232,28 @@ const postJournalEntry = async ({
     err.statusCode = 400;
     throw err;
   }
-  if (!allowClosedPeriod) await assertOpenPeriod(postingDate);
+  const period = !allowClosedPeriod ? await assertOpenPeriod(postingDate) : await AccountingPeriod.findOne({ startDate: { $lte: postingDate }, endDate: { $gte: postingDate } }).lean();
+  const fiscalYear = period?.fiscalYearRef || (await FiscalYear.findOne({ startDate: { $lte: postingDate }, endDate: { $gte: postingDate } }).select("_id").lean())?._id || null;
   await assertPostableAccounts(lines);
-  const entryNo = await nextAccountingNumber("journal", postingDate);
+  const resolvedVoucherType = voucherTypeForSource(sourceType, voucherType);
+  const entryNo = await nextAccountingNumber(await numberingRuleForVoucher(resolvedVoucherType), postingDate);
   const entry = await JournalEntry.create({
     entryNo,
     date: postingDate,
     status: "posted",
     sourceType,
+    voucherType: resolvedVoucherType,
+    origin: sourceType === "manual" ? "manual" : "system",
+    fiscalYear,
+    accountingPeriod: period?._id || null,
     sourceId: isId(sourceId) ? sourceId : null,
     reference: clean(reference),
     memo: clean(memo),
     currency: clean(currency || "BDT"),
+    paymentMode: clean(paymentMode),
+    attachment: {
+      name: clean(attachment?.name), url: clean(attachment?.url), type: clean(attachment?.type), size: Number(attachment?.size || 0),
+    },
     lines: normalizeLines(lines),
     createdBy: userId,
     postedBy: userId,
@@ -184,7 +279,7 @@ const makeListCursor = (doc, field = "date") =>
   Buffer.from(JSON.stringify({ date: doc[field] || doc.createdAt, id: doc._id })).toString("base64url");
 
 const ledgerMatchForRange = ({ from, to }) => {
-  const match = { status: "posted" };
+  const match = { status: { $in: ACTIVE_LEDGER_STATUSES } };
   if (from || to) {
     match.date = {};
     if (from) match.date.$gte = from;
@@ -790,7 +885,7 @@ export const listAccounts = async (req, res) => {
       .lean();
     if (String(req.query.includeBalances) === "true" && accounts.length) {
       const balances = await JournalEntry.aggregate([
-        { $match: { status: "posted" } },
+        { $match: { status: { $in: ACTIVE_LEDGER_STATUSES } } },
         { $unwind: "$lines" },
         { $match: { "lines.account": { $in: accounts.map((account) => account._id) } } },
         { $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
@@ -889,6 +984,34 @@ export const publishChartOfAccounts = async (req, res) => {
   }
 };
 
+export const listVoucherTypes = async (req, res) => {
+  try {
+    await VoucherType.bulkWrite(DEFAULT_VOUCHER_TYPES.map((item) => ({
+      updateOne: { filter: { key: item.key }, update: { $setOnInsert: item }, upsert: true },
+    })));
+    const filter = String(req.query.active || "true") === "all" ? {} : { isActive: String(req.query.active || "true") === "true" };
+    const voucherTypes = await VoucherType.find(filter).sort({ code: 1 }).lean();
+    return res.json({ voucherTypes });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load voucher types.", error: error.message });
+  }
+};
+
+export const updateVoucherType = async (req, res) => {
+  try {
+    const key = clean(req.params.key).toLowerCase();
+    if (!VOUCHER_TYPES.includes(key)) return res.status(400).json({ message: "Invalid voucher type." });
+    const patch = { updatedBy: req.user?._id || null };
+    for (const field of ["code", "name", "numberingRule", "defaultPattern", "applicableModule", "description", "isActive"]) {
+      if (req.body[field] !== undefined) patch[field] = req.body[field];
+    }
+    const voucherType = await VoucherType.findOneAndUpdate({ key }, { $set: patch, $setOnInsert: { key, createdBy: req.user?._id || null } }, { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true });
+    return res.json({ message: "Voucher type updated.", voucherType });
+  } catch (error) {
+    return res.status(error?.code === 11000 ? 409 : 500).json({ message: error?.code === 11000 ? "Voucher code already exists." : "Failed to update voucher type.", error: error.message });
+  }
+};
+
 export const listJournalEntries = async (req, res) => {
   try {
     const range = parseDateRange(req.query);
@@ -898,6 +1021,10 @@ export const listJournalEntries = async (req, res) => {
     const filter = {};
     if (req.query.status && req.query.status !== "all") filter.status = clean(req.query.status);
     if (req.query.sourceType) filter.sourceType = clean(req.query.sourceType);
+    if (req.query.voucherType && req.query.voucherType !== "all") filter.voucherType = clean(req.query.voucherType);
+    if (isId(req.query.preparedBy)) filter.createdBy = req.query.preparedBy;
+    const search = textRegex(req.query.q);
+    if (search) filter.$and = [{ $or: [{ entryNo: search }, { memo: search }, { reference: search }, { "lines.description": search }] }];
     if (range.from || range.to) filter.date = {};
     if (range.from) filter.date.$gte = range.from;
     if (range.to) filter.date.$lte = range.to;
@@ -906,6 +1033,8 @@ export const listJournalEntries = async (req, res) => {
     }
     const rows = await JournalEntry.find(filter)
       .populate("lines.account", "code name type normalBalance")
+      .populate("createdBy submittedBy approvedBy postedBy reversedBy", "name email role")
+      .populate("reversalOf reversedByEntry", "entryNo date status voucherType")
       .sort({ date: -1, _id: -1 })
       .limit(limit + 1)
       .lean();
@@ -918,64 +1047,196 @@ export const listJournalEntries = async (req, res) => {
   }
 };
 
+const populateJournal = (query) => query
+  .populate("lines.account", "code name type normalBalance isActive isGroup")
+  .populate("createdBy submittedBy approvedBy postedBy reversedBy", "name email role")
+  .populate("fiscalYear", "name startDate endDate status")
+  .populate("accountingPeriod", "periodKey name startDate endDate status")
+  .populate("reversalOf reversedByEntry", "entryNo date status voucherType memo");
+
+const journalApprovalRequired = async (entry) => {
+  if (entry.origin === "system" || entry.sourceType !== "manual") return false;
+  const settings = await AccountingSettings.findOne({ key: "company" }).select("approvalEnabled journalApprovalThreshold").lean();
+  return Boolean(settings?.approvalEnabled && Number(entry.totalDebit || 0) > Number(settings.journalApprovalThreshold || 0));
+};
+
+const journalPeriodContext = async (date) => {
+  const postingDate = parsePostingDate(date, null);
+  if (!postingDate) throw Object.assign(new Error("Valid journal date is required."), { statusCode: 400 });
+  const period = await assertOpenPeriod(postingDate);
+  const fiscalYear = period?.fiscalYearRef || (await FiscalYear.findOne({ startDate: { $lte: postingDate }, endDate: { $gte: postingDate } }).select("_id").lean())?._id || null;
+  return { postingDate, period: period?._id || null, fiscalYear };
+};
+
+export const getJournalEntry = async (req, res) => {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid journal entry ID." });
+    const journalEntry = await populateJournal(JournalEntry.findById(req.params.id)).lean();
+    if (!journalEntry) return res.status(404).json({ message: "Journal entry not found." });
+    return res.json({ journalEntry });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load journal entry.", error: error.message });
+  }
+};
+
 export const createJournalEntry = async (req, res) => {
   try {
     let status = clean(req.body.status || "posted");
     if (!["draft", "posted"].includes(status)) return res.status(400).json({ message: "Journal status must be draft or posted." });
     const normalizedLines = normalizeLines(req.body.lines);
     await assertPostableAccounts(normalizedLines);
-    const settings = await AccountingSettings.findOne({ key: "company" }).select("approvalEnabled journalApprovalThreshold").lean();
-    const totalDebit = money(normalizedLines.reduce((sum, line) => sum + line.debit, 0));
-    const approvalRequired = clean(req.body.sourceType || "manual") === "manual" && settings?.approvalEnabled && totalDebit > Number(settings.journalApprovalThreshold || 0);
-    if (approvalRequired) status = "draft";
-    if (status === "posted") {
+    const context = await journalPeriodContext(req.body.date);
+    const sourceType = clean(req.body.sourceType || "manual");
+    const draftEntry = new JournalEntry({
+      date: context.postingDate,
+      status: "draft",
+      voucherType: voucherTypeForSource(sourceType, req.body.voucherType),
+      sourceType,
+      origin: sourceType === "manual" ? "manual" : "system",
+      fiscalYear: context.fiscalYear,
+      accountingPeriod: context.period,
+      sourceId: isId(req.body.sourceId) ? req.body.sourceId : null,
+      reference: clean(req.body.reference), memo: clean(req.body.memo), currency: clean(req.body.currency || "BDT").toUpperCase(),
+      paymentMode: clean(req.body.paymentMode).toLowerCase(), attachment: req.body.attachment || {}, lines: normalizedLines,
+      createdBy: req.user?._id || null,
+    });
+    await draftEntry.validate();
+    const approvalRequired = await journalApprovalRequired(draftEntry);
+    if (status === "posted" && !approvalRequired) {
       const entry = await postJournalEntry({
-        date: req.body.date,
+        date: context.postingDate,
         lines: normalizedLines,
-        sourceType: clean(req.body.sourceType || "manual"),
+        sourceType,
         sourceId: req.body.sourceId,
         reference: req.body.reference,
         memo: req.body.memo,
         currency: req.body.currency,
+        voucherType: req.body.voucherType,
+        paymentMode: req.body.paymentMode,
+        attachment: req.body.attachment,
         userId: req.user?._id || null,
       });
+      await writeAudit({ actorId: req.user?._id, action: "create", entityType: "JournalEntry", entityId: entry._id, after: entry.toObject(), meta: getReqMeta(req) });
       return res.status(201).json({ message: "Journal entry posted.", journalEntry: entry });
     }
-    const entry = await JournalEntry.create({
-      date: parsePostingDate(req.body.date),
-      status: "draft",
-      sourceType: clean(req.body.sourceType || "manual"),
-      sourceId: isId(req.body.sourceId) ? req.body.sourceId : null,
-      reference: clean(req.body.reference),
-      memo: clean(req.body.memo),
-      currency: clean(req.body.currency || "BDT"),
-      lines: normalizedLines,
-      createdBy: req.user?._id || null,
-    });
-    return res.status(201).json({ message: approvalRequired ? "Journal exceeds the approval threshold and was saved as draft." : "Journal entry saved as draft.", approvalRequired, journalEntry: entry });
+    draftEntry.status = approvalRequired && status === "posted" ? "pending_approval" : "draft";
+    if (draftEntry.status === "pending_approval") {
+      draftEntry.submittedAt = new Date();
+      draftEntry.submittedBy = req.user?._id || null;
+    }
+    await draftEntry.save();
+    await writeAudit({ actorId: req.user?._id, action: "create", entityType: "JournalEntry", entityId: draftEntry._id, after: draftEntry.toObject(), meta: getReqMeta(req) });
+    return res.status(201).json({ message: approvalRequired && status === "posted" ? "Journal submitted for approval." : "Journal entry saved as draft.", approvalRequired, journalEntry: draftEntry });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ message: "Failed to save journal entry.", error: error.message });
   }
 };
 
-export const postDraftJournalEntry = async (req, res) => {
+export const updateDraftJournalEntry = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid journal entry ID." });
     const entry = await JournalEntry.findById(req.params.id);
     if (!entry) return res.status(404).json({ message: "Journal entry not found." });
-    if (entry.status !== "draft") return res.status(409).json({ message: "Only draft journal entries can be posted." });
-    await assertOpenPeriod(entry.date);
-    await assertPostableAccounts(entry.lines);
-    if (!entry.entryNo) entry.entryNo = await nextAccountingNumber("journal", entry.date);
-    entry.status = "posted";
-    entry.postedAt = new Date();
-    entry.postedBy = req.user?._id || null;
+    if (entry.status !== "draft") return res.status(409).json({ message: "Only draft journal entries can be edited." });
+    const context = await journalPeriodContext(req.body.date ?? entry.date);
+    const lines = req.body.lines ? normalizeLines(req.body.lines) : entry.lines;
+    await assertPostableAccounts(lines);
+    entry.date = context.postingDate; entry.fiscalYear = context.fiscalYear; entry.accountingPeriod = context.period;
+    entry.reference = clean(req.body.reference ?? entry.reference); entry.memo = clean(req.body.memo ?? entry.memo);
+    entry.currency = clean(req.body.currency ?? entry.currency).toUpperCase(); entry.paymentMode = clean(req.body.paymentMode ?? entry.paymentMode).toLowerCase();
+    entry.voucherType = voucherTypeForSource(entry.sourceType, req.body.voucherType ?? entry.voucherType);
+    if (req.body.attachment !== undefined) entry.attachment = req.body.attachment || {};
+    entry.lines = lines;
     await entry.save();
-    accountingCache.flushAll();
-    return res.json({ message: "Journal entry posted.", journalEntry: entry });
+    await writeAudit({ actorId: req.user?._id, action: "update", entityType: "JournalEntry", entityId: entry._id, after: entry.toObject(), meta: getReqMeta(req) });
+    return res.json({ message: "Draft journal updated.", journalEntry: entry });
   } catch (error) {
-    return res.status(error.statusCode || 500).json({ message: "Failed to post journal entry.", error: error.message });
+    return res.status(error.statusCode || 500).json({ message: "Failed to update draft journal.", error: error.message });
   }
+};
+
+export const submitJournalEntry = async (req, res) => {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid journal entry ID." });
+    const entry = await JournalEntry.findById(req.params.id);
+    if (!entry) return res.status(404).json({ message: "Journal entry not found." });
+    if (entry.status !== "draft") return res.status(409).json({ message: "Only draft journal entries can be submitted." });
+    await journalPeriodContext(entry.date);
+    await assertPostableAccounts(entry.lines);
+    entry.submittedAt = new Date(); entry.submittedBy = req.user?._id || null;
+    const approvalRequired = await journalApprovalRequired(entry);
+    if (approvalRequired) entry.status = "pending_approval";
+    else {
+      await validateVoucherSettlements(entry);
+      if (!entry.entryNo) entry.entryNo = await nextAccountingNumber(await numberingRuleForVoucher(entry.voucherType), entry.date);
+      entry.status = "posted"; entry.postedAt = new Date(); entry.postedBy = req.user?._id || null;
+    }
+    await entry.save();
+    if (!approvalRequired) await applyVoucherSettlements(entry, req.user?._id || null);
+    accountingCache.flushAll();
+    await writeAudit({ actorId: req.user?._id, action: approvalRequired ? "submit" : "confirm", entityType: "JournalEntry", entityId: entry._id, after: entry.toObject(), meta: getReqMeta(req) });
+    return res.json({ message: approvalRequired ? "Journal submitted for approval." : "Journal entry posted.", approvalRequired, journalEntry: entry });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: error.statusCode ? error.message : "Failed to submit journal entry.", error: error.message });
+  }
+};
+
+export const postDraftJournalEntry = submitJournalEntry;
+
+export const approveJournalEntry = async (req, res) => {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid journal entry ID." });
+    const entry = await JournalEntry.findById(req.params.id);
+    if (!entry) return res.status(404).json({ message: "Journal entry not found." });
+    if (entry.status !== "pending_approval") return res.status(409).json({ message: "Only pending journal entries can be approved." });
+    await journalPeriodContext(entry.date); await assertPostableAccounts(entry.lines);
+    await validateVoucherSettlements(entry);
+    if (!entry.entryNo) entry.entryNo = await nextAccountingNumber(await numberingRuleForVoucher(entry.voucherType), entry.date);
+    entry.status = "posted"; entry.approvedAt = new Date(); entry.approvedBy = req.user?._id || null; entry.postedAt = new Date(); entry.postedBy = req.user?._id || null;
+    await entry.save(); await applyVoucherSettlements(entry, req.user?._id || null); accountingCache.flushAll();
+    await writeAudit({ actorId: req.user?._id, action: "approve", entityType: "JournalEntry", entityId: entry._id, after: entry.toObject(), meta: getReqMeta(req) });
+    return res.json({ message: "Journal approved and posted.", journalEntry: entry });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: error.statusCode ? error.message : "Failed to approve journal entry.", error: error.message });
+  }
+};
+
+export const reverseJournalEntry = async (req, res) => {
+  const session = await mongoose.startSession();
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid journal entry ID." });
+    let original; let reversal;
+    await session.withTransaction(async () => {
+      original = await JournalEntry.findById(req.params.id).session(session);
+      if (!original) throw Object.assign(new Error("Journal entry not found."), { statusCode: 404 });
+      if (original.status !== "posted") throw Object.assign(new Error("Only posted journal entries can be reversed."), { statusCode: 409 });
+      if (original.origin !== "manual") throw Object.assign(new Error("System-generated entries must be reversed from their source module."), { statusCode: 409 });
+      const [completedReconciliation, legacyReconciledTransaction] = await Promise.all([
+        BankReconciliation.exists({ status: { $in: ["completed", "reconciled"] }, "statementLines.matchedJournalEntry": original._id }).session(session),
+        BankTransaction.exists({ journalEntry: original._id, reconciled: true }).session(session),
+      ]);
+      if (completedReconciliation || legacyReconciledTransaction) throw Object.assign(new Error("This voucher is locked by a completed bank reconciliation. Reopen that reconciliation before reversing it."), { statusCode: 409 });
+      await reverseVoucherSettlements(original, session);
+      const reversalDate = parsePostingDate(req.body.date, null);
+      if (!reversalDate) throw Object.assign(new Error("Valid reversal date is required."), { statusCode: 400 });
+      reversal = await createPostedJournal({
+        date: reversalDate, sourceType: "manual", sourceId: original._id, voucherType: original.voucherType, origin: "manual",
+        reference: clean(req.body.reference) || `REV-${original.entryNo}`, memo: clean(req.body.reason) || `Reversal of ${original.entryNo}`,
+        currency: original.currency, userId: req.user?._id || null, session,
+        lines: original.lines.map((line) => ({ account: line.account, debit: line.credit, credit: line.debit, description: `Reversal: ${line.description || original.memo}`, contactType: line.contactType, contactId: line.contactId, costCenter: line.costCenter, project: line.project, taxCode: line.taxCode })),
+      });
+      reversal.reversalOf = original._id; reversal.reversalReason = clean(req.body.reason);
+      reversal.treasuryAccountType = original.treasuryAccountType; reversal.cashAccount = original.cashAccount; reversal.bankAccount = original.bankAccount;
+      reversal.partyType = original.partyType; reversal.partyId = original.partyId; reversal.partyName = original.partyName;
+      await reversal.save({ session });
+      original.status = "reversed"; original.reversedAt = new Date(); original.reversedBy = req.user?._id || null; original.reversedByEntry = reversal._id; original.reversalReason = clean(req.body.reason); await original.save({ session });
+    });
+    accountingCache.flushAll();
+    await writeAudit({ actorId: req.user?._id, action: "reverse", entityType: "JournalEntry", entityId: original._id, before: { status: "posted" }, after: original.toObject(), meta: { ...getReqMeta(req), reason: clean(req.body.reason) } });
+    return res.json({ message: "Reversal journal posted with a complete audit link.", journalEntry: original, reversalEntry: reversal });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: "Failed to reverse journal entry.", error: error.message });
+  } finally { session.endSession(); }
 };
 
 export const voidJournalEntry = async (req, res) => {
@@ -984,6 +1245,7 @@ export const voidJournalEntry = async (req, res) => {
     const entry = await JournalEntry.findById(req.params.id);
     if (!entry) return res.status(404).json({ message: "Journal entry not found." });
     if (entry.status !== "posted") return res.status(409).json({ message: "Only posted journal entries can be voided." });
+    if (entry.origin === "manual") return res.status(409).json({ message: "Manual posted journals must be corrected with a reversal entry." });
     await assertOpenPeriod(entry.date);
     entry.status = "void";
     entry.voidedAt = new Date();
@@ -1112,7 +1374,7 @@ export const unlockAccountingPeriod = async (req, res) => {
 
 const carryForwardLines = async (throughDate) => {
   const rows = await JournalEntry.aggregate([
-    { $match: { status: "posted", date: { $lte: throughDate } } },
+    { $match: { status: { $in: ACTIVE_LEDGER_STATUSES }, date: { $lte: throughDate } } },
     { $unwind: "$lines" },
     { $group: { _id: { account: "$lines.account", contactType: "$lines.contactType", contactId: "$lines.contactId" }, debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" }, partyName: { $first: "$lines.description" } } },
     { $lookup: { from: "accounts", localField: "_id.account", foreignField: "_id", as: "account" } },
@@ -1152,7 +1414,7 @@ export const closeFiscalYear = async (req, res) => {
     const settings = await AccountingSettings.findOne({ key: "company" }).lean();
     if (!settings?.retainedEarningsAccount) return res.status(409).json({ message: "Configure the Retained Earnings account before closing the fiscal year." });
     const rows = await JournalEntry.aggregate([
-      { $match: { status: "posted", date: { $gte: fiscalYear.startDate, $lte: fiscalYear.endDate } } },
+      { $match: { status: { $in: ACTIVE_LEDGER_STATUSES }, date: { $gte: fiscalYear.startDate, $lte: fiscalYear.endDate } } },
       { $unwind: "$lines" },
       { $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
       { $lookup: { from: "accounts", localField: "_id", foreignField: "_id", as: "account" } },
@@ -1204,33 +1466,107 @@ export const closeFiscalYear = async (req, res) => {
 
 export const listCashAccounts = async (req, res) => {
   try {
-    const accounts = await CashAccount.find(req.query.active === "all" ? {} : { isActive: { $ne: false } })
-      .populate("account", "code name type")
+    const filter = req.query.active === "all" ? {} : { isActive: { $ne: false } };
+    if (req.query.type && req.query.type !== "all") filter.type = clean(req.query.type);
+    const accounts = await CashAccount.find(filter)
+      .populate("account", "code name type currency isActive publishedAt")
+      .populate("custodian lastVerifiedBy", "name email")
       .sort({ type: 1, nameLower: 1, _id: 1 })
       .limit(parseLimit(req.query.limit, 100))
       .lean();
-    return res.json({ cashAccounts: accounts });
+    const ledgerIds = accounts.map((item) => item.account?._id).filter(Boolean);
+    const balances = ledgerIds.length ? await JournalEntry.aggregate([
+      { $match: { status: { $in: ACTIVE_LEDGER_STATUSES }, "lines.account": { $in: ledgerIds } } },
+      { $unwind: "$lines" },
+      { $match: { "lines.account": { $in: ledgerIds } } },
+      { $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
+    ]) : [];
+    const balanceMap = new Map(balances.map((row) => [String(row._id), money(row.debit - row.credit)]));
+    const enriched = accounts.map((item) => {
+      const currentBalance = balanceMap.get(String(item.account?._id || "")) || 0;
+      const alert = item.minimumBalance > 0 && currentBalance < item.minimumBalance
+        ? "below_minimum"
+        : item.maximumBalance > 0 && currentBalance > item.maximumBalance ? "above_maximum" : "";
+      return { ...item, currentBalance, alert, variance: money(Number(item.lastReconciledBalance || 0) - currentBalance) };
+    });
+    return res.json({ cashAccounts: enriched });
   } catch (error) {
     return res.status(500).json({ message: "Failed to load cash/bank accounts.", error: error.message });
   }
 };
 
-export const createCashAccount = async (req, res) => {
+export const listCashCustodians = async (_req, res) => {
   try {
-    const cashAccount = await CashAccount.create({
-      name: req.body.name,
-      type: clean(req.body.type || "bank"),
-      account: req.body.account || await resolveSystemAccount(clean(req.body.type) === "cash" ? "1000" : "1010"),
-      currency: clean(req.body.currency || "BDT"),
-      institution: clean(req.body.institution),
-      accountNo: clean(req.body.accountNo),
-      openingBalance: money(req.body.openingBalance),
-      createdBy: req.user?._id || null,
+    const users = await User.find({ isActive: { $ne: false } }).select("name email role").sort({ name: 1 }).limit(500).lean();
+    return res.json({ users });
+  } catch (error) { return res.status(500).json({ message: "Failed to load cash custodians.", error: error.message }); }
+};
+
+export const createCashAccount = async (req, res) => {
+  const session = await mongoose.startSession();
+  try {
+    if (!clean(req.body.name)) return res.status(400).json({ message: "Cash account name is required." });
+    let cashAccount;
+    await session.withTransaction(async () => {
+      let ledger = isId(req.body.account) ? await Account.findOne({ _id: req.body.account, type: "asset", isActive: true, isGroup: { $ne: true } }).session(session) : null;
+      if (req.body.account && !ledger) throw Object.assign(new Error("Select an active leaf Asset ledger."), { statusCode: 400 });
+      if (ledger && await CashAccount.exists({ account: ledger._id }).session(session)) throw Object.assign(new Error("That ledger is already connected to another cash account."), { statusCode: 409 });
+      if (!ledger) {
+        const settings = await AccountingSettings.findOne({ key: "company" }).select("coaPublishedAt").session(session).lean();
+        ledger = new Account({
+          code: `CASH-${new mongoose.Types.ObjectId().toString().slice(-8).toUpperCase()}`,
+          name: clean(req.body.name), type: "asset", subType: "Cash and Cash Equivalents",
+          currency: clean(req.body.currency || "BDT").toUpperCase(), isActive: true,
+          description: `Linked cash ledger for ${clean(req.body.name)}`,
+          publishedAt: settings?.coaPublishedAt ? new Date() : null,
+          publishedBy: settings?.coaPublishedAt ? req.user?._id || null : null,
+          createdBy: req.user?._id || null, updatedBy: req.user?._id || null,
+        });
+        await ledger.save({ session });
+      }
+      cashAccount = new CashAccount({
+        name: req.body.name, type: "cash", account: ledger._id,
+        currency: clean(req.body.currency || "BDT").toUpperCase(), location: clean(req.body.location),
+        custodian: isId(req.body.custodian) ? req.body.custodian : null,
+        minimumBalance: money(req.body.minimumBalance), maximumBalance: money(req.body.maximumBalance),
+        openingBalance: 0, isActive: req.body.isActive !== false,
+        createdBy: req.user?._id || null, updatedBy: req.user?._id || null,
+      });
+      await cashAccount.save({ session });
     });
-    return res.status(201).json({ message: "Cash/bank account created.", cashAccount });
+    return res.status(201).json({ message: "Cash account created and connected to the Chart of Accounts. Set its starting amount through Opening Balance.", cashAccount });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to create cash/bank account.", error: error.message });
+    return res.status(error.statusCode || (error?.code === 11000 ? 409 : 500)).json({ message: error.statusCode ? error.message : "Failed to create cash account.", error: error.message });
+  } finally {
+    await session.endSession();
   }
+};
+
+export const updateCashAccount = async (req, res) => {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid cash account ID." });
+    const patch = {};
+    for (const field of ["name", "location", "currency"]) if (req.body[field] !== undefined) patch[field] = clean(req.body[field]);
+    for (const field of ["minimumBalance", "maximumBalance"]) if (req.body[field] !== undefined) patch[field] = money(req.body[field]);
+    if (req.body.custodian !== undefined) patch.custodian = isId(req.body.custodian) ? req.body.custodian : null;
+    if (req.body.isActive !== undefined) patch.isActive = Boolean(req.body.isActive);
+    patch.updatedBy = req.user?._id || null;
+    const cashAccount = await CashAccount.findByIdAndUpdate(req.params.id, patch, { new: true, runValidators: true })
+      .populate("account", "code name type currency").populate("custodian", "name email");
+    if (!cashAccount) return res.status(404).json({ message: "Cash account not found." });
+    return res.json({ message: "Cash account updated.", cashAccount });
+  } catch (error) { return res.status(error?.code === 11000 ? 409 : 500).json({ message: "Failed to update cash account.", error: error.message }); }
+};
+
+export const deleteCashAccount = async (req, res) => {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid cash account ID." });
+    const cashAccount = await CashAccount.findById(req.params.id).lean();
+    if (!cashAccount) return res.status(404).json({ message: "Cash account not found." });
+    if (await JournalEntry.exists({ "lines.account": cashAccount.account })) return res.status(409).json({ message: "Cash accounts with ledger history cannot be deleted. Set the account inactive instead." });
+    await CashAccount.findByIdAndDelete(req.params.id);
+    return res.json({ message: "Cash account deleted." });
+  } catch (error) { return res.status(500).json({ message: "Failed to delete cash account.", error: error.message }); }
 };
 
 export const reconcileCashAccount = async (req, res) => {
@@ -1238,11 +1574,11 @@ export const reconcileCashAccount = async (req, res) => {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid cash account ID." });
     const cashAccount = await CashAccount.findByIdAndUpdate(
       req.params.id,
-      { lastReconciledAt: parsePostingDate(req.body.reconciledAt) || new Date(), lastReconciledBalance: money(req.body.balance), updatedBy: req.user?._id || null },
+      { lastReconciledAt: parsePostingDate(req.body.reconciledAt) || new Date(), lastReconciledBalance: money(req.body.balance), lastVerifiedBy: req.user?._id || null, lastVerificationNote: clean(req.body.note), updatedBy: req.user?._id || null },
       { new: true, runValidators: true }
     );
     if (!cashAccount) return res.status(404).json({ message: "Cash/bank account not found." });
-    return res.json({ message: "Cash/bank account reconciled.", cashAccount });
+    return res.json({ message: "Physical cash count verified.", cashAccount });
   } catch (error) {
     return res.status(500).json({ message: "Failed to reconcile cash/bank account.", error: error.message });
   }
@@ -1491,6 +1827,14 @@ export const postOpeningBalanceDraft = async (req, res) => {
     if (openingBalance.status !== "draft") return res.status(409).json({ message: "Opening balance is already posted." });
     const lines = normalizeOpeningLines(openingBalance.lines.map((line) => line.toObject()));
     await validateOpeningLines(lines, { posting: true });
+    const synchronizedBank = await BankAccount.findOne({
+      ledgerAccount: { $in: lines.map((line) => line.account) },
+      openingJournalEntry: { $ne: null },
+      openingBalance: { $gt: 0 },
+    }).select("accountName accountNumber").lean();
+    if (synchronizedBank) {
+      return res.status(409).json({ message: `${synchronizedBank.accountName} (${synchronizedBank.accountNumber}) already has a bank opening voucher. Remove that ledger from this opening-balance draft to prevent duplication.` });
+    }
     const debit = money(lines.reduce((sum, line) => sum + line.debit, 0));
     const credit = money(lines.reduce((sum, line) => sum + line.credit, 0));
     if (debit <= 0 || debit !== credit) return res.status(400).json({ message: "Total debit and total credit must be equal and greater than zero." });
@@ -1499,7 +1843,7 @@ export const postOpeningBalanceDraft = async (req, res) => {
     openingBalance.status = "posted"; openingBalance.journalEntry = journal._id; openingBalance.postedBy = req.user?._id || null; openingBalance.postedAt = new Date(); await openingBalance.save();
     await writeAudit({ actorId: req.user?._id, action: "confirm", entityType: "OpeningBalance", entityId: openingBalance._id, after: openingBalance.toObject(), meta: getReqMeta(req) });
     return res.json({ message: "Opening balance posted to the General Ledger.", openingBalance, journalEntry: journal });
-  } catch (error) { return res.status(error.statusCode || 500).json({ message: "Failed to post opening balance.", error: error.message }); }
+  } catch (error) { return res.status(error.statusCode || 500).json({ message: error.statusCode ? error.message : "Failed to post opening balance.", error: error.message }); }
 };
 
 export const carryForwardOpeningBalance = async (req, res) => {
@@ -1522,46 +1866,138 @@ export const getGeneralLedger = async (req, res) => {
   try {
     const range = parseDateRange(req.query);
     if (range.error) return res.status(400).json({ message: range.error });
-    const limit = parseLimit(req.query.limit);
-    if (!isId(req.query.account)) return res.status(400).json({ message: "Account is required." });
-    const accountId = toId(req.query.account);
-    const cursor = listCursor(req.query.cursor);
-    const filter = { status: "posted", "lines.account": accountId };
+    const rawAccountIds = clean(req.query.accounts || req.query.account).split(",").map((value) => value.trim()).filter(isId);
+    const accountIds = [...new Set(rawAccountIds)].map(toId);
+    if (!accountIds.length) return res.status(400).json({ message: "Select at least one ledger account." });
+    if (accountIds.length > 50) return res.status(400).json({ message: "A consolidated ledger can include at most 50 accounts." });
+    const selectedAccounts = await Account.find({ _id: { $in: accountIds }, isGroup: { $ne: true } }).select("code name type subType normalBalance currency isActive").sort({ code: 1 }).lean();
+    if (selectedAccounts.length !== accountIds.length) return res.status(400).json({ message: "General Ledger supports leaf accounts only." });
+
+    const filter = { status: { $in: ACTIVE_LEDGER_STATUSES }, "lines.account": { $in: accountIds } };
     if (range.from || range.to) filter.date = {};
     if (range.from) filter.date.$gte = range.from;
     if (range.to) filter.date.$lte = range.to;
-    if (cursor) filter.$or = [{ date: { $lt: cursor.date } }, { date: cursor.date, _id: { $lt: cursor.id } }];
-    const rows = await JournalEntry.find(filter)
-      .select("entryNo date sourceType reference memo currency lines")
+    if (req.query.voucherType && req.query.voucherType !== "all") filter.voucherType = clean(req.query.voucherType);
+    if (req.query.sourceType && req.query.sourceType !== "all") filter.sourceType = clean(req.query.sourceType);
+    const search = textRegex(req.query.q);
+    if (search) filter.$and = [{ $or: [{ entryNo: search }, { reference: search }, { memo: search }, { "lines.description": search }] }];
+    const reportLimit = Math.min(Math.max(Number(req.query.limit || 2000), 1), 5000);
+    const entries = await JournalEntry.find(filter)
+      .select("entryNo date status voucherType sourceType sourceId origin reference memo currency paymentMode reversalOf reversedByEntry lines createdAt")
       .populate("lines.account", "code name type normalBalance")
-      .sort({ date: -1, _id: -1 })
-      .limit(limit + 1)
+      .sort({ date: 1, createdAt: 1, _id: 1 })
+      .limit(reportLimit + 1)
       .lean();
-    const sliced = rows.map((entry) => ({ ...entry, lines: (entry.lines || []).filter((line) => String(line.account?._id || line.account) === String(accountId)) }));
-    const hasNextPage = sliced.length > limit;
-    const entries = hasNextPage ? sliced.slice(0, limit) : sliced;
-    const nextCursor = hasNextPage && entries.length ? makeListCursor(entries[entries.length - 1]) : "";
-    return res.json({ entries, pageInfo: { limit, hasNextPage, nextCursor } });
+    const truncated = entries.length > reportLimit;
+    const journalEntries = truncated ? entries.slice(0, reportLimit) : entries;
+
+    const openingRows = range.from ? await JournalEntry.aggregate([
+      { $match: { status: { $in: ACTIVE_LEDGER_STATUSES }, date: { $lt: range.from }, "lines.account": { $in: accountIds } } },
+      { $unwind: "$lines" }, { $match: { "lines.account": { $in: accountIds } } },
+      { $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
+    ]).allowDiskUse(true) : [];
+    const openingByAccount = new Map(openingRows.map((row) => [String(row._id), money(row.debit - row.credit)]));
+    const accountRunning = new Map(selectedAccounts.map((account) => [String(account._id), openingByAccount.get(String(account._id)) || 0]));
+    let consolidatedRunning = money([...accountRunning.values()].reduce((sum, value) => sum + value, 0));
+    const lineAllowed = (line) => {
+      if (!accountRunning.has(String(line.account?._id || line.account))) return false;
+      if (req.query.contactType && req.query.contactType !== "all" && line.contactType !== req.query.contactType) return false;
+      if (isId(req.query.party) && String(line.contactId || "") !== String(req.query.party)) return false;
+      if (isId(req.query.costCenter) && String(line.costCenter || "") !== String(req.query.costCenter)) return false;
+      if (isId(req.query.project) && String(line.project || "") !== String(req.query.project)) return false;
+      return true;
+    };
+    const rows = [];
+    const compatibleEntries = journalEntries.map((entry) => {
+      const selectedLines = (entry.lines || []).filter(lineAllowed);
+      for (const line of selectedLines) {
+        const accountId = String(line.account?._id || line.account);
+        const movement = money(Number(line.debit || 0) - Number(line.credit || 0));
+        const nextAccountBalance = money((accountRunning.get(accountId) || 0) + movement);
+        accountRunning.set(accountId, nextAccountBalance);
+        consolidatedRunning = money(consolidatedRunning + movement);
+        rows.push({
+          _id: line._id, journalEntryId: entry._id, date: entry.date, entryNo: entry.entryNo, voucherType: entry.voucherType,
+          sourceType: entry.sourceType, reference: entry.reference, description: line.description || entry.memo, debit: money(line.debit), credit: money(line.credit),
+          currency: entry.currency, account: line.account, contactType: line.contactType, contactId: line.contactId, costCenter: line.costCenter, project: line.project, taxCode: line.taxCode,
+          accountBalance: Math.abs(nextAccountBalance), accountBalanceSide: nextAccountBalance >= 0 ? "Dr" : "Cr",
+          balance: Math.abs(consolidatedRunning), balanceSide: consolidatedRunning >= 0 ? "Dr" : "Cr",
+        });
+      }
+      return { ...entry, lines: selectedLines };
+    }).filter((entry) => entry.lines.length);
+    const totalDebit = money(rows.reduce((sum, row) => sum + row.debit, 0));
+    const totalCredit = money(rows.reduce((sum, row) => sum + row.credit, 0));
+    const openingSigned = money(openingRows.reduce((sum, row) => sum + Number(row.debit || 0) - Number(row.credit || 0), 0));
+    return res.json({
+      accounts: selectedAccounts,
+      openingBalance: { amount: Math.abs(openingSigned), side: openingSigned >= 0 ? "Dr" : "Cr", signed: openingSigned },
+      rows,
+      entries: compatibleEntries,
+      totals: { debit: totalDebit, credit: totalCredit, movement: money(totalDebit - totalCredit) },
+      closingBalance: { amount: Math.abs(consolidatedRunning), side: consolidatedRunning >= 0 ? "Dr" : "Cr", signed: consolidatedRunning },
+      pageInfo: { limit: reportLimit, hasNextPage: truncated, nextCursor: "" },
+      basis: "Live from posted and reversed-source voucher lines; no separate General Ledger records are stored.",
+    });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to load general ledger.", error: error.message });
+    return res.status(error.statusCode || 500).json({ message: "Failed to load general ledger.", error: error.message });
   }
 };
 
 export const getTrialBalance = async (req, res) => {
   try {
-    const range = parseDateRange(req.query);
-    if (range.error) return res.status(400).json({ message: range.error });
-    const rows = await JournalEntry.aggregate([
-      { $match: ledgerMatchForRange(range) },
-      { $unwind: "$lines" },
+    const asOf = req.query.asOf || req.query.to ? new Date(req.query.asOf || req.query.to) : new Date();
+    if (Number.isNaN(asOf.getTime())) return res.status(400).json({ message: "Invalid as-of date." });
+    asOf.setHours(23, 59, 59, 999);
+    let from = req.query.from ? new Date(req.query.from) : null;
+    if (from && Number.isNaN(from.getTime())) return res.status(400).json({ message: "Invalid period start date." });
+    if (!from) from = (await FiscalYear.findOne({ startDate: { $lte: asOf }, endDate: { $gte: asOf } }).select("startDate").lean())?.startDate || null;
+    if (from) from = new Date(new Date(from).setHours(0, 0, 0, 0));
+    if (from && from > asOf) return res.status(400).json({ message: "Period start date cannot be after the as-of date." });
+
+    const aggregateAccountTotals = async (match) => JournalEntry.aggregate([
+      { $match: match }, { $unwind: "$lines" },
       { $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
-      { $lookup: { from: "accounts", localField: "_id", foreignField: "_id", as: "account" } },
-      { $unwind: "$account" },
-      { $sort: { "account.type": 1, "account.code": 1 } },
-      { $project: { _id: 0, account: { _id: "$account._id", code: "$account.code", name: "$account.name", type: "$account.type" }, debit: 1, credit: 1, balance: { $subtract: ["$debit", "$credit"] } } },
     ]).allowDiskUse(true);
-    const totals = rows.reduce((acc, row) => ({ debit: money(acc.debit + row.debit), credit: money(acc.credit + row.credit) }), { debit: 0, credit: 0 });
-    return res.json({ rows: rows.map((row) => ({ ...row, debit: money(row.debit), credit: money(row.credit), balance: money(row.balance) })), totals, isBalanced: totals.debit === totals.credit });
+    const openingDateCondition = from
+      ? { $or: [{ date: { $lt: from } }, { sourceType: "opening_balance", date: { $lte: asOf } }] }
+      : { sourceType: "opening_balance", date: { $lte: asOf } };
+    const movementDate = { $lte: asOf }; if (from) movementDate.$gte = from;
+    const [accounts, openingRows, movementRows] = await Promise.all([
+      Account.find({ isGroup: { $ne: true } }).select("code name type subType normalBalance currency isActive").sort({ type: 1, code: 1 }).lean(),
+      aggregateAccountTotals({ status: { $in: ACTIVE_LEDGER_STATUSES }, ...openingDateCondition }),
+      aggregateAccountTotals({ status: { $in: ACTIVE_LEDGER_STATUSES }, sourceType: { $ne: "opening_balance" }, date: movementDate }),
+    ]);
+    const openingMap = new Map(openingRows.map((row) => [String(row._id), row]));
+    const movementMap = new Map(movementRows.map((row) => [String(row._id), row]));
+    const includeZero = String(req.query.includeZero || "false") === "true";
+    const rows = accounts.map((account) => {
+      const opening = openingMap.get(String(account._id)) || { debit: 0, credit: 0 };
+      const movement = movementMap.get(String(account._id)) || { debit: 0, credit: 0 };
+      const openingSigned = money(opening.debit - opening.credit);
+      const closingSigned = money(openingSigned + movement.debit - movement.credit);
+      return {
+        account,
+        openingDebit: openingSigned > 0 ? openingSigned : 0, openingCredit: openingSigned < 0 ? Math.abs(openingSigned) : 0,
+        periodDebit: money(movement.debit), periodCredit: money(movement.credit),
+        closingDebit: closingSigned > 0 ? closingSigned : 0, closingCredit: closingSigned < 0 ? Math.abs(closingSigned) : 0,
+        debit: closingSigned > 0 ? closingSigned : 0, credit: closingSigned < 0 ? Math.abs(closingSigned) : 0,
+        balance: Math.abs(closingSigned), balanceSide: closingSigned >= 0 ? "Dr" : "Cr",
+      };
+    }).filter((row) => includeZero || row.openingDebit || row.openingCredit || row.periodDebit || row.periodCredit || row.closingDebit || row.closingCredit);
+    const totalFields = ["openingDebit", "openingCredit", "periodDebit", "periodCredit", "closingDebit", "closingCredit"];
+    const sumRows = (items) => Object.fromEntries(totalFields.map((field) => [field, money(items.reduce((sum, row) => sum + Number(row[field] || 0), 0))]));
+    const grouped = ["asset", "liability", "equity", "revenue", "expense"].map((type) => {
+      const groupRows = rows.filter((row) => row.account.type === type);
+      return { type, rows: groupRows, totals: sumRows(groupRows) };
+    }).filter((group) => group.rows.length);
+    const totals = sumRows(rows); totals.debit = totals.closingDebit; totals.credit = totals.closingCredit;
+    return res.json({
+      asOf, from, rows, groups: grouped, totals,
+      isBalanced: totals.closingDebit === totals.closingCredit,
+      difference: money(totals.closingDebit - totals.closingCredit),
+      basis: "Live aggregation of opening and posted voucher lines by leaf account.",
+    });
   } catch (error) {
     return res.status(500).json({ message: "Failed to load trial balance.", error: error.message });
   }
@@ -1573,7 +2009,7 @@ export const getBalanceSheet = async (req, res) => {
     if (Number.isNaN(to.getTime())) return res.status(400).json({ message: "Invalid to date." });
     to.setHours(23, 59, 59, 999);
     const rows = await JournalEntry.aggregate([
-      { $match: { status: "posted", date: { $lte: to } } },
+      { $match: { status: { $in: ACTIVE_LEDGER_STATUSES }, date: { $lte: to } } },
       { $unwind: "$lines" },
       { $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
       { $lookup: { from: "accounts", localField: "_id", foreignField: "_id", as: "account" } },

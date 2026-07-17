@@ -17,6 +17,7 @@ import {
   FiTrash2,
   FiX,
 } from "react-icons/fi"
+import { hasPermission, PERMISSIONS } from "../../Auth/permissions"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -49,6 +50,7 @@ const emptyAccountForm = {
   accountNumber: "",
   accountType: "current",
   openingBalance: "",
+  openingBalanceDate: new Date().toISOString().slice(0, 10),
   status: "active",
   branchName: "",
   routingNumber: "",
@@ -438,6 +440,15 @@ function HeaderSearchFilters({
 }
 
 export default function BankSetup() {
+  const currentUser = useMemo(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("user") || "null")
+      return stored?.user || stored
+    } catch {
+      return null
+    }
+  }, [])
+  const canManage = hasPermission(currentUser, PERMISSIONS.BANK_SETUP_MANAGE)
   const [activeTab, setActiveTab] = useState("banks")
   const [banks, setBanks] = useState([])
   const [accounts, setAccounts] = useState([])
@@ -539,10 +550,13 @@ export default function BankSetup() {
     }
   }
 
-  const loadLedgerAccounts = async () => {
+  const loadLedgerAccounts = async ({ currency = "", bankAccount = "" } = {}) => {
     try {
-      const data = await api("/accounting/accounts?limit=200")
-      setLedgerAccounts((data.accounts || []).filter((item) => !item.isGroup && item.isActive !== false && ["asset", "liability"].includes(item.type)))
+      const params = new URLSearchParams()
+      if (currency) params.set("currency", currency)
+      if (bankAccount) params.set("bankAccount", bankAccount)
+      const data = await api(`/banks/accounts/ledger-options?${params.toString()}`)
+      setLedgerAccounts(data.accounts || [])
     } catch (error) {
       toast.error(error.message || "Failed to load accounting ledgers")
     }
@@ -554,7 +568,7 @@ export default function BankSetup() {
       return
     }
 
-    await Promise.all([loadBanks(false), loadAccounts(), loadLedgerAccounts()])
+    await Promise.all([loadBanks(false), loadAccounts()])
   }
 
   useEffect(() => {
@@ -564,7 +578,6 @@ export default function BankSetup() {
       } else {
         loadBanks(false)
         loadAccounts()
-        loadLedgerAccounts()
       }
     }, 250)
 
@@ -609,6 +622,7 @@ export default function BankSetup() {
             accountNumber: item.accountNumber || "",
             accountType: item.accountType || "current",
             openingBalance: item.openingBalance ?? "",
+            openingBalanceDate: item.openingBalanceDate ? new Date(item.openingBalanceDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
             status: item.status || "active",
             branchName: item.branchName || "",
             routingNumber: item.routingNumber || "",
@@ -622,6 +636,14 @@ export default function BankSetup() {
           }
     )
   }
+
+  useEffect(() => {
+    if (!modal.open || modal.mode !== "account") return undefined
+    const timer = setTimeout(() => {
+      loadLedgerAccounts({ currency: accountForm.currency, bankAccount: modal.item?._id || "" })
+    }, 150)
+    return () => clearTimeout(timer)
+  }, [modal.open, modal.mode, modal.item?._id, accountForm.currency])
 
   const closeModal = () => {
     setFormError("")
@@ -670,6 +692,9 @@ export default function BankSetup() {
     if (!accountForm.accountType) return setFormError("Account type is required.")
     if (Number(accountForm.openingBalance || 0) < 0) {
       return setFormError("Opening balance cannot be negative.")
+    }
+    if (Number(accountForm.openingBalance || 0) > 0 && !accountForm.openingBalanceDate) {
+      return setFormError("Opening balance date is required.")
     }
     if (!accountForm.status) return setFormError("Status is required.")
 
@@ -720,10 +745,12 @@ export default function BankSetup() {
   }
 
   const connectLedgers = async () => {
+    if (!window.confirm("Connect missing ledgers and post any unsynchronized bank opening balances to Opening Balance Equity?")) return
     try {
       const data = await api("/banks/accounts/connect-ledgers", { method: "POST" })
       toast.success(data.message || "Bank accounts connected to accounting")
-      await Promise.all([loadAccounts(), loadLedgerAccounts()])
+      if (data.failed?.length) toast.error(data.failed.map((item) => `${item.name}: ${item.message}`).join(" · "), { duration: 8000 })
+      await loadAccounts()
     } catch (error) {
       toast.error(error.message || "Connection failed")
     }
@@ -753,9 +780,9 @@ export default function BankSetup() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {activeTab === "accounts" && accounts.some((account) => !account.ledgerAccount) ? (
+            {canManage && activeTab === "accounts" && accounts.some((account) => !account.ledgerAccount || account.needsOpeningSync) ? (
               <button className={cn(btn, btnGhost)} onClick={connectLedgers} disabled={loading}>
-                <FiLink className="h-4 w-4" /> Connect Accounting
+                <FiLink className="h-4 w-4" /> Connect &amp; Sync Accounting
               </button>
             ) : null}
             <button className={cn(btn, btnGhost)} onClick={refresh} disabled={loading}>
@@ -763,13 +790,13 @@ export default function BankSetup() {
               Refresh
             </button>
 
-            <button
+            {canManage ? <button
               className={cn(btn, btnPrimary)}
               onClick={() => (activeTab === "banks" ? openBankModal() : openAccountModal())}
             >
               <FiPlus className="h-4 w-4" />
               {activeTab === "banks" ? "Add Bank" : "Add Account"}
-            </button>
+            </button> : null}
           </div>
         </div>
 
@@ -790,6 +817,8 @@ export default function BankSetup() {
           </p>
         </div>
       </section>
+
+      {!canManage ? <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">You have view-only Bank Setup access. Create, edit, delete, and accounting synchronization controls are hidden.</div> : null}
 
       <div className={`${card} mb-6 p-2`}>
         <div className="flex flex-wrap gap-2">
@@ -820,6 +849,7 @@ export default function BankSetup() {
           loading={loading}
           openBankModal={openBankModal}
           removeBank={removeBank}
+          canManage={canManage}
         />
       ) : (
         <AccountTable
@@ -827,6 +857,7 @@ export default function BankSetup() {
           loading={loading}
           openAccountModal={openAccountModal}
           removeAccount={removeAccount}
+          canManage={canManage}
         />
       )}
 
@@ -862,6 +893,7 @@ export default function BankSetup() {
         error={formError}
         onClose={closeModal}
         onSubmit={saveAccount}
+        historyLocked={Boolean(modal.item?.hasHistory)}
       />
     </div>
   )
@@ -995,7 +1027,7 @@ function FilterModal({
   )
 }
 
-function BankTable({ banks, loading, openBankModal, removeBank }) {
+function BankTable({ banks, loading, openBankModal, removeBank, canManage }) {
   return (
     <div className={`${card} overflow-hidden`}>
       <div className="max-h-[560px] overflow-auto">
@@ -1060,7 +1092,7 @@ function BankTable({ banks, loading, openBankModal, removeBank }) {
                 </td>
 
                 <td className="sticky right-0 bg-white px-5 py-4 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-gray-50/70">
-                  <div className="flex justify-end gap-2">
+                  {canManage ? <div className="flex justify-end gap-2">
                     <button
                       className={cn(btn, btnGhost, "px-3")}
                       onClick={() => openBankModal(bank)}
@@ -1078,7 +1110,7 @@ function BankTable({ banks, loading, openBankModal, removeBank }) {
                     >
                       <FiTrash2 className="h-4 w-4" />
                     </button>
-                  </div>
+                  </div> : <span className="text-xs font-bold text-gray-400">View only</span>}
                 </td>
               </tr>
             ))}
@@ -1097,7 +1129,7 @@ function BankTable({ banks, loading, openBankModal, removeBank }) {
   )
 }
 
-function AccountTable({ accounts, loading, openAccountModal, removeAccount }) {
+function AccountTable({ accounts, loading, openAccountModal, removeAccount, canManage }) {
   return (
     <div className={`${card} overflow-hidden`}>
       <div className="max-h-[560px] overflow-auto">
@@ -1109,7 +1141,8 @@ function AccountTable({ accounts, loading, openAccountModal, removeAccount }) {
               <th className="px-5 py-3">Account Number</th>
               <th className="px-5 py-3">Type</th>
               <th className="px-5 py-3">Accounting Ledger</th>
-              <th className="px-5 py-3">Opening Balance</th>
+              <th className="px-5 py-3">Book Balance (GL)</th>
+              <th className="px-5 py-3">Last Reconciled</th>
               <th className="px-5 py-3">Branch</th>
               <th className="px-5 py-3">Status</th>
               <th className="sticky right-0 bg-gray-50 px-5 py-3 text-right">Actions</th>
@@ -1141,11 +1174,16 @@ function AccountTable({ accounts, loading, openAccountModal, removeAccount }) {
                 </td>
 
                 <td className="px-5 py-4">
-                  {account.ledgerAccount ? <div><p className="text-sm font-black text-emerald-700">{account.ledgerAccount.code}</p><p className="text-xs font-semibold text-gray-500">{account.ledgerAccount.name}</p></div> : <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-black text-amber-700">Not connected</span>}
+                  {account.ledgerAccount ? <div><p className="text-sm font-black text-emerald-700">{account.ledgerAccount.code}</p><p className="text-xs font-semibold text-gray-500">{account.ledgerAccount.name}</p>{account.needsOpeningSync ? <p className="mt-1 text-xs font-black text-amber-700">Opening balance needs sync</p> : null}</div> : <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-black text-amber-700">Not connected</span>}
                 </td>
 
                 <td className="px-5 py-4 text-sm font-black text-gray-900">
-                  {formatMoney(account.openingBalance, account.currency)}
+                  {formatMoney(account.currentBookBalance, account.currency)}
+                </td>
+
+                <td className="px-5 py-4 text-sm font-semibold text-gray-600">
+                  <p className="font-black">{formatMoney(account.lastReconciledBalance, account.currency)}</p>
+                  <p className="text-xs">{account.lastReconciledAt ? new Date(account.lastReconciledAt).toLocaleDateString() : "Never reconciled"}</p>
                 </td>
 
                 <td className="px-5 py-4 text-sm font-semibold text-gray-600">
@@ -1157,7 +1195,7 @@ function AccountTable({ accounts, loading, openAccountModal, removeAccount }) {
                 </td>
 
                 <td className="sticky right-0 bg-white px-5 py-4 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-gray-50/70">
-                  <div className="flex justify-end gap-2">
+                  {canManage ? <div className="flex justify-end gap-2">
                     <button
                       className={cn(btn, btnGhost, "px-3")}
                       onClick={() => openAccountModal(account)}
@@ -1175,14 +1213,14 @@ function AccountTable({ accounts, loading, openAccountModal, removeAccount }) {
                     >
                       <FiTrash2 className="h-4 w-4" />
                     </button>
-                  </div>
+                  </div> : <span className="text-xs font-bold text-gray-400">View only</span>}
                 </td>
               </tr>
             ))}
 
             {!accounts.length ? (
               <tr>
-                <td colSpan={9} className="px-5 py-12 text-center text-sm font-bold text-gray-500">
+                <td colSpan={10} className="px-5 py-12 text-center text-sm font-bold text-gray-500">
                   {loading ? "Loading bank accounts..." : "No bank accounts found."}
                 </td>
               </tr>
@@ -1317,6 +1355,7 @@ function AccountFormModal({
   error,
   onClose,
   onSubmit,
+  historyLocked,
 }) {
   return (
     <ModalShell
@@ -1348,6 +1387,8 @@ function AccountFormModal({
           {error}
         </div>
       ) : null}
+
+      {historyLocked ? <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">This account has banking or ledger history. Currency, opening balance, opening date, and linked ledger are locked; post an adjustment for corrections.</div> : null}
 
       <form id="bank-account-form" onSubmit={onSubmit}>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -1409,7 +1450,7 @@ function AccountFormModal({
           </Field>
 
           <Field label="Accounting Ledger" hint="Leave empty to create and link a dedicated ledger automatically.">
-            <select className={input} value={form.ledgerAccount} onChange={(event) => setForm((prev) => ({ ...prev, ledgerAccount: event.target.value }))}>
+            <select className={input} value={form.ledgerAccount} disabled={historyLocked} onChange={(event) => setForm((prev) => ({ ...prev, ledgerAccount: event.target.value }))}>
               <option value="">Auto-create dedicated ledger</option>
               {ledgerAccounts.map((account) => <option key={account._id} value={account._id}>{account.code} — {account.name}</option>)}
             </select>
@@ -1427,7 +1468,12 @@ function AccountFormModal({
               }
               placeholder="50000"
               required
+              disabled={historyLocked}
             />
+          </Field>
+
+          <Field label="Opening Balance Date" required={Number(form.openingBalance || 0) > 0} hint="Posting date for the balanced Opening voucher.">
+            <input className={input} type="date" value={form.openingBalanceDate || ""} disabled={historyLocked || Number(form.openingBalance || 0) <= 0} onChange={(event) => setForm((prev) => ({ ...prev, openingBalanceDate: event.target.value }))} required={Number(form.openingBalance || 0) > 0} />
           </Field>
 
           <Field label="Status" required>
@@ -1439,6 +1485,7 @@ function AccountFormModal({
             >
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
+              <option value="closed">Closed</option>
             </select>
           </Field>
 
@@ -1482,6 +1529,7 @@ function AccountFormModal({
               }
               placeholder="BDT"
               maxLength={3}
+              disabled={historyLocked}
             />
           </Field>
 

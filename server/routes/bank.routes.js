@@ -5,6 +5,7 @@ import {
   deleteBank,
   deleteBankAccount,
   listBankAccounts,
+  listBankLedgerOptions,
   listBanks,
   updateBank,
   updateBankAccount,
@@ -17,6 +18,7 @@ const router = express.Router();
 router.use(protect);
 
 router.get("/accounts", requirePermission("bank-setup:view"), listBankAccounts);
+router.get("/accounts/ledger-options", requirePermission("bank-setup:view"), listBankLedgerOptions);
 router.post("/accounts/connect-ledgers", requirePermission("bank-setup:manage"), connectBankAccountLedgers);
 router.post("/accounts", requirePermission("bank-setup:manage"), createBankAccount);
 router.patch("/accounts/:id", requirePermission("bank-setup:manage"), updateBankAccount);

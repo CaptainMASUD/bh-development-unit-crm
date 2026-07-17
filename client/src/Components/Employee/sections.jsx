@@ -47,6 +47,9 @@ const CashFlowStatement = lazy(() => import("../Admin/accounting/CashFlowStateme
 const BankTransactions = lazy(() => import("../Admin/banking/BankTransactions"))
 const MoneyTransfer = lazy(() => import("../Admin/banking/MoneyTransfer"))
 const BankReconciliation = lazy(() => import("../Admin/banking/BankReconciliation"))
+const BankSetup = lazy(() => import("../Admin/banking/BankSetup"))
+const CashManagement = lazy(() => import("../Admin/banking/CashManagement"))
+const TreasuryVouchers = lazy(() => import("../Admin/banking/TreasuryVouchers"))
 
 export const sections = {
   Dashboard: {
@@ -90,6 +93,12 @@ export const sections = {
     component: <AccountingModules />,
     permission: PERMISSIONS.FINANCE_VIEW,
   },
+
+  "Cash Management": { icon: <FiDollarSign className="w-5 h-5" />, component: <CashManagement />, permission: PERMISSIONS.FINANCE_VIEW },
+  "Bank Management": { icon: <FiCreditCard className="w-5 h-5" />, component: <BankSetup />, permission: PERMISSIONS.BANK_SETUP_VIEW },
+  "Payment Voucher": { icon: <FiCreditCard className="w-5 h-5" />, component: <TreasuryVouchers defaultType="payment" />, permission: PERMISSIONS.FINANCE_VIEW },
+  "Receive Voucher": { icon: <FiDollarSign className="w-5 h-5" />, component: <TreasuryVouchers defaultType="receipt" />, permission: PERMISSIONS.FINANCE_VIEW },
+  "Contra Voucher": { icon: <FiDollarSign className="w-5 h-5" />, component: <TreasuryVouchers defaultType="contra" />, permission: PERMISSIONS.FINANCE_VIEW },
 
   "Accounting Setup": {
     icon: <FiDollarSign className="w-5 h-5" />,

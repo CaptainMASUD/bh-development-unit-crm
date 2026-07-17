@@ -6,9 +6,11 @@ import Account from "../models/account.model.js";
 import AccountingSettings from "../models/accountingSettings.model.js";
 import Payroll from "../models/payroll.model.js";
 import JournalEntry from "../models/journalEntry.model.js";
+import { createPostedJournal, movementLines, parsePostingDate } from "../services/accountingPosting.service.js";
 
 const clean = (value) => String(value ?? "").trim();
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
+const money = (value) => Math.round(Number(value || 0) * 100) / 100;
 
 const parseLimit = (value) => {
   const n = Number(value);
@@ -43,29 +45,37 @@ const buildBankAccountPayload = (body = {}, userId = null) => {
   if (body.accountNumber !== undefined) payload.accountNumber = clean(body.accountNumber);
   if (body.accountType !== undefined) payload.accountType = clean(body.accountType || "current").toLowerCase();
   if (body.openingBalance !== undefined) payload.openingBalance = Number(body.openingBalance);
+  if (body.openingBalanceDate !== undefined) payload.openingBalanceDate = parsePostingDate(body.openingBalanceDate, null);
   if (body.branchName !== undefined) payload.branchName = clean(body.branchName);
   if (body.routingNumber !== undefined) payload.routingNumber = clean(body.routingNumber);
   if (body.swiftCode !== undefined) payload.swiftCode = clean(body.swiftCode).toUpperCase();
   if (body.currency !== undefined) payload.currency = clean(body.currency || "BDT").toUpperCase();
   if (body.description !== undefined) payload.description = clean(body.description);
+  if (body.signatories !== undefined) payload.signatories = Array.isArray(body.signatories) ? body.signatories.filter(isId) : [];
   if (body.status !== undefined) payload.status = clean(body.status || "active").toLowerCase();
   if (userId) payload.updatedBy = userId;
   return payload;
 };
 
-const validateLedgerAccount = async (ledgerAccount, excludeBankAccountId = null, expectedCurrency = "") => {
+const validateLedgerAccount = async (ledgerAccount, excludeBankAccountId = null, expectedCurrency = "", session = null) => {
   if (!isId(ledgerAccount)) return null;
-  const ledger = await Account.findOne({ _id: ledgerAccount, isActive: true, isGroup: { $ne: true }, type: { $in: ["asset", "liability"] } });
+  const ledgerQuery = Account.findOne({ _id: ledgerAccount, isActive: true, isGroup: { $ne: true }, type: { $in: ["asset", "liability"] } });
+  if (session) ledgerQuery.session(session);
+  const ledger = await ledgerQuery;
   if (!ledger) return null;
   if (expectedCurrency && ledger.currency && String(ledger.currency).toUpperCase() !== String(expectedCurrency).toUpperCase()) return null;
-  const linked = await BankAccount.exists({ ledgerAccount: ledger._id, ...(excludeBankAccountId ? { _id: { $ne: excludeBankAccountId } } : {}) });
+  const linkedQuery = BankAccount.exists({ ledgerAccount: ledger._id, ...(excludeBankAccountId ? { _id: { $ne: excludeBankAccountId } } : {}) });
+  if (session) linkedQuery.session(session);
+  const linked = await linkedQuery;
   return linked ? null : ledger;
 };
 
-const createBankLedgerAccount = async ({ bankAccount, bank, userId }) => {
+const createBankLedgerAccount = async ({ bankAccount, bank, userId, session = null }) => {
   const liability = ["loan", "credit_card"].includes(bankAccount.accountType);
-  const settings = await AccountingSettings.findOne({ key: "company" }).select("coaPublishedAt").lean();
-  return Account.create({
+  const settingsQuery = AccountingSettings.findOne({ key: "company" }).select("coaPublishedAt");
+  if (session) settingsQuery.session(session);
+  const settings = await settingsQuery.lean();
+  const ledger = new Account({
     code: `BANK-${String(bankAccount._id).slice(-8).toUpperCase()}`,
     name: `${bank?.shortName || bank?.bankName || "Bank"} - ${bankAccount.accountName}`,
     type: liability ? "liability" : "asset",
@@ -78,6 +88,43 @@ const createBankLedgerAccount = async ({ bankAccount, bank, userId }) => {
     createdBy: userId,
     updatedBy: userId,
   });
+  await ledger.save(session ? { session } : undefined);
+  return ledger;
+};
+
+const postBankOpeningBalance = async ({ bankAccount, ledger, userId, session = null }) => {
+  const amount = Number(bankAccount.openingBalance || 0);
+  if (amount <= 0 || bankAccount.openingJournalEntry) return null;
+  const equityQuery = Account.findOne({ code: "3100", type: "equity", isActive: true, isGroup: { $ne: true } });
+  if (session) equityQuery.session(session);
+  const openingEquity = await equityQuery;
+  if (!openingEquity) {
+    throw Object.assign(new Error("Opening Balance Equity (3100) is missing. Bootstrap the Chart of Accounts before entering a bank opening balance."), { statusCode: 409 });
+  }
+  const date = parsePostingDate(bankAccount.openingBalanceDate || bankAccount.createdAt);
+  const journal = await createPostedJournal({
+    date,
+    sourceType: "opening_balance",
+    sourceId: bankAccount._id,
+    reference: `BANK-OPEN-${String(bankAccount._id).slice(-8).toUpperCase()}`,
+    memo: `Opening balance for ${bankAccount.accountName}`,
+    currency: bankAccount.currency,
+    voucherType: "opening",
+    origin: "system",
+    userId,
+    session,
+    lines: movementLines({
+      bankLedger: ledger,
+      counterpartLedger: openingEquity,
+      direction: "in",
+      amount,
+      description: `Bank opening balance - ${bankAccount.accountName}`,
+    }),
+  });
+  bankAccount.openingBalanceDate = date;
+  bankAccount.openingJournalEntry = journal._id;
+  await bankAccount.save(session ? { session } : undefined);
+  return journal;
 };
 
 export const listBanks = async (req, res) => {
@@ -172,17 +219,65 @@ export const listBankAccounts = async (req, res) => {
     const accounts = await BankAccount.find(filter)
       .populate("bank", "bankName shortName bankType country status")
       .populate("ledgerAccount", "code name type currency isActive publishedAt")
+      .populate("openingJournalEntry", "entryNo date status")
+      .populate("signatories", "name email")
       .sort({ status: 1, accountNameLower: 1, _id: 1 })
       .limit(limit)
       .lean();
+    const accountIds = accounts.map((account) => account._id);
+    const ledgerIds = accounts.map((account) => account.ledgerAccount?._id).filter(Boolean);
+    const [bankingHistory, accountingHistory, ledgerBalances] = await Promise.all([
+      BankTransaction.distinct("bankAccount", { bankAccount: { $in: accountIds } }),
+      JournalEntry.distinct("lines.account", { "lines.account": { $in: ledgerIds } }),
+      ledgerIds.length ? JournalEntry.aggregate([
+        { $match: { status: { $in: ["posted", "reversed"] }, "lines.account": { $in: ledgerIds } } },
+        { $unwind: "$lines" }, { $match: { "lines.account": { $in: ledgerIds } } },
+        { $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
+      ]) : [],
+    ]);
+    const bankingSet = new Set(bankingHistory.map(String));
+    const accountingSet = new Set(accountingHistory.map(String));
+    const balanceMap = new Map(ledgerBalances.map((row) => [String(row._id), row]));
+    const enriched = accounts.map((account) => {
+      const balance = balanceMap.get(String(account.ledgerAccount?._id || ""));
+      const normalCredit = account.ledgerAccount?.type === "liability";
+      const currentBookBalance = money(normalCredit ? Number(balance?.credit || 0) - Number(balance?.debit || 0) : Number(balance?.debit || 0) - Number(balance?.credit || 0));
+      return {
+        ...account, currentBookBalance,
+        hasHistory: bankingSet.has(String(account._id)) || accountingSet.has(String(account.ledgerAccount?._id || "")),
+        needsOpeningSync: Number(account.openingBalance || 0) > 0 && !account.openingJournalEntry,
+      };
+    });
 
-    return res.json({ count: accounts.length, accounts });
+    return res.json({ count: enriched.length, accounts: enriched });
   } catch (error) {
     return res.status(500).json({ message: "Failed to load bank accounts.", error: error.message });
   }
 };
 
+export const listBankLedgerOptions = async (req, res) => {
+  try {
+    const currency = clean(req.query.currency).toUpperCase();
+    const bankAccountId = isId(req.query.bankAccount) ? req.query.bankAccount : null;
+    const linked = await BankAccount.find({ ...(bankAccountId ? { _id: { $ne: bankAccountId } } : {}), ledgerAccount: { $ne: null } }).distinct("ledgerAccount");
+    const filter = {
+      isActive: true,
+      isGroup: { $ne: true },
+      type: { $in: ["asset", "liability"] },
+      _id: { $nin: linked },
+      ...(currency ? { $or: [{ currency }, { currency: "" }, { currency: null }] } : {}),
+    };
+    const settings = await AccountingSettings.findOne({ key: "company" }).select("coaPublishedAt").lean();
+    if (settings?.coaPublishedAt) filter.publishedAt = { $ne: null };
+    const accounts = await Account.find(filter).select("code name type currency isActive publishedAt").sort({ code: 1, name: 1 }).limit(300).lean();
+    return res.json({ accounts });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load eligible accounting ledgers.", error: error.message });
+  }
+};
+
 export const createBankAccount = async (req, res) => {
+  const session = await mongoose.startSession();
   try {
     const payload = buildBankAccountPayload(req.body, req.user?._id || null);
     payload.currency = payload.currency || "BDT";
@@ -191,52 +286,57 @@ export const createBankAccount = async (req, res) => {
     if (!payload.accountNumber) return res.status(400).json({ message: "Account number is required." });
     if (!payload.accountType) return res.status(400).json({ message: "Account type is required." });
     if (!Number.isFinite(payload.openingBalance)) return res.status(400).json({ message: "Opening balance is required." });
+    if (payload.openingBalance > 0 && req.body.openingBalanceDate && !payload.openingBalanceDate) return res.status(400).json({ message: "Valid opening balance date is required." });
     if (!payload.status) return res.status(400).json({ message: "Status is required." });
 
     const bank = await Bank.findById(payload.bank).select("bankName shortName status").lean();
     if (!bank) return res.status(404).json({ message: "Selected bank was not found." });
 
-    let ledger = null;
-    if (payload.ledgerAccount) {
-      ledger = await validateLedgerAccount(payload.ledgerAccount, null, payload.currency);
-      if (!ledger) return res.status(400).json({ message: "Select an active, unlinked asset or liability ledger in the same currency." });
-    }
-
-    const account = await BankAccount.create({ ...payload, ...(ledger ? { ledgerAccount: ledger._id } : {}), createdBy: req.user?._id || null });
-    if (!ledger) {
-      try {
-        ledger = await createBankLedgerAccount({ bankAccount: account, bank, userId: req.user?._id || null });
-        account.ledgerAccount = ledger._id;
-        await account.save();
-      } catch (ledgerError) {
-        await account.deleteOne();
-        throw ledgerError;
+    let account;
+    await session.withTransaction(async () => {
+      let ledger = null;
+      if (payload.ledgerAccount) {
+        ledger = await validateLedgerAccount(payload.ledgerAccount, null, payload.currency, session);
+        if (!ledger) throw Object.assign(new Error("Select an active, unlinked asset or liability ledger in the same currency."), { statusCode: 400 });
       }
-    }
+      account = new BankAccount({ ...payload, openingBalanceDate: payload.openingBalanceDate || (payload.openingBalance > 0 ? new Date() : null), ...(ledger ? { ledgerAccount: ledger._id } : {}), createdBy: req.user?._id || null });
+      await account.save({ session });
+      if (!ledger) {
+        ledger = await createBankLedgerAccount({ bankAccount: account, bank, userId: req.user?._id || null, session });
+        account.ledgerAccount = ledger._id;
+        await account.save({ session });
+      }
+      await postBankOpeningBalance({ bankAccount: account, ledger, userId: req.user?._id || null, session });
+    });
     const populated = await account.populate([
       { path: "bank", select: "bankName shortName bankType country status" },
       { path: "ledgerAccount", select: "code name type currency isActive publishedAt" },
+      { path: "openingJournalEntry", select: "entryNo date status" },
     ]);
-    return res.status(201).json({ message: "Bank account created and connected to accounting.", account: populated });
+    return res.status(201).json({ message: payload.openingBalance > 0 ? "Bank account created; opening balance posted to accounting." : "Bank account created and connected to accounting.", account: populated });
   } catch (error) {
     const duplicate = error?.code === 11000;
-    return res.status(duplicate ? 409 : 500).json({
-      message: duplicate ? "This account number already exists under the selected bank." : "Failed to create bank account.",
+    return res.status(duplicate ? 409 : error?.statusCode || 500).json({
+      message: duplicate ? "This account number already exists under the selected bank." : error?.statusCode ? error.message : "Failed to create bank account.",
       error: error.message,
     });
+  } finally {
+    await session.endSession();
   }
 };
 
 export const updateBankAccount = async (req, res) => {
+  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid bank account ID." });
     const payload = buildBankAccountPayload(req.body, req.user?._id || null);
-    const current = await BankAccount.findById(req.params.id).select("ledgerAccount currency openingBalance").lean();
+    const current = await BankAccount.findById(req.params.id).select("ledgerAccount currency openingBalance openingBalanceDate openingJournalEntry createdAt").lean();
     if (!current) return res.status(404).json({ message: "Bank account not found." });
     if (payload.bank !== undefined && !isId(payload.bank)) return res.status(400).json({ message: "Select bank is required." });
     if (payload.openingBalance !== undefined && !Number.isFinite(payload.openingBalance)) {
       return res.status(400).json({ message: "Opening balance is required." });
     }
+    if (payload.openingBalance > 0 && req.body.openingBalanceDate && !payload.openingBalanceDate) return res.status(400).json({ message: "Valid opening balance date is required." });
     if (payload.bank) {
       const bank = await Bank.exists({ _id: payload.bank });
       if (!bank) return res.status(404).json({ message: "Selected bank was not found." });
@@ -264,17 +364,28 @@ export const updateBankAccount = async (req, res) => {
       payload.ledgerAccount = ledger._id;
     }
 
-    const account = await BankAccount.findByIdAndUpdate(req.params.id, payload, { new: true, runValidators: true })
+    await session.withTransaction(async () => {
+      const updated = await BankAccount.findByIdAndUpdate(req.params.id, payload, { new: true, runValidators: true, session });
+      if (!updated) throw Object.assign(new Error("Bank account not found."), { statusCode: 404 });
+      if (!hasHistory && Number(updated.openingBalance || 0) > 0 && !updated.openingJournalEntry) {
+        const ledger = await Account.findById(updated.ledgerAccount).session(session);
+        if (!ledger) throw Object.assign(new Error("Connect this bank account to an accounting ledger first."), { statusCode: 409 });
+        await postBankOpeningBalance({ bankAccount: updated, ledger, userId: req.user?._id || null, session });
+      }
+    });
+    const account = await BankAccount.findById(req.params.id)
       .populate("bank", "bankName shortName bankType country status")
-      .populate("ledgerAccount", "code name type currency isActive publishedAt");
-    if (!account) return res.status(404).json({ message: "Bank account not found." });
+      .populate("ledgerAccount", "code name type currency isActive publishedAt")
+      .populate("openingJournalEntry", "entryNo date status");
     return res.json({ message: "Bank account updated.", account });
   } catch (error) {
     const duplicate = error?.code === 11000;
-    return res.status(duplicate ? 409 : 500).json({
-      message: duplicate ? "This account number already exists under the selected bank." : "Failed to update bank account.",
+    return res.status(duplicate ? 409 : error?.statusCode || 500).json({
+      message: duplicate ? "This account number already exists under the selected bank." : error?.statusCode ? error.message : "Failed to update bank account.",
       error: error.message,
     });
+  } finally {
+    await session.endSession();
   }
 };
 
@@ -301,16 +412,31 @@ export const deleteBankAccount = async (req, res) => {
 
 export const connectBankAccountLedgers = async (req, res) => {
   try {
-    const accounts = await BankAccount.find({ ledgerAccount: null }).populate("bank", "bankName shortName status");
+    const accounts = await BankAccount.find({ $or: [{ ledgerAccount: null }, { openingBalance: { $gt: 0 }, openingJournalEntry: null }] }).populate("bank", "bankName shortName status");
     const connected = [];
+    const failed = [];
     for (const bankAccount of accounts) {
-      const ledger = await createBankLedgerAccount({ bankAccount, bank: bankAccount.bank, userId: req.user?._id || null });
-      bankAccount.ledgerAccount = ledger._id;
-      bankAccount.updatedBy = req.user?._id || null;
-      await bankAccount.save();
-      connected.push({ bankAccount: bankAccount._id, ledgerAccount: ledger._id });
+      const session = await mongoose.startSession();
+      try {
+        let ledger;
+        await session.withTransaction(async () => {
+          ledger = bankAccount.ledgerAccount
+            ? await Account.findById(bankAccount.ledgerAccount).session(session)
+            : await createBankLedgerAccount({ bankAccount, bank: bankAccount.bank, userId: req.user?._id || null, session });
+          if (!ledger) throw Object.assign(new Error("Connected accounting ledger was not found."), { statusCode: 409 });
+          bankAccount.ledgerAccount = ledger._id;
+          bankAccount.updatedBy = req.user?._id || null;
+          await bankAccount.save({ session });
+          await postBankOpeningBalance({ bankAccount, ledger, userId: req.user?._id || null, session });
+        });
+        connected.push({ bankAccount: bankAccount._id, ledgerAccount: ledger._id, openingJournalEntry: bankAccount.openingJournalEntry || null });
+      } catch (error) {
+        failed.push({ bankAccount: bankAccount._id, name: bankAccount.accountName, message: error.message });
+      } finally {
+        await session.endSession();
+      }
     }
-    return res.json({ message: `${connected.length} bank account(s) connected to the Chart of Accounts.`, connected });
+    return res.json({ message: `${connected.length} bank account(s) connected/synchronized.${failed.length ? ` ${failed.length} require attention.` : ""}`, connected, failed });
   } catch (error) {
     return res.status(500).json({ message: "Failed to connect bank accounts to accounting.", error: error.message });
   }

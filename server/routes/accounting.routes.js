@@ -8,12 +8,15 @@ import {
   createFiscalYear,
   createAccount,
   createCashAccount,
+  updateCashAccount,
+  deleteCashAccount,
   createJournalEntry,
   createVendorBill,
   getBalanceSheet,
   getCashFlowStatement,
   getGeneralLedger,
   getAccountingSettings,
+  getJournalEntry,
   getPayables,
   getProfitLoss,
   getReceivables,
@@ -23,10 +26,16 @@ import {
   listFiscalYears,
   listOpeningBalances,
   listCashAccounts,
+  listCashCustodians,
   listJournalEntries,
   listVendorBills,
+  listVoucherTypes,
   payVendorBill,
   postDraftJournalEntry,
+  submitJournalEntry,
+  approveJournalEntry,
+  reverseJournalEntry,
+  updateDraftJournalEntry,
   postOpeningBalances,
   postOpeningBalanceDraft,
   publishChartOfAccounts,
@@ -37,6 +46,7 @@ import {
   unlockAccountingPeriod,
   updateAccountingSettings,
   updateAccount,
+  updateVoucherType,
   upsertAccountingPeriod,
   voidJournalEntry,
 } from "../controllers/accounting.controller.js";
@@ -66,8 +76,16 @@ router.get("/fiscal-years", listFiscalYears);
 router.post("/fiscal-years", requirePermission("finance:manage"), createFiscalYear);
 router.patch("/fiscal-years/:id/close", requirePermission("finance:manage"), closeFiscalYear);
 
+router.get("/voucher-types", listVoucherTypes);
+router.patch("/voucher-types/:key", requirePermission("finance:manage"), updateVoucherType);
+
 router.get("/journals", listJournalEntries);
+router.get("/journals/:id", getJournalEntry);
 router.post("/journals", requirePermission("finance:manage"), createJournalEntry);
+router.patch("/journals/:id", requirePermission("finance:manage"), updateDraftJournalEntry);
+router.patch("/journals/:id/submit", requirePermission("finance:manage"), submitJournalEntry);
+router.patch("/journals/:id/approve", requirePermission("finance:manage"), approveJournalEntry);
+router.post("/journals/:id/reverse", requirePermission("finance:manage"), reverseJournalEntry);
 router.patch("/journals/:id/post", requirePermission("finance:manage"), postDraftJournalEntry);
 router.patch("/journals/:id/void", requirePermission("finance:manage"), voidJournalEntry);
 
@@ -79,7 +97,10 @@ router.patch("/periods/:periodKey/lock", requirePermission("finance:manage"), lo
 router.patch("/periods/:periodKey/unlock", requirePermission("finance:manage"), unlockAccountingPeriod);
 
 router.get("/cash-accounts", listCashAccounts);
+router.get("/cash-custodians", listCashCustodians);
 router.post("/cash-accounts", requirePermission("finance:manage"), createCashAccount);
+router.patch("/cash-accounts/:id", requirePermission("finance:manage"), updateCashAccount);
+router.delete("/cash-accounts/:id", requirePermission("finance:manage"), deleteCashAccount);
 router.patch("/cash-accounts/:id/reconcile", requirePermission("finance:manage"), reconcileCashAccount);
 
 router.get("/vendor-bills", listVendorBills);

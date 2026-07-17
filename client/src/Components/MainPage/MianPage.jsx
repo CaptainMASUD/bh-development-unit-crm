@@ -9,7 +9,6 @@ import {
   Add01Icon,
   Cancel01Icon,
   ChartLineData01Icon,
-  CreditCardIcon,
   DeliveryTruck01Icon,
   File01Icon,
   Home01Icon,
@@ -21,9 +20,10 @@ import {
   ShoppingBag01Icon,
   ShoppingCart01Icon,
   Tick01Icon,
-  UserGroupIcon,
 } from "@hugeicons/core-free-icons"
-import suitelogo from "../../assets/logo/logosuite.png"
+import suitelogo from "../../assets/logo/bh-suite.png"
+import payroll from "../../assets/icon-pack/payroll.png"
+import crm from "../../assets/icon-pack/crm.png"
 import { canAccessModule, getModuleBasePath, MODULES } from "../Navigation/moduleConfig"
 import { getJwtExpirationMs } from "../Auth/authRouting"
 
@@ -68,7 +68,7 @@ const modules = [
     status: "active",
     subscribed: true,
     route: "/admin/payroll",
-    icon: CreditCardIcon,
+    image: payroll,
     tone: "indigo",
   },
   {
@@ -78,7 +78,7 @@ const modules = [
     status: "active",
     subscribed: true,
     route: "/admin/leads",
-    icon: UserGroupIcon,
+    image: crm,
     tone: "sky",
   },
   {
@@ -387,25 +387,44 @@ function ModuleTile({
             sm:h-20 sm:w-20
           "
         >
-          <span
-            className={cn(
-              `
+          {module.image ? (
+            <span
+              className="
                 flex h-14 w-14 items-center justify-center
-                rounded-[18px] shadow-lg transition duration-300
-                group-hover:scale-[1.04] sm:h-16 sm:w-16
-                sm:rounded-[20px]
-              `,
-              iconStyle
-            )}
-          >
-            <HugeiconsIcon
-              icon={moduleIcon}
-              size={29}
-              color="currentColor"
-              strokeWidth={1.7}
-              aria-hidden="true"
-            />
-          </span>
+                overflow-hidden rounded-[18px] bg-white p-1.5
+                shadow-lg ring-1 ring-slate-200
+                transition duration-300 group-hover:scale-[1.04]
+                sm:h-16 sm:w-16 sm:rounded-[20px] sm:p-2
+              "
+            >
+              <img
+                src={module.image}
+                alt={`${module.name} logo`}
+                className="h-full w-full select-none object-contain"
+                draggable={false}
+              />
+            </span>
+          ) : (
+            <span
+              className={cn(
+                `
+                  flex h-14 w-14 items-center justify-center
+                  rounded-[18px] shadow-lg transition duration-300
+                  group-hover:scale-[1.04] sm:h-16 sm:w-16
+                  sm:rounded-[20px]
+                `,
+                iconStyle
+              )}
+            >
+              <HugeiconsIcon
+                icon={moduleIcon}
+                size={29}
+                color="currentColor"
+                strokeWidth={1.7}
+                aria-hidden="true"
+              />
+            </span>
+          )}
         </span>
 
         <h2

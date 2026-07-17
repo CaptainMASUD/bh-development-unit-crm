@@ -55,6 +55,8 @@ const AccountingModules = lazy(() => import("./accounting/AccountingModules"))
 const BankTransactions = lazy(() => import("./banking/BankTransactions"))
 const MoneyTransfer = lazy(() => import("./banking/MoneyTransfer"))
 const BankReconciliation = lazy(() => import("./banking/BankReconciliation"))
+const CashManagement = lazy(() => import("./banking/CashManagement"))
+const TreasuryVouchers = lazy(() => import("./banking/TreasuryVouchers"))
 const ChartOfAccounts = lazy(() => import("./accounting/ChartOfAccounts"))
 const JournalEntries = lazy(() => import("./accounting/JournalEntries"))
 const GeneralLedger = lazy(() => import("./accounting/GeneralLedger"))
@@ -170,6 +172,12 @@ const sections = {
     component: <AccountingModules />,
     permission: "finance:view",
   },
+
+  "Cash Management": { icon: createSectionIcon(Wallet03Icon), component: <CashManagement />, permission: "finance:view" },
+  "Bank Management": { icon: createSectionIcon(BankIcon), component: <BankSetup />, permission: "bank-setup:view" },
+  "Payment Voucher": { icon: createSectionIcon(HandCoinsIcon), component: <TreasuryVouchers defaultType="payment" />, permission: "finance:view" },
+  "Receive Voucher": { icon: createSectionIcon(ReceiptDollarIcon), component: <TreasuryVouchers defaultType="receipt" />, permission: "finance:view" },
+  "Contra Voucher": { icon: createSectionIcon(ArrowDataTransferHorizontalIcon), component: <TreasuryVouchers defaultType="contra" />, permission: "finance:view" },
 
   "Accounting Setup": {
     icon: createSectionIcon(Layers01Icon),
