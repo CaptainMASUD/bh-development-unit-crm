@@ -124,6 +124,24 @@ const SYSTEM_ACCOUNTS = [
   { code: "5200", name: "Tax Expense", type: "expense", subType: "Indirect Expense", parentCode: "X000" },
 ];
 
+const CORE_SYSTEM_ACCOUNT_CODES = new Set(["A000", "L000", "E000", "I000", "X000"]);
+const SYSTEM_ACCOUNT_LOCKED_FIELDS = new Set([
+  "code",
+  "type",
+  "parent",
+  "isGroup",
+  "isControlAccount",
+  "controlType",
+]);
+const CORE_ACCOUNT_LOCKED_FIELDS = new Set([
+  ...SYSTEM_ACCOUNT_LOCKED_FIELDS,
+  "isActive",
+  "name",
+  "subType",
+  "currency",
+  "taxApplicability",
+]);
+
 const resolveSystemAccount = async (code) => {
   const settingField = {
     1000: "defaultCashAccount",
@@ -934,34 +952,184 @@ export const createAccount = async (req, res) => {
 export const updateAccount = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid account ID." });
-    const patch = {};
-    for (const key of ["code", "name", "type", "subType", "currency", "description", "isActive", "isGroup", "isControlAccount", "controlType", "taxApplicability"]) {
-      if (req.body[key] !== undefined) patch[key] = req.body[key];
-    }
+
     const current = await Account.findById(req.params.id).lean();
     if (!current) return res.status(404).json({ message: "Account not found." });
-    if (req.body.isActive === false && await JournalEntry.exists({ "lines.account": current._id })) patch.isActive = false;
-    if (req.body.isGroup === true && await JournalEntry.exists({ "lines.account": current._id })) return res.status(409).json({ message: "An account with posting history cannot be converted into a group." });
+
+    if (current.isSystem) {
+      const lockedFields = CORE_SYSTEM_ACCOUNT_CODES.has(current.code)
+        ? CORE_ACCOUNT_LOCKED_FIELDS
+        : SYSTEM_ACCOUNT_LOCKED_FIELDS;
+      const attemptedLockedField = Object.keys(req.body || {}).find((key) => lockedFields.has(key));
+
+      if (attemptedLockedField) {
+        return res.status(409).json({
+          message: CORE_SYSTEM_ACCOUNT_CODES.has(current.code)
+            ? "Fundamental Chart of Accounts roots are protected. Only the description can be updated."
+            : `System account structure is protected. ${attemptedLockedField} cannot be changed.`,
+        });
+      }
+    }
+
+    const patch = {};
+    const editableFields = [
+      "code",
+      "name",
+      "type",
+      "subType",
+      "currency",
+      "description",
+      "isActive",
+      "isGroup",
+      "isControlAccount",
+      "controlType",
+      "taxApplicability",
+    ];
+
+    for (const key of editableFields) {
+      if (req.body[key] !== undefined) patch[key] = req.body[key];
+    }
+
+    if (req.body.isActive === false) {
+      const activeChild = await Account.exists({ parent: current._id, isActive: true });
+      if (activeChild) {
+        return res.status(409).json({
+          message: "Deactivate or move the active child accounts before deactivating this group.",
+        });
+      }
+    }
+
+    if (
+      req.body.isGroup === true &&
+      await JournalEntry.exists({ "lines.account": current._id })
+    ) {
+      return res.status(409).json({
+        message: "An account with posting history cannot be converted into a group.",
+      });
+    }
+
     if (req.body.parent !== undefined) {
-      if (!req.body.parent) patch.parent = null;
-      else {
-        if (!isId(req.body.parent) || String(req.body.parent) === String(current._id)) return res.status(400).json({ message: "Invalid parent account." });
+      if (!req.body.parent) {
+        patch.parent = null;
+      } else {
+        if (!isId(req.body.parent) || String(req.body.parent) === String(current._id)) {
+          return res.status(400).json({ message: "Invalid parent account." });
+        }
+
         const parent = await Account.findById(req.body.parent).lean();
         const nextType = req.body.type || current.type;
-        if (!parent?.isGroup || !parent.isActive || parent.type !== nextType) return res.status(400).json({ message: "Parent must be an active group of the same account type." });
+        if (!parent?.isGroup || !parent.isActive || parent.type !== nextType) {
+          return res.status(400).json({
+            message: "Parent must be an active group of the same account type.",
+          });
+        }
         patch.parent = parent._id;
       }
     }
-    if (Object.keys(patch).some((key) => !["updatedBy"].includes(key))) {
+
+    if (Object.keys(patch).length) {
       patch.publishedAt = null;
       patch.publishedBy = null;
     }
     patch.updatedBy = req.user?._id || null;
-    const account = await Account.findByIdAndUpdate(req.params.id, patch, { new: true, runValidators: true });
+
+    const account = await Account.findByIdAndUpdate(req.params.id, patch, {
+      new: true,
+      runValidators: true,
+    });
     if (!account) return res.status(404).json({ message: "Account not found." });
+
+    accountingCache.flushAll();
+    await writeAudit({
+      actorId: req.user?._id,
+      action: "update",
+      entityType: "Account",
+      entityId: account._id,
+      before: current,
+      after: account.toObject(),
+      meta: getReqMeta(req),
+    });
+
     return res.json({ message: "Account updated.", account });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to update account.", error: error.message });
+    const status = error?.code === 11000 ? 409 : error.statusCode || 500;
+    return res.status(status).json({
+      message: status === 409 ? error.message || "Account update conflicts with existing data." : "Failed to update account.",
+      error: error.message,
+    });
+  }
+};
+
+export const deleteAccount = async (req, res) => {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid account ID." });
+
+    const account = await Account.findById(req.params.id).lean();
+    if (!account) return res.status(404).json({ message: "Account not found." });
+
+    if (account.isSystem) {
+      return res.status(409).json({
+        message: CORE_SYSTEM_ACCOUNT_CODES.has(account.code)
+          ? "Assets, Liabilities, Equity, Income, and Expenses are fundamental system roots and cannot be deleted."
+          : "Standard system accounts are protected and cannot be deleted. Deactivate a permitted custom account instead.",
+      });
+    }
+
+    const [childAccount, journalUsage, openingBalanceUsage, cashUsage, bankUsage, settingsUsage] =
+      await Promise.all([
+        Account.exists({ parent: account._id }),
+        JournalEntry.exists({ "lines.account": account._id }),
+        OpeningBalance.exists({ "lines.account": account._id }),
+        CashAccount.exists({ account: account._id }),
+        BankAccount.exists({ ledgerAccount: account._id }),
+        AccountingSettings.exists({
+          $or: SETTINGS_ACCOUNT_FIELDS.map((field) => ({ [field]: account._id })),
+        }),
+      ]);
+
+    if (childAccount) {
+      return res.status(409).json({
+        message: "This account has child accounts. Move or delete the children first.",
+      });
+    }
+    if (journalUsage) {
+      return res.status(409).json({
+        message: "Accounts with journal history cannot be deleted. Set the account inactive instead.",
+      });
+    }
+    if (openingBalanceUsage) {
+      return res.status(409).json({
+        message: "This account is used in an opening balance and cannot be deleted.",
+      });
+    }
+    if (cashUsage || bankUsage) {
+      return res.status(409).json({
+        message: "This account is connected to Cash or Bank Management and cannot be deleted.",
+      });
+    }
+    if (settingsUsage) {
+      return res.status(409).json({
+        message: "This account is selected in Accounting Settings. Replace that reference before deleting it.",
+      });
+    }
+
+    await Account.findByIdAndDelete(account._id);
+    accountingCache.flushAll();
+    await writeAudit({
+      actorId: req.user?._id,
+      action: "delete",
+      entityType: "Account",
+      entityId: account._id,
+      before: account,
+      meta: getReqMeta(req),
+    });
+
+    return res.json({ message: "Custom account deleted." });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      message: error.statusCode ? error.message : "Failed to delete account.",
+      error: error.message,
+    });
   }
 };
 
