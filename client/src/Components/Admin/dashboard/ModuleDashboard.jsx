@@ -55,7 +55,7 @@ const MODULE_PRESENTATION = {
     eyebrow: "Financial operations",
     title: "Accounting Dashboard",
     description: "Revenue, receivables, payables, cash collection, and finance controls.",
-    actions: ["Accounting Setup", "Journal Entries", "Bank Transactions", "Expenses"],
+    actions: ["Cash Book", "Accounts Receivable", "Accounts Payable", "Bank Management", "Profit & Loss", "General Ledger", "Journal Entries", "Accounting Setup", "Bank Transactions", "Expenses"],
   },
   payroll: {
     eyebrow: "People operations",
@@ -93,7 +93,7 @@ const money = (value) => new Intl.NumberFormat(undefined, { maximumFractionDigit
 const shortMoney = (value) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(numeric(value))
 const getRows = (value) => value?.rows || value?.items || value?.data || []
 const displayName = (value, fallback = "Record") =>
-  value?.contact?.name || value?.employee?.name || value?.customer?.name || value?.name || value?.companyName || value?.leadNumber || fallback
+  value?.contact?.name || value?.employee?.name || value?.customer?.name || value?.vendorName || value?.name || value?.companyName || value?.leadNumber || fallback
 
 function StatCard({ icon, label, value, detail, tone = "indigo", delay = 0 }) {
   const tones = {
@@ -271,7 +271,7 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
       return [
         { label: "Revenue", value: money(profit.revenue), detail: "Current year recognized revenue", icon: <FiTrendingUp />, tone: "green" },
         { label: "Receivable", value: money(receivables.receivableAmount), detail: `${money(receivables.overdueAmount)} overdue`, icon: <FiDollarSign />, tone: "sky" },
-        { label: "Payable", value: money(payables.payableAmount), detail: `${money(payables.pendingAmount)} pending`, icon: <FiCreditCard />, tone: "amber" },
+        { label: "Payable", value: money(payables.payableAmount), detail: `${money(payables.dueIn30)} due in the next 30 days`, icon: <FiCreditCard />, tone: "amber" },
         { label: "Cash collected", value: money(profit.cashCollected), detail: `${number(profit.dealCount)} completed deals`, icon: <FiCheckCircle />, tone: "indigo" },
       ]
     }

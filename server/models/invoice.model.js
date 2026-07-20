@@ -23,6 +23,8 @@ const paymentSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    cashAccount: { type: mongoose.Schema.Types.ObjectId, ref: "CashAccount", default: null, index: true },
+    bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: "BankAccount", default: null, index: true },
     journalEntry: { type: mongoose.Schema.Types.ObjectId, ref: "JournalEntry", default: null, index: true },
   },
   { _id: true }
@@ -93,6 +95,13 @@ const invoiceSchema = new mongoose.Schema(
     paidTotal: { type: Number, default: 0, min: 0 },
     dueTotal: { type: Number, default: 0, min: 0, index: true },
 
+    journalEntry: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "JournalEntry",
+      default: null,
+      index: true,
+    },
+
     issuedAt: { type: Date, default: Date.now, index: true },
     dueAt: { type: Date, default: null, index: true },
 
@@ -118,6 +127,7 @@ invoiceSchema.index({ dealId: 1, createdAt: -1 });
 invoiceSchema.index({ proposalId: 1, createdAt: -1 });
 invoiceSchema.index({ status: 1, dueAt: 1 });
 invoiceSchema.index({ dueTotal: 1, dueAt: 1 });
+invoiceSchema.index({ journalEntry: 1, status: 1, dueAt: 1 });
 
 invoiceSchema.pre("validate", function (next) {
   if (Array.isArray(this.items) && this.items.length) {

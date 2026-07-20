@@ -12,6 +12,30 @@ const clean = (value) => String(value ?? "").trim();
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const money = (value) => Math.round(Number(value || 0) * 100) / 100;
 
+let transactionSupport;
+const supportsTransactions = async () => {
+  if (transactionSupport !== undefined) return transactionSupport;
+  try {
+    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
+    transactionSupport = Boolean(hello?.setName || hello?.msg === "isdbgrid");
+  } catch {
+    transactionSupport = false;
+  }
+  return transactionSupport;
+};
+
+const runBankWrite = async (work) => {
+  if (!(await supportsTransactions())) return work(null);
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => { result = await work(session); });
+    return result;
+  } finally {
+    await session.endSession();
+  }
+};
+
 const parseLimit = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return 50;
@@ -277,7 +301,6 @@ export const listBankLedgerOptions = async (req, res) => {
 };
 
 export const createBankAccount = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     const payload = buildBankAccountPayload(req.body, req.user?._id || null);
     payload.currency = payload.currency || "BDT";
@@ -293,7 +316,7 @@ export const createBankAccount = async (req, res) => {
     if (!bank) return res.status(404).json({ message: "Selected bank was not found." });
 
     let account;
-    await session.withTransaction(async () => {
+    await runBankWrite(async (session) => {
       let ledger = null;
       if (payload.ledgerAccount) {
         ledger = await validateLedgerAccount(payload.ledgerAccount, null, payload.currency, session);
@@ -320,13 +343,10 @@ export const createBankAccount = async (req, res) => {
       message: duplicate ? "This account number already exists under the selected bank." : error?.statusCode ? error.message : "Failed to create bank account.",
       error: error.message,
     });
-  } finally {
-    await session.endSession();
   }
 };
 
 export const updateBankAccount = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid bank account ID." });
     const payload = buildBankAccountPayload(req.body, req.user?._id || null);
@@ -364,11 +384,13 @@ export const updateBankAccount = async (req, res) => {
       payload.ledgerAccount = ledger._id;
     }
 
-    await session.withTransaction(async () => {
-      const updated = await BankAccount.findByIdAndUpdate(req.params.id, payload, { new: true, runValidators: true, session });
+    await runBankWrite(async (session) => {
+      const updated = await BankAccount.findByIdAndUpdate(req.params.id, payload, { new: true, runValidators: true, ...(session ? { session } : {}) });
       if (!updated) throw Object.assign(new Error("Bank account not found."), { statusCode: 404 });
       if (!hasHistory && Number(updated.openingBalance || 0) > 0 && !updated.openingJournalEntry) {
-        const ledger = await Account.findById(updated.ledgerAccount).session(session);
+        const ledgerQuery = Account.findById(updated.ledgerAccount);
+        if (session) ledgerQuery.session(session);
+        const ledger = await ledgerQuery;
         if (!ledger) throw Object.assign(new Error("Connect this bank account to an accounting ledger first."), { statusCode: 409 });
         await postBankOpeningBalance({ bankAccount: updated, ledger, userId: req.user?._id || null, session });
       }
@@ -384,8 +406,6 @@ export const updateBankAccount = async (req, res) => {
       message: duplicate ? "This account number already exists under the selected bank." : error?.statusCode ? error.message : "Failed to update bank account.",
       error: error.message,
     });
-  } finally {
-    await session.endSession();
   }
 };
 
@@ -416,12 +436,11 @@ export const connectBankAccountLedgers = async (req, res) => {
     const connected = [];
     const failed = [];
     for (const bankAccount of accounts) {
-      const session = await mongoose.startSession();
       try {
         let ledger;
-        await session.withTransaction(async () => {
+        await runBankWrite(async (session) => {
           ledger = bankAccount.ledgerAccount
-            ? await Account.findById(bankAccount.ledgerAccount).session(session)
+            ? await (() => { const query = Account.findById(bankAccount.ledgerAccount); if (session) query.session(session); return query; })()
             : await createBankLedgerAccount({ bankAccount, bank: bankAccount.bank, userId: req.user?._id || null, session });
           if (!ledger) throw Object.assign(new Error("Connected accounting ledger was not found."), { statusCode: 409 });
           bankAccount.ledgerAccount = ledger._id;
@@ -432,8 +451,6 @@ export const connectBankAccountLedgers = async (req, res) => {
         connected.push({ bankAccount: bankAccount._id, ledgerAccount: ledger._id, openingJournalEntry: bankAccount.openingJournalEntry || null });
       } catch (error) {
         failed.push({ bankAccount: bankAccount._id, name: bankAccount.accountName, message: error.message });
-      } finally {
-        await session.endSession();
       }
     }
     return res.json({ message: `${connected.length} bank account(s) connected/synchronized.${failed.length ? ` ${failed.length} require attention.` : ""}`, connected, failed });

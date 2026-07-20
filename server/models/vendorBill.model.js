@@ -7,6 +7,7 @@ const vendorBillPaymentSchema = new mongoose.Schema(
     amount: { type: Number, required: true, min: 0, set: roundMoney },
     paidAt: { type: Date, default: Date.now, index: true },
     cashAccount: { type: mongoose.Schema.Types.ObjectId, ref: "CashAccount", default: null, index: true },
+    bankAccount: { type: mongoose.Schema.Types.ObjectId, ref: "BankAccount", default: null, index: true },
     journalEntry: { type: mongoose.Schema.Types.ObjectId, ref: "JournalEntry", default: null },
     reference: { type: String, trim: true, default: "" },
     note: { type: String, trim: true, default: "" },

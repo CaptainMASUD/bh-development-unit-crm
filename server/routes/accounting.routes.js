@@ -15,9 +15,12 @@ import {
   getAccountingSettings,
   getBalanceSheet,
   getCashFlowStatement,
+  getCashBook,
   getGeneralLedger,
   getJournalEntry,
   getPayables,
+  getCustomerStatement,
+  getSupplierStatement,
   getProfitLoss,
   getReceivables,
   getTrialBalance,
@@ -33,6 +36,7 @@ import {
   lockAccountingPeriod,
   payVendorBill,
   postDraftJournalEntry,
+  postCustomerInvoice,
   postOpeningBalanceDraft,
   postOpeningBalances,
   publishChartOfAccounts,
@@ -70,6 +74,8 @@ router.get(
 router.use(requirePermission("finance:view"));
 
 router.get("/receivables", getReceivables);
+router.get("/receivables/customers/:customerId/statement", getCustomerStatement);
+router.get("/payables/suppliers/statement", getSupplierStatement);
 router.get("/profit-loss", getProfitLoss);
 
 router.get("/accounts", listAccounts);
@@ -231,6 +237,11 @@ router.post(
   requirePermission("finance:manage"),
   recordCustomerPayment
 );
+router.patch(
+  "/invoices/:id/post",
+  requirePermission("finance:manage"),
+  postCustomerInvoice
+);
 router.post(
   "/invoices/:invoiceId/payments",
   requirePermission("finance:manage"),
@@ -254,6 +265,7 @@ router.post(
 );
 
 router.get("/general-ledger", getGeneralLedger);
+router.get("/cash-book", getCashBook);
 router.get("/trial-balance", getTrialBalance);
 router.get("/balance-sheet", getBalanceSheet);
 router.get("/cash-flow", getCashFlowStatement);

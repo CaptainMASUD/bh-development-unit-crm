@@ -57,7 +57,7 @@ const applyVoucherSettlements = async (entry, userId, session = null) => {
       if (!invoice || ["draft", "void"].includes(invoice.status)) throw Object.assign(new Error("A linked customer invoice is no longer available."), { statusCode: 409 });
       if (invoice.payments.some((payment) => String(payment.journalEntry || "") === String(entry._id))) continue;
       if (amount > money(invoice.dueTotal) + 0.009) throw Object.assign(new Error(`Receipt allocation exceeds invoice ${invoice.invoiceNo} balance.`), { statusCode: 409 });
-      invoice.payments.push({ amount, method: ["cash", "bank", "card"].includes(entry.paymentMode) ? entry.paymentMode : "other", transactionId: entry.reference, paidAt: entry.date, note: entry.memo, receivedBy: userId, journalEntry: entry._id });
+      invoice.payments.push({ amount, method: ["cash", "bank", "card"].includes(entry.paymentMode) ? entry.paymentMode : "other", transactionId: entry.reference, paidAt: entry.date, note: entry.memo, receivedBy: userId, cashAccount: entry.cashAccount || null, bankAccount: entry.bankAccount || null, journalEntry: entry._id });
       await invoice.save(session ? { session } : undefined);
     }
     if (allocation.documentType === "supplier_bill") {
@@ -65,7 +65,7 @@ const applyVoucherSettlements = async (entry, userId, session = null) => {
       if (!bill || ["draft", "void"].includes(bill.status)) throw Object.assign(new Error("A linked supplier bill is no longer available."), { statusCode: 409 });
       if (bill.payments.some((payment) => String(payment.journalEntry || "") === String(entry._id))) continue;
       if (amount > money(bill.dueTotal) + 0.009) throw Object.assign(new Error(`Payment allocation exceeds bill ${bill.billNo} balance.`), { statusCode: 409 });
-      bill.payments.push({ amount, paidAt: entry.date, cashAccount: entry.cashAccount || null, journalEntry: entry._id, reference: entry.reference, note: entry.memo, paidBy: userId });
+      bill.payments.push({ amount, paidAt: entry.date, cashAccount: entry.cashAccount || null, bankAccount: entry.bankAccount || null, journalEntry: entry._id, reference: entry.reference, note: entry.memo, paidBy: userId });
       await bill.save(session ? { session } : undefined);
     }
   }
@@ -240,6 +240,8 @@ const postJournalEntry = async ({
   currency = "BDT",
   voucherType = "",
   paymentMode = "",
+  cashAccount = null,
+  bankAccount = null,
   attachment = {},
   userId = null,
   allowClosedPeriod = false,
@@ -269,6 +271,8 @@ const postJournalEntry = async ({
     memo: clean(memo),
     currency: clean(currency || "BDT"),
     paymentMode: clean(paymentMode),
+    cashAccount: isId(cashAccount) ? cashAccount : null,
+    bankAccount: isId(bankAccount) ? bankAccount : null,
     attachment: {
       name: clean(attachment?.name), url: clean(attachment?.url), type: clean(attachment?.type), size: Number(attachment?.size || 0),
     },
@@ -524,193 +528,387 @@ const receivablePipeline = ({ from, to, q, limit, cursor, includeSummary = true 
   ];
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const agingBucket = (dueDate, asOf = new Date()) => {
+  if (!dueDate) return "current";
+  const days = Math.floor((asOf.getTime() - new Date(dueDate).getTime()) / DAY_MS);
+  if (days <= 0) return "current";
+  if (days <= 30) return "days1to30";
+  if (days <= 60) return "days31to60";
+  if (days <= 90) return "days61to90";
+  return "days90plus";
+};
+const emptyAging = () => ({ current: 0, days1to30: 0, days31to60: 0, days61to90: 0, days90plus: 0, total: 0 });
+const addAging = (target, bucket, amount) => {
+  target[bucket] = money(target[bucket] + amount);
+  target.total = money(target.total + amount);
+};
+const controlAccountBalance = async (accountId) => {
+  const [row] = await JournalEntry.aggregate([
+    { $match: { status: { $in: ACTIVE_LEDGER_STATUSES }, "lines.account": toId(accountId) } },
+    { $unwind: "$lines" },
+    { $match: { "lines.account": toId(accountId) } },
+    { $group: { _id: null, debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
+  ]);
+  return money(Number(row?.debit || 0) - Number(row?.credit || 0));
+};
+const paymentDayAverage = (documents, issueField, paymentsField = "payments") => {
+  const values = documents.flatMap((document) => (document[paymentsField] || []).map((payment) => {
+    const start = new Date(document[issueField]); const end = new Date(payment.paidAt);
+    return Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) ? null : Math.max(Math.round((end - start) / DAY_MS), 0);
+  })).filter((value) => value !== null);
+  return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
+};
+const paymentDaysTrend = (documents, issueField, paymentsField = "payments") => {
+  const groups = new Map();
+  for (const document of documents) {
+    const issuedAt = new Date(document[issueField]);
+    if (Number.isNaN(issuedAt.getTime())) continue;
+    for (const payment of document[paymentsField] || []) {
+      const paidAt = new Date(payment.paidAt); if (Number.isNaN(paidAt.getTime())) continue;
+      const key = `${paidAt.getFullYear()}-${String(paidAt.getMonth() + 1).padStart(2, "0")}`;
+      const row = groups.get(key) || { month: key, days: 0, paymentCount: 0 };
+      row.days += Math.max(Math.round((paidAt - issuedAt) / DAY_MS), 0); row.paymentCount += 1; groups.set(key, row);
+    }
+  }
+  return [...groups.values()].sort((a, b) => a.month.localeCompare(b.month)).slice(-6).map((row) => ({ month: row.month, days: Math.round(row.days / row.paymentCount), paymentCount: row.paymentCount }));
+};
+const subledgerOutstanding = async (Model, match) => {
+  const [row] = await Model.aggregate([{ $match: match }, { $group: { _id: null, amount: { $sum: "$dueTotal" } } }]);
+  return money(row?.amount);
+};
+const reconciliationResult = async (controlCode, subledgerTotal, label) => {
+  const accountId = await resolveSystemAccount(controlCode);
+  const account = await Account.findById(accountId).select("code name").lean();
+  const rawBalance = await controlAccountBalance(accountId);
+  const glBalance = controlCode === "2000" ? money(-rawBalance) : rawBalance;
+  const difference = money(subledgerTotal - glBalance);
+  return { account, subledgerBalance: money(subledgerTotal), glBalance, difference, reconciled: Math.abs(difference) < 0.01, label };
+};
+
+export const postCustomerInvoice = async (req, res) => {
+  try {
+    if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid invoice ID." });
+    const invoice = await Invoice.findById(req.params.id);
+    if (!invoice) return res.status(404).json({ message: "Invoice not found." });
+    if (invoice.journalEntry) return res.status(409).json({ message: "Invoice is already posted." });
+    if (invoice.status === "void" || Number(invoice.paidTotal || 0) > 0) return res.status(409).json({ message: "A void or legacy-paid invoice cannot be posted automatically; reconcile its historical payments first." });
+    if (Number(invoice.total || 0) <= 0) return res.status(400).json({ message: "Invoice total must be greater than zero." });
+    const receivableAccount = await resolveSystemAccount("1100");
+    const salesAccount = await resolveSystemAccount("4000");
+    const journal = await postJournalEntry({
+      date: invoice.issuedAt, sourceType: "invoice", sourceId: invoice._id, reference: invoice.invoiceNo,
+      memo: clean(invoice.notes || `Customer invoice ${invoice.invoiceNo}`), currency: invoice.currency,
+      userId: req.user?._id || null,
+      lines: [
+        { account: receivableAccount, debit: invoice.total, credit: 0, description: invoice.invoiceNo, contactType: "customer", contactId: invoice.customerId },
+        { account: salesAccount, debit: 0, credit: invoice.total, description: invoice.invoiceNo, contactType: "customer", contactId: invoice.customerId },
+      ],
+    });
+    invoice.status = "sent"; invoice.journalEntry = journal._id; await invoice.save();
+    accountingCache.flushAll();
+    return res.json({ message: "Invoice posted to Accounts Receivable and Sales Revenue.", invoice, journalEntry: journal });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: "Failed to post invoice.", error: error.message });
+  }
+};
+
 export const getReceivables = async (req, res) => {
   try {
-    const range = parseDateRange(req.query);
-    if (range.error) return res.status(400).json({ message: range.error });
-    const limit = parseLimit(req.query.limit);
-    const cursor = decodeCursor(req.query.cursor);
-    const cacheId = cacheKey("receivables", req.query);
-    const cachedSummary = accountingCache.get(cacheId);
-    const data = cachedSummary
-      ? { rows: await Deal.aggregate(receivableRowsOnlyPipeline({ ...range, q: req.query.q, limit, cursor })).allowDiskUse(true), summary: [] }
-      : (await Deal.aggregate(receivablePipeline({ ...range, q: req.query.q, limit, cursor })).allowDiskUse(true))[0] || {};
-    const summary = data.summary?.[0] || {};
-    const rows = data.rows || [];
-    const hasNextPage = rows.length > limit;
-    const pageRows = hasNextPage ? rows.slice(0, limit) : rows;
-    const last = pageRows[pageRows.length - 1];
-    const nextCursor = hasNextPage && last ? encodeCursor({ date: last.accountingDate || last.wonAt, id: last._id }) : "";
-    const nextSummary = cachedSummary || {
-      dealCount: Number(summary.dealCount || 0),
-      dealValue: money(summary.dealValue),
-      invoicedAmount: money(summary.invoicedAmount),
-      paidAmount: money(summary.paidAmount),
-      invoiceDueAmount: money(summary.invoiceDueAmount),
-      unbilledAmount: money(summary.unbilledAmount),
-      receivableAmount: money(summary.receivableAmount),
-      overdueAmount: money(summary.overdueAmount),
-      overdueCount: Number(summary.overdueCount || 0),
-    };
-    if (!cachedSummary) accountingCache.set(cacheId, nextSummary);
+    const range = parseDateRange(req.query); if (range.error) return res.status(400).json({ message: range.error });
+    const asOf = req.query.asOf ? parsePostingDate(req.query.asOf, null) : new Date();
+    if (!asOf) return res.status(400).json({ message: "Invalid as-of date." });
+    asOf.setHours(23, 59, 59, 999);
+    const controlFilter = { journalEntry: { $ne: null }, status: { $nin: ["draft", "void"] }, dueTotal: { $gt: 0 }, issuedAt: { $lte: asOf } };
+    const filter = { ...controlFilter, issuedAt: { ...controlFilter.issuedAt } };
+    if (range.from) filter.issuedAt.$gte = range.from;
+    if (range.to && range.to < asOf) filter.issuedAt.$lte = range.to;
+    const documents = await Invoice.find(filter)
+      .populate("customerId", "name companyName email phone")
+      .populate({ path: "dealId", select: "dealNo title ownerId", populate: { path: "ownerId", select: "name email" } })
+      .sort({ dueAt: 1, issuedAt: 1 }).lean();
+    const q = clean(req.query.q).toLowerCase(); const salespersonId = clean(req.query.salespersonId);
+    const filtered = documents.filter((invoice) => {
+      const customer = invoice.customerId || {}; const owner = invoice.dealId?.ownerId || {};
+      const haystack = [invoice.invoiceNo, customer.name, customer.companyName, customer.email, owner.name, owner.email].map(clean).join(" ").toLowerCase();
+      return (!q || haystack.includes(q)) && (!salespersonId || String(owner._id || owner) === salespersonId);
+    });
+    const partyMap = new Map(); const totalAging = emptyAging();
+    for (const invoice of filtered) {
+      const party = invoice.customerId || {}; const key = String(party._id || "unassigned"); const bucket = agingBucket(invoice.dueAt, asOf);
+      const row = partyMap.get(key) || { party: { _id: party._id, name: party.companyName || party.name || "Unassigned customer", email: party.email, phone: party.phone }, ...emptyAging(), invoices: [] };
+      addAging(row, bucket, invoice.dueTotal); addAging(totalAging, bucket, invoice.dueTotal);
+      row.invoices.push({ _id: invoice._id, invoiceNo: invoice.invoiceNo, issuedAt: invoice.issuedAt, dueAt: invoice.dueAt, total: invoice.total, paidTotal: invoice.paidTotal, dueTotal: invoice.dueTotal, status: bucket === "current" ? invoice.status : "overdue", daysOverdue: invoice.dueAt ? Math.max(Math.floor((asOf - new Date(invoice.dueAt)) / DAY_MS), 0) : 0, salesperson: invoice.dealId?.ownerId || null });
+      partyMap.set(key, row);
+    }
+    const aging = [...partyMap.values()].sort((a, b) => b.total - a.total);
+    const overdueAmount = money(totalAging.total - totalAging.current);
+    const controlSubledgerTotal = await subledgerOutstanding(Invoice, controlFilter);
+    const [settled, reconciliation] = await Promise.all([
+      Invoice.find({ journalEntry: { $ne: null }, status: { $nin: ["draft", "void"] }, paidTotal: { $gt: 0 } }).select("issuedAt payments").lean(),
+      reconciliationResult("1100", controlSubledgerTotal, "All open posted customer invoices"),
+    ]);
+    const limit = parseLimit(req.query.limit, 75); const rows = aging.flatMap((party) => party.invoices.map((invoice) => ({ ...invoice, customer: party.party }))).slice(0, limit);
     return res.json({
-      summary: nextSummary,
-      rows: pageRows,
-      pageInfo: { limit, hasNextPage, nextCursor },
-      basis: "Accrual receivables from won deals. Outstanding equals invoice due plus won deal value not invoiced yet.",
+      summary: { outstandingAmount: totalAging.total, receivableAmount: totalAging.total, invoiceDueAmount: totalAging.total, overdueAmount, overdueCount: filtered.filter((invoice) => invoice.dueAt && new Date(invoice.dueAt) < asOf).length, customerCount: aging.length, openInvoiceCount: filtered.length, dso: paymentDayAverage(settled, "issuedAt") },
+      aging, agingTotals: totalAging, rows, topCustomers: aging.slice(0, 5).map(({ party, total }) => ({ party, amount: total })), dsoTrend: paymentDaysTrend(settled, "issuedAt"), reconciliation,
+      filters: { salespersonId: salespersonId || null }, pageInfo: { limit, hasNextPage: filtered.length > limit, nextCursor: "" },
+      basis: "Posted customer invoices less applied Receive Voucher payments. Unbilled deals and draft invoices are excluded.",
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to load receivables.", error: error.message });
   }
 };
 
+export const getCustomerStatement = async (req, res) => {
+  try {
+    if (!isId(req.params.customerId)) return res.status(400).json({ message: "Invalid customer ID." });
+    const asOf = req.query.asOf ? parsePostingDate(req.query.asOf, null) : new Date();
+    if (!asOf) return res.status(400).json({ message: "Invalid as-of date." }); asOf.setHours(23, 59, 59, 999);
+    const invoices = await Invoice.find({ customerId: req.params.customerId, journalEntry: { $ne: null }, status: { $nin: ["draft", "void"] }, issuedAt: { $lte: asOf } }).populate("customerId", "name companyName email phone").sort({ issuedAt: 1 }).lean();
+    const transactions = invoices.flatMap((invoice) => [
+      { date: invoice.issuedAt, reference: invoice.invoiceNo, description: "Customer invoice", charge: money(invoice.total), payment: 0, invoiceId: invoice._id },
+      ...(invoice.payments || []).filter((payment) => new Date(payment.paidAt) <= asOf).map((payment) => ({ date: payment.paidAt, reference: payment.transactionId || invoice.invoiceNo, description: `Payment received - ${invoice.invoiceNo}`, charge: 0, payment: money(payment.amount), invoiceId: invoice._id })),
+    ]).sort((a, b) => new Date(a.date) - new Date(b.date));
+    let balance = 0; for (const item of transactions) { balance = money(balance + item.charge - item.payment); item.balance = balance; }
+    return res.json({ party: invoices[0]?.customerId || null, asOf, transactions, balanceDue: balance });
+  } catch (error) { return res.status(500).json({ message: "Failed to load customer statement.", error: error.message }); }
+};
+
 export const getPayables = async (req, res) => {
   try {
-    const range = parseDateRange(req.query);
-    if (range.error) return res.status(400).json({ message: range.error });
-    const limit = parseLimit(req.query.limit);
-    const cursor = decodeCursor(req.query.cursor);
-    const rx = textRegex(req.query.q);
-    const match = { ...dateExpr("expenseDate", range.from, range.to) };
-    if (req.query.status && req.query.status !== "all") match.status = String(req.query.status).toLowerCase();
-    if (rx) match.$or = [{ title: rx }, { payeeVendor: rx }, { invoiceBillNo: rx }, { referenceNo: rx }];
-    const cacheId = cacheKey("payables", req.query);
-    const cachedSummary = accountingCache.get(cacheId);
-
-    const [data = {}] = await Expense.aggregate([
-      { $match: match },
-      {
-        $facet: {
-          rows: [
-            { $match: cursorMatch("expenseDate", cursor) },
-            { $sort: { expenseDate: -1, createdAt: -1, _id: -1 } },
-            { $limit: limit + 1 },
-            {
-              $lookup: {
-                from: "expensecategories",
-                localField: "category",
-                foreignField: "_id",
-                as: "category",
-                pipeline: [{ $project: { name: 1, parent: 1 } }],
-              },
-            },
-            { $addFields: { category: { $first: "$category" } } },
-            { $project: { title: 1, category: 1, expenseDate: 1, amount: 1, status: 1, paymentMethod: 1, payeeVendor: 1, invoiceBillNo: 1, referenceNo: 1, branch: 1 } },
-          ],
-          statusSummary: cachedSummary ? [{ $match: { _id: { $exists: false } } }] : [{ $group: { _id: "$status", count: { $sum: 1 }, amount: { $sum: "$amount" } } }],
-          vendorSummary: cachedSummary ? [{ $match: { _id: { $exists: false } } }] : [
-            { $match: { status: { $in: ["pending", "approved"] } } },
-            { $group: { _id: { $ifNull: ["$payeeVendor", ""] }, amount: { $sum: "$amount" }, count: { $sum: 1 } } },
-            { $sort: { amount: -1 } },
-            { $limit: 8 },
-          ],
-        },
-      },
-    ]).allowDiskUse(true);
-
-    const statusSummary = cachedSummary?.statusSummary || (data.statusSummary || []).reduce((acc, item) => {
-      acc[item._id || "unknown"] = { count: Number(item.count || 0), amount: money(item.amount) };
-      return acc;
-    }, {});
-    const pending = statusSummary.pending?.amount || 0;
-    const approved = statusSummary.approved?.amount || 0;
-    const paid = statusSummary.paid?.amount || 0;
-    const rows = data.rows || [];
-    const hasNextPage = rows.length > limit;
-    const pageRows = hasNextPage ? rows.slice(0, limit) : rows;
-    const last = pageRows[pageRows.length - 1];
-    const nextCursor = hasNextPage && last ? encodeCursor({ date: last.expenseDate, id: last._id }) : "";
-
-    const summary = cachedSummary?.summary || {
-        pendingAmount: money(pending),
-        approvedAmount: money(approved),
-        paidAmount: money(paid),
-        payableAmount: money(pending + approved),
-        pendingCount: statusSummary.pending?.count || 0,
-        approvedCount: statusSummary.approved?.count || 0,
-        paidCount: statusSummary.paid?.count || 0,
-        rejectedAmount: money(statusSummary.rejected?.amount || 0),
-      };
-    const vendorSummary = cachedSummary?.vendorSummary || (data.vendorSummary || []).map((item) => ({ vendor: item._id || "Unassigned", amount: money(item.amount), count: item.count }));
-    if (!cachedSummary) accountingCache.set(cacheId, { summary, statusSummary, vendorSummary });
-
+    const range = parseDateRange(req.query); if (range.error) return res.status(400).json({ message: range.error });
+    const asOf = req.query.asOf ? parsePostingDate(req.query.asOf, null) : new Date();
+    if (!asOf) return res.status(400).json({ message: "Invalid as-of date." }); asOf.setHours(23, 59, 59, 999);
+    const controlFilter = { journalEntry: { $ne: null }, status: { $nin: ["draft", "void"] }, dueTotal: { $gt: 0 }, billDate: { $lte: asOf } };
+    const filter = { ...controlFilter, billDate: { ...controlFilter.billDate } };
+    if (range.from) filter.billDate.$gte = range.from; if (range.to && range.to < asOf) filter.billDate.$lte = range.to;
+    const documents = await VendorBill.find(filter).populate("expenseAccount payableAccount", "code name type").sort({ dueDate: 1, billDate: 1 }).lean();
+    const q = clean(req.query.q).toLowerCase(); const filtered = documents.filter((bill) => !q || [bill.vendorName, bill.billNo, bill.memo].map(clean).join(" ").toLowerCase().includes(q));
+    const partyMap = new Map(); const totalAging = emptyAging();
+    for (const bill of filtered) {
+      const key = bill.vendorNameLower || clean(bill.vendorName).toLowerCase(); const bucket = agingBucket(bill.dueDate, asOf);
+      const row = partyMap.get(key) || { party: { name: bill.vendorName }, ...emptyAging(), bills: [] };
+      addAging(row, bucket, bill.dueTotal); addAging(totalAging, bucket, bill.dueTotal);
+      row.bills.push({ _id: bill._id, billNo: bill.billNo, billDate: bill.billDate, dueDate: bill.dueDate, total: bill.total, paidTotal: bill.paidTotal, dueTotal: bill.dueTotal, status: bill.status, daysOverdue: bill.dueDate ? Math.max(Math.floor((asOf - new Date(bill.dueDate)) / DAY_MS), 0) : 0 }); partyMap.set(key, row);
+    }
+    const aging = [...partyMap.values()].sort((a, b) => b.total - a.total); const now = new Date(); const in7 = new Date(now.getTime() + 7 * DAY_MS); const in30 = new Date(now.getTime() + 30 * DAY_MS);
+    const upcomingPayments = filtered.filter((bill) => bill.dueDate && new Date(bill.dueDate) >= now && new Date(bill.dueDate) <= in30).map((bill) => ({ _id: bill._id, billNo: bill.billNo, vendorName: bill.vendorName, dueDate: bill.dueDate, amount: bill.dueTotal })).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+    const controlSubledgerTotal = await subledgerOutstanding(VendorBill, controlFilter);
+    const [settled, reconciliation] = await Promise.all([
+      VendorBill.find({ journalEntry: { $ne: null }, status: { $nin: ["draft", "void"] }, paidTotal: { $gt: 0 } }).select("billDate payments").lean(),
+      reconciliationResult("2000", controlSubledgerTotal, "All open posted supplier bills"),
+    ]);
+    const dueIn7 = money(upcomingPayments.filter((item) => new Date(item.dueDate) <= in7).reduce((sum, item) => sum + item.amount, 0)); const dueIn30 = money(upcomingPayments.reduce((sum, item) => sum + item.amount, 0));
+    const limit = parseLimit(req.query.limit, 75); const rows = aging.flatMap((party) => party.bills.map((bill) => ({ ...bill, vendorName: party.party.name }))).slice(0, limit);
     return res.json({
-      summary,
-      rows: pageRows,
-      pageInfo: { limit, hasNextPage, nextCursor },
-      vendorSummary,
-      basis: "Payables are expense records not yet marked paid. Approved expenses are recognized liabilities; pending expenses are shown as commitments awaiting approval.",
+      summary: { outstandingAmount: totalAging.total, payableAmount: totalAging.total, overdueAmount: money(totalAging.total - totalAging.current), dueIn7, dueIn30, supplierCount: aging.length, openBillCount: filtered.length, dpo: paymentDayAverage(settled, "billDate") },
+      aging, agingTotals: totalAging, rows, upcomingPayments, topSuppliers: aging.slice(0, 5).map(({ party, total }) => ({ party, amount: total })), dpoTrend: paymentDaysTrend(settled, "billDate"), reconciliation,
+      pageInfo: { limit, hasNextPage: filtered.length > limit, nextCursor: "" }, vendorSummary: aging.slice(0, 8).map(({ party, total, bills }) => ({ vendor: party.name, amount: total, count: bills.length })),
+      basis: "Posted supplier bills less applied Payment Voucher payments. Draft bills and expense commitments are excluded.",
     });
-  } catch (error) {
-    return res.status(500).json({ message: "Failed to load payables.", error: error.message });
+  } catch (error) { return res.status(500).json({ message: "Failed to load payables.", error: error.message }); }
+};
+
+export const getSupplierStatement = async (req, res) => {
+  try {
+    const vendor = clean(req.query.vendor); if (!vendor) return res.status(400).json({ message: "Supplier name is required." });
+    const asOf = req.query.asOf ? parsePostingDate(req.query.asOf, null) : new Date(); if (!asOf) return res.status(400).json({ message: "Invalid as-of date." }); asOf.setHours(23, 59, 59, 999);
+    const bills = await VendorBill.find({ vendorNameLower: vendor.toLowerCase(), journalEntry: { $ne: null }, status: { $nin: ["draft", "void"] }, billDate: { $lte: asOf } }).sort({ billDate: 1 }).lean();
+    const transactions = bills.flatMap((bill) => [
+      { date: bill.billDate, reference: bill.billNo, description: "Supplier bill", charge: money(bill.total), payment: 0, billId: bill._id },
+      ...(bill.payments || []).filter((payment) => new Date(payment.paidAt) <= asOf).map((payment) => ({ date: payment.paidAt, reference: payment.reference || bill.billNo, description: `Payment made - ${bill.billNo}`, charge: 0, payment: money(payment.amount), billId: bill._id })),
+    ]).sort((a, b) => new Date(a.date) - new Date(b.date));
+    let balance = 0; for (const item of transactions) { balance = money(balance + item.charge - item.payment); item.balance = balance; }
+    return res.json({ party: { name: bills[0]?.vendorName || vendor }, asOf, transactions, balanceDue: balance });
+  } catch (error) { return res.status(500).json({ message: "Failed to load supplier statement.", error: error.message }); }
+};
+
+const PROFIT_LOSS_GROUPS = [
+  { key: "income", label: "Income" },
+  { key: "cogs", label: "Cost of Goods Sold" },
+  { key: "operating_expenses", label: "Operating Expenses" },
+  { key: "other_income", label: "Other Income" },
+  { key: "other_expenses", label: "Other Expenses" },
+];
+
+const profitLossGroupForAccount = (account = {}) => {
+  const subtype = clean(account.subType).toLowerCase();
+  const name = clean(account.name).toLowerCase();
+  if (account.type === "revenue") {
+    return subtype.includes("other") || subtype.includes("non-operating") || name.includes("interest income")
+      ? "other_income"
+      : "income";
   }
+  if (subtype.includes("cost of goods") || subtype.includes("direct expense") || name.includes("cost of goods") || name === "purchases") return "cogs";
+  if (subtype.includes("other") || subtype.includes("non-operating") || name.includes("interest expense") || name.includes("finance cost")) return "other_expenses";
+  return "operating_expenses";
+};
+
+const aggregateAccrualProfitLoss = async (range) => JournalEntry.aggregate([
+  { $match: { ...ledgerMatchForRange(range), sourceType: { $nin: ["opening_balance", "fiscal_closing"] } } },
+  { $unwind: "$lines" },
+  { $lookup: { from: "accounts", localField: "lines.account", foreignField: "_id", as: "account" } },
+  { $unwind: "$account" },
+  { $match: { "account.type": { $in: ["revenue", "expense"] }, "account.isGroup": { $ne: true } } },
+  { $group: {
+    _id: "$account._id",
+    account: { $first: { _id: "$account._id", code: "$account.code", name: "$account.name", type: "$account.type", subType: "$account.subType", currency: "$account.currency" } },
+    debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" }, voucherCount: { $sum: 1 },
+  } },
+  { $project: { account: 1, voucherCount: 1, amount: { $cond: [{ $eq: ["$account.type", "revenue"] }, { $subtract: ["$credit", "$debit"] }, { $subtract: ["$debit", "$credit"] }] } } },
+  { $sort: { "account.code": 1 } },
+]).allowDiskUse(true);
+
+const aggregateDirectCashProfitLoss = async (range, cashLedgerIds) => {
+  if (!cashLedgerIds.length) return [];
+  return JournalEntry.aggregate([
+    { $match: { ...ledgerMatchForRange(range), sourceType: { $nin: ["opening_balance", "fiscal_closing"] }, "lines.account": { $in: cashLedgerIds } } },
+    { $unwind: "$lines" },
+    { $lookup: { from: "accounts", localField: "lines.account", foreignField: "_id", as: "account" } },
+    { $unwind: "$account" },
+    { $match: { "account.type": { $in: ["revenue", "expense"] }, "account.isGroup": { $ne: true } } },
+    { $group: {
+      _id: "$account._id",
+      account: { $first: { _id: "$account._id", code: "$account.code", name: "$account.name", type: "$account.type", subType: "$account.subType", currency: "$account.currency" } },
+      debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" }, voucherCount: { $sum: 1 },
+    } },
+    { $project: { account: 1, voucherCount: 1, amount: { $cond: [{ $eq: ["$account.type", "revenue"] }, { $subtract: ["$credit", "$debit"] }, { $subtract: ["$debit", "$credit"] }] } } },
+  ]).allowDiskUse(true);
+};
+
+const cashSettlementProfitLossRows = async (range) => {
+  const paidAt = {};
+  if (range.from) paidAt.$gte = range.from;
+  if (range.to) paidAt.$lte = range.to;
+  const paymentDateMatch = Object.keys(paidAt).length ? { "payments.paidAt": paidAt } : {};
+  const [invoicePayments, billPayments] = await Promise.all([
+    Invoice.aggregate([
+      { $unwind: "$payments" }, { $match: { ...paymentDateMatch, "payments.journalEntry": { $ne: null }, status: { $ne: "void" } } },
+      { $lookup: { from: "journalentries", localField: "payments.journalEntry", foreignField: "_id", as: "paymentJournal" } },
+      { $match: { "paymentJournal.status": "posted" } },
+      { $lookup: { from: "journalentries", let: { documentId: "$_id" }, pipeline: [{ $match: { $expr: { $and: [{ $eq: ["$sourceId", "$$documentId"] }, { $eq: ["$sourceType", "invoice"] }, { $in: ["$status", ACTIVE_LEDGER_STATUSES] }] } } }], as: "sourceJournal" } },
+      { $project: { journalId: { $arrayElemAt: ["$sourceJournal._id", 0] }, amount: "$payments.amount", total: "$total" } },
+      { $match: { journalId: { $ne: null }, amount: { $gt: 0 }, total: { $gt: 0 } } },
+    ]).allowDiskUse(true),
+    VendorBill.aggregate([
+      { $unwind: "$payments" }, { $match: { ...paymentDateMatch, "payments.journalEntry": { $ne: null }, status: { $ne: "void" }, journalEntry: { $ne: null } } },
+      { $lookup: { from: "journalentries", localField: "payments.journalEntry", foreignField: "_id", as: "paymentJournal" } },
+      { $match: { "paymentJournal.status": "posted" } },
+      { $project: { journalId: "$journalEntry", amount: "$payments.amount", total: "$total" } },
+      { $match: { amount: { $gt: 0 }, total: { $gt: 0 } } },
+    ]).allowDiskUse(true),
+  ]);
+  const allocations = [...invoicePayments, ...billPayments];
+  if (!allocations.length) return [];
+  const journalIds = [...new Map(allocations.map((item) => [String(item.journalId), item.journalId])).values()];
+  const journals = await JournalEntry.find({ _id: { $in: journalIds }, status: { $in: ACTIVE_LEDGER_STATUSES } }).select("lines").lean();
+  const accountIds = [...new Map(journals.flatMap((entry) => entry.lines || []).map((line) => [String(line.account), line.account])).values()];
+  const accounts = await Account.find({ _id: { $in: accountIds }, type: { $in: ["revenue", "expense"] }, isGroup: { $ne: true } }).select("code name type subType currency").lean();
+  const accountMap = new Map(accounts.map((account) => [String(account._id), account]));
+  const journalMap = new Map(journals.map((entry) => [String(entry._id), entry]));
+  const rows = new Map();
+  for (const allocation of allocations) {
+    const ratio = Math.min(Math.max(Number(allocation.amount || 0) / Number(allocation.total || 1), 0), 1);
+    const source = journalMap.get(String(allocation.journalId));
+    for (const line of source?.lines || []) {
+      const account = accountMap.get(String(line.account));
+      if (!account) continue;
+      const base = account.type === "revenue" ? Number(line.credit || 0) - Number(line.debit || 0) : Number(line.debit || 0) - Number(line.credit || 0);
+      const existing = rows.get(String(account._id)) || { account, amount: 0, voucherCount: 0 };
+      existing.amount = money(existing.amount + base * ratio); existing.voucherCount += 1; rows.set(String(account._id), existing);
+    }
+  }
+  return [...rows.values()];
+};
+
+const aggregateCashProfitLoss = async (range) => {
+  const [cashAccounts, bankAccounts] = await Promise.all([
+    CashAccount.find({ isActive: { $ne: false } }).select("account").lean(),
+    BankAccount.find({ status: "active", ledgerAccount: { $ne: null } }).select("ledgerAccount").lean(),
+  ]);
+  const cashLedgerIds = [...new Map([...cashAccounts.map((item) => item.account), ...bankAccounts.map((item) => item.ledgerAccount)].filter(Boolean).map((id) => [String(id), id])).values()];
+  const [directRows, settlementRows] = await Promise.all([aggregateDirectCashProfitLoss(range, cashLedgerIds), cashSettlementProfitLossRows(range)]);
+  const merged = new Map();
+  for (const row of [...directRows, ...settlementRows]) {
+    const key = String(row.account?._id || row._id);
+    const existing = merged.get(key) || { account: row.account, amount: 0, voucherCount: 0 };
+    existing.amount = money(existing.amount + Number(row.amount || 0)); existing.voucherCount += Number(row.voucherCount || 0); merged.set(key, existing);
+  }
+  return [...merged.values()].sort((a, b) => clean(a.account?.code).localeCompare(clean(b.account?.code)));
+};
+
+const previousProfitLossRanges = (range, comparison) => {
+  const ranges = { current: range };
+  const duration = range.to.getTime() - range.from.getTime();
+  if (["prior_period", "both"].includes(comparison)) {
+    const to = new Date(range.from.getTime() - 1); const from = new Date(to.getTime() - duration);
+    ranges.priorPeriod = { from, to };
+  }
+  if (["prior_year", "both"].includes(comparison)) {
+    const from = new Date(range.from); const to = new Date(range.to);
+    from.setUTCFullYear(from.getUTCFullYear() - 1); to.setUTCFullYear(to.getUTCFullYear() - 1);
+    ranges.priorYear = { from, to };
+  }
+  return ranges;
+};
+
+const profitLossSummary = (totals = {}) => {
+  const revenue = money(totals.income || 0); const costOfGoodsSold = money(totals.cogs || 0);
+  const grossProfit = money(revenue - costOfGoodsSold); const operatingExpenses = money(totals.operating_expenses || 0);
+  const netOperatingIncome = money(grossProfit - operatingExpenses); const otherIncome = money(totals.other_income || 0); const otherExpenses = money(totals.other_expenses || 0);
+  const netProfit = money(netOperatingIncome + otherIncome - otherExpenses);
+  return { revenue, totalIncome: revenue, costOfGoodsSold, grossProfit, operatingExpenses, netOperatingIncome, otherIncome, otherExpenses, netProfit, netMargin: revenue ? money((netProfit / revenue) * 100) : 0 };
 };
 
 export const getProfitLoss = async (req, res) => {
   try {
-    const range = parseDateRange(req.query);
+    let range = parseDateRange(req.query);
     if (range.error) return res.status(400).json({ message: range.error });
-    const cacheId = cacheKey("profit-loss", req.query);
-    const cached = accountingCache.get(cacheId);
-    if (cached) return res.json(cached);
-    const revenueMatch = { stage: "won", ...dateExpr("accountingDate", range.from, range.to) };
-    const expenseMatch = { status: { $in: ["approved", "paid"] }, ...dateExpr("expenseDate", range.from, range.to) };
-    const paymentMatch = { status: { $ne: "void" } };
-
-    const [revenueRows, expenseRows, invoiceCash] = await Promise.all([
-      Deal.aggregate([
-        dealAccountingDateStage,
-        { $match: revenueMatch },
-        { $group: { _id: "$currency", revenue: { $sum: "$grandTotal" }, count: { $sum: 1 } } },
-      ]).allowDiskUse(true),
-      Expense.aggregate([
-        { $match: expenseMatch },
-        {
-          $lookup: {
-            from: "expensecategories",
-            localField: "category",
-            foreignField: "_id",
-            as: "category",
-            pipeline: [{ $project: { name: 1 } }],
-          },
-        },
-        { $addFields: { categoryName: { $ifNull: [{ $first: "$category.name" }, "Uncategorized"] } } },
-        { $group: { _id: "$categoryName", amount: { $sum: "$amount" }, count: { $sum: 1 } } },
-        { $sort: { amount: -1 } },
-      ]).allowDiskUse(true),
-      Invoice.aggregate([
-        { $match: paymentMatch },
-        { $unwind: "$payments" },
-        ...(range.from || range.to ? [{ $match: dateExpr("payments.paidAt", range.from, range.to) }] : []),
-        { $group: { _id: null, collected: { $sum: "$payments.amount" } } },
-      ]).allowDiskUse(true),
-    ]);
-
-    const revenue = money(revenueRows.reduce((sum, item) => sum + Number(item.revenue || 0), 0));
-    const operatingExpenses = money(expenseRows.reduce((sum, item) => sum + Number(item.amount || 0), 0));
-    const netProfit = money(revenue - operatingExpenses);
-    const dealCount = revenueRows.reduce((sum, item) => sum + Number(item.count || 0), 0);
-    const expenseCount = expenseRows.reduce((sum, item) => sum + Number(item.count || 0), 0);
-    const cashCollected = money(invoiceCash?.[0]?.collected || 0);
-
+    const settings = await AccountingSettings.findOne({ key: "company" }).select("legalName currency accountingMethod defaultFiscalYear").lean();
+    if (!range.to) { range.to = new Date(); range.to.setHours(23, 59, 59, 999); }
+    if (!range.from) {
+      range.from = (await FiscalYear.findOne({ startDate: { $lte: range.to }, endDate: { $gte: range.to } }).select("startDate").lean())?.startDate || new Date(range.to.getFullYear(), 0, 1);
+      range.from = new Date(range.from); range.from.setHours(0, 0, 0, 0);
+    }
+    if (range.from > range.to) return res.status(400).json({ message: "From date cannot be after to date." });
+    const basis = ["accrual", "cash"].includes(clean(req.query.basis).toLowerCase()) ? clean(req.query.basis).toLowerCase() : settings?.accountingMethod || "accrual";
+    const comparison = ["none", "prior_period", "prior_year", "both"].includes(clean(req.query.comparison).toLowerCase()) ? clean(req.query.comparison).toLowerCase() : "none";
+    const cacheId = cacheKey("profit-loss", req.query, `${basis}:${comparison}`);
+    const cached = accountingCache.get(cacheId); if (cached) return res.json(cached);
+    const ranges = previousProfitLossRanges(range, comparison); const periodKeys = Object.keys(ranges);
+    const periodRows = Object.fromEntries(await Promise.all(periodKeys.map(async (key) => [key, await (basis === "cash" ? aggregateCashProfitLoss(ranges[key]) : aggregateAccrualProfitLoss(ranges[key]))])));
+    const accountRows = new Map();
+    for (const key of periodKeys) for (const row of periodRows[key]) {
+      const id = String(row.account?._id || row._id); const existing = accountRows.get(id) || { account: row.account, values: {}, voucherCount: 0 };
+      existing.values[key] = money(row.amount); if (key === "current") existing.voucherCount = Number(row.voucherCount || 0); accountRows.set(id, existing);
+    }
+    const grouped = Object.fromEntries(PROFIT_LOSS_GROUPS.map((group) => [group.key, []]));
+    for (const row of accountRows.values()) grouped[profitLossGroupForAccount(row.account)].push(row);
+    const periodTotals = Object.fromEntries(periodKeys.map((key) => [key, {}]));
+    const groups = PROFIT_LOSS_GROUPS.map((definition) => {
+      const rows = grouped[definition.key].sort((a, b) => clean(a.account?.code).localeCompare(clean(b.account?.code)));
+      const totals = Object.fromEntries(periodKeys.map((key) => [key, money(rows.reduce((sum, row) => sum + Number(row.values[key] || 0), 0))]));
+      for (const key of periodKeys) periodTotals[key][definition.key] = totals[key];
+      return { ...definition, rows, totals };
+    });
+    const summary = profitLossSummary(periodTotals.current); summary.cashCollected = basis === "cash" ? money(summary.revenue + summary.otherIncome) : 0; summary.dealCount = 0; summary.expenseCount = groups.find((group) => group.key === "operating_expenses")?.rows.length || 0;
+    const comparisonSummaries = Object.fromEntries(periodKeys.filter((key) => key !== "current").map((key) => [key, profitLossSummary(periodTotals[key])]));
+    const totalIncome = summary.revenue;
+    for (const group of groups) for (const row of group.rows) {
+      row.amount = money(row.values.current || 0); row.percentOfIncome = totalIncome ? money((row.amount / totalIncome) * 100) : 0;
+      row.comparison = Object.fromEntries(periodKeys.filter((key) => key !== "current").map((key) => [key, money(row.values[key] || 0)]));
+      row.variancePercent = Object.fromEntries(periodKeys.filter((key) => key !== "current").map((key) => { const previous = Number(row.values[key] || 0); return [key, previous ? money(((row.amount - previous) / Math.abs(previous)) * 100) : null]; }));
+    }
     const response = {
-      summary: {
-        revenue,
-        costOfGoodsSold: 0,
-        grossProfit: revenue,
-        operatingExpenses,
-        netProfit,
-        netMargin: revenue > 0 ? money((netProfit / revenue) * 100) : 0,
-        dealCount,
-        expenseCount,
-        cashCollected,
-      },
-      revenueByCurrency: revenueRows.map((item) => ({ currency: item._id || "BDT", revenue: money(item.revenue), count: item.count })),
-      expensesByCategory: expenseRows.map((item) => ({ category: item._id, amount: money(item.amount), count: item.count })),
-      basis: "Accrual P&L: revenue is recognized from won deals; operating expenses include approved and paid expenses. Cash collected is shown separately.",
+      company: { legalName: settings?.legalName || "Company", currency: settings?.currency || "BDT" }, basis, comparison,
+      periods: Object.fromEntries(periodKeys.map((key) => [key, { from: ranges[key].from, to: ranges[key].to }])),
+      groups, summary, comparisons: comparisonSummaries,
+      revenueByCurrency: [{ currency: settings?.currency || "BDT", revenue: summary.revenue, count: groups.find((group) => group.key === "income")?.rows.length || 0 }],
+      expensesByCategory: groups.filter((group) => ["cogs", "operating_expenses", "other_expenses"].includes(group.key)).flatMap((group) => group.rows.map((row) => ({ category: row.account?.name, amount: row.amount, count: row.voucherCount }))),
+      basisDescription: basis === "cash" ? "Cash basis uses posted cash/bank journals plus the paid proportion of GL-posted customer invoices and supplier bills." : "Accrual basis uses revenue and expense lines from posted and reversing General Ledger vouchers in the selected period.",
     };
-    accountingCache.set(cacheId, response);
-    return res.json(response);
+    accountingCache.set(cacheId, response); return res.json(response);
   } catch (error) {
     return res.status(500).json({ message: "Failed to load profit and loss.", error: error.message });
   }
@@ -1853,14 +2051,35 @@ export const approveVendorBill = async (req, res) => {
   }
 };
 
+const resolvePaymentTreasury = async (body = {}, expectedCurrency = "") => {
+  const id = body.treasuryAccount || body.cashAccount || body.bankAccount;
+  const requestedType = clean(body.treasuryType).toLowerCase();
+  if (!isId(id)) return null;
+  if (requestedType !== "bank") {
+    const cash = await CashAccount.findOne({ _id: id, isActive: true }).populate("account", "code name type currency isActive isGroup").lean();
+    if (cash?.account?.type === "asset" && cash.account.isActive !== false && !cash.account.isGroup) {
+      if (expectedCurrency && clean(cash.currency).toUpperCase() !== clean(expectedCurrency).toUpperCase()) return null;
+      return { type: "cash", id: cash._id, ledger: cash.account, name: cash.name, paymentMode: cash.type === "cash" ? "cash" : clean(cash.type || "other") };
+    }
+  }
+  if (requestedType !== "cash") {
+    const bank = await BankAccount.findOne({ _id: id, status: "active" }).populate("ledgerAccount", "code name type currency isActive isGroup").lean();
+    if (bank?.ledgerAccount?.type === "asset" && bank.ledgerAccount.isActive !== false && !bank.ledgerAccount.isGroup) {
+      if (expectedCurrency && clean(bank.currency).toUpperCase() !== clean(expectedCurrency).toUpperCase()) return null;
+      return { type: "bank", id: bank._id, ledger: bank.ledgerAccount, name: bank.accountName, paymentMode: "bank" };
+    }
+  }
+  return null;
+};
+
 export const payVendorBill = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid vendor bill ID." });
     const bill = await VendorBill.findById(req.params.id);
     if (!bill) return res.status(404).json({ message: "Vendor bill not found." });
     if (!["approved", "partially_paid"].includes(bill.status)) return res.status(409).json({ message: "Bill must be approved before payment." });
-    const cashAccount = await CashAccount.findById(req.body.cashAccount).lean();
-    if (!cashAccount) return res.status(400).json({ message: "Valid cash/bank account is required." });
+    const treasury = await resolvePaymentTreasury(req.body, bill.currency);
+    if (!treasury) return res.status(400).json({ message: "Select an active cash or linked bank account in the bill currency." });
     const amount = money(req.body.amount || bill.dueTotal);
     if (amount <= 0 || amount > Number(bill.dueTotal || 0)) return res.status(400).json({ message: "Payment amount must be greater than 0 and not exceed bill due." });
     const journal = await postJournalEntry({
@@ -1870,13 +2089,16 @@ export const payVendorBill = async (req, res) => {
       reference: clean(req.body.reference || bill.billNo),
       memo: clean(req.body.note || `Payment to ${bill.vendorName}`),
       currency: bill.currency,
+      paymentMode: treasury.paymentMode,
+      cashAccount: treasury.type === "cash" ? treasury.id : null,
+      bankAccount: treasury.type === "bank" ? treasury.id : null,
       userId: req.user?._id || null,
       lines: [
         { account: bill.payableAccount, debit: amount, credit: 0, description: bill.vendorName, contactType: "vendor" },
-        { account: cashAccount.account, debit: 0, credit: amount, description: cashAccount.name },
+        { account: treasury.ledger._id, debit: 0, credit: amount, description: treasury.name },
       ],
     });
-    bill.payments.push({ amount, paidAt: parsePostingDate(req.body.paidAt) || new Date(), cashAccount: cashAccount._id, journalEntry: journal._id, reference: req.body.reference, note: req.body.note, paidBy: req.user?._id || null });
+    bill.payments.push({ amount, paidAt: parsePostingDate(req.body.paidAt) || new Date(), cashAccount: treasury.type === "cash" ? treasury.id : null, bankAccount: treasury.type === "bank" ? treasury.id : null, journalEntry: journal._id, reference: req.body.reference, note: req.body.note, paidBy: req.user?._id || null });
     await bill.save();
     return res.json({ message: "Vendor payment recorded.", vendorBill: bill, journalEntry: journal });
   } catch (error) {
@@ -1886,12 +2108,13 @@ export const payVendorBill = async (req, res) => {
 
 export const recordCustomerPayment = async (req, res) => {
   try {
-    const invoiceId = req.body.invoiceId || req.params.invoiceId;
+    const invoiceId = req.body.invoiceId || req.params.invoiceId || req.params.id;
     if (!isId(invoiceId)) return res.status(400).json({ message: "Valid invoice is required." });
     const invoice = await Invoice.findById(invoiceId);
     if (!invoice || invoice.status === "void") return res.status(404).json({ message: "Invoice not found." });
-    const cashAccount = await CashAccount.findById(req.body.cashAccount).lean();
-    if (!cashAccount) return res.status(400).json({ message: "Valid cash/bank account is required." });
+    if (invoice.status === "draft" || !invoice.journalEntry) return res.status(409).json({ message: "Invoice must be posted before a payment can be applied." });
+    const treasury = await resolvePaymentTreasury(req.body, invoice.currency);
+    if (!treasury) return res.status(400).json({ message: "Select an active cash or linked bank account in the invoice currency." });
     const amount = money(req.body.amount || invoice.dueTotal);
     if (amount <= 0 || amount > Number(invoice.dueTotal || 0)) return res.status(400).json({ message: "Payment amount must be greater than 0 and not exceed invoice due." });
     const arAccount = req.body.receivableAccount || await resolveSystemAccount("1100");
@@ -1902,13 +2125,16 @@ export const recordCustomerPayment = async (req, res) => {
       reference: clean(req.body.reference || invoice.invoiceNo),
       memo: clean(req.body.note || `Payment for invoice ${invoice.invoiceNo}`),
       currency: invoice.currency,
+      paymentMode: treasury.paymentMode,
+      cashAccount: treasury.type === "cash" ? treasury.id : null,
+      bankAccount: treasury.type === "bank" ? treasury.id : null,
       userId: req.user?._id || null,
       lines: [
-        { account: cashAccount.account, debit: amount, credit: 0, description: cashAccount.name },
+        { account: treasury.ledger._id, debit: amount, credit: 0, description: treasury.name },
         { account: arAccount, debit: 0, credit: amount, description: invoice.invoiceNo, contactType: "customer", contactId: invoice.customerId },
       ],
     });
-    invoice.payments.push({ amount, method: cashAccount.type === "mobile_banking" ? "other" : cashAccount.type, transactionId: clean(req.body.reference), paidAt: parsePostingDate(req.body.paidAt) || new Date(), note: clean(req.body.note), receivedBy: req.user?._id || null });
+    invoice.payments.push({ amount, method: ["cash", "bank", "card"].includes(treasury.paymentMode) ? treasury.paymentMode : "other", transactionId: clean(req.body.reference), paidAt: parsePostingDate(req.body.paidAt) || new Date(), note: clean(req.body.note), receivedBy: req.user?._id || null, cashAccount: treasury.type === "cash" ? treasury.id : null, bankAccount: treasury.type === "bank" ? treasury.id : null, journalEntry: journal._id });
     await invoice.save();
     return res.json({ message: "Customer payment recorded.", invoice, journalEntry: journal });
   } catch (error) {
@@ -2112,6 +2338,101 @@ export const getGeneralLedger = async (req, res) => {
   }
 };
 
+export const getCashBook = async (req, res) => {
+  try {
+    const range = parseDateRange(req.query);
+    if (range.error) return res.status(400).json({ message: range.error });
+    const from = range.from || new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const to = range.to || new Date();
+    from.setHours(0, 0, 0, 0); to.setHours(23, 59, 59, 999);
+    if (from > to) return res.status(400).json({ message: "From date cannot be after to date." });
+
+    const [cashLinks, bankLinks] = await Promise.all([
+      CashAccount.find({ account: { $ne: null } }).select("name type currency account isActive location institution accountNo").populate("account", "code name type currency isActive").lean(),
+      BankAccount.find({ ledgerAccount: { $ne: null } }).select("accountName accountNumber accountType currency ledgerAccount status bank").populate("ledgerAccount", "code name type currency isActive").populate("bank", "bankName shortName").lean(),
+    ]);
+    const treasuryMap = new Map();
+    for (const link of cashLinks) {
+      if (!link.account?._id || link.account.type !== "asset") continue;
+      treasuryMap.set(String(link.account._id), {
+        ledger: link.account, treasuryId: link._id, kind: link.type === "cash" ? "cash" : "bank",
+        name: link.name, detail: link.location || link.institution || link.accountNo || "Cash Management", currency: link.currency || link.account.currency, active: link.isActive !== false,
+      });
+    }
+    for (const link of bankLinks) {
+      if (!link.ledgerAccount?._id || link.ledgerAccount.type !== "asset") continue;
+      treasuryMap.set(String(link.ledgerAccount._id), {
+        ledger: link.ledgerAccount, treasuryId: link._id, kind: "bank", name: link.accountName,
+        detail: `${link.bank?.shortName || link.bank?.bankName || "Bank"} - ${link.accountNumber}`, currency: link.currency || link.ledgerAccount.currency, active: link.status === "active",
+      });
+    }
+    const allAccounts = [...treasuryMap.values()].sort((a, b) => `${a.kind}-${a.name}`.localeCompare(`${b.kind}-${b.name}`));
+    const scope = ["all", "cash", "bank", "account"].includes(clean(req.query.scope).toLowerCase()) ? clean(req.query.scope).toLowerCase() : "all";
+    const requestedAccount = clean(req.query.account);
+    let selectedAccounts = allAccounts.filter((item) => scope === "all" || item.kind === scope);
+    if (scope === "account") {
+      selectedAccounts = allAccounts.filter((item) => String(item.ledger._id) === requestedAccount || String(item.treasuryId) === requestedAccount);
+      if (!selectedAccounts.length) return res.status(400).json({ message: "Select a valid linked cash or bank account." });
+    }
+    const currency = clean(req.query.currency).toUpperCase();
+    if (currency) selectedAccounts = selectedAccounts.filter((item) => clean(item.currency).toUpperCase() === currency);
+    const ledgerIds = selectedAccounts.map((item) => item.ledger._id);
+    if (!ledgerIds.length) return res.json({ accounts: allAccounts, selectedAccounts: [], rows: [], openingBalance: 0, closingBalance: 0, summary: { cashIn: 0, cashOut: 0, bankIn: 0, bankOut: 0, netMovement: 0 }, from, to, scope, basis: "No linked treasury ledgers match this scope." });
+
+    const openingMatch = { status: { $in: ACTIVE_LEDGER_STATUSES }, date: { $lt: from }, "lines.account": { $in: ledgerIds } };
+    const entryMatch = { status: { $in: ACTIVE_LEDGER_STATUSES }, date: { $gte: from, $lte: to }, "lines.account": { $in: ledgerIds } };
+    if (req.query.voucherType && req.query.voucherType !== "all") entryMatch.voucherType = clean(req.query.voucherType).toLowerCase();
+    const search = textRegex(req.query.q);
+    if (search) entryMatch.$or = [{ entryNo: search }, { reference: search }, { memo: search }, { "lines.description": search }];
+    const reportLimit = Math.min(Math.max(Number(req.query.limit || 3000), 1), 5000);
+    const [openingRows, entries] = await Promise.all([
+      JournalEntry.aggregate([
+        { $match: openingMatch }, { $unwind: "$lines" }, { $match: { "lines.account": { $in: ledgerIds } } },
+        { $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
+      ]).allowDiskUse(true),
+      JournalEntry.find(entryMatch).select("entryNo date status voucherType sourceType sourceId reference memo currency paymentMode cashAccount bankAccount reversalOf reversedByEntry lines createdAt").sort({ date: 1, createdAt: 1, _id: 1 }).limit(reportLimit + 1).lean(),
+    ]);
+    const truncated = entries.length > reportLimit; const periodEntries = truncated ? entries.slice(0, reportLimit) : entries;
+    const openingByAccount = new Map(openingRows.map((row) => [String(row._id), money(Number(row.debit || 0) - Number(row.credit || 0))]));
+    let runningBalance = money([...openingByAccount.values()].reduce((sum, value) => sum + value, 0));
+    const movementByAccount = new Map(selectedAccounts.map((item) => [String(item.ledger._id), 0]));
+    const summary = { cashIn: 0, cashOut: 0, bankIn: 0, bankOut: 0, netMovement: 0 };
+    const rows = [];
+    for (const entry of periodEntries) {
+      const row = { journalEntryId: entry._id, date: entry.date, entryNo: entry.entryNo, voucherType: entry.voucherType, sourceType: entry.sourceType, sourceId: entry.sourceId, reference: entry.reference, particulars: entry.memo || "", cashIn: 0, cashOut: 0, bankIn: 0, bankOut: 0, accounts: [] };
+      for (const line of entry.lines || []) {
+        const accountId = String(line.account); const treasury = treasuryMap.get(accountId);
+        if (!treasury || !ledgerIds.some((id) => String(id) === accountId)) continue;
+        row.accounts.push({ _id: treasury.ledger._id, code: treasury.ledger.code, name: treasury.name, kind: treasury.kind, description: line.description });
+        if (!row.particulars && line.description) row.particulars = line.description;
+        const incoming = money(line.debit); const outgoing = money(line.credit);
+        movementByAccount.set(accountId, money((movementByAccount.get(accountId) || 0) + incoming - outgoing));
+        if (treasury.kind === "cash") { row.cashIn = money(row.cashIn + incoming); row.cashOut = money(row.cashOut + outgoing); }
+        else { row.bankIn = money(row.bankIn + incoming); row.bankOut = money(row.bankOut + outgoing); }
+      }
+      if (!row.accounts.length) continue;
+      const movement = money(row.cashIn + row.bankIn - row.cashOut - row.bankOut);
+      runningBalance = money(runningBalance + movement); row.movement = movement; row.balance = runningBalance;
+      summary.cashIn = money(summary.cashIn + row.cashIn); summary.cashOut = money(summary.cashOut + row.cashOut); summary.bankIn = money(summary.bankIn + row.bankIn); summary.bankOut = money(summary.bankOut + row.bankOut);
+      rows.push(row);
+    }
+    summary.netMovement = money(summary.cashIn + summary.bankIn - summary.cashOut - summary.bankOut);
+    const openingBalance = money([...openingByAccount.values()].reduce((sum, value) => sum + value, 0));
+    const accountBalances = selectedAccounts.map((item) => {
+      const movement = movementByAccount.get(String(item.ledger._id)) || 0;
+      const opening = openingByAccount.get(String(item.ledger._id)) || 0;
+      return { ...item, openingBalance: money(opening), closingBalance: money(opening + movement) };
+    });
+    return res.json({
+      from, to, scope, currency: currency || null, accounts: allAccounts, selectedAccounts: accountBalances, openingBalance, rows, summary,
+      closingBalance: money(openingBalance + summary.netMovement), pageInfo: { limit: reportLimit, hasNextPage: truncated, nextCursor: "" },
+      basis: "Derived from posted and reversal-linked voucher lines touching Cash Management and Bank Management ledgers; no separate Cash Book records are stored.",
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: "Failed to load cash book.", error: error.message });
+  }
+};
+
 export const getTrialBalance = async (req, res) => {
   try {
     const asOf = req.query.asOf || req.query.to ? new Date(req.query.asOf || req.query.to) : new Date();
@@ -2176,21 +2497,34 @@ export const getBalanceSheet = async (req, res) => {
     const to = req.query.to ? new Date(req.query.to) : new Date();
     if (Number.isNaN(to.getTime())) return res.status(400).json({ message: "Invalid to date." });
     to.setHours(23, 59, 59, 999);
-    const rows = await JournalEntry.aggregate([
-      { $match: { status: { $in: ACTIVE_LEDGER_STATUSES }, date: { $lte: to } } },
-      { $unwind: "$lines" },
-      { $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
-      { $lookup: { from: "accounts", localField: "_id", foreignField: "_id", as: "account" } },
-      { $unwind: "$account" },
-      { $match: { "account.type": { $in: ["asset", "liability", "equity"] } } },
-      { $project: { account: { _id: "$account._id", code: "$account.code", name: "$account.name", type: "$account.type" }, balance: accountBalanceExpression } },
-      { $sort: { "account.type": 1, "account.code": 1 } },
-    ]).allowDiskUse(true);
+    const fiscalYear = await FiscalYear.findOne({ startDate: { $lte: to }, endDate: { $gte: to } }).select("startDate name").lean();
+    const earningsFrom = fiscalYear?.startDate ? new Date(fiscalYear.startDate) : new Date(to.getFullYear(), 0, 1);
+    earningsFrom.setHours(0, 0, 0, 0);
+    const [rows, earningsRows] = await Promise.all([
+      JournalEntry.aggregate([
+        { $match: { status: { $in: ACTIVE_LEDGER_STATUSES }, date: { $lte: to } } },
+        { $unwind: "$lines" },
+        { $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
+        { $lookup: { from: "accounts", localField: "_id", foreignField: "_id", as: "account" } },
+        { $unwind: "$account" },
+        { $match: { "account.type": { $in: ["asset", "liability", "equity"] } } },
+        { $project: { account: { _id: "$account._id", code: "$account.code", name: "$account.name", type: "$account.type" }, balance: accountBalanceExpression } },
+        { $sort: { "account.type": 1, "account.code": 1 } },
+      ]).allowDiskUse(true),
+      aggregateAccrualProfitLoss({ from: earningsFrom, to }),
+    ]);
     const groups = { assets: [], liabilities: [], equity: [] };
     for (const row of rows) {
       const key = row.account.type === "asset" ? "assets" : row.account.type === "liability" ? "liabilities" : "equity";
       groups[key].push({ ...row, balance: money(row.balance) });
     }
+    const earningsTotals = {};
+    for (const row of earningsRows) {
+      const key = profitLossGroupForAccount(row.account); earningsTotals[key] = money(Number(earningsTotals[key] || 0) + Number(row.amount || 0));
+    }
+    const closingPosted = await JournalEntry.exists({ sourceType: "fiscal_closing", status: { $in: ACTIVE_LEDGER_STATUSES }, date: { $gte: earningsFrom, $lte: to } });
+    const currentYearEarnings = closingPosted ? 0 : profitLossSummary(earningsTotals).netProfit;
+    groups.equity.push({ account: { _id: "current-year-earnings", code: "CYE", name: "Current Year Earnings", type: "equity" }, balance: currentYearEarnings, synthetic: true });
     const sum = (items) => money(items.reduce((total, item) => total + Number(item.balance || 0), 0));
     return res.json({
       asOf: to,
@@ -2201,6 +2535,8 @@ export const getBalanceSheet = async (req, res) => {
         equity: sum(groups.equity),
         liabilitiesAndEquity: money(sum(groups.liabilities) + sum(groups.equity)),
       },
+      currentYearEarnings: { amount: currentYearEarnings, from: earningsFrom, to, fiscalYear: fiscalYear?.name || String(to.getFullYear()) },
+      basis: "Assets, liabilities, and equity are live GL balances. Current Year Earnings is linked to the accrual Profit & Loss for the active fiscal year.",
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to load balance sheet.", error: error.message });

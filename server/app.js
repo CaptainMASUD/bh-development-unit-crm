@@ -64,6 +64,7 @@ import expenseRoutes from "./routes/expense.routes.js";
 import accountingRoutes from "./routes/accounting.routes.js";
 import bankRoutes from "./routes/bank.routes.js";
 import bankingRoutes from "./routes/banking.routes.js";
+import productRoutes from "./routes/product.routes.js";
 
 /* =========================
    HEALTH CHECK
@@ -74,6 +75,14 @@ app.get("/api/health", (req, res) => {
     message: "BusinessHub CRM API is running",
   });
 });
+
+/* =========================
+   INVENTORY PRODUCTS
+========================= */
+app.use(
+  "/api/inventory/products",
+  productRoutes
+);
 
 /* =========================
    EMPLOYEE REPORTS

@@ -10,7 +10,6 @@ import {
   BanknoteIcon,
   BookOpen01Icon,
   Briefcase01Icon,
-  Calculator01Icon,
   Calendar03Icon,
   CalendarMinus01Icon,
   ChartLineData01Icon,
@@ -59,6 +58,10 @@ const TreasuryVouchers = lazy(() => import("./banking/TreasuryVouchers"))
 const ChartOfAccounts = lazy(() => import("./accounting/ChartOfAccounts"))
 const JournalEntries = lazy(() => import("./accounting/JournalEntries"))
 const GeneralLedger = lazy(() => import("./accounting/GeneralLedger"))
+const CashBook = lazy(() => import("./accounting/CashBook"))
+const AccountsReceivable = lazy(() => import("./accounting/AccountsReceivable"))
+const AccountsPayable = lazy(() => import("./accounting/AccountsPayable"))
+const ProfitLoss = lazy(() => import("./accounting/ProfitLoss"))
 const OpeningBalances = lazy(() => import("./accounting/OpeningBalances"))
 const AccountingSettings = lazy(() => import("./accounting/AccountingSettings"))
 const FiscalYearPeriods = lazy(() => import("./accounting/FiscalYearPeriods"))
@@ -198,6 +201,30 @@ const sections = {
   "General Ledger": {
     icon: createSectionIcon(BookOpen01Icon),
     component: <GeneralLedger />,
+    permission: "finance:view",
+  },
+
+  "Cash Book": {
+    icon: createSectionIcon(BookOpen01Icon),
+    component: <CashBook />,
+    permission: "finance:view",
+  },
+
+  "Accounts Receivable": {
+    icon: createSectionIcon(ReceiptDollarIcon),
+    component: <AccountsReceivable />,
+    permission: "finance:view",
+  },
+
+  "Accounts Payable": {
+    icon: createSectionIcon(HandCoinsIcon),
+    component: <AccountsPayable />,
+    permission: "finance:view",
+  },
+
+  "Profit & Loss": {
+    icon: createSectionIcon(ChartLineData01Icon),
+    component: <ProfitLoss />,
     permission: "finance:view",
   },
 

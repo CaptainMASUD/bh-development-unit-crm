@@ -1,92 +1,448 @@
 import mongoose from "mongoose";
 
+const PRODUCT_TYPES = ["inventory", "non_inventory", "service"];
+const PRODUCT_STATUSES = ["active", "inactive", "discontinued", "archived"];
+const TRACKING_TYPES = ["none", "batch", "serial"];
+const COSTING_METHODS = ["weighted_average", "fifo", "standard"];
+const TAX_TYPES = ["none", "exclusive", "inclusive"];
+
 const productSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true, trim: true, index: true },
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 160,
+    },
 
-    nameLower: { type: String, trim: true, default: "", index: true },
+    // Used internally for fast case-insensitive searching and sorting.
+    nameLower: {
+      type: String,
+      trim: true,
+      default: "",
+      select: false,
+    },
 
-    sku: { type: String, trim: true, index: true },
+    sku: {
+      type: String,
+      required: true,
+      trim: true,
+      uppercase: true,
+      maxlength: 80,
+    },
 
-    unit: { type: String, trim: true, default: "pcs" },
+    barcode: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      maxlength: 120,
+      default: "",
+    },
 
-    category: { type: String, trim: true, default: "", index: true },
+    productType: {
+      type: String,
+      enum: PRODUCT_TYPES,
+      default: "inventory",
+    },
 
-    basePrice: { type: Number, default: 0, min: 0 },
+    category: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ProductCategory",
+      default: null,
+    },
 
-    currency: { type: String, default: "BDT", trim: true, index: true },
+    brand: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ProductBrand",
+      default: null,
+    },
 
-    isActive: { type: Boolean, default: true, index: true },
+    baseUnit: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "InventoryUnit",
+      default: null,
+    },
+
+    defaultSupplier: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Supplier",
+      default: null,
+    },
+
+    description: {
+      type: String,
+      trim: true,
+      maxlength: 3000,
+      default: "",
+    },
+
+    imageUrl: {
+      type: String,
+      trim: true,
+      maxlength: 1000,
+      default: "",
+    },
+
+    purchasePrice: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    sellingPrice: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    wholesalePrice: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    minimumSellingPrice: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    currency: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      maxlength: 12,
+      default: "BDT",
+    },
+
+    taxType: {
+      type: String,
+      enum: TAX_TYPES,
+      default: "none",
+    },
+
+    taxRate: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0,
+    },
+
+    trackInventory: {
+      type: Boolean,
+      default: true,
+    },
+
+    trackingType: {
+      type: String,
+      enum: TRACKING_TYPES,
+      default: "none",
+    },
+
+    costingMethod: {
+      type: String,
+      enum: COSTING_METHODS,
+      default: "weighted_average",
+    },
+
+    allowNegativeStock: {
+      type: Boolean,
+      default: false,
+    },
+
+    reorderLevel: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    minimumStock: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    maximumStock: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    status: {
+      type: String,
+      enum: PRODUCT_STATUSES,
+      default: "active",
+    },
+
+    archivedAt: {
+      type: Date,
+      default: null,
+    },
 
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
-      index: true,
+    },
+
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
     },
   },
-  { timestamps: true, minimize: true }
+  {
+    timestamps: true,
+    versionKey: false,
+    minimize: true,
+  }
 );
 
-productSchema.index({ sku: 1 }, { unique: true, sparse: true });
-productSchema.index({ isActive: 1, nameLower: 1, _id: -1 });
-productSchema.index({ category: 1, isActive: 1, _id: -1 });
-productSchema.index({ createdBy: 1, createdAt: -1 });
+/* =========================================================
+   RESPONSE TRANSFORMATION
+========================================================= */
 
+productSchema.set("toJSON", {
+  transform: (_doc, ret) => {
+    delete ret.nameLower;
+    return ret;
+  },
+});
+
+productSchema.set("toObject", {
+  transform: (_doc, ret) => {
+    delete ret.nameLower;
+    return ret;
+  },
+});
+
+/* =========================================================
+   DATABASE INDEXES
+========================================================= */
+
+// SKU must be globally unique.
+productSchema.index({ sku: 1 }, { unique: true });
+
+// Empty barcodes are allowed, but non-empty barcodes must be unique.
 productSchema.index(
+  { barcode: 1 },
   {
-    name: "text",
-    sku: "text",
-    category: "text",
-  },
-  {
-    name: "product_text_search",
-    weights: {
-      name: 10,
-      sku: 8,
-      category: 4,
+    unique: true,
+    partialFilterExpression: {
+      barcode: {
+        $type: "string",
+        $gt: "",
+      },
     },
   }
 );
 
-productSchema.pre("save", function (next) {
-  if (this.isModified("name")) {
-    this.nameLower = String(this.name || "").trim().toLowerCase();
+// General listing and prefix searching.
+productSchema.index({
+  nameLower: 1,
+  _id: 1,
+});
+
+// Status-based product listing.
+productSchema.index({
+  status: 1,
+  nameLower: 1,
+  _id: 1,
+});
+
+// Category filtering.
+productSchema.index({
+  category: 1,
+  status: 1,
+  nameLower: 1,
+  _id: 1,
+});
+
+// Brand filtering.
+productSchema.index({
+  brand: 1,
+  status: 1,
+  nameLower: 1,
+  _id: 1,
+});
+
+// Product-type filtering.
+productSchema.index({
+  productType: 1,
+  status: 1,
+  nameLower: 1,
+  _id: 1,
+});
+
+// Inventory-tracking filtering.
+productSchema.index({
+  trackInventory: 1,
+  status: 1,
+  nameLower: 1,
+  _id: 1,
+});
+
+/* =========================================================
+   NORMALIZATION
+========================================================= */
+
+const normalizeProductPatch = (source = {}) => {
+  const patch = source;
+
+  if (patch.name !== undefined) {
+    patch.name = String(patch.name || "").trim();
+    patch.nameLower = patch.name.toLowerCase();
   }
 
-  if (this.isModified("sku") && this.sku) {
-    this.sku = String(this.sku || "").trim().toUpperCase();
+  if (patch.sku !== undefined) {
+    patch.sku = String(patch.sku || "").trim().toUpperCase();
+  }
+
+  if (patch.barcode !== undefined) {
+    patch.barcode = String(patch.barcode || "").trim().toUpperCase();
+  }
+
+  if (patch.currency !== undefined) {
+    patch.currency = String(patch.currency || "BDT")
+      .trim()
+      .toUpperCase();
+  }
+
+  if (patch.description !== undefined) {
+    patch.description = String(patch.description || "").trim();
+  }
+
+  if (patch.imageUrl !== undefined) {
+    patch.imageUrl = String(patch.imageUrl || "").trim();
+  }
+
+  if (patch.productType !== undefined) {
+    patch.productType = String(patch.productType || "inventory")
+      .trim()
+      .toLowerCase();
+  }
+
+  if (patch.status !== undefined) {
+    patch.status = String(patch.status || "active")
+      .trim()
+      .toLowerCase();
+  }
+
+  if (patch.trackingType !== undefined) {
+    patch.trackingType = String(patch.trackingType || "none")
+      .trim()
+      .toLowerCase();
+  }
+
+  if (patch.costingMethod !== undefined) {
+    patch.costingMethod = String(
+      patch.costingMethod || "weighted_average"
+    )
+      .trim()
+      .toLowerCase();
+  }
+
+  if (patch.taxType !== undefined) {
+    patch.taxType = String(patch.taxType || "none")
+      .trim()
+      .toLowerCase();
+  }
+
+  /*
+   * Services and non-inventory products must not maintain stock.
+   */
+  if (
+    patch.trackInventory === false ||
+    (patch.productType !== undefined &&
+      patch.productType !== "inventory")
+  ) {
+    patch.trackInventory = false;
+    patch.trackingType = "none";
+    patch.allowNegativeStock = false;
+    patch.reorderLevel = 0;
+    patch.minimumStock = 0;
+    patch.maximumStock = 0;
+  }
+
+  if (patch.status === "archived") {
+    patch.archivedAt = patch.archivedAt || new Date();
+  } else if (patch.status !== undefined) {
+    patch.archivedAt = null;
+  }
+
+  return patch;
+};
+
+/* =========================================================
+   DOCUMENT VALIDATION
+========================================================= */
+
+productSchema.pre("validate", function (next) {
+  normalizeProductPatch(this);
+
+  if (!this.trackInventory && this.trackingType !== "none") {
+    this.invalidate(
+      "trackingType",
+      "Tracking type must be none when inventory tracking is disabled."
+    );
+  }
+
+  if (
+    this.maximumStock > 0 &&
+    this.minimumStock > this.maximumStock
+  ) {
+    this.invalidate(
+      "maximumStock",
+      "Maximum stock must be greater than or equal to minimum stock."
+    );
+  }
+
+  if (
+    this.maximumStock > 0 &&
+    this.reorderLevel > this.maximumStock
+  ) {
+    this.invalidate(
+      "reorderLevel",
+      "Reorder level cannot be greater than maximum stock."
+    );
+  }
+
+  if (
+    this.minimumSellingPrice > 0 &&
+    this.sellingPrice > 0 &&
+    this.minimumSellingPrice > this.sellingPrice
+  ) {
+    this.invalidate(
+      "minimumSellingPrice",
+      "Minimum selling price cannot be greater than selling price."
+    );
   }
 
   next();
 });
 
+/* =========================================================
+   QUERY UPDATE NORMALIZATION
+========================================================= */
+
 productSchema.pre("findOneAndUpdate", function (next) {
   const update = this.getUpdate() || {};
-  const $set = update.$set || {};
+  const patch = normalizeProductPatch(update.$set || update);
 
-  const nextName = $set.name ?? update.name;
-  const nextSku = $set.sku ?? update.sku;
-
-  if (nextName !== undefined) {
-    update.$set = {
-      ...$set,
-      name: String(nextName || "").trim(),
-      nameLower: String(nextName || "").trim().toLowerCase(),
-    };
-    if (update.name !== undefined) delete update.name;
-  }
-
-  if (nextSku !== undefined) {
-    update.$set = {
-      ...(update.$set || {}),
-      sku: String(nextSku || "").trim().toUpperCase(),
-    };
-    if (update.sku !== undefined) delete update.sku;
+  if (update.$set) {
+    update.$set = patch;
   }
 
   this.setUpdate(update);
   next();
 });
+
+export {
+  PRODUCT_TYPES,
+  PRODUCT_STATUSES,
+  TRACKING_TYPES,
+  COSTING_METHODS,
+  TAX_TYPES,
+};
 
 export default mongoose.model("Product", productSchema);

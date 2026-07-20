@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- route registry intentionally owns lazy page references */
 import { lazy } from "react"
 import { MdDashboard } from "react-icons/md"
-import { FiCalendar, FiClock, FiCreditCard, FiDollarSign, FiUsers } from "react-icons/fi"
+import { FiBarChart2, FiCalendar, FiClock, FiCreditCard, FiDollarSign, FiUsers } from "react-icons/fi"
 import { FaInfoCircle, FaClipboardList } from "react-icons/fa"
 import { FiSettings, FiTarget } from "react-icons/fi"
 import { PERMISSIONS } from "../Auth/permissions"
@@ -39,6 +39,9 @@ const AccountingSettings = lazy(() => import("../Admin/accounting/AccountingSett
 const FiscalYearPeriods = lazy(() => import("../Admin/accounting/FiscalYearPeriods"))
 const JournalEntries = lazy(() => import("../Admin/accounting/JournalEntries"))
 const GeneralLedger = lazy(() => import("../Admin/accounting/GeneralLedger"))
+const CashBook = lazy(() => import("../Admin/accounting/CashBook"))
+const AccountsReceivable = lazy(() => import("../Admin/accounting/AccountsReceivable"))
+const AccountsPayable = lazy(() => import("../Admin/accounting/AccountsPayable"))
 const OpeningBalances = lazy(() => import("../Admin/accounting/OpeningBalances"))
 const TrialBalance = lazy(() => import("../Admin/accounting/TrialBalance"))
 const BalanceSheet = lazy(() => import("../Admin/accounting/BalanceSheet"))
@@ -49,6 +52,7 @@ const BankReconciliation = lazy(() => import("../Admin/banking/BankReconciliatio
 const BankSetup = lazy(() => import("../Admin/banking/BankSetup"))
 const CashManagement = lazy(() => import("../Admin/banking/CashManagement"))
 const TreasuryVouchers = lazy(() => import("../Admin/banking/TreasuryVouchers"))
+const ProfitLoss = lazy(() => import("../Admin/accounting/ProfitLoss"))
 
 export const sections = {
   Dashboard: {
@@ -119,6 +123,30 @@ export const sections = {
   "General Ledger": {
     icon: <FiDollarSign className="w-5 h-5" />,
     component: <GeneralLedger />,
+    permission: PERMISSIONS.FINANCE_VIEW,
+  },
+
+  "Cash Book": {
+    icon: <FiDollarSign className="w-5 h-5" />,
+    component: <CashBook />,
+    permission: PERMISSIONS.FINANCE_VIEW,
+  },
+
+  "Accounts Receivable": {
+    icon: <FiDollarSign className="w-5 h-5" />,
+    component: <AccountsReceivable />,
+    permission: PERMISSIONS.FINANCE_VIEW,
+  },
+
+  "Accounts Payable": {
+    icon: <FiCreditCard className="w-5 h-5" />,
+    component: <AccountsPayable />,
+    permission: PERMISSIONS.FINANCE_VIEW,
+  },
+
+  "Profit & Loss": {
+    icon: <FiBarChart2 className="w-5 h-5" />,
+    component: <ProfitLoss />,
     permission: PERMISSIONS.FINANCE_VIEW,
   },
 
