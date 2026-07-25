@@ -14,6 +14,33 @@ const clean = (value) => String(value ?? "").trim();
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const money = (value) => Math.round(Number(value || 0) * 100) / 100;
 
+let transactionSupport;
+const supportsTransactions = async () => {
+  if (transactionSupport !== undefined) return transactionSupport;
+  try {
+    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
+    transactionSupport = Boolean(hello?.setName || hello?.msg === "isdbgrid");
+  } catch {
+    transactionSupport = false;
+  }
+  return transactionSupport;
+};
+
+const runBankingWrite = async (work) => {
+  if (!(await supportsTransactions())) return work(null);
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => { result = await work(session); });
+    return result;
+  } finally {
+    await session.endSession();
+  }
+};
+
+const withSession = (query, session) => session ? query.session(session) : query;
+const sessionOptions = (session) => session ? { session } : {};
+
 const parseLimit = (value, fallback = 50) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
@@ -120,16 +147,19 @@ export const listTreasuryAccounts = async (req, res) => {
   try {
     const [cashAccounts, bankAccounts] = await Promise.all([
       CashAccount.find({ type: "cash", isActive: true }).populate("account", "code name type currency isActive publishedAt").populate("custodian", "name email").sort({ nameLower: 1 }).lean(),
-      BankAccount.find({ status: "active", ledgerAccount: { $ne: null } }).populate("ledgerAccount", "code name type currency isActive publishedAt").populate("bank", "bankName shortName").sort({ accountNameLower: 1 }).lean(),
+      BankAccount.find({ status: "active" }).populate("ledgerAccount", "code name type currency isActive publishedAt").populate("bank", "bankName shortName").sort({ accountNameLower: 1 }).lean(),
     ]);
     const eligibleCash = cashAccounts.filter((item) => item.account?.type === "asset" && item.account?.isActive !== false);
     const eligibleBanks = bankAccounts.filter((item) => item.ledgerAccount?.type === "asset" && item.ledgerAccount?.isActive !== false);
     const ledgers = [...eligibleCash.map((item) => item.account._id), ...eligibleBanks.map((item) => item.ledgerAccount._id)];
     const balances = await treasuryBalanceMap(ledgers);
+    const unlinkedBankAccounts = bankAccounts
+      .filter((item) => !item.ledgerAccount?._id)
+      .map((item) => ({ _id: item._id, name: item.accountName, accountNumber: item.accountNumber }));
     return res.json({ accounts: [
       ...eligibleCash.map((item) => ({ _id: item._id, treasuryType: "cash", name: item.name, detail: item.location || "Cash account", currency: item.currency, ledgerAccount: item.account, currentBalance: balances.get(String(item.account._id)) || 0, alert: item.minimumBalance > 0 && (balances.get(String(item.account._id)) || 0) < item.minimumBalance ? "below_minimum" : item.maximumBalance > 0 && (balances.get(String(item.account._id)) || 0) > item.maximumBalance ? "above_maximum" : "" })),
       ...eligibleBanks.map((item) => ({ _id: item._id, treasuryType: "bank", name: item.accountName, detail: `${item.bank?.shortName || item.bank?.bankName || "Bank"} · ${item.accountNumber}`, currency: item.currency, ledgerAccount: item.ledgerAccount, currentBalance: balances.get(String(item.ledgerAccount._id)) || 0, lastReconciledAt: item.lastReconciledAt, lastReconciledBalance: item.lastReconciledBalance })),
-    ] });
+    ], unlinkedBankAccounts, unlinkedCount: unlinkedBankAccounts.length });
   } catch (error) { return res.status(500).json({ message: "Failed to load cash and bank accounts.", error: error.message }); }
 };
 
@@ -148,8 +178,16 @@ const resolveTreasuryAccount = async (type, id) => {
 
 export const listTreasuryVouchers = async (req, res) => {
   try {
-    const filter = { voucherType: { $in: ["payment", "receipt", "contra"] } };
-    if (["payment", "receipt", "contra"].includes(req.query.voucherType)) filter.voucherType = req.query.voucherType;
+    const requestedType = ["payment", "receipt", "contra"].includes(req.query.voucherType)
+      ? req.query.voucherType
+      : "";
+    const bankTransactionFilter = { status: { $in: ["posted", "void"] }, journalEntry: { $ne: null } };
+    if (requestedType === "payment") { bankTransactionFilter.direction = "out"; bankTransactionFilter.sourceType = { $ne: "money_transfer" }; }
+    if (requestedType === "receipt") { bankTransactionFilter.direction = "in"; bankTransactionFilter.sourceType = { $ne: "money_transfer" }; }
+    if (requestedType === "contra") bankTransactionFilter.sourceType = "money_transfer";
+    const bankJournalIds = await BankTransaction.distinct("journalEntry", bankTransactionFilter);
+    const voucherTypes = requestedType ? [requestedType] : ["payment", "receipt", "contra"];
+    const filter = { $or: [{ voucherType: { $in: voucherTypes } }, { _id: { $in: bankJournalIds } }] };
     if (req.query.status && req.query.status !== "all") filter.status = clean(req.query.status);
     const rows = await JournalEntry.find(filter)
       .populate("cashAccount", "name currency location").populate({ path: "bankAccount", select: "accountName accountNumber bank currency", populate: { path: "bank", select: "bankName shortName" } })
@@ -256,6 +294,10 @@ const postBankTransactionJournal = async (transaction, bankAccount, counterpartL
     reference: transaction.reference,
     memo: transaction.description || `${transaction.kind} for ${bankAccount.accountName}`,
     currency: bankAccount.currency,
+    voucherType: transaction.direction === "in" ? "receipt" : "payment",
+    paymentMode: "bank",
+    treasuryAccountType: "bank",
+    bankAccount: bankAccount._id,
     userId,
     session,
     lines: movementLines({
@@ -342,7 +384,6 @@ export const listBankTransactions = async (req, res) => {
 };
 
 export const createBankTransaction = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     const bankAccount = await ensureBankAccount(req.body.bankAccount);
     if (!bankAccount) return res.status(400).json({ message: "Valid bank account is required." });
@@ -371,19 +412,17 @@ export const createBankTransaction = async (req, res) => {
       createdBy: req.user?._id || null,
       updatedBy: req.user?._id || null,
     });
-    await session.withTransaction(async () => {
+    await runBankingWrite(async (session) => {
       if (status === "posted") {
         const journal = await postBankTransactionJournal(transaction, bankAccount, counterpartLedger, req.user?._id || null, session);
         transaction.journalEntry = journal._id;
       }
-      await transaction.save({ session });
+      await transaction.save(sessionOptions(session));
     });
     const populated = await populateTransaction(BankTransaction.findById(transaction._id));
     return res.status(201).json({ message: status === "posted" ? "Bank transaction posted to banking and accounting." : "Bank transaction saved as draft.", transaction: populated });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ message: "Failed to create bank transaction.", error: error.message });
-  } finally {
-    session.endSession();
   }
 };
 
@@ -436,23 +475,22 @@ export const deleteBankTransaction = async (req, res) => {
 };
 
 export const voidBankTransaction = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid transaction ID." });
     let transaction;
-    await session.withTransaction(async () => {
-      transaction = await BankTransaction.findById(req.params.id).session(session);
+    await runBankingWrite(async (session) => {
+      transaction = await withSession(BankTransaction.findById(req.params.id), session);
       if (!transaction) throw Object.assign(new Error("Bank transaction not found."), { statusCode: 404 });
       if (transaction.reconciled) throw Object.assign(new Error("Reconciled transactions cannot be voided."), { statusCode: 409 });
       if (transaction.status !== "posted") throw Object.assign(new Error("Only posted transactions can be voided."), { statusCode: 409 });
       transaction.status = "void";
       transaction.updatedBy = req.user?._id || null;
-      await transaction.save({ session });
+      await transaction.save(sessionOptions(session));
       if (transaction.journalEntry) {
         await JournalEntry.updateOne(
           { _id: transaction.journalEntry, status: "posted" },
           { $set: { status: "void", voidedAt: new Date(), voidReason: clean(req.body.reason) || "Bank transaction voided", voidedBy: req.user?._id || null } },
-          { session }
+          sessionOptions(session)
         );
       }
     });
@@ -461,18 +499,15 @@ export const voidBankTransaction = async (req, res) => {
     return res.json({ message: "Bank transaction and accounting journal voided.", transaction: populated });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ message: "Failed to void bank transaction.", error: error.message });
-  } finally {
-    session.endSession();
   }
 };
 
 export const postDraftBankTransaction = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid transaction ID." });
     let transaction;
-    await session.withTransaction(async () => {
-      transaction = await BankTransaction.findById(req.params.id).session(session);
+    await runBankingWrite(async (session) => {
+      transaction = await withSession(BankTransaction.findById(req.params.id), session);
       if (!transaction) throw Object.assign(new Error("Bank transaction not found."), { statusCode: 404 });
       if (transaction.status !== "draft") throw Object.assign(new Error("Only draft bank transactions can be posted."), { statusCode: 409 });
       const bankAccount = await ensureBankAccount(transaction.bankAccount);
@@ -485,19 +520,16 @@ export const postDraftBankTransaction = async (req, res) => {
       transaction.status = "posted";
       transaction.journalEntry = journal._id;
       transaction.updatedBy = req.user?._id || null;
-      await transaction.save({ session });
+      await transaction.save(sessionOptions(session));
     });
     const populated = await populateTransaction(BankTransaction.findById(transaction._id));
     return res.json({ message: "Bank transaction posted to accounting.", transaction: populated });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ message: "Failed to post bank transaction.", error: error.message });
-  } finally {
-    session.endSession();
   }
 };
 
 export const createMoneyTransfer = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     const from = await ensureBankAccount(req.body.fromAccount);
     const to = await ensureBankAccount(req.body.toAccount);
@@ -514,7 +546,7 @@ export const createMoneyTransfer = async (req, res) => {
     const description = clean(req.body.description);
     let rows = [];
 
-    await session.withTransaction(async () => {
+    await runBankingWrite(async (session) => {
       const documents = [new BankTransaction({
           bankAccount: from._id,
           kind: "transfer_out",
@@ -551,6 +583,10 @@ export const createMoneyTransfer = async (req, res) => {
         reference,
         memo: description || `Transfer from ${from.accountName} to ${to.accountName}`,
         currency: from.currency,
+        voucherType: "contra",
+        paymentMode: "bank",
+        treasuryAccountType: "bank",
+        bankAccount: from._id,
         userId: req.user?._id || null,
         session,
         lines: [
@@ -559,14 +595,12 @@ export const createMoneyTransfer = async (req, res) => {
         ],
       });
       documents.forEach((document) => { document.journalEntry = journal._id; });
-      rows = await BankTransaction.insertMany(documents, { session });
+      rows = await BankTransaction.insertMany(documents, sessionOptions(session));
     });
 
     return res.status(201).json({ message: "Money transfer posted.", transferGroupId, transactions: rows });
   } catch (error) {
     return res.status(500).json({ message: "Failed to create money transfer.", error: error.message });
-  } finally {
-    session.endSession();
   }
 };
 
@@ -693,25 +727,23 @@ export const matchBankReconciliationLine = async (req, res) => {
 };
 
 export const completeBankReconciliation = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     let reconciliation;
-    await session.withTransaction(async () => {
-      reconciliation = await BankReconciliation.findById(req.params.id).session(session);
+    await runBankingWrite(async (session) => {
+      reconciliation = await withSession(BankReconciliation.findById(req.params.id), session);
       if (!reconciliation) throw Object.assign(new Error("Reconciliation not found."), { statusCode: 404 });
       if (["completed", "reconciled"].includes(reconciliation.status)) throw Object.assign(new Error("Reconciliation is already completed."), { statusCode: 409 });
       const workspace = await reconciliationWorkspace(reconciliation);
       if (Math.abs(workspace.difference) > 0.009) throw Object.assign(new Error(`Adjusted balances do not match. Remaining difference: ${workspace.difference}.`), { statusCode: 409 });
       reconciliation.adjustedBankBalance = workspace.adjustedBankBalance; reconciliation.adjustedBookBalance = workspace.adjustedBookBalance;
       reconciliation.difference = 0; reconciliation.status = "completed"; reconciliation.completedAt = new Date(); reconciliation.completedBy = req.user?._id || null; reconciliation.reconciledAt = new Date(); reconciliation.updatedBy = req.user?._id || null;
-      await reconciliation.save({ session });
-      await BankAccount.findByIdAndUpdate(reconciliation.bankAccount, { lastReconciledAt: reconciliation.statementDate, lastReconciledBalance: reconciliation.statementBalance, updatedBy: req.user?._id || null }, { session });
+      await reconciliation.save(sessionOptions(session));
+      await BankAccount.findByIdAndUpdate(reconciliation.bankAccount, { lastReconciledAt: reconciliation.statementDate, lastReconciledBalance: reconciliation.statementBalance, updatedBy: req.user?._id || null }, sessionOptions(session));
       const journalIds = reconciliation.statementLines.filter((line) => line.matchedJournalEntry).map((line) => line.matchedJournalEntry);
-      await BankTransaction.updateMany({ journalEntry: { $in: journalIds } }, { $set: { reconciled: true, reconciledAt: new Date(), reconciliation: reconciliation._id } }, { session });
+      await BankTransaction.updateMany({ journalEntry: { $in: journalIds } }, { $set: { reconciled: true, reconciledAt: new Date(), reconciliation: reconciliation._id } }, sessionOptions(session));
     });
     return res.json({ message: "Bank reconciliation completed and matched vouchers locked.", reconciliation });
   } catch (error) { return res.status(error.statusCode || 500).json({ message: error.statusCode ? error.message : "Failed to complete reconciliation.", error: error.message }); }
-  finally { await session.endSession(); }
 };
 
 export const reopenBankReconciliation = async (req, res) => {

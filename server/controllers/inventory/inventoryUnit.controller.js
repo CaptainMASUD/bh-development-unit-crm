@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
-import Product from "../models/product.model.js";
-import InventoryUnit, { UNIT_STATUSES, UNIT_TYPES } from "../models/inventoryUnit.model.js";
+import Product from "../../models/inventory/product.model.js";
+import InventoryUnit, { UNIT_STATUSES, UNIT_TYPES } from "../../models/inventory/inventoryUnit.model.js";
 
 const LIST_FIELDS = [
   "name",

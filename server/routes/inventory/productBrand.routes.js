@@ -9,8 +9,8 @@ import {
   restoreProductBrand,
   updateProductBrand,
   updateProductBrandStatus,
-} from "../controllers/productBrand.controller.js";
-import { protect, requirePermission } from "../middleware/auth.middleware.js";
+} from "../../controllers/inventory/productBrand.controller.js";
+import { protect, requirePermission } from "../../middleware/auth.middleware.js";
 
 const router = express.Router();
 

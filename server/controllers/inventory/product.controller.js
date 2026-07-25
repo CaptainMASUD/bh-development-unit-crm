@@ -6,7 +6,10 @@ import Product, {
   PRODUCT_TYPES,
   TAX_TYPES,
   TRACKING_TYPES,
-} from "../models/product.model.js";
+} from "../../models/inventory/product.model.js";
+import Supplier, {
+  SupplierProduct,
+} from "../../models/supplier.model.js";
 
 /* =========================================================
    RESPONSE FIELD SELECTION
@@ -20,6 +23,7 @@ const LIST_FIELDS = [
   "category",
   "brand",
   "baseUnit",
+  "defaultSupplier",
   "imageUrl",
   "purchasePrice",
   "sellingPrice",
@@ -39,12 +43,15 @@ const PRODUCT_STATE_FIELDS = [
   "name",
   "sku",
   "productType",
+  "baseUnit",
+  "defaultSupplier",
   "trackInventory",
   "trackingType",
   "purchasePrice",
   "sellingPrice",
   "wholesalePrice",
   "minimumSellingPrice",
+  "currency",
   "taxType",
   "taxRate",
   "reorderLevel",
@@ -654,6 +661,10 @@ export const listProducts = async (
       .select(
         `${LIST_FIELDS} +nameLower`
       )
+      .populate(
+        "defaultSupplier",
+        "code businessName status"
+      )
       .sort({
         nameLower: 1,
         _id: 1,
@@ -796,6 +807,10 @@ export const getProduct = async (
         req.params.id
       )
         .select("-nameLower")
+        .populate(
+          "defaultSupplier",
+          "code businessName status"
+        )
         .maxTimeMS(3000)
         .lean();
 
@@ -853,6 +868,10 @@ export const lookupProduct = async (
         ],
       })
         .select(LIST_FIELDS)
+        .populate(
+          "defaultSupplier",
+          "code businessName status"
+        )
         .maxTimeMS(3000)
         .lean();
 
@@ -904,6 +923,10 @@ export const createProduct = async (
       });
     }
 
+    await assertSelectableSupplier(
+      payload.defaultSupplier
+    );
+
     for (const field of [
       "purchasePrice",
       "sellingPrice",
@@ -924,9 +947,27 @@ export const createProduct = async (
         updatedBy: userId,
       });
 
+    let supplierProduct = null;
+
+    try {
+      supplierProduct =
+        await syncDefaultSupplierLink(
+          product,
+          userId
+        );
+    } catch (error) {
+      await Product.deleteOne({
+        _id: product._id,
+      }).catch(() => {});
+      throw error;
+    }
+
     return res.status(201).json({
-      message: "Product created.",
+      message: supplierProduct
+        ? "Product created and linked to the selected supplier."
+        : "Product created.",
       product,
+      supplierProduct,
     });
   } catch (error) {
     return sendWriteError(
@@ -980,6 +1021,17 @@ export const updateProduct = async (
         message: shapeErrors[0],
         errors: shapeErrors,
       });
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        payload,
+        "defaultSupplier"
+      )
+    ) {
+      await assertSelectableSupplier(
+        payload.defaultSupplier
+      );
     }
 
     /*
@@ -1045,9 +1097,23 @@ export const updateProduct = async (
         }
       ).select("-nameLower");
 
+    const supplierProduct =
+      Object.prototype.hasOwnProperty.call(
+        payload,
+        "defaultSupplier"
+      )
+        ? await syncDefaultSupplierLink(
+            product,
+            req.user?._id || null
+          )
+        : null;
+
     return res.json({
-      message: "Product updated.",
+      message: supplierProduct
+        ? "Product and supplier relationship updated."
+        : "Product updated.",
       product,
+      supplierProduct,
     });
   } catch (error) {
     return sendWriteError(
@@ -1244,4 +1310,90 @@ export const restoreProduct = async (
       "Failed to restore product."
     );
   }
+};
+
+const assertSelectableSupplier = async (supplierId) => {
+  if (!supplierId) return null;
+
+  const supplier = await Supplier.findOne({
+    _id: supplierId,
+    status: "active",
+  })
+    .select("_id businessName status procurement.currency")
+    .maxTimeMS(3000)
+    .lean();
+
+  if (!supplier) {
+    const error = new Error(
+      "The selected default supplier was not found or is not active."
+    );
+    error.statusCode = 409;
+    throw error;
+  }
+
+  return supplier;
+};
+
+const syncDefaultSupplierLink = async (
+  product,
+  actorId = null
+) => {
+  const productId = product?._id;
+  const supplierId = product?.defaultSupplier?._id || product?.defaultSupplier;
+
+  if (!productId) return null;
+
+  await SupplierProduct.updateMany(
+    {
+      product: productId,
+      isPreferred: true,
+      ...(supplierId ? { supplier: { $ne: supplierId } } : {}),
+    },
+    {
+      $set: {
+        isPreferred: false,
+        updatedBy: actorId,
+      },
+    }
+  );
+
+  if (!supplierId) return null;
+
+  const link = await SupplierProduct.findOneAndUpdate(
+    {
+      supplier: supplierId,
+      product: productId,
+    },
+    {
+      $set: {
+        status: "active",
+        isPreferred: true,
+        archivedAt: null,
+        archivedBySupplier: false,
+        previousStatus: "",
+        updatedBy: actorId,
+      },
+      $setOnInsert: {
+        purchaseUnit: product.baseUnit || null,
+        supplierSku: product.sku || "",
+        supplierProductName: product.name || "",
+        unitPrice: money(product.purchasePrice),
+        currency: clean(product.currency || "BDT").toUpperCase(),
+        minimumOrderQuantity: 0,
+        packSize: 1,
+        leadTimeDays: 0,
+        discountPercent: 0,
+        taxRate: 0,
+        createdBy: actorId,
+      },
+    },
+    {
+      new: true,
+      upsert: true,
+      runValidators: true,
+      setDefaultsOnInsert: true,
+    }
+  );
+
+  return link;
 };

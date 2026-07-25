@@ -19,6 +19,7 @@ import {
   FileChartColumnIcon,
   HandCoinsIcon,
   InformationCircleIcon,
+  Package01Icon,
   Layers01Icon,
   NoteEditIcon,
   ReceiptDollarIcon,
@@ -78,6 +79,18 @@ const ClientReport = lazy(() => import("./reports/ClientReport"))
 const AdminEmployeeReportPage = lazy(() => import("./reports/EmployeeReportPage"))
 const TaxReport = lazy(() => import("./reports/TaxReport"))
 const AccessControl = lazy(() => import("./system/AccessControl"))
+const Products = lazy(() => import("./inventory/Product"))
+const ProductCategories = lazy(() => import("./inventory/ProductCategory"))
+const ProductBrands = lazy(() => import("./inventory/ProductBrand"))
+const InventoryUnits = lazy(() => import("./inventory/InventoryUnit"))
+const Warehouses = lazy(() => import("./inventory/Warehouse"))
+const WarehouseLocations = lazy(() => import("./inventory/WarehouseLocation"))
+const StockOverview = lazy(() => import("./inventory/StockOverview"))
+const StockMovements = lazy(() => import("./inventory/StockMovements"))
+const StockAdjustments = lazy(() => import("./inventory/StockAdjustments"))
+const StockTransfers = lazy(() => import("./inventory/StockTransfers"))
+const Suppliers = lazy(() => import("./Supplier/SupplierSetup"))
+const SupplierProducts = lazy(() => import("./Supplier/SupplierProducts"))
 
 const createSectionIcon = (icon) => (
   <HugeiconsIcon
@@ -115,6 +128,62 @@ const sections = {
   Deals: {
     icon: createSectionIcon(Briefcase01Icon),
     component: <AdminDealsPage />,
+  },
+
+  "Product Management": {
+    icon: createSectionIcon(Package01Icon),
+    subcategories: {
+      Products: <Products />,
+      Categories: <ProductCategories />,
+      Brands: <ProductBrands />,
+      Units: <InventoryUnits />,
+    },
+    subcategoryPermissions: {
+      Products: "inventory-product:view",
+      Categories: "inventory-category:view",
+      Brands: "inventory-brand:view",
+      Units: "inventory-unit:view",
+    },
+  },
+
+  "Warehouse Management": {
+    icon: createSectionIcon(Layers01Icon),
+    subcategories: {
+      Warehouses: <Warehouses />,
+      Locations: <WarehouseLocations />,
+    },
+    subcategoryPermissions: {
+      Warehouses: "inventory-warehouse:view",
+      Locations: "inventory-location:view",
+    },
+  },
+
+  "Stock Control": {
+    icon: createSectionIcon(ArrowDataTransferHorizontalIcon),
+    subcategories: {
+      "Stock Overview": <StockOverview />,
+      "Stock Movements": <StockMovements />,
+      "Stock Adjustments": <StockAdjustments />,
+      "Stock Transfers": <StockTransfers />,
+    },
+    subcategoryPermissions: {
+      "Stock Overview": "inventory-stock:view",
+      "Stock Movements": "inventory-movement:view",
+      "Stock Adjustments": "inventory-adjustment:view",
+      "Stock Transfers": "inventory-transfer:view",
+    },
+  },
+
+  Suppliers: {
+    icon: createSectionIcon(UserGroup03Icon),
+    component: <Suppliers />,
+    permission: "supplier:view",
+  },
+
+  "Supplier Products": {
+    icon: createSectionIcon(Package01Icon),
+    component: <SupplierProducts />,
+    permission: "supplier:view",
   },
 
   "Workflow Setup": {
@@ -170,10 +239,11 @@ const sections = {
   },
 
   "Cash Management": { icon: createSectionIcon(Wallet03Icon), component: <CashManagement />, permission: "finance:view" },
-  "Bank Management": { icon: createSectionIcon(BankIcon), component: <BankSetup />, permission: "bank-setup:view" },
-  "Payment Voucher": { icon: createSectionIcon(HandCoinsIcon), component: <TreasuryVouchers defaultType="payment" />, permission: "finance:view" },
-  "Receive Voucher": { icon: createSectionIcon(ReceiptDollarIcon), component: <TreasuryVouchers defaultType="receipt" />, permission: "finance:view" },
-  "Contra Voucher": { icon: createSectionIcon(ArrowDataTransferHorizontalIcon), component: <TreasuryVouchers defaultType="contra" />, permission: "finance:view" },
+  Voucher: {
+    icon: createSectionIcon(ReceiptDollarIcon),
+    component: <TreasuryVouchers />,
+    permission: "finance:view",
+  },
 
   "Accounting Setup": {
     icon: createSectionIcon(Layers01Icon),

@@ -147,6 +147,10 @@ const PERMISSION_LABELS = {
   "notifications:manage": { label: "Manage Notifications", helper: "Create and administer employee notifications." },
   "access-control:view": { label: "View Access Control", helper: "See departments, positions, permission groups, and roles." },
   "access-control:manage": { label: "Manage Access Control", helper: "Create and update access-control records." },
+  "supplier:view": { label: "View Suppliers", helper: "See supplier records, commercial profiles, and supplier-product links." },
+  "supplier:manage": { label: "Manage Suppliers", helper: "Create and update suppliers and their product sourcing details." },
+  "supplier:approve": { label: "Approve Suppliers", helper: "Approve or reject suppliers submitted for review." },
+  "supplier:delete": { label: "Archive Suppliers", helper: "Archive and restore supplier records and supplier-product links." },
 }
 
 const MODULE_LABELS = {
@@ -168,6 +172,7 @@ const MODULE_LABELS = {
   salary: "Salary",
   notifications: "Notifications",
   "access-control": "Access Control",
+  supplier: "Supplier",
   workflow: "Workflow",
   profile: "Profile",
 }
@@ -605,7 +610,6 @@ export default function AccessControl() {
       const separator = String(key).includes(".") ? "." : ":"
       const [moduleName, action] = String(key).split(/[:.]/)
       const viewKey = `${moduleName}${separator}view`
-      const manageKey = `${moduleName}${separator}manage`
       let permissions = [...prev.permissions]
 
       if (exists) {
@@ -616,8 +620,7 @@ export default function AccessControl() {
         }).filter((permission) => permission !== key)
       } else {
         permissions.push(key)
-        if (action === "manage" && !permissions.includes(viewKey)) permissions.push(viewKey)
-        if (separator === "." && action !== "view" && !permissions.includes(viewKey)) permissions.push(viewKey)
+        if (action !== "view" && !permissions.includes(viewKey)) permissions.push(viewKey)
       }
       return {
         ...prev,

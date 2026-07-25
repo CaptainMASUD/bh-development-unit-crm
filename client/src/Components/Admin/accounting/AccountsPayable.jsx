@@ -13,6 +13,14 @@ const input = "h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm fon
 const today = () => new Date().toISOString().slice(0, 10)
 const headers = () => { const token = localStorage.getItem("token"); return { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) } }
 const api = async (path, options = {}) => { const response = await fetch(`${API_BASE}${path}`, { credentials: "include", ...options, headers: { ...headers(), ...(options.headers || {}) } }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.message || data.error || "Request failed"); return data }
+const loadTreasuryAccounts = async () => {
+  let data = await api("/banking/treasury-accounts")
+  if (data.unlinkedCount > 0) {
+    await api("/banking/treasury-accounts/synchronize", { method: "POST", body: "{}" })
+    data = await api("/banking/treasury-accounts")
+  }
+  return data
+}
 const amount = (value) => Number(value || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const dateText = (value) => value ? new Date(value).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }) : "-"
 const userFromStorage = () => { try { const stored = JSON.parse(localStorage.getItem("user") || "null"); return stored?.user || stored } catch { return null } }
@@ -36,7 +44,7 @@ export default function AccountsPayable() {
     try {
       const params = new URLSearchParams({ asOf, limit: "75" }); if (q.trim()) params.set("q", q.trim())
       const requests = [api(`/accounting/payables?${params}`)]
-      if (canManage) requests.push(api("/accounting/vendor-bills?limit=75"), api("/accounting/accounts?limit=500"), api("/banking/treasury-accounts"))
+      if (canManage) requests.push(api("/accounting/vendor-bills?limit=75"), api("/accounting/accounts?limit=500"), loadTreasuryAccounts())
       const [report, billData, accountData, cashData] = await Promise.all(requests); setData(report)
       if (billData) setBills(billData.vendorBills || []); if (accountData) setAccounts((accountData.accounts || []).filter((account) => account.type === "expense" && !account.isGroup && account.isActive !== false)); if (cashData) setCashAccounts(cashData.accounts || [])
     } catch (error) { toast.error(error.message) } finally { setLoading(false) }

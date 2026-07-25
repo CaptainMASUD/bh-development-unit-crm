@@ -85,7 +85,23 @@ export const resolveAccountingAccount = async (settingsField, fallbackCode) => {
   return account;
 };
 
-export const createPostedJournal = async ({ date, lines, sourceType, sourceId = null, reference = "", memo = "", currency = "BDT", voucherType = "", paymentMode = "", origin = "system", userId = null, session = null }) => {
+export const createPostedJournal = async ({
+  date,
+  lines,
+  sourceType,
+  sourceId = null,
+  reference = "",
+  memo = "",
+  currency = "BDT",
+  voucherType = "",
+  paymentMode = "",
+  treasuryAccountType = "",
+  cashAccount = null,
+  bankAccount = null,
+  origin = "system",
+  userId = null,
+  session = null,
+}) => {
   const postingDate = parsePostingDate(date);
   if (!postingDate) throw Object.assign(new Error("Valid posting date is required."), { statusCode: 400 });
   await assertOpenAccountingPeriod(postingDate, session);
@@ -115,6 +131,11 @@ export const createPostedJournal = async ({ date, lines, sourceType, sourceId = 
     memo: clean(memo),
     currency: clean(currency || "BDT").toUpperCase(),
     paymentMode: clean(paymentMode).toLowerCase(),
+    treasuryAccountType: ["cash", "bank"].includes(clean(treasuryAccountType).toLowerCase())
+      ? clean(treasuryAccountType).toLowerCase()
+      : "",
+    cashAccount: isId(cashAccount) ? cashAccount : null,
+    bankAccount: isId(bankAccount) ? bankAccount : null,
     lines: lines.map((line) => ({
       account: line.account,
       debit: roundMoney(line.debit),

@@ -1,7 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- route registry intentionally owns lazy page references */
 import { lazy } from "react"
 import { MdDashboard } from "react-icons/md"
-import { FiBarChart2, FiCalendar, FiClock, FiCreditCard, FiDollarSign, FiUsers } from "react-icons/fi"
+import { FiBarChart2, FiCalendar, FiClock, FiCreditCard, FiDollarSign, FiPackage, FiUsers } from "react-icons/fi"
 import { FaInfoCircle, FaClipboardList } from "react-icons/fa"
 import { FiSettings, FiTarget } from "react-icons/fi"
 import { PERMISSIONS } from "../Auth/permissions"
@@ -34,6 +34,7 @@ const AccessControl = lazy(() => import("../Admin/system/AccessControl"))
 const TaxSetup = lazy(() => import("../Admin/payroll/TaxSetup"))
 const TaxReport = lazy(() => import("../Admin/reports/TaxReport"))
 const Expenses = lazy(() => import("../Admin/accounting/Expenses"))
+const ExpenseSetup = lazy(() => import("../Admin/accounting/ExpenseSetup"))
 const ChartOfAccounts = lazy(() => import("../Admin/accounting/ChartOfAccounts"))
 const AccountingSettings = lazy(() => import("../Admin/accounting/AccountingSettings"))
 const FiscalYearPeriods = lazy(() => import("../Admin/accounting/FiscalYearPeriods"))
@@ -53,6 +54,18 @@ const BankSetup = lazy(() => import("../Admin/banking/BankSetup"))
 const CashManagement = lazy(() => import("../Admin/banking/CashManagement"))
 const TreasuryVouchers = lazy(() => import("../Admin/banking/TreasuryVouchers"))
 const ProfitLoss = lazy(() => import("../Admin/accounting/ProfitLoss"))
+const Products = lazy(() => import("../Admin/inventory/Product"))
+const ProductCategories = lazy(() => import("../Admin/inventory/ProductCategory"))
+const ProductBrands = lazy(() => import("../Admin/inventory/ProductBrand"))
+const InventoryUnits = lazy(() => import("../Admin/inventory/InventoryUnit"))
+const Warehouses = lazy(() => import("../Admin/inventory/Warehouse"))
+const WarehouseLocations = lazy(() => import("../Admin/inventory/WarehouseLocation"))
+const StockOverview = lazy(() => import("../Admin/inventory/StockOverview"))
+const StockMovements = lazy(() => import("../Admin/inventory/StockMovements"))
+const StockAdjustments = lazy(() => import("../Admin/inventory/StockAdjustments"))
+const StockTransfers = lazy(() => import("../Admin/inventory/StockTransfers"))
+const Suppliers = lazy(() => import("../Admin/Supplier/SupplierSetup"))
+const SupplierProducts = lazy(() => import("../Admin/Supplier/SupplierProducts"))
 
 export const sections = {
   Dashboard: {
@@ -85,6 +98,62 @@ export const sections = {
     permission: PERMISSIONS.DEALS_VIEW,
   },
 
+  "Product Management": {
+    icon: <FiPackage className="w-5 h-5" />,
+    subcategories: {
+      Products: <Products />,
+      Categories: <ProductCategories />,
+      Brands: <ProductBrands />,
+      Units: <InventoryUnits />,
+    },
+    subcategoryPermissions: {
+      Products: PERMISSIONS.INVENTORY_PRODUCT_VIEW,
+      Categories: PERMISSIONS.INVENTORY_CATEGORY_VIEW,
+      Brands: PERMISSIONS.INVENTORY_BRAND_VIEW,
+      Units: PERMISSIONS.INVENTORY_UNIT_VIEW,
+    },
+  },
+
+  "Warehouse Management": {
+    icon: <FiPackage className="w-5 h-5" />,
+    subcategories: {
+      Warehouses: <Warehouses />,
+      Locations: <WarehouseLocations />,
+    },
+    subcategoryPermissions: {
+      Warehouses: PERMISSIONS.INVENTORY_WAREHOUSE_VIEW,
+      Locations: PERMISSIONS.INVENTORY_LOCATION_VIEW,
+    },
+  },
+
+  "Stock Control": {
+    icon: <FiPackage className="w-5 h-5" />,
+    subcategories: {
+      "Stock Overview": <StockOverview />,
+      "Stock Movements": <StockMovements />,
+      "Stock Adjustments": <StockAdjustments />,
+      "Stock Transfers": <StockTransfers />,
+    },
+    subcategoryPermissions: {
+      "Stock Overview": PERMISSIONS.INVENTORY_STOCK_VIEW,
+      "Stock Movements": PERMISSIONS.INVENTORY_MOVEMENT_VIEW,
+      "Stock Adjustments": PERMISSIONS.INVENTORY_ADJUSTMENT_VIEW,
+      "Stock Transfers": PERMISSIONS.INVENTORY_TRANSFER_VIEW,
+    },
+  },
+
+  Suppliers: {
+    icon: <FiUsers className="w-5 h-5" />,
+    component: <Suppliers />,
+    permission: PERMISSIONS.SUPPLIER_VIEW,
+  },
+
+  "Supplier Products": {
+    icon: <FiPackage className="w-5 h-5" />,
+    component: <SupplierProducts />,
+    permission: PERMISSIONS.SUPPLIER_VIEW,
+  },
+
   Expenses: {
     icon: <FiCreditCard className="w-5 h-5" />,
     component: <Expenses />,
@@ -92,10 +161,23 @@ export const sections = {
   },
 
   "Cash Management": { icon: <FiDollarSign className="w-5 h-5" />, component: <CashManagement />, permission: PERMISSIONS.FINANCE_VIEW },
-  "Bank Management": { icon: <FiCreditCard className="w-5 h-5" />, component: <BankSetup />, permission: PERMISSIONS.BANK_SETUP_VIEW },
-  "Payment Voucher": { icon: <FiCreditCard className="w-5 h-5" />, component: <TreasuryVouchers defaultType="payment" />, permission: PERMISSIONS.FINANCE_VIEW },
-  "Receive Voucher": { icon: <FiDollarSign className="w-5 h-5" />, component: <TreasuryVouchers defaultType="receipt" />, permission: PERMISSIONS.FINANCE_VIEW },
-  "Contra Voucher": { icon: <FiDollarSign className="w-5 h-5" />, component: <TreasuryVouchers defaultType="contra" />, permission: PERMISSIONS.FINANCE_VIEW },
+  Voucher: {
+    icon: <FiCreditCard className="w-5 h-5" />,
+    component: <TreasuryVouchers />,
+    permission: PERMISSIONS.FINANCE_VIEW,
+  },
+
+  Setup: {
+    icon: <FiSettings className="w-5 h-5" />,
+    subcategories: {
+      "Expense Setup": <ExpenseSetup />,
+      "Bank Setup": <BankSetup />,
+    },
+    subcategoryPermissions: {
+      "Expense Setup": PERMISSIONS.EXPENSE_SETUP_VIEW,
+      "Bank Setup": PERMISSIONS.BANK_SETUP_VIEW,
+    },
+  },
 
   "Accounting Setup": {
     icon: <FiDollarSign className="w-5 h-5" />,

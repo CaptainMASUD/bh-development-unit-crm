@@ -10,6 +10,7 @@ import {
   FiArrowUpRight,
   FiBarChart2,
   FiBriefcase,
+  FiBox,
   FiCheckCircle,
   FiClock,
   FiCreditCard,
@@ -55,7 +56,7 @@ const MODULE_PRESENTATION = {
     eyebrow: "Financial operations",
     title: "Accounting Dashboard",
     description: "Revenue, receivables, payables, cash collection, and finance controls.",
-    actions: ["Cash Book", "Accounts Receivable", "Accounts Payable", "Bank Management", "Profit & Loss", "General Ledger", "Journal Entries", "Accounting Setup", "Bank Transactions", "Expenses"],
+    actions: ["Cash Book", "Accounts Receivable", "Accounts Payable", "Voucher", "Profit & Loss", "General Ledger", "Journal Entries", "Accounting Setup", "Bank Transactions", "Expenses", "Setup"],
   },
   payroll: {
     eyebrow: "People operations",
@@ -68,6 +69,18 @@ const MODULE_PRESENTATION = {
     title: "Administration Dashboard",
     description: "Users, access control, system governance, and authorized workspaces.",
     actions: ["Users", "Access Control", "Profile Settings", "Workflow Procedure", "About"],
+  },
+  inventory: {
+    eyebrow: "Stock operations",
+    title: "Inventory Dashboard",
+    description: "Products, available stock, inventory value, replenishment alerts, and recent movements.",
+    actions: ["Product Management", "Warehouse Management", "Stock Control"],
+  },
+  supplier: {
+    eyebrow: "Procurement network",
+    title: "Supplier Dashboard",
+    description: "Supplier onboarding, approval status, preferred partners, and product sourcing relationships.",
+    actions: ["Suppliers", "Supplier Products"],
   },
 }
 
@@ -93,7 +106,7 @@ const money = (value) => new Intl.NumberFormat(undefined, { maximumFractionDigit
 const shortMoney = (value) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(numeric(value))
 const getRows = (value) => value?.rows || value?.items || value?.data || []
 const displayName = (value, fallback = "Record") =>
-  value?.contact?.name || value?.employee?.name || value?.customer?.name || value?.vendorName || value?.name || value?.companyName || value?.leadNumber || fallback
+  value?.contact?.name || value?.employee?.name || value?.customer?.name || value?.businessName || value?.tradingName || value?.vendorName || value?.name || value?.companyName || value?.leadNumber || fallback
 
 function StatCard({ icon, label, value, detail, tone = "indigo", delay = 0 }) {
   const tones = {
@@ -179,6 +192,8 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
   const canViewFinance = hasPermission(currentUser, "finance:view")
   const canViewExpenses = hasPermission(currentUser, "expenses:view")
   const canViewPayroll = hasPermission(currentUser, "payroll:view")
+  const canViewInventoryReport = hasPermission(currentUser, "inventory-report:view")
+  const canViewSupplier = hasPermission(currentUser, "supplier:view")
 
   const load = useCallback(async (signal) => {
     setLoading(true)
@@ -226,6 +241,23 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
         } else {
           setData({})
         }
+      } else if (moduleId === "inventory") {
+        if (canViewInventoryReport) {
+          const inventory = await request("/inventory/reports/dashboard", signal)
+          setData({ inventory })
+        } else {
+          setData({})
+        }
+      } else if (moduleId === "supplier") {
+        if (canViewSupplier) {
+          const [supplierSummary, suppliers] = await Promise.all([
+            request("/suppliers/summary", signal),
+            request("/suppliers?limit=6", signal),
+          ])
+          setData({ supplierSummary, suppliers })
+        } else {
+          setData({})
+        }
       } else {
         const dashboard = hasPermission(currentUser, "dashboard:view")
           ? await request("/dashboard?days=7&limit=5", signal)
@@ -237,7 +269,7 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
     } finally {
       if (!signal?.aborted) setLoading(false)
     }
-  }, [canViewExpenses, canViewFinance, canViewPayroll, currentUser, moduleId])
+  }, [canViewExpenses, canViewFinance, canViewInventoryReport, canViewPayroll, canViewSupplier, currentUser, moduleId])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -294,13 +326,48 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
         { label: "Pending action", value: number(pending.length), detail: "Draft, calculated, or approved", icon: <FiClock />, tone: "amber" },
       ]
     }
+    if (moduleId === "inventory") {
+      if (!canViewInventoryReport) {
+        return [
+          { label: "Authorized features", value: number(Math.max(0, Object.keys(moduleSections).length - 1)), detail: "Available inventory workspaces", icon: <FiShield />, tone: "indigo" },
+          { label: "Stock reporting", value: "Restricted", detail: "Inventory totals require report access", icon: <FiBarChart2 />, tone: "amber" },
+          { label: "Account status", value: currentUser?.isActive ? "Active" : "Restricted", detail: currentUser?.role || "User", icon: <FiActivity />, tone: currentUser?.isActive ? "green" : "rose" },
+          { label: "Module", value: "Inventory", detail: "Use the permitted features in the sidebar", icon: <FiBox />, tone: "sky" },
+        ]
+      }
+      const inventory = data.inventory || {}
+      const stock = inventory.stock || {}
+      return [
+        { label: "Active products", value: number(inventory.activeProducts), detail: `${number(stock.stockPositions)} warehouse stock positions`, icon: <FiBox />, tone: "indigo" },
+        { label: "Available stock", value: number(stock.availableQuantity), detail: `${number(stock.reservedQuantity)} units reserved`, icon: <FiCheckCircle />, tone: "green" },
+        { label: "Inventory value", value: money(stock.inventoryValue), detail: `Across ${number(inventory.activeWarehouses)} active warehouses`, icon: <FiDollarSign />, tone: "sky" },
+        { label: "Low stock", value: number(inventory.lowStockPositions), detail: `${number(stock.negativePositions)} negative stock positions`, icon: <FiAlertCircle />, tone: inventory.lowStockPositions ? "rose" : "amber" },
+      ]
+    }
+    if (moduleId === "supplier") {
+      if (!canViewSupplier) {
+        return [
+          { label: "Authorized features", value: number(Math.max(0, Object.keys(moduleSections).length - 1)), detail: "Available supplier workspaces", icon: <FiShield />, tone: "indigo" },
+          { label: "Supplier reporting", value: "Restricted", detail: "Supplier totals require supplier view permission", icon: <FiBarChart2 />, tone: "amber" },
+          { label: "Account status", value: currentUser?.isActive ? "Active" : "Restricted", detail: currentUser?.role || "User", icon: <FiActivity />, tone: currentUser?.isActive ? "green" : "rose" },
+          { label: "Module", value: "Supplier", detail: "Use the permitted features in the sidebar", icon: <FiBriefcase />, tone: "sky" },
+        ]
+      }
+      const summary = data.supplierSummary?.summary || {}
+      return [
+        { label: "Suppliers", value: number(summary.supplierCount), detail: `${number(summary.activeCount)} active suppliers`, icon: <FiUsers />, tone: "indigo" },
+        { label: "Pending approval", value: number(summary.pendingApprovalCount), detail: `${number(summary.draftCount)} draft supplier records`, icon: <FiClock />, tone: summary.pendingApprovalCount ? "amber" : "green" },
+        { label: "Preferred suppliers", value: number(summary.preferredCount), detail: "Preferred procurement partners", icon: <FiCheckCircle />, tone: "green" },
+        { label: "Average rating", value: numeric(summary.averageRating).toFixed(1), detail: `${number(summary.onHoldCount)} currently on hold`, icon: <FiTrendingUp />, tone: "sky" },
+      ]
+    }
     return [
       { label: "Authorized features", value: number(Math.max(0, Object.keys(moduleSections).length - 1)), detail: "Available in this module", icon: <FiShield />, tone: "indigo" },
       { label: "Employees", value: number(data.dashboard?.employeesCount), detail: "Active employee accounts", icon: <FiUsers />, tone: "sky" },
       { label: "Administrators", value: number(numeric(data.dashboard?.adminsCount) + numeric(data.dashboard?.superAdminsCount)), detail: "Active privileged accounts", icon: <FiShield />, tone: "gray" },
       { label: "Account status", value: currentUser?.isActive ? "Active" : "Restricted", detail: currentUser?.role || "User", icon: <FiActivity />, tone: currentUser?.isActive ? "green" : "rose" },
     ]
-  }, [canViewExpenses, canViewFinance, canViewPayroll, currentUser, data, moduleId, moduleSections])
+  }, [canViewExpenses, canViewFinance, canViewInventoryReport, canViewPayroll, canViewSupplier, currentUser, data, moduleId, moduleSections])
 
   const chartModel = useMemo(() => {
     if (moduleId === "crm") {
@@ -372,6 +439,61 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
         line: rows.slice(0, 8).map((row, index) => ({ name: String(displayName(row, `Employee ${index + 1}`)).split(" ")[0], value: numeric(row.netPayable) })),
       }
     }
+    if (moduleId === "inventory") {
+      const inventory = data.inventory || {}
+      const stock = inventory.stock || {}
+      const transfers = inventory.transfers || {}
+      const movements = inventory.movementEffects || []
+      return {
+        pieTitle: "Stock Availability",
+        pieSubtitle: "Available, reserved, and quarantine quantities",
+        pie: [
+          { name: "Available", value: numeric(stock.availableQuantity) },
+          { name: "Reserved", value: numeric(stock.reservedQuantity) },
+          { name: "Quarantine", value: numeric(stock.quarantineQuantity) },
+        ],
+        barTitle: "Movement Effects",
+        barSubtitle: "Posted inventory movement quantities in the last 30 days",
+        bar: movements.length
+          ? movements.map((item) => ({ name: item._id === "in" ? "Stock In" : item._id === "out" ? "Stock Out" : item._id || "Movement", value: numeric(item.quantity) }))
+          : [{ name: "Stock In", value: 0 }, { name: "Stock Out", value: 0 }],
+        lineTitle: "Transfer Pipeline",
+        lineSubtitle: "Transfers awaiting action and in transit",
+        line: [
+          { name: "Awaiting", value: numeric(transfers.awaitingApproval) },
+          { name: "Approved", value: numeric(transfers.approved) },
+          { name: "In Transit", value: numeric(transfers.inTransit) },
+        ],
+      }
+    }
+    if (moduleId === "supplier") {
+      const summary = data.supplierSummary?.summary || {}
+      return {
+        pieTitle: "Supplier Status",
+        pieSubtitle: "Active, pending, draft, and on-hold suppliers",
+        pie: [
+          { name: "Active", value: numeric(summary.activeCount) },
+          { name: "Pending", value: numeric(summary.pendingApprovalCount) },
+          { name: "Draft", value: numeric(summary.draftCount) },
+          { name: "On Hold", value: numeric(summary.onHoldCount) },
+        ],
+        barTitle: "Supplier Portfolio",
+        barSubtitle: "Total, preferred, inactive, and archived records",
+        bar: [
+          { name: "Total", value: numeric(summary.supplierCount) },
+          { name: "Preferred", value: numeric(summary.preferredCount) },
+          { name: "Inactive", value: numeric(summary.inactiveCount) },
+          { name: "Archived", value: numeric(summary.archivedCount) },
+        ],
+        lineTitle: "Onboarding Pipeline",
+        lineSubtitle: "Supplier records progressing toward activation",
+        line: [
+          { name: "Draft", value: numeric(summary.draftCount) },
+          { name: "Pending", value: numeric(summary.pendingApprovalCount) },
+          { name: "Active", value: numeric(summary.activeCount) },
+        ],
+      }
+    }
     const employees = numeric(data.dashboard?.employeesCount)
     const admins = numeric(data.dashboard?.adminsCount)
     const superAdmins = numeric(data.dashboard?.superAdminsCount)
@@ -394,6 +516,8 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
     if (moduleId === "crm") return (data.leads?.items || []).slice(0, 6).map((item) => ({ ...item, title: displayName(item, "Lead"), subtitle: item.pipelineStage || item.status || "New", alert: item.isOverdue }))
     if (moduleId === "accounting") return [...getRows(data.receivables), ...getRows(data.payables)].slice(0, 6).map((item, index) => ({ ...item, title: displayName(item, `Finance record ${index + 1}`), subtitle: item.status || item.type || "Open", amount: item.outstandingAmount ?? item.amount ?? item.balance }))
     if (moduleId === "payroll") return (data.payroll?.payrolls || []).slice(0, 6).map((item) => ({ ...item, title: displayName(item, "Employee payroll"), subtitle: item.status || "Draft", amount: item.netPayable }))
+    if (moduleId === "inventory") return (data.inventory?.recentMovements || []).slice(0, 6).map((item, index) => ({ ...item, title: item.movementNo || item.reference || `Movement ${index + 1}`, subtitle: String(item.movementType || "Stock movement").replace(/_/g, " "), amount: item.totalValue }))
+    if (moduleId === "supplier") return (data.suppliers?.suppliers || []).slice(0, 6).map((item, index) => ({ ...item, title: displayName(item, `Supplier ${index + 1}`), subtitle: `${String(item.status || "draft").replace(/_/g, " ")}${item.supplierType ? ` · ${String(item.supplierType).replace(/_/g, " ")}` : ""}` }))
     return actions.slice(0, 6).map((name) => ({ title: name, subtitle: "Authorized workspace" }))
   }, [actions, data, moduleId])
 
@@ -472,7 +596,7 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
 }
 
 ModuleDashboard.propTypes = {
-  moduleId: PropTypes.oneOf(["crm", "accounting", "payroll", "administration"]).isRequired,
+  moduleId: PropTypes.oneOf(["crm", "accounting", "inventory", "supplier", "payroll", "administration"]).isRequired,
   moduleSections: PropTypes.object,
   currentUser: PropTypes.shape({ isActive: PropTypes.bool, role: PropTypes.string }),
   onNavigateSection: PropTypes.func.isRequired,

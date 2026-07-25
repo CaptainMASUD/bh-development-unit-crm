@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
-import Product from "../models/product.model.js";
-import ProductBrand, { BRAND_STATUSES } from "../models/productBrand.model.js";
+import Product from "../../models/inventory/product.model.js";
+import ProductBrand, { BRAND_STATUSES } from "../../models/inventory/productBrand.model.js";
 
 const LIST_FIELDS = [
   "name",

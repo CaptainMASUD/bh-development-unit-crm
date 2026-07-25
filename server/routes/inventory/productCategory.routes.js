@@ -10,8 +10,8 @@ import {
   restoreProductCategory,
   updateProductCategory,
   updateProductCategoryStatus,
-} from "../controllers/productCategory.controller.js";
-import { protect, requirePermission } from "../middleware/auth.middleware.js";
+} from "../../controllers/inventory/productCategory.controller.js";
+import { protect, requirePermission } from "../../middleware/auth.middleware.js";
 
 const router = express.Router();
 

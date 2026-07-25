@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
-import Product from "../models/product.model.js";
-import ProductCategory, { CATEGORY_STATUSES } from "../models/productCategory.model.js";
+import Product from "../../models/inventory/product.model.js";
+import ProductCategory, { CATEGORY_STATUSES } from "../../models/inventory/productCategory.model.js";
 
 const LIST_FIELDS = [
   "name",

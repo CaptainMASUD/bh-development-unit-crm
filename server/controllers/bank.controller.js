@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Bank from "../models/bank.model.js";
 import BankAccount from "../models/bankAccount.model.js";
 import BankTransaction from "../models/bankTransaction.model.js";
+import CashAccount from "../models/cashAccount.model.js";
 import Account from "../models/account.model.js";
 import AccountingSettings from "../models/accountingSettings.model.js";
 import Payroll from "../models/payroll.model.js";
@@ -88,10 +89,14 @@ const validateLedgerAccount = async (ledgerAccount, excludeBankAccountId = null,
   const ledger = await ledgerQuery;
   if (!ledger) return null;
   if (expectedCurrency && ledger.currency && String(ledger.currency).toUpperCase() !== String(expectedCurrency).toUpperCase()) return null;
-  const linkedQuery = BankAccount.exists({ ledgerAccount: ledger._id, ...(excludeBankAccountId ? { _id: { $ne: excludeBankAccountId } } : {}) });
-  if (session) linkedQuery.session(session);
-  const linked = await linkedQuery;
-  return linked ? null : ledger;
+  const bankLinkedQuery = BankAccount.exists({ ledgerAccount: ledger._id, ...(excludeBankAccountId ? { _id: { $ne: excludeBankAccountId } } : {}) });
+  const cashLinkedQuery = CashAccount.exists({ account: ledger._id });
+  if (session) {
+    bankLinkedQuery.session(session);
+    cashLinkedQuery.session(session);
+  }
+  const [bankLinked, cashLinked] = await Promise.all([bankLinkedQuery, cashLinkedQuery]);
+  return bankLinked || cashLinked ? null : ledger;
 };
 
 const createBankLedgerAccount = async ({ bankAccount, bank, userId, session = null }) => {
@@ -283,7 +288,11 @@ export const listBankLedgerOptions = async (req, res) => {
   try {
     const currency = clean(req.query.currency).toUpperCase();
     const bankAccountId = isId(req.query.bankAccount) ? req.query.bankAccount : null;
-    const linked = await BankAccount.find({ ...(bankAccountId ? { _id: { $ne: bankAccountId } } : {}), ledgerAccount: { $ne: null } }).distinct("ledgerAccount");
+    const [bankLinked, cashLinked] = await Promise.all([
+      BankAccount.find({ ...(bankAccountId ? { _id: { $ne: bankAccountId } } : {}), ledgerAccount: { $ne: null } }).distinct("ledgerAccount"),
+      CashAccount.find({ account: { $ne: null } }).distinct("account"),
+    ]);
+    const linked = [...new Set([...bankLinked, ...cashLinked].map(String))];
     const filter = {
       isActive: true,
       isGroup: { $ne: true },

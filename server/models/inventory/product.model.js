@@ -266,6 +266,14 @@ productSchema.index({
   _id: 1,
 });
 
+// Supplier-based product sourcing and inventory filtering.
+productSchema.index({
+  defaultSupplier: 1,
+  status: 1,
+  nameLower: 1,
+  _id: 1,
+});
+
 // Product-type filtering.
 productSchema.index({
   productType: 1,

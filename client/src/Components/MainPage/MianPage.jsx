@@ -8,23 +8,24 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Add01Icon,
   Cancel01Icon,
-  ChartLineData01Icon,
   ChevronDownIcon,
   DeliveryTruck01Icon,
   File01Icon,
   Home01Icon,
   Layers01Icon,
-  Package01Icon,
   Search01Icon,
   ShoppingBag01Icon,
-  ShoppingCart01Icon,
   Logout03Icon,
 } from "@hugeicons/core-free-icons"
 import suitelogo from "../../assets/logo/textsuitelogo.png"
-import payroll from "../../assets/icon-pack/payroll.png"
-import crm from "../../assets/icon-pack/crm.png"
-import accounting from "../../assets/icon-pack/accounting.png"
-import administration from "../../assets/icon-pack/adminstration.png"
+import accountingIcon from "../../assets/icon-pack/accounting.png"
+import administrationIcon from "../../assets/icon-pack/administration.png"
+import crmIcon from "../../assets/icon-pack/crm.png"
+import inventoryIcon from "../../assets/icon-pack/inventory.png"
+import payrollIcon from "../../assets/icon-pack/payroll.png"
+import posIcon from "../../assets/icon-pack/pos.png"
+import salesIcon from "../../assets/icon-pack/sales.png"
+import supplierIcon from "../../assets/icon-pack/supplier.png"
 import { canAccessModule, getModuleBasePath, MODULES } from "../Navigation/moduleConfig"
 import { getJwtExpirationMs } from "../Auth/authRouting"
 import { signOut } from "../../Redux/UserSlice/UserSlice"
@@ -70,7 +71,7 @@ const modules = [
     status: "active",
     subscribed: true,
     route: "/admin/payroll",
-    image: payroll,
+    image: payrollIcon,
     tone: "indigo",
   },
   {
@@ -80,17 +81,17 @@ const modules = [
     status: "active",
     subscribed: true,
     route: "/admin/leads",
-    image: crm,
+    image: crmIcon,
     tone: "sky",
   },
   {
     id: "inventory",
     name: "Inventory",
     category: "Operations",
-    status: "upcoming",
-    subscribed: false,
+    status: "active",
+    subscribed: true,
     route: "/admin/inventory",
-    icon: Package01Icon,
+    image: inventoryIcon,
     tone: "emerald",
   },
   {
@@ -100,7 +101,7 @@ const modules = [
     status: "active",
     subscribed: true,
     route: "/admin/accounting",
-    image: accounting,
+    image: accountingIcon,
     tone: "amber",
   },
   {
@@ -110,7 +111,7 @@ const modules = [
     status: "upcoming",
     subscribed: false,
     route: "/admin/sales",
-    icon: ChartLineData01Icon,
+    image: salesIcon,
     tone: "cyan",
   },
   {
@@ -120,7 +121,7 @@ const modules = [
     status: "active",
     subscribed: true,
     route: "/admin/administration",
-    image: administration,
+    image: administrationIcon,
     tone: "slate",
   },
   {
@@ -130,7 +131,7 @@ const modules = [
     status: "active",
     subscribed: false,
     route: "/admin/pos",
-    icon: ShoppingCart01Icon,
+    image: posIcon,
     tone: "violet",
   },
   {
@@ -142,6 +143,16 @@ const modules = [
     route: "/admin/purchase",
     icon: ShoppingBag01Icon,
     tone: "orange",
+  },
+  {
+    id: "supplier",
+    name: "Supplier",
+    category: "Operations",
+    status: "active",
+    subscribed: false,
+    route: "/admin/supplier",
+    image: supplierIcon,
+    tone: "emerald",
   },
   {
     id: "fleet",
@@ -425,21 +436,21 @@ function ModuleTile({
           {module.image ? (
             <span
               className="
-                relative z-10 flex h-[62px] w-[62px]
+                relative z-10 flex h-[66px] w-[66px]
                 transform-gpu items-center justify-center
                 transition-transform duration-200 ease-out
                 will-change-transform
                 [backface-visibility:hidden]
                 group-hover:scale-[1.035]
-                sm:h-[68px] sm:w-[68px]
+                sm:h-[72px] sm:w-[72px]
               "
             >
               <img
                 src={module.image}
                 alt={`${module.name} logo`}
                 className="
-                  block h-full w-full select-none
-                  object-contain
+                  block h-full w-full select-none object-contain
+                  drop-shadow-[0_10px_14px_rgba(15,23,42,0.12)]
                   [image-rendering:auto]
                 "
                 draggable={false}

@@ -10,12 +10,12 @@ import {
   restoreProduct,
   updateProduct,
   updateProductStatus,
-} from "../controllers/product.controller.js";
+} from "../../controllers/inventory/product.controller.js";
 
 import {
   protect,
   requirePermission,
-} from "../middleware/auth.middleware.js";
+} from "../../middleware/auth.middleware.js";
 
 const router = express.Router();
 

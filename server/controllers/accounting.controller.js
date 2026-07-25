@@ -26,6 +26,30 @@ const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const toId = (value) => new mongoose.Types.ObjectId(String(value));
 const ACTIVE_LEDGER_STATUSES = ["posted", "reversed"];
 const VOUCHER_TYPES = ["journal", "payment", "receipt", "contra", "opening", "closing", "sales", "purchase", "payroll", "tax", "adjustment"];
+let transactionSupport;
+const supportsTransactions = async () => {
+  if (transactionSupport !== undefined) return transactionSupport;
+  try {
+    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
+    transactionSupport = Boolean(hello?.setName || hello?.msg === "isdbgrid");
+  } catch {
+    transactionSupport = false;
+  }
+  return transactionSupport;
+};
+const runAccountingWrite = async (work) => {
+  if (!(await supportsTransactions())) return work(null);
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => { result = await work(session); });
+    return result;
+  } finally {
+    await session.endSession();
+  }
+};
+const withAccountingSession = (query, session) => session ? query.session(session) : query;
+const accountingSessionOptions = (session) => session ? { session } : {};
 const validateVoucherSettlements = async (entry, session = null) => {
   if (entry.settlementAppliedAt || !entry.linkedDocuments?.length) return;
   for (const allocation of entry.linkedDocuments) {
@@ -109,9 +133,12 @@ const SYSTEM_ACCOUNTS = [
   { code: "1010", name: "Bank Account", type: "asset", subType: "Current Asset", parentCode: "A000" },
   { code: "1100", name: "Accounts Receivable", type: "asset", subType: "Current Asset", parentCode: "A000", isControlAccount: true, controlType: "receivable" },
   { code: "1200", name: "Input VAT / Tax Receivable", type: "asset", subType: "Current Asset", parentCode: "A000", isControlAccount: true, controlType: "tax" },
+  { code: "1300", name: "Inventory", type: "asset", subType: "Current Asset", parentCode: "A000", isControlAccount: true, controlType: "inventory", description: "Inventory control account for the value of stock on hand." },
+  { code: "1500", name: "Furniture", type: "asset", subType: "Fixed Asset", parentCode: "A000", description: "Furniture and fixtures used in business operations." },
   { code: "2000", name: "Accounts Payable", type: "liability", subType: "Current Liability", parentCode: "L000", isControlAccount: true, controlType: "payable" },
   { code: "2100", name: "Output VAT / Tax Payable", type: "liability", subType: "Current Liability", parentCode: "L000", isControlAccount: true, controlType: "tax" },
   { code: "2200", name: "Payroll Payable", type: "liability", subType: "Current Liability", parentCode: "L000" },
+  { code: "2300", name: "Loan", type: "liability", subType: "Long-term Liability", parentCode: "L000", description: "Outstanding long-term loan principal payable." },
   { code: "3000", name: "Owner Equity", type: "equity", subType: "Capital", parentCode: "E000" },
   { code: "3100", name: "Opening Balance Equity", type: "equity", subType: "Equity", parentCode: "E000" },
   { code: "3200", name: "Retained Earnings", type: "equity", subType: "Retained Earnings", parentCode: "E000" },
@@ -147,8 +174,11 @@ const resolveSystemAccount = async (code) => {
     1000: "defaultCashAccount",
     1010: "defaultBankAccount",
     1100: "receivableAccount",
+    1300: "inventoryAccount",
+    1500: "furnitureAccount",
     2000: "payableAccount",
     2200: "payrollPayableAccount",
+    2300: "loanAccount",
     2100: "vatAccount",
     4000: "salesAccount",
     5000: "purchaseAccount",
@@ -945,6 +975,9 @@ const SETTINGS_ACCOUNT_FIELDS = [
   "purchaseAccount",
   "receivableAccount",
   "payableAccount",
+  "inventoryAccount",
+  "furnitureAccount",
+  "loanAccount",
   "payrollExpenseAccount",
   "payrollPayableAccount",
   "retainedEarningsAccount",
@@ -955,6 +988,12 @@ const SETTINGS_ACCOUNT_FIELDS = [
   "vatReceivableAccount",
   "vatAccount",
 ];
+
+const SETTINGS_ACCOUNT_TYPE_RULES = {
+  inventoryAccount: "asset",
+  furnitureAccount: "asset",
+  loanAccount: "liability",
+};
 
 const populateSettings = (query) =>
   query.populate([
@@ -999,8 +1038,21 @@ export const updateAccountingSettings = async (req, res) => {
     }
     const ids = SETTINGS_ACCOUNT_FIELDS.map((key) => patch[key]).filter(Boolean);
     if (ids.length) {
-      const count = await Account.countDocuments({ _id: { $in: ids }, isActive: true, isGroup: { $ne: true } });
-      if (count !== new Set(ids.map(String)).size) return res.status(400).json({ message: "All selected default accounts must be active accounts." });
+      const uniqueIds = [...new Set(ids.map(String))];
+      const selectedAccounts = await Account.find({
+        _id: { $in: uniqueIds },
+        isActive: true,
+        isGroup: { $ne: true },
+      }).select("_id type").lean();
+      if (selectedAccounts.length !== uniqueIds.length) return res.status(400).json({ message: "All selected default accounts must be active accounts." });
+
+      const selectedById = new Map(selectedAccounts.map((account) => [String(account._id), account]));
+      for (const [field, expectedType] of Object.entries(SETTINGS_ACCOUNT_TYPE_RULES)) {
+        const accountId = patch[field];
+        if (accountId && selectedById.get(String(accountId))?.type !== expectedType) {
+          return res.status(400).json({ message: `${field} must reference an active ${expectedType} account.` });
+        }
+      }
     }
     patch.updatedBy = req.user?._id || null;
     const settings = await populateSettings(AccountingSettings.findOneAndUpdate(
@@ -1568,18 +1620,17 @@ export const approveJournalEntry = async (req, res) => {
 };
 
 export const reverseJournalEntry = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid journal entry ID." });
     let original; let reversal;
-    await session.withTransaction(async () => {
-      original = await JournalEntry.findById(req.params.id).session(session);
+    await runAccountingWrite(async (session) => {
+      original = await withAccountingSession(JournalEntry.findById(req.params.id), session);
       if (!original) throw Object.assign(new Error("Journal entry not found."), { statusCode: 404 });
       if (original.status !== "posted") throw Object.assign(new Error("Only posted journal entries can be reversed."), { statusCode: 409 });
       if (original.origin !== "manual") throw Object.assign(new Error("System-generated entries must be reversed from their source module."), { statusCode: 409 });
       const [completedReconciliation, legacyReconciledTransaction] = await Promise.all([
-        BankReconciliation.exists({ status: { $in: ["completed", "reconciled"] }, "statementLines.matchedJournalEntry": original._id }).session(session),
-        BankTransaction.exists({ journalEntry: original._id, reconciled: true }).session(session),
+        withAccountingSession(BankReconciliation.exists({ status: { $in: ["completed", "reconciled"] }, "statementLines.matchedJournalEntry": original._id }), session),
+        withAccountingSession(BankTransaction.exists({ journalEntry: original._id, reconciled: true }), session),
       ]);
       if (completedReconciliation || legacyReconciledTransaction) throw Object.assign(new Error("This voucher is locked by a completed bank reconciliation. Reopen that reconciliation before reversing it."), { statusCode: 409 });
       await reverseVoucherSettlements(original, session);
@@ -1594,15 +1645,15 @@ export const reverseJournalEntry = async (req, res) => {
       reversal.reversalOf = original._id; reversal.reversalReason = clean(req.body.reason);
       reversal.treasuryAccountType = original.treasuryAccountType; reversal.cashAccount = original.cashAccount; reversal.bankAccount = original.bankAccount;
       reversal.partyType = original.partyType; reversal.partyId = original.partyId; reversal.partyName = original.partyName;
-      await reversal.save({ session });
-      original.status = "reversed"; original.reversedAt = new Date(); original.reversedBy = req.user?._id || null; original.reversedByEntry = reversal._id; original.reversalReason = clean(req.body.reason); await original.save({ session });
+      await reversal.save(accountingSessionOptions(session));
+      original.status = "reversed"; original.reversedAt = new Date(); original.reversedBy = req.user?._id || null; original.reversedByEntry = reversal._id; original.reversalReason = clean(req.body.reason); await original.save(accountingSessionOptions(session));
     });
     accountingCache.flushAll();
     await writeAudit({ actorId: req.user?._id, action: "reverse", entityType: "JournalEntry", entityId: original._id, before: { status: "posted" }, after: original.toObject(), meta: { ...getReqMeta(req), reason: clean(req.body.reason) } });
     return res.json({ message: "Reversal journal posted with a complete audit link.", journalEntry: original, reversalEntry: reversal });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ message: "Failed to reverse journal entry.", error: error.message });
-  } finally { session.endSession(); }
+  }
 };
 
 export const voidJournalEntry = async (req, res) => {
@@ -1869,16 +1920,16 @@ export const listCashCustodians = async (_req, res) => {
 };
 
 export const createCashAccount = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!clean(req.body.name)) return res.status(400).json({ message: "Cash account name is required." });
     let cashAccount;
-    await session.withTransaction(async () => {
-      let ledger = isId(req.body.account) ? await Account.findOne({ _id: req.body.account, type: "asset", isActive: true, isGroup: { $ne: true } }).session(session) : null;
+    await runAccountingWrite(async (session) => {
+      let ledger = isId(req.body.account) ? await withAccountingSession(Account.findOne({ _id: req.body.account, type: "asset", isActive: true, isGroup: { $ne: true } }), session) : null;
       if (req.body.account && !ledger) throw Object.assign(new Error("Select an active leaf Asset ledger."), { statusCode: 400 });
-      if (ledger && await CashAccount.exists({ account: ledger._id }).session(session)) throw Object.assign(new Error("That ledger is already connected to another cash account."), { statusCode: 409 });
+      if (ledger && await withAccountingSession(CashAccount.exists({ account: ledger._id }), session)) throw Object.assign(new Error("That ledger is already connected to another cash account."), { statusCode: 409 });
+      if (ledger && await withAccountingSession(BankAccount.exists({ ledgerAccount: ledger._id }), session)) throw Object.assign(new Error("That ledger is already connected to a bank account."), { statusCode: 409 });
       if (!ledger) {
-        const settings = await AccountingSettings.findOne({ key: "company" }).select("coaPublishedAt").session(session).lean();
+        const settings = await withAccountingSession(AccountingSettings.findOne({ key: "company" }).select("coaPublishedAt"), session).lean();
         ledger = new Account({
           code: `CASH-${new mongoose.Types.ObjectId().toString().slice(-8).toUpperCase()}`,
           name: clean(req.body.name), type: "asset", subType: "Cash and Cash Equivalents",
@@ -1888,7 +1939,7 @@ export const createCashAccount = async (req, res) => {
           publishedBy: settings?.coaPublishedAt ? req.user?._id || null : null,
           createdBy: req.user?._id || null, updatedBy: req.user?._id || null,
         });
-        await ledger.save({ session });
+        await ledger.save(accountingSessionOptions(session));
       }
       cashAccount = new CashAccount({
         name: req.body.name, type: "cash", account: ledger._id,
@@ -1898,13 +1949,11 @@ export const createCashAccount = async (req, res) => {
         openingBalance: 0, isActive: req.body.isActive !== false,
         createdBy: req.user?._id || null, updatedBy: req.user?._id || null,
       });
-      await cashAccount.save({ session });
+      await cashAccount.save(accountingSessionOptions(session));
     });
     return res.status(201).json({ message: "Cash account created and connected to the Chart of Accounts. Set its starting amount through Opening Balance.", cashAccount });
   } catch (error) {
     return res.status(error.statusCode || (error?.code === 11000 ? 409 : 500)).json({ message: error.statusCode ? error.message : "Failed to create cash account.", error: error.message });
-  } finally {
-    await session.endSession();
   }
 };
 
@@ -2547,25 +2596,185 @@ export const getCashFlowStatement = async (req, res) => {
   try {
     const range = parseDateRange(req.query);
     if (range.error) return res.status(400).json({ message: range.error });
+    const settings = await AccountingSettings.findOne({ key: "company" }).select("currency").lean();
+    const currency = clean(req.query.currency || settings?.currency || "BDT").toUpperCase();
     const [cashAccounts, bankAccounts] = await Promise.all([
-      CashAccount.find({ isActive: { $ne: false } }).select("account name type").lean(),
-      BankAccount.find({ status: "active", ledgerAccount: { $ne: null } }).select("ledgerAccount").lean(),
+      CashAccount.find({ account: { $ne: null }, currency }).select("account name type currency").lean(),
+      BankAccount.find({ ledgerAccount: { $ne: null }, currency }).select("ledgerAccount accountName accountNumber currency").lean(),
     ]);
     const cashIds = [...new Map(
       [...cashAccounts.map((item) => item.account), ...bankAccounts.map((item) => item.ledgerAccount)]
         .filter(Boolean)
         .map((id) => [String(id), id])
     ).values()];
-    const rows = await JournalEntry.aggregate([
-      { $match: ledgerMatchForRange(range) },
+    const emptyTotals = { inflow: 0, outflow: 0, net: 0 };
+    if (!cashIds.length) {
+      return res.json({
+        currency,
+        activities: [
+          { key: "operating", name: "Operating Activities", items: [], totals: { ...emptyTotals } },
+          { key: "investing", name: "Investing Activities", items: [], totals: { ...emptyTotals } },
+          { key: "financing", name: "Financing Activities", items: [], totals: { ...emptyTotals } },
+        ],
+        items: [],
+        totals: { ...emptyTotals, openingBalance: 0, closingBalance: 0, internalTransfers: 0, excludedOpeningAdjustments: 0 },
+        basis: `No linked cash or bank ledgers were found in ${currency}.`,
+      });
+    }
+
+    const treasurySet = new Set(cashIds.map(String));
+    const openingMatch = {
+      status: { $in: ACTIVE_LEDGER_STATUSES },
+      ...(range.from ? { date: { $lt: range.from } } : { _id: { $exists: false } }),
+      "lines.account": { $in: cashIds },
+    };
+    const closingMatch = {
+      status: { $in: ACTIVE_LEDGER_STATUSES },
+      ...(range.to ? { date: { $lte: range.to } } : {}),
+      "lines.account": { $in: cashIds },
+    };
+    const balancePipeline = (match) => [
+      { $match: match },
       { $unwind: "$lines" },
       { $match: { "lines.account": { $in: cashIds } } },
-      { $group: { _id: "$sourceType", inflow: { $sum: "$lines.debit" }, outflow: { $sum: "$lines.credit" }, count: { $sum: 1 } } },
-      { $sort: { _id: 1 } },
-    ]).allowDiskUse(true);
-    const items = rows.map((row) => ({ sourceType: row._id, inflow: money(row.inflow), outflow: money(row.outflow), net: money(row.inflow - row.outflow), count: row.count }));
-    const totals = items.reduce((acc, row) => ({ inflow: money(acc.inflow + row.inflow), outflow: money(acc.outflow + row.outflow), net: money(acc.net + row.net) }), { inflow: 0, outflow: 0, net: 0 });
-    return res.json({ items, totals, basis: "Cash flow is calculated from posted journal lines hitting configured cash/bank accounts." });
+      { $group: { _id: null, debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
+    ];
+    const [openingRows, closingRows, entries] = await Promise.all([
+      JournalEntry.aggregate(balancePipeline(openingMatch)).allowDiskUse(true),
+      JournalEntry.aggregate(balancePipeline(closingMatch)).allowDiskUse(true),
+      JournalEntry.find({ ...ledgerMatchForRange(range), "lines.account": { $in: cashIds }, currency })
+        .select("entryNo date voucherType sourceType reference memo currency lines")
+        .populate("lines.account", "code name type subType normalBalance")
+        .sort({ date: 1, createdAt: 1, _id: 1 })
+        .lean(),
+    ]);
+
+    const classifyAccount = (account) => {
+      const subtype = clean(account?.subType).toLowerCase();
+      const name = clean(account?.name).toLowerCase();
+      if (
+        account?.type === "equity" ||
+        (account?.type === "liability" && /loan|long.?term|non.?current|finance/.test(`${subtype} ${name}`))
+      ) return "financing";
+      if (
+        account?.type === "asset" &&
+        /fixed|non.?current|property|plant|equipment|furniture|investment|intangible/.test(`${subtype} ${name}`)
+      ) return "investing";
+      return "operating";
+    };
+    const labels = {
+      operating: "Operating Activities",
+      investing: "Investing Activities",
+      financing: "Financing Activities",
+    };
+    const activityMaps = {
+      operating: new Map(),
+      investing: new Map(),
+      financing: new Map(),
+    };
+    let internalTransfers = 0;
+    let excludedOpeningAdjustments = 0;
+
+    const addActivity = (key, account, inflow, outflow, entry) => {
+      const id = String(account?._id || `${key}-unclassified`);
+      const current = activityMaps[key].get(id) || {
+        account: account ? { _id: account._id, code: account.code, name: account.name, type: account.type, subType: account.subType } : null,
+        name: account?.name || "Other cash activity",
+        inflow: 0,
+        outflow: 0,
+        net: 0,
+        count: 0,
+        lastDate: null,
+      };
+      current.inflow = money(current.inflow + inflow);
+      current.outflow = money(current.outflow + outflow);
+      current.net = money(current.inflow - current.outflow);
+      current.count += 1;
+      current.lastDate = entry.date;
+      activityMaps[key].set(id, current);
+    };
+
+    for (const entry of entries) {
+      const treasuryLines = [];
+      const counterpartLines = [];
+      for (const line of entry.lines || []) {
+        const accountId = String(line.account?._id || line.account);
+        if (treasurySet.has(accountId)) treasuryLines.push(line);
+        else counterpartLines.push(line);
+      }
+      const treasuryNet = money(treasuryLines.reduce(
+        (sum, line) => sum + Number(line.debit || 0) - Number(line.credit || 0),
+        0
+      ));
+      if (Math.abs(treasuryNet) < 0.005) {
+        if (treasuryLines.length > 1) internalTransfers += 1;
+        continue;
+      }
+      if (entry.sourceType === "opening_balance") {
+        excludedOpeningAdjustments = money(excludedOpeningAdjustments + treasuryNet);
+        continue;
+      }
+
+      const inflow = treasuryNet > 0;
+      let allocated = 0;
+      for (const line of counterpartLines) {
+        const amount = money(inflow
+          ? Number(line.credit || 0) - Number(line.debit || 0)
+          : Number(line.debit || 0) - Number(line.credit || 0));
+        if (amount <= 0) continue;
+        const key = classifyAccount(line.account);
+        addActivity(key, line.account, inflow ? amount : 0, inflow ? 0 : amount, entry);
+        allocated = money(allocated + amount);
+      }
+      const remainder = money(Math.abs(treasuryNet) - allocated);
+      if (remainder > 0.005) addActivity("operating", null, inflow ? remainder : 0, inflow ? 0 : remainder, entry);
+    }
+
+    const activities = Object.entries(activityMaps).map(([key, rows]) => {
+      const items = [...rows.values()].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      const totals = items.reduce(
+        (acc, row) => ({
+          inflow: money(acc.inflow + row.inflow),
+          outflow: money(acc.outflow + row.outflow),
+          net: money(acc.net + row.net),
+        }),
+        { ...emptyTotals }
+      );
+      return { key, name: labels[key], items, totals };
+    });
+    const items = activities.map((activity) => ({
+      sourceType: activity.key,
+      name: activity.name,
+      ...activity.totals,
+      count: activity.items.reduce((sum, item) => sum + item.count, 0),
+    }));
+    const activityTotals = items.reduce(
+      (acc, row) => ({
+        inflow: money(acc.inflow + row.inflow),
+        outflow: money(acc.outflow + row.outflow),
+        net: money(acc.net + row.net),
+      }),
+      { ...emptyTotals }
+    );
+    const openingBalance = money(Number(openingRows[0]?.debit || 0) - Number(openingRows[0]?.credit || 0));
+    const closingBalance = money(Number(closingRows[0]?.debit || 0) - Number(closingRows[0]?.credit || 0));
+    const totals = {
+      ...activityTotals,
+      openingBalance,
+      closingBalance,
+      internalTransfers,
+      excludedOpeningAdjustments,
+      reconciliationDifference: money(closingBalance - openingBalance - activityTotals.net - excludedOpeningAdjustments),
+    };
+    return res.json({
+      currency,
+      from: range.from,
+      to: range.to,
+      activities,
+      items,
+      totals,
+      basis: "IAS 7-style direct-method classification from posted General Ledger lines linked to cash and bank accounts. Internal treasury transfers and opening-balance setup entries are excluded from operating, investing, and financing cash flows.",
+    });
   } catch (error) {
     return res.status(500).json({ message: "Failed to load cash flow.", error: error.message });
   }

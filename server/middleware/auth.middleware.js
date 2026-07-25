@@ -101,10 +101,19 @@ export const requirePermission = (permission) => (req, res, next) => {
   const manageEquivalent = String(permission).endsWith(":view")
     ? String(permission).replace(/:view$/, ":manage")
     : "";
+  const moduleActionEquivalent = String(permission).endsWith(":view")
+    ? permissions.some((item) => {
+        const [itemModule, itemAction] = String(item).split(":");
+        return itemModule === String(permission).replace(/:view$/, "") &&
+          itemAction &&
+          itemAction !== "view";
+      })
+    : false;
   const allowed =
     permissions.includes(permission) ||
     (compatibility[permission] || []).some((key) => permissions.includes(key)) ||
-    (manageEquivalent && permissions.includes(manageEquivalent));
+    (manageEquivalent && permissions.includes(manageEquivalent)) ||
+    moduleActionEquivalent;
 
   if (!allowed) {
     return res.status(403).json({ message: "Permission denied." });

@@ -24,6 +24,7 @@ import {
   postDraftBankTransaction,
 } from "../controllers/banking.controller.js";
 import { protect, requirePermission } from "../middleware/auth.middleware.js";
+import { connectBankAccountLedgers } from "../controllers/bank.controller.js";
 
 const router = express.Router();
 
@@ -33,6 +34,7 @@ router.use(requirePermission("finance:view"));
 router.get("/summary", getBankingSummary);
 router.get("/accounts", listOperationalBankAccounts);
 router.get("/treasury-accounts", listTreasuryAccounts);
+router.post("/treasury-accounts/synchronize", requirePermission("finance:manage"), connectBankAccountLedgers);
 router.get("/vouchers", listTreasuryVouchers);
 router.get("/open-documents", listOpenSettlementDocuments);
 router.post("/vouchers", requirePermission("finance:manage"), createTreasuryVoucher);
