@@ -542,32 +542,81 @@ function printInvoice(invoice) {
 
 function PaymentModal({ invoice, onClose, onSaved }) {
   const [amount, setAmount] = useState("")
-  const [method, setMethod] = useState("cash")
+  const [treasuryAccounts, setTreasuryAccounts] = useState([])
+  const [treasuryAccount, setTreasuryAccount] = useState("")
   const [transactionId, setTransactionId] = useState("")
   const [paidAt, setPaidAt] = useState(toDateInput())
   const [note, setNote] = useState("")
   const [loading, setLoading] = useState(false)
+  const [loadingTreasury, setLoadingTreasury] = useState(false)
+  const [invoicePosted, setInvoicePosted] = useState(false)
   const [error, setError] = useState("")
 
   useEffect(() => {
     if (!invoice) return
+    let active = true
     setAmount(String(invoice.dueTotal || ""))
-    setMethod("cash")
+    setTreasuryAccount("")
+    setTreasuryAccounts([])
     setTransactionId("")
     setPaidAt(toDateInput())
     setNote("")
     setError("")
+    setInvoicePosted(Boolean(invoice.journalEntry && invoice.status !== "draft"))
+    setLoadingTreasury(true)
+    const loadTreasury = async () => {
+      let data = await apiJson("/banking/treasury-accounts")
+      if (data.requiresSynchronization) {
+        await apiJson("/banking/treasury-accounts/synchronize", { method: "POST", body: "{}" })
+        data = await apiJson("/banking/treasury-accounts")
+      }
+      return data
+    }
+    loadTreasury()
+      .then((data) => {
+        if (!active) return
+        const currency = String(invoice.currency || "BDT").toUpperCase()
+        setTreasuryAccounts((data.accounts || []).filter((account) => String(account.currency || "BDT").toUpperCase() === currency))
+      })
+      .catch((err) => {
+        if (active) setError(err.message)
+      })
+      .finally(() => {
+        if (active) setLoadingTreasury(false)
+      })
+    return () => {
+      active = false
+    }
   }, [invoice])
 
   const submit = async () => {
+    const [treasuryType, treasuryId] = treasuryAccount.split(":")
+    if (!treasuryType || !treasuryId) {
+      setError("Select the cash or bank account that received this money.")
+      return
+    }
     setLoading(true)
     setError("")
     try {
+      if (!invoicePosted) {
+        await apiJson(`/accounting/invoices/${invoice._id}/post`, {
+          method: "PATCH",
+          body: "{}",
+        })
+        setInvoicePosted(true)
+      }
       const data = await apiJson(`/invoices/${invoice._id}/payments`, {
         method: "POST",
-        body: JSON.stringify({ amount: Number(amount), method, transactionId, paidAt, note }),
+        body: JSON.stringify({
+          amount: Number(amount),
+          treasuryType,
+          treasuryAccount: treasuryId,
+          reference: transactionId,
+          paidAt,
+          note,
+        }),
       })
-      toast.success("Payment recorded.")
+      toast.success("Receipt posted and connected to the deal invoice.")
       onSaved(data?.invoice)
     } catch (err) {
       setError(err.message)
@@ -583,9 +632,10 @@ function PaymentModal({ invoice, onClose, onSaved }) {
       title="Record payment"
       subtitle={invoice?.invoiceNo || ""}
       maxWidth="max-w-2xl"
-      footer={<div className="flex justify-end gap-2"><button className={ghostButton} onClick={onClose}>Cancel</button><button className={primaryButton} disabled={loading || !Number(amount)} onClick={submit}>{loading ? <FiLoader className="animate-spin" /> : <FiCreditCard />}{loading ? "Saving..." : "Save payment"}</button></div>}
+      footer={<div className="flex justify-end gap-2"><button className={ghostButton} onClick={onClose}>Cancel</button><button className={primaryButton} disabled={loading || loadingTreasury || !Number(amount) || !treasuryAccount} onClick={submit}>{loading ? <FiLoader className="animate-spin" /> : <FiCreditCard />}{loading ? "Posting..." : !invoicePosted ? "Post invoice & receive" : "Post receipt"}</button></div>}
     >
       {error ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{error}</div> : null}
+      {!invoicePosted ? <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">This invoice is still a draft. The system will first post Accounts Receivable and Sales Revenue, then post the cash/bank receipt.</div> : null}
       <div className="mb-4 grid grid-cols-3 gap-3">
         <div className="rounded-2xl bg-gray-50 p-3"><p className="text-xs font-black text-gray-500">Invoice</p><p className="mt-1 font-black">{formatMoney(invoice?.total, invoice?.currency)}</p></div>
         <div className="rounded-2xl bg-emerald-50 p-3"><p className="text-xs font-black text-emerald-600">Paid</p><p className="mt-1 font-black text-emerald-800">{formatMoney(invoice?.paidTotal, invoice?.currency)}</p></div>
@@ -593,9 +643,9 @@ function PaymentModal({ invoice, onClose, onSaved }) {
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="text-sm font-bold">Amount *<input type="number" min="0.01" max={invoice?.dueTotal} step="0.01" className={`${input} mt-1.5`} value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
-        <label className="text-sm font-bold">Method<select className={`${input} mt-1.5`} value={method} onChange={(event) => setMethod(event.target.value)}>{["cash", "bank", "bkash", "nagad", "rocket", "card", "other"].map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+        <label className="text-sm font-bold">Received in *<select className={`${input} mt-1.5`} value={treasuryAccount} onChange={(event) => setTreasuryAccount(event.target.value)} disabled={loadingTreasury}><option value="">{loadingTreasury ? "Loading cash and bank accounts..." : "Select cash or bank account"}</option>{treasuryAccounts.map((account) => <option key={`${account.treasuryType}-${account._id}`} value={`${account.treasuryType}:${account._id}`}>{account.name} · {account.detail} · {formatMoney(account.currentBalance, account.currency)}</option>)}</select></label>
         <label className="text-sm font-bold">Payment date<input type="date" className={`${input} mt-1.5`} value={paidAt} onChange={(event) => setPaidAt(event.target.value)} /></label>
-        <label className="text-sm font-bold">Transaction ID <span className="font-medium text-gray-400">(optional)</span><input className={`${input} mt-1.5`} value={transactionId} onChange={(event) => setTransactionId(event.target.value)} /></label>
+        <label className="text-sm font-bold">Receipt reference <span className="font-medium text-gray-400">(optional)</span><input className={`${input} mt-1.5`} value={transactionId} onChange={(event) => setTransactionId(event.target.value)} /></label>
         <label className="text-sm font-bold sm:col-span-2">Note <span className="font-medium text-gray-400">(optional)</span><textarea className={`${input} mt-1.5 min-h-[90px]`} value={note} onChange={(event) => setNote(event.target.value)} /></label>
       </div>
     </Modal>

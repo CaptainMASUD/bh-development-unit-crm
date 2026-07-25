@@ -989,15 +989,186 @@ const SETTINGS_ACCOUNT_FIELDS = [
   "vatAccount",
 ];
 
-const SETTINGS_ACCOUNT_TYPE_RULES = {
-  inventoryAccount: "asset",
-  furnitureAccount: "asset",
-  loanAccount: "liability",
+const SETTINGS_ACCOUNT_LABELS = {
+  defaultCashAccount: "Default Cash",
+  defaultBankAccount: "Default Bank",
+  salesAccount: "Sales / Income",
+  purchaseAccount: "Purchases",
+  receivableAccount: "Accounts Receivable Control",
+  payableAccount: "Accounts Payable Control",
+  inventoryAccount: "Inventory Control",
+  furnitureAccount: "Furniture",
+  loanAccount: "Loan",
+  payrollExpenseAccount: "Payroll Expense",
+  payrollPayableAccount: "Payroll Payable",
+  retainedEarningsAccount: "Retained Earnings",
+  exchangeGainAccount: "Exchange Gain",
+  exchangeLossAccount: "Exchange Loss",
+  roundingAccount: "Rounding Off",
+  vatPayableAccount: "VAT Payable",
+  vatReceivableAccount: "VAT Receivable",
+  vatAccount: "Legacy VAT Account",
+};
+
+const normalizedAccountText = (account) =>
+  [account?.code, account?.name, account?.subType]
+    .map((value) => clean(value).toLowerCase())
+    .join(" ");
+
+const matchesSettingsAccountPurpose = (field, account, links) => {
+  if (!account || account.isGroup || account.isActive === false) return false;
+
+  const id = String(account._id);
+  const text = normalizedAccountText(account);
+  const isType = (type) => account.type === type;
+  const hasText = (...values) => values.some((value) => text.includes(value));
+
+  switch (field) {
+    case "defaultCashAccount":
+      return (
+        isType("asset") &&
+        !links.bankLedgerIds.has(id) &&
+        (links.cashLedgerIds.has(id) ||
+          account.code === "1000" ||
+          (hasText("cash", "petty cash") && !hasText("bank")))
+      );
+    case "defaultBankAccount":
+      return isType("asset") && links.bankLedgerIds.has(id);
+    case "salesAccount":
+      return (
+        isType("revenue") &&
+        (account.code === "4000" ||
+          hasText("sales", "operating income", "service revenue"))
+      );
+    case "purchaseAccount":
+      return (
+        isType("expense") &&
+        (account.code === "5010" ||
+          hasText("purchase", "cost of goods", "cost of sales"))
+      );
+    case "receivableAccount":
+      return isType("asset") && account.controlType === "receivable";
+    case "payableAccount":
+      return isType("liability") && account.controlType === "payable";
+    case "inventoryAccount":
+      return isType("asset") && account.controlType === "inventory";
+    case "furnitureAccount":
+      return (
+        isType("asset") &&
+        (account.code === "1500" || hasText("furniture", "fixtures"))
+      );
+    case "loanAccount":
+      return (
+        isType("liability") &&
+        (links.loanLedgerIds.has(id) ||
+          account.code === "2300" ||
+          hasText("loan", "borrowings"))
+      );
+    case "payrollExpenseAccount":
+      return (
+        isType("expense") &&
+        (["5100", "5110"].includes(account.code) ||
+          hasText("payroll", "salary expense", "wages expense"))
+      );
+    case "payrollPayableAccount":
+      return (
+        isType("liability") &&
+        (account.code === "2200" ||
+          hasText("payroll payable", "salary payable", "wages payable"))
+      );
+    case "retainedEarningsAccount":
+      return (
+        isType("equity") &&
+        (account.code === "3200" || hasText("retained earnings"))
+      );
+    case "exchangeGainAccount":
+      return (
+        isType("revenue") &&
+        hasText("exchange gain", "forex gain", "currency gain")
+      );
+    case "exchangeLossAccount":
+      return (
+        isType("expense") &&
+        hasText("exchange loss", "forex loss", "currency loss")
+      );
+    case "roundingAccount":
+      return (
+        ["expense", "revenue"].includes(account.type) &&
+        hasText("rounding", "round off", "round-off")
+      );
+    case "vatPayableAccount":
+      return (
+        isType("liability") &&
+        account.controlType === "tax" &&
+        hasText("vat", "tax")
+      );
+    case "vatReceivableAccount":
+      return (
+        isType("asset") &&
+        account.controlType === "tax" &&
+        hasText("vat", "tax")
+      );
+    case "vatAccount":
+      return (
+        ["asset", "liability"].includes(account.type) &&
+        account.controlType === "tax"
+      );
+    default:
+      return false;
+  }
+};
+
+const buildSettingsAccountOptions = async () => {
+  const [accounts, cashLinks, bankLinks] = await Promise.all([
+    Account.find({ isActive: true, isGroup: { $ne: true } })
+      .select("code name type subType controlType currency isActive isGroup")
+      .sort({ type: 1, code: 1, _id: 1 })
+      .lean(),
+    CashAccount.find({
+      isActive: { $ne: false },
+      type: "cash",
+      account: { $ne: null },
+    })
+      .select("account")
+      .lean(),
+    BankAccount.find({
+      status: "active",
+      ledgerAccount: { $ne: null },
+    })
+      .select("ledgerAccount accountType")
+      .lean(),
+  ]);
+
+  const links = {
+    cashLedgerIds: new Set(cashLinks.map((item) => String(item.account))),
+    bankLedgerIds: new Set(
+      bankLinks
+        .filter((item) => !["loan", "credit_card"].includes(item.accountType))
+        .map((item) => String(item.ledgerAccount))
+    ),
+    loanLedgerIds: new Set(
+      bankLinks
+        .filter((item) => item.accountType === "loan")
+        .map((item) => String(item.ledgerAccount))
+    ),
+  };
+
+  return Object.fromEntries(
+    SETTINGS_ACCOUNT_FIELDS.map((field) => [
+      field,
+      accounts.filter((account) =>
+        matchesSettingsAccountPurpose(field, account, links)
+      ),
+    ])
+  );
 };
 
 const populateSettings = (query) =>
   query.populate([
-    ...SETTINGS_ACCOUNT_FIELDS.map((path) => ({ path, select: "code name type isActive" })),
+    ...SETTINGS_ACCOUNT_FIELDS.map((path) => ({
+      path,
+      select: "code name type subType controlType currency isActive isGroup",
+    })),
     { path: "defaultFiscalYear", select: "name startDate endDate status" },
     { path: "updatedBy", select: "name email role" },
   ]);
@@ -1007,7 +1178,8 @@ export const getAccountingSettings = async (req, res) => {
     let settings = await populateSettings(AccountingSettings.findOne({ key: "company" }));
     if (!settings) settings = await AccountingSettings.create({ key: "company" });
     settings = await populateSettings(AccountingSettings.findById(settings._id));
-    return res.json({ settings });
+    const accountOptions = await buildSettingsAccountOptions();
+    return res.json({ settings, accountOptions });
   } catch (error) {
     return res.status(500).json({ message: "Failed to load accounting settings.", error: error.message });
   }
@@ -1043,14 +1215,26 @@ export const updateAccountingSettings = async (req, res) => {
         _id: { $in: uniqueIds },
         isActive: true,
         isGroup: { $ne: true },
-      }).select("_id type").lean();
+      }).select("_id code name type subType controlType currency isActive isGroup").lean();
       if (selectedAccounts.length !== uniqueIds.length) return res.status(400).json({ message: "All selected default accounts must be active accounts." });
 
-      const selectedById = new Map(selectedAccounts.map((account) => [String(account._id), account]));
-      for (const [field, expectedType] of Object.entries(SETTINGS_ACCOUNT_TYPE_RULES)) {
+      const accountOptions = await buildSettingsAccountOptions();
+      const eligibleByField = new Map(
+        Object.entries(accountOptions).map(([field, options]) => [
+          field,
+          new Set(options.map((account) => String(account._id))),
+        ])
+      );
+
+      for (const field of SETTINGS_ACCOUNT_FIELDS) {
         const accountId = patch[field];
-        if (accountId && selectedById.get(String(accountId))?.type !== expectedType) {
-          return res.status(400).json({ message: `${field} must reference an active ${expectedType} account.` });
+        if (
+          accountId &&
+          !eligibleByField.get(field)?.has(String(accountId))
+        ) {
+          return res.status(400).json({
+            message: `${SETTINGS_ACCOUNT_LABELS[field] || field} does not match the required accounting purpose.`,
+          });
         }
       }
     }
@@ -2434,48 +2618,244 @@ export const getCashBook = async (req, res) => {
     const search = textRegex(req.query.q);
     if (search) entryMatch.$or = [{ entryNo: search }, { reference: search }, { memo: search }, { "lines.description": search }];
     const reportLimit = Math.min(Math.max(Number(req.query.limit || 3000), 1), 5000);
-    const [openingRows, entries] = await Promise.all([
+    const [openingRows, periodMovementRows, entries] = await Promise.all([
       JournalEntry.aggregate([
         { $match: openingMatch }, { $unwind: "$lines" }, { $match: { "lines.account": { $in: ledgerIds } } },
         { $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
       ]).allowDiskUse(true),
-      JournalEntry.find(entryMatch).select("entryNo date status voucherType sourceType sourceId reference memo currency paymentMode cashAccount bankAccount reversalOf reversedByEntry lines createdAt").sort({ date: 1, createdAt: 1, _id: 1 }).limit(reportLimit + 1).lean(),
+      JournalEntry.aggregate([
+        { $match: entryMatch },
+        { $unwind: "$lines" },
+        { $match: { "lines.account": { $in: ledgerIds } } },
+        { $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
+      ]).allowDiskUse(true),
+      JournalEntry.find(entryMatch)
+        .select("entryNo date status voucherType sourceType sourceId reference memo currency paymentMode cashAccount bankAccount partyType partyId partyName linkedDocuments reversalOf reversedByEntry lines createdAt")
+        .populate("lines.account", "code name type subType")
+        .sort({ date: 1, createdAt: 1, _id: 1 })
+        .limit(reportLimit + 1)
+        .lean(),
     ]);
     const truncated = entries.length > reportLimit; const periodEntries = truncated ? entries.slice(0, reportLimit) : entries;
     const openingByAccount = new Map(openingRows.map((row) => [String(row._id), money(Number(row.debit || 0) - Number(row.credit || 0))]));
     let runningBalance = money([...openingByAccount.values()].reduce((sum, value) => sum + value, 0));
-    const movementByAccount = new Map(selectedAccounts.map((item) => [String(item.ledger._id), 0]));
-    const summary = { cashIn: 0, cashOut: 0, bankIn: 0, bankOut: 0, netMovement: 0 };
+    const periodMovementByAccount = new Map(periodMovementRows.map((row) => [
+      String(row._id),
+      {
+        debit: money(row.debit),
+        credit: money(row.credit),
+        movement: money(Number(row.debit || 0) - Number(row.credit || 0)),
+      },
+    ]));
+    const summary = selectedAccounts.reduce((totals, item) => {
+      const movement = periodMovementByAccount.get(String(item.ledger._id)) || { debit: 0, credit: 0 };
+      if (item.kind === "cash") {
+        totals.cashIn = money(totals.cashIn + movement.debit);
+        totals.cashOut = money(totals.cashOut + movement.credit);
+      } else {
+        totals.bankIn = money(totals.bankIn + movement.debit);
+        totals.bankOut = money(totals.bankOut + movement.credit);
+      }
+      return totals;
+    }, { cashIn: 0, cashOut: 0, bankIn: 0, bankOut: 0, netMovement: 0 });
+    summary.netMovement = money(summary.cashIn + summary.bankIn - summary.cashOut - summary.bankOut);
+
+    const linkedDocumentRows = periodEntries.flatMap((entry) => entry.linkedDocuments || []);
+    const invoiceIds = [...new Set([
+      ...periodEntries
+        .filter((entry) => entry.sourceType === "customer_payment" && isId(entry.sourceId))
+        .map((entry) => String(entry.sourceId)),
+      ...linkedDocumentRows
+        .filter((item) => item.documentType === "invoice" && isId(item.documentId))
+        .map((item) => String(item.documentId)),
+    ])];
+    const supplierBillIds = [...new Set([
+      ...periodEntries
+        .filter((entry) => entry.sourceType === "vendor_payment" && isId(entry.sourceId))
+        .map((entry) => String(entry.sourceId)),
+      ...linkedDocumentRows
+        .filter((item) => item.documentType === "supplier_bill" && isId(item.documentId))
+        .map((item) => String(item.documentId)),
+    ])];
+    const expenseIds = [...new Set([
+      ...periodEntries
+        .filter((entry) => entry.sourceType === "expense" && isId(entry.sourceId))
+        .map((entry) => String(entry.sourceId)),
+      ...linkedDocumentRows
+        .filter((item) => item.documentType === "expense" && isId(item.documentId))
+        .map((item) => String(item.documentId)),
+    ])];
+    const [invoices, supplierBills, expenses, legacyDealInvoices] = await Promise.all([
+      invoiceIds.length
+        ? Invoice.find({ _id: { $in: invoiceIds } })
+          .select("invoiceNo customerId dealId currency")
+          .populate("customerId", "name companyName")
+          .populate("dealId", "dealNo title")
+          .lean()
+        : [],
+      supplierBillIds.length
+        ? VendorBill.find({ _id: { $in: supplierBillIds } })
+          .select("billNo vendorName currency")
+          .lean()
+        : [],
+      expenseIds.length
+        ? Expense.find({ _id: { $in: expenseIds } })
+          .select("title payeeVendor invoiceBillNo")
+          .lean()
+        : [],
+      Invoice.find({
+        dealId: { $ne: null },
+        status: { $ne: "void" },
+        payments: { $elemMatch: { amount: { $gt: 0 }, journalEntry: null } },
+      })
+        .select("invoiceNo dealId customerId currency payments")
+        .populate("customerId", "name companyName")
+        .populate("dealId", "dealNo title")
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .lean(),
+    ]);
+    const invoiceById = new Map(invoices.map((item) => [String(item._id), item]));
+    const supplierBillById = new Map(supplierBills.map((item) => [String(item._id), item]));
+    const expenseById = new Map(expenses.map((item) => [String(item._id), item]));
+    const unpostedDealCollections = legacyDealInvoices.flatMap((invoice) =>
+      (invoice.payments || [])
+        .filter((payment) => Number(payment.amount || 0) > 0 && !payment.journalEntry)
+        .map((payment) => ({
+          invoice: { _id: invoice._id, invoiceNo: invoice.invoiceNo },
+          deal: invoice.dealId
+            ? { _id: invoice.dealId._id, dealNo: invoice.dealId.dealNo, title: invoice.dealId.title }
+            : null,
+          customer: invoice.customerId
+            ? { _id: invoice.customerId._id, name: invoice.customerId.companyName || invoice.customerId.name }
+            : null,
+          amount: money(payment.amount),
+          currency: invoice.currency,
+          paidAt: payment.paidAt,
+          method: payment.method,
+          reference: payment.transactionId,
+          reason: "Legacy CRM payment has no posted General Ledger receipt and is excluded from treasury balances.",
+        }))
+    );
+    const exceptions = {
+      unpostedDealCollections,
+      count: unpostedDealCollections.length,
+      total: money(unpostedDealCollections.reduce((sum, item) => sum + Number(item.amount || 0), 0)),
+    };
+    const sourceLabels = {
+      customer_payment: "Customer receipt",
+      vendor_payment: "Supplier payment",
+      expense: "Expense payment",
+      bank_transfer: "Bank transfer",
+      payroll: "Payroll payment",
+      tax: "Tax payment",
+      opening_balance: "Opening balance",
+      manual: "Treasury voucher",
+    };
+
+    const sourceDocumentsForEntry = (entry) => {
+      const documents = [];
+      const addInvoice = (id) => {
+        const invoice = invoiceById.get(String(id || ""));
+        if (!invoice || documents.some((item) => item.type === "invoice" && String(item._id) === String(invoice._id))) return;
+        documents.push({
+          _id: invoice._id,
+          type: "invoice",
+          number: invoice.invoiceNo,
+          partyName: invoice.customerId?.companyName || invoice.customerId?.name || "Customer",
+          deal: invoice.dealId
+            ? { _id: invoice.dealId._id, dealNo: invoice.dealId.dealNo, title: invoice.dealId.title }
+            : null,
+        });
+      };
+      const addSupplierBill = (id) => {
+        const bill = supplierBillById.get(String(id || ""));
+        if (!bill || documents.some((item) => item.type === "supplier_bill" && String(item._id) === String(bill._id))) return;
+        documents.push({ _id: bill._id, type: "supplier_bill", number: bill.billNo, partyName: bill.vendorName });
+      };
+      const addExpense = (id) => {
+        const expense = expenseById.get(String(id || ""));
+        if (!expense || documents.some((item) => item.type === "expense" && String(item._id) === String(expense._id))) return;
+        documents.push({ _id: expense._id, type: "expense", number: expense.invoiceBillNo || expense.title, partyName: expense.payeeVendor });
+      };
+
+      if (entry.sourceType === "customer_payment") addInvoice(entry.sourceId);
+      if (entry.sourceType === "vendor_payment") addSupplierBill(entry.sourceId);
+      if (entry.sourceType === "expense") addExpense(entry.sourceId);
+      for (const item of entry.linkedDocuments || []) {
+        if (item.documentType === "invoice") addInvoice(item.documentId);
+        if (item.documentType === "supplier_bill") addSupplierBill(item.documentId);
+        if (item.documentType === "expense") addExpense(item.documentId);
+      }
+      return documents;
+    };
+
     const rows = [];
     for (const entry of periodEntries) {
-      const row = { journalEntryId: entry._id, date: entry.date, entryNo: entry.entryNo, voucherType: entry.voucherType, sourceType: entry.sourceType, sourceId: entry.sourceId, reference: entry.reference, particulars: entry.memo || "", cashIn: 0, cashOut: 0, bankIn: 0, bankOut: 0, accounts: [] };
+      const documents = sourceDocumentsForEntry(entry);
+      const row = {
+        journalEntryId: entry._id,
+        date: entry.date,
+        entryNo: entry.entryNo,
+        voucherType: entry.voucherType,
+        sourceType: entry.sourceType,
+        sourceLabel: sourceLabels[entry.sourceType] || "Accounting entry",
+        sourceId: entry.sourceId,
+        reference: entry.reference,
+        particulars: entry.memo || "",
+        paymentMode: entry.paymentMode,
+        partyType: entry.partyType,
+        partyName: entry.partyName || documents.find((item) => item.partyName)?.partyName || "",
+        documents,
+        deal: documents.find((item) => item.deal)?.deal || null,
+        cashIn: 0,
+        cashOut: 0,
+        bankIn: 0,
+        bankOut: 0,
+        accounts: [],
+        counterparties: [],
+      };
       for (const line of entry.lines || []) {
-        const accountId = String(line.account); const treasury = treasuryMap.get(accountId);
-        if (!treasury || !ledgerIds.some((id) => String(id) === accountId)) continue;
+        const accountId = String(line.account?._id || line.account);
+        const treasury = treasuryMap.get(accountId);
+        if (!treasury || !ledgerIds.some((id) => String(id) === accountId)) {
+          if (line.account?._id) {
+            row.counterparties.push({
+              _id: line.account._id,
+              code: line.account.code,
+              name: line.account.name,
+              type: line.account.type,
+              description: line.description,
+            });
+          }
+          continue;
+        }
         row.accounts.push({ _id: treasury.ledger._id, code: treasury.ledger.code, name: treasury.name, kind: treasury.kind, description: line.description });
         if (!row.particulars && line.description) row.particulars = line.description;
         const incoming = money(line.debit); const outgoing = money(line.credit);
-        movementByAccount.set(accountId, money((movementByAccount.get(accountId) || 0) + incoming - outgoing));
         if (treasury.kind === "cash") { row.cashIn = money(row.cashIn + incoming); row.cashOut = money(row.cashOut + outgoing); }
         else { row.bankIn = money(row.bankIn + incoming); row.bankOut = money(row.bankOut + outgoing); }
       }
       if (!row.accounts.length) continue;
       const movement = money(row.cashIn + row.bankIn - row.cashOut - row.bankOut);
-      runningBalance = money(runningBalance + movement); row.movement = movement; row.balance = runningBalance;
-      summary.cashIn = money(summary.cashIn + row.cashIn); summary.cashOut = money(summary.cashOut + row.cashOut); summary.bankIn = money(summary.bankIn + row.bankIn); summary.bankOut = money(summary.bankOut + row.bankOut);
+      runningBalance = money(runningBalance + movement);
+      row.movement = movement;
+      row.inflow = money(row.cashIn + row.bankIn);
+      row.outflow = money(row.cashOut + row.bankOut);
+      row.direction = row.inflow > 0 && row.outflow > 0 ? "transfer" : movement >= 0 ? "inflow" : "outflow";
+      row.balance = runningBalance;
       rows.push(row);
     }
-    summary.netMovement = money(summary.cashIn + summary.bankIn - summary.cashOut - summary.bankOut);
     const openingBalance = money([...openingByAccount.values()].reduce((sum, value) => sum + value, 0));
     const accountBalances = selectedAccounts.map((item) => {
-      const movement = movementByAccount.get(String(item.ledger._id)) || 0;
+      const movement = periodMovementByAccount.get(String(item.ledger._id))?.movement || 0;
       const opening = openingByAccount.get(String(item.ledger._id)) || 0;
       return { ...item, openingBalance: money(opening), closingBalance: money(opening + movement) };
     });
     return res.json({
-      from, to, scope, currency: currency || null, accounts: allAccounts, selectedAccounts: accountBalances, openingBalance, rows, summary,
+      from, to, scope, currency: currency || null, accounts: allAccounts, selectedAccounts: accountBalances, openingBalance, rows, summary, exceptions,
       closingBalance: money(openingBalance + summary.netMovement), pageInfo: { limit: reportLimit, hasNextPage: truncated, nextCursor: "" },
-      basis: "Derived from posted and reversal-linked voucher lines touching Cash Management and Bank Management ledgers; no separate Cash Book records are stored.",
+      basis: "Live from posted and reversal-linked General Ledger lines touching connected cash and bank ledgers. Deal money appears only after its invoice receipt is posted; won or invoiced value alone is not cash.",
     });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ message: "Failed to load cash book.", error: error.message });

@@ -4,27 +4,24 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import toast, { Toaster } from "react-hot-toast"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  CheckmarkCircle02Icon,
-  Edit02Icon,
   FloppyDiskIcon,
   HierarchySquare01Icon,
   RefreshIcon,
   UnavailableIcon,
 } from "@hugeicons/core-free-icons"
 
-const API_BASE = `${import.meta.env.VITE_API_URL}/api`
+const API_ORIGIN = import.meta.env.VITE_API_URL || ""
+const API_BASE = `${API_ORIGIN.replace(/\/$/, "")}/api`
 
-const shell = "min-h-screen bg-gradient-to-b from-gray-50 to-white"
-const card =
-  "rounded-2xl border border-gray-100 bg-white shadow-[0_14px_35px_-28px_rgba(15,23,42,0.55)]"
-const input =
-  "h-11 w-full rounded-xl border border-gray-200 bg-white px-3.5 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-300 focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
-const button =
-  "inline-flex h-11 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-const buttonGhost =
-  "border border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50"
-const buttonPrimary =
-  "bg-indigo-600 text-white shadow-sm shadow-indigo-600/20 hover:bg-indigo-700"
+const styles = {
+  page: "min-h-screen bg-gray-50 px-4 py-5 sm:px-6 lg:px-8",
+  card:
+    "rounded-2xl border border-gray-200/80 bg-white shadow-[0_12px_32px_-26px_rgba(15,23,42,0.38)]",
+  input:
+    "h-11 w-full rounded-xl border border-gray-200 bg-white px-3.5 text-sm font-semibold text-gray-900 outline-none transition placeholder:text-gray-300 hover:border-gray-300 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500",
+  button:
+    "inline-flex h-10 items-center justify-center gap-2 rounded-xl px-4 text-sm font-bold transition active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60",
+}
 
 const months = [
   "January",
@@ -41,7 +38,7 @@ const months = [
   "December",
 ]
 
-const rule = (prefix) => ({
+const createRule = (prefix) => ({
   prefix,
   digitLength: 6,
   reset: "fiscal_year",
@@ -84,10 +81,10 @@ const emptyForm = {
   defaultTaxScheme: "",
   taxCalculationMethod: "exclusive",
   numberingRules: {
-    journal: rule("JV"),
-    invoice: rule("INV"),
-    voucher: rule("PV"),
-    bill: rule("BILL"),
+    journal: createRule("JV"),
+    invoice: createRule("INV"),
+    voucher: createRule("PV"),
+    bill: createRule("BILL"),
   },
 }
 
@@ -101,62 +98,34 @@ const tabs = [
   "Period Locking",
 ]
 
-const sectionMeta = {
-  General: {
-    title: "Company & accounting basis",
-    description:
-      "Define the company identity, accounting method, and fiscal-year defaults.",
-  },
-  Currency: {
-    title: "Currency & rounding",
-    description:
-      "Configure the base currency, decimal precision, and multi-currency support.",
-  },
-  Numbering: {
-    title: "Document numbering rules",
-    description:
-      "Control document prefixes, sequence length, reset frequency, and format tokens.",
-  },
-  "Default Accounts": {
-    title: "Default control accounts",
-    description:
-      "Connect accounting operations to active postable accounts from the Chart of Accounts.",
-  },
-  Approval: {
-    title: "Approval controls",
-    description:
-      "Require approval for accounting entries and define the journal threshold.",
-  },
-  Tax: {
-    title: "Tax defaults",
-    description:
-      "Set the default tax scheme and choose whether prices include or exclude tax.",
-  },
-  "Period Locking": {
-    title: "Global posting lock",
-    description:
-      "Prevent transactions in closed periods and enforce reconciliation before closing.",
-  },
+const sectionTitles = {
+  General: "Company & accounting basis",
+  Currency: "Currency & rounding",
+  Numbering: "Document numbering rules",
+  "Default Accounts": "Default control accounts",
+  Approval: "Approval controls",
+  Tax: "Tax defaults",
+  "Period Locking": "Global posting lock",
 }
 
 const accountFields = [
-  ["defaultCashAccount", "Default Cash", ["asset"]],
-  ["defaultBankAccount", "Default Bank", ["asset"]],
-  ["salesAccount", "Sales / Income", ["revenue"]],
-  ["purchaseAccount", "Purchases", ["expense"]],
-  ["receivableAccount", "Accounts Receivable Control", ["asset"]],
-  ["payableAccount", "Accounts Payable Control", ["liability"]],
-  ["inventoryAccount", "Inventory Control", ["asset"]],
-  ["furnitureAccount", "Furniture", ["asset"]],
-  ["loanAccount", "Loan", ["liability"]],
-  ["payrollExpenseAccount", "Payroll Expense", ["expense"]],
-  ["payrollPayableAccount", "Payroll Payable", ["liability"]],
-  ["retainedEarningsAccount", "Retained Earnings", ["equity"]],
-  ["exchangeGainAccount", "Exchange Gain", ["revenue"]],
-  ["exchangeLossAccount", "Exchange Loss", ["expense"]],
-  ["roundingAccount", "Rounding Off", ["expense", "revenue"]],
-  ["vatPayableAccount", "VAT Payable", ["liability"]],
-  ["vatReceivableAccount", "VAT Receivable", ["asset"]],
+  ["defaultCashAccount", "Default Cash"],
+  ["defaultBankAccount", "Default Bank"],
+  ["salesAccount", "Sales / Income"],
+  ["purchaseAccount", "Purchases"],
+  ["receivableAccount", "Accounts Receivable Control"],
+  ["payableAccount", "Accounts Payable Control"],
+  ["inventoryAccount", "Inventory Control"],
+  ["furnitureAccount", "Furniture"],
+  ["loanAccount", "Loan"],
+  ["payrollExpenseAccount", "Payroll Expense"],
+  ["payrollPayableAccount", "Payroll Payable"],
+  ["retainedEarningsAccount", "Retained Earnings"],
+  ["exchangeGainAccount", "Exchange Gain"],
+  ["exchangeLossAccount", "Exchange Loss"],
+  ["roundingAccount", "Rounding Off"],
+  ["vatPayableAccount", "VAT Payable"],
+  ["vatReceivableAccount", "VAT Receivable"],
 ]
 
 function cn(...classes) {
@@ -176,8 +145,9 @@ function Icon({ icon, size = 18, strokeWidth = 1.8, className = "" }) {
   )
 }
 
-function headers() {
-  const token = localStorage.getItem("token")
+function getHeaders() {
+  const token =
+    typeof window !== "undefined" ? window.localStorage.getItem("token") : null
 
   return {
     "Content-Type": "application/json",
@@ -189,7 +159,10 @@ async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
     ...options,
-    headers: { ...headers(), ...(options.headers || {}) },
+    headers: {
+      ...getHeaders(),
+      ...(options.headers || {}),
+    },
   })
 
   const data = await response.json().catch(() => ({}))
@@ -201,90 +174,51 @@ async function api(path, options = {}) {
   return data
 }
 
-function Field({ label, hint, children, required = false }) {
+function Field({ label, error, children, className = "" }) {
   return (
-    <label className="block min-w-0">
+    <label className={cn("block min-w-0", className)}>
       <span className="mb-1.5 block text-sm font-bold text-gray-800">
         {label}
-        {required ? <span className="ml-1 text-rose-500">*</span> : null}
       </span>
-
       {children}
-
-      {hint ? (
-        <span className="mt-1.5 block text-xs font-medium leading-5 text-gray-500">
-          {hint}
+      {error ? (
+        <span className="mt-1.5 block text-xs font-semibold text-amber-700">
+          {error}
         </span>
       ) : null}
     </label>
   )
 }
 
-function StatusPill({ ready, label }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black ring-1",
-        ready
-          ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
-          : "bg-amber-50 text-amber-700 ring-amber-100"
-      )}
-    >
-      <Icon
-        icon={ready ? CheckmarkCircle02Icon : UnavailableIcon}
-        size={15}
-        strokeWidth={2}
-      />
-      {label} {ready ? "ready" : "required"}
-    </span>
-  )
-}
-
-function SectionHeading({ title, description }) {
-  return (
-    <div className="border-b border-gray-100 pb-4">
-      <h2 className="text-base font-black text-gray-950 sm:text-lg">{title}</h2>
-      <p className="mt-1 max-w-3xl text-sm font-medium leading-6 text-gray-500">
-        {description}
-      </p>
-    </div>
-  )
-}
-
-function ToggleCard({ title, description, checked, disabled = false, onChange }) {
+function Toggle({ title, checked, disabled = false, onChange }) {
   return (
     <label
       className={cn(
-        "flex min-h-[92px] cursor-pointer items-start justify-between gap-4 rounded-2xl border p-4 transition",
+        "flex h-11 cursor-pointer items-center justify-between gap-4 rounded-xl border px-3.5 transition",
         checked
-          ? "border-indigo-200 bg-indigo-50/60"
-          : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/70",
-        disabled && "cursor-not-allowed opacity-55"
+          ? "border-indigo-200 bg-indigo-50/70"
+          : "border-gray-200 bg-white hover:border-gray-300",
+        disabled && "cursor-not-allowed opacity-60"
       )}
     >
-      <span className="min-w-0">
-        <span className="block text-sm font-black text-gray-900">{title}</span>
-        <span className="mt-1 block text-xs font-medium leading-5 text-gray-500">
-          {description}
-        </span>
-      </span>
+      <span className="truncate text-sm font-bold text-gray-800">{title}</span>
 
       <span
         className={cn(
-          "relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition",
+          "relative h-6 w-11 shrink-0 rounded-full transition",
           checked ? "bg-indigo-600" : "bg-gray-200"
         )}
       >
         <input
           type="checkbox"
-          className="peer sr-only"
+          className="sr-only"
           checked={checked}
           disabled={disabled}
           onChange={onChange}
         />
         <span
           className={cn(
-            "absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition",
+            "absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-all",
             checked ? "left-6" : "left-1"
           )}
         />
@@ -295,23 +229,33 @@ function ToggleCard({ title, description, checked, disabled = false, onChange })
 
 function LoadingPanel() {
   return (
-    <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50/50 px-5 text-center">
-      <span className="animate-spin text-indigo-600">
-        <Icon icon={RefreshIcon} size={24} strokeWidth={2} />
-      </span>
-      <p className="mt-3 text-sm font-black text-gray-800">
-        Loading accounting settings
-      </p>
-      <p className="mt-1 text-sm text-gray-500">
-        Preparing accounts, fiscal years, and saved configuration.
-      </p>
+    <div className="flex min-h-[260px] items-center justify-center">
+      <div className="flex items-center gap-2.5 text-sm font-bold text-gray-600">
+        <Icon
+          icon={RefreshIcon}
+          size={20}
+          strokeWidth={2}
+          className="animate-spin text-indigo-600"
+        />
+        Loading settings...
+      </div>
+    </div>
+  )
+}
+
+function SectionHeading({ title }) {
+  return (
+    <div className="border-b border-gray-100 pb-4">
+      <h2 className="text-lg font-black tracking-tight text-gray-950">
+        {title}
+      </h2>
     </div>
   )
 }
 
 const idOf = (value) => value?._id || value || ""
 
-const dateValue = (value) => {
+function dateValue(value) {
   if (!value) return ""
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? "" : date.toISOString().slice(0, 10)
@@ -320,11 +264,15 @@ const dateValue = (value) => {
 export default function AccountingSettings() {
   const [form, setForm] = useState(emptyForm)
   const [accounts, setAccounts] = useState([])
+  const [accountOptions, setAccountOptions] = useState({})
   const [fiscalYears, setFiscalYears] = useState([])
   const [active, setActive] = useState("General")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [audit, setAudit] = useState(null)
+
+  const updateForm = (key, value) => {
+    setForm((current) => ({ ...current, [key]: value }))
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -337,17 +285,16 @@ export default function AccountingSettings() {
       ])
 
       const settings = settingsData?.settings || {}
-      const nextAccounts = accountData?.accounts || []
-      const nextFiscalYears = fiscalData?.fiscalYears || []
+      const loadedAccounts = accountData?.accounts || []
+      const loadedFiscalYears = fiscalData?.fiscalYears || []
 
-      setAccounts(nextAccounts)
-      setFiscalYears(nextFiscalYears)
-      setAudit({ user: settings.updatedBy, at: settings.updatedAt })
+      setAccounts(loadedAccounts)
+      setAccountOptions(settingsData?.accountOptions || {})
+      setFiscalYears(loadedFiscalYears)
       setForm({
         ...emptyForm,
         ...settings,
         defaultFiscalYear: idOf(settings.defaultFiscalYear),
-        vatAccount: idOf(settings.vatAccount),
         lockDate: dateValue(settings.lockDate),
         numberingRules: {
           ...emptyForm.numberingRules,
@@ -368,19 +315,15 @@ export default function AccountingSettings() {
     load()
   }, [load])
 
-  const readiness = useMemo(
-    () => ({
-      accounts: accounts.some(
+  const hasPostableAccounts = useMemo(
+    () =>
+      accounts.some(
         (account) => !account.isGroup && account.isActive !== false
       ),
-      fiscal: fiscalYears.length > 0,
-    }),
-    [accounts, fiscalYears]
+    [accounts]
   )
 
-  const activeSection = sectionMeta[active] || sectionMeta.General
-
-  const setRule = (kind, key, value) => {
+  const updateRule = (kind, key, value) => {
     setForm((current) => ({
       ...current,
       numberingRules: {
@@ -398,7 +341,7 @@ export default function AccountingSettings() {
     setSaving(true)
 
     try {
-      const data = await api("/accounting/settings", {
+      await api("/accounting/settings", {
         method: "PUT",
         body: JSON.stringify({
           ...form,
@@ -419,10 +362,6 @@ export default function AccountingSettings() {
         }),
       })
 
-      setAudit({
-        user: data?.settings?.updatedBy,
-        at: data?.settings?.updatedAt,
-      })
       toast.success("Accounting settings saved")
     } catch (error) {
       toast.error(error?.message || "Unable to save accounting settings")
@@ -431,35 +370,39 @@ export default function AccountingSettings() {
     }
   }
 
-  const accountSelect = (key, label, types) => {
-    const options = accounts.filter(
-      (account) =>
-        !account.isGroup &&
-        account.isActive !== false &&
-        types.includes(account.type)
-    )
+  const renderAccountSelect = (key, label) => {
+    const options = accountOptions[key] || []
+    const selectedId = String(form[key] || "")
+    const selectedAccount = selectedId
+      ? accounts.find((account) => String(account._id) === selectedId)
+      : null
+    const isEligible =
+      !selectedId ||
+      options.some((account) => String(account._id) === selectedId)
+    const error = !isEligible
+      ? "The saved account is no longer eligible."
+      : ""
 
     return (
-      <Field
-        key={key}
-        label={label}
-        hint={
-          options.length
-            ? `${options.length} eligible account${options.length === 1 ? "" : "s"}`
-            : "Create an active postable account in the Chart of Accounts."
-        }
-      >
+      <Field key={key} label={label} error={error}>
         <select
-          className={input}
+          className={cn(styles.input, error && "border-amber-300")}
           value={form[key]}
-          onChange={(event) =>
-            setForm((previous) => ({
-              ...previous,
-              [key]: event.target.value,
-            }))
-          }
+          disabled={!options.length && !selectedId}
+          onChange={(event) => updateForm(key, event.target.value)}
         >
-          <option value="">Not configured</option>
+          <option value="">
+            {options.length ? "Not configured" : "No eligible account"}
+          </option>
+
+          {!isEligible ? (
+            <option value={selectedId} disabled>
+              {selectedAccount
+                ? `${selectedAccount.code} — ${selectedAccount.name} (not eligible)`
+                : "Previously configured account (not eligible)"}
+            </option>
+          ) : null}
+
           {options.map((account) => (
             <option key={account._id} value={account._id}>
               {account.code} — {account.name}
@@ -471,109 +414,80 @@ export default function AccountingSettings() {
   }
 
   return (
-    <div className={cn(shell, "px-4 py-6 sm:px-6 lg:px-8")}>
+    <div className={styles.page}>
       <Toaster position="top-right" />
 
-      <div className={cn(card, "mb-5 overflow-hidden")}>
-        <div className="p-5 sm:p-6">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex min-w-0 items-start gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
-                <Icon icon={HierarchySquare01Icon} size={23} strokeWidth={2} />
-              </div>
-
-              <div className="min-w-0">
-                <p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-600">
-                  Accounting Setup
-                </p>
-                <h1 className="mt-0.5 text-2xl font-black tracking-tight text-gray-950 sm:text-[28px]">
-                  Accounting Settings
-                </h1>
-                <p className="mt-1 max-w-3xl text-sm font-medium leading-6 text-gray-500">
-                  Manage system-wide accounting defaults, numbering, approvals,
-                  tax behavior, and period controls.
-                </p>
-              </div>
+      <header className={cn(styles.card, "mb-4 p-4 sm:p-5")}>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
+              <Icon icon={HierarchySquare01Icon} size={21} strokeWidth={2} />
             </div>
+            <h1 className="truncate text-xl font-black tracking-tight text-gray-950 sm:text-2xl">
+              Accounting Settings
+            </h1>
+          </div>
 
-            <button
-              type="button"
-              className={cn(button, buttonGhost, "shrink-0")}
-              onClick={load}
-              disabled={loading || saving}
-            >
-              <span className={loading ? "animate-spin" : ""}>
-                <Icon icon={RefreshIcon} size={17} />
-              </span>
+          <button
+            type="button"
+            className={cn(
+              styles.button,
+              "shrink-0 border border-gray-200 bg-white px-3 text-gray-700 hover:border-gray-300 hover:bg-gray-50 sm:px-4"
+            )}
+            onClick={load}
+            disabled={loading || saving}
+            aria-label="Refresh accounting settings"
+          >
+            <Icon
+              icon={RefreshIcon}
+              size={17}
+              className={loading ? "animate-spin" : ""}
+            />
+            <span className="hidden sm:inline">
               {loading ? "Refreshing..." : "Refresh"}
-            </button>
-          </div>
+            </span>
+          </button>
         </div>
-
-        <div className="border-t border-gray-100 bg-gray-50/60 px-5 py-3.5 sm:px-6">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusPill ready={readiness.accounts} label="COA" />
-              <StatusPill ready={readiness.fiscal} label="Fiscal year" />
-            </div>
-
-            {audit?.at ? (
-              <div className="flex min-w-0 items-center gap-2 text-xs font-bold text-gray-500">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white text-gray-500 ring-1 ring-gray-200">
-                  <Icon icon={Edit02Icon} size={14} />
-                </span>
-                <span className="truncate">
-                  Last modified by {audit.user?.name || audit.user?.email || "system"}{" "}
-                  on {new Date(audit.at).toLocaleString()}
-                </span>
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </div>
+      </header>
 
       <form onSubmit={save}>
-        {/* Keep the existing tab bar design unchanged. */}
-        <div className={`${card} mb-5 overflow-x-auto p-2`}>
+        <nav className={cn(styles.card, "mb-4 overflow-x-auto p-2")}>
           <div className="flex min-w-max gap-1">
             {tabs.map((tab) => (
               <button
                 key={tab}
                 type="button"
                 onClick={() => setActive(tab)}
-                className={`rounded-xl px-4 py-2.5 text-sm font-black transition ${
+                className={cn(
+                  "rounded-xl px-4 py-2.5 text-sm font-black transition",
                   active === tab
-                    ? "bg-indigo-600 text-white"
-                    : "text-gray-600 hover:bg-gray-50"
-                }`}
+                    ? "bg-indigo-600 text-white shadow-sm shadow-indigo-600/15"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                )}
               >
                 {tab}
               </button>
             ))}
           </div>
-        </div>
+        </nav>
 
-        <section className={cn(card, "p-4 sm:p-5 lg:p-6")}>
+        <section className={cn(styles.card, "p-4 sm:p-5 lg:p-6")}>
           {loading ? (
             <LoadingPanel />
           ) : (
             <>
               <SectionHeading
-                title={activeSection.title}
-                description={activeSection.description}
+                title={sectionTitles[active] || sectionTitles.General}
               />
 
               {active === "General" ? (
                 <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                   <Field label="Legal Company Name">
                     <input
-                      className={input}
+                      className={styles.input}
                       value={form.legalName}
                       onChange={(event) =>
-                        setForm((previous) => ({
-                          ...previous,
-                          legalName: event.target.value,
-                        }))
+                        updateForm("legalName", event.target.value)
                       }
                       placeholder="Business Hub BD"
                     />
@@ -581,57 +495,46 @@ export default function AccountingSettings() {
 
                   <Field label="Tax ID">
                     <input
-                      className={input}
+                      className={styles.input}
                       value={form.taxId}
                       onChange={(event) =>
-                        setForm((previous) => ({
-                          ...previous,
-                          taxId: event.target.value,
-                        }))
+                        updateForm("taxId", event.target.value)
                       }
-                      placeholder="Enter tax identification number"
+                      placeholder="Enter tax ID"
                     />
                   </Field>
 
                   <Field label="VAT Registration">
                     <input
-                      className={input}
+                      className={styles.input}
                       value={form.vatRegistrationNumber}
                       onChange={(event) =>
-                        setForm((previous) => ({
-                          ...previous,
-                          vatRegistrationNumber: event.target.value,
-                        }))
+                        updateForm("vatRegistrationNumber", event.target.value)
                       }
-                      placeholder="Enter VAT registration number"
+                      placeholder="Enter VAT number"
                     />
                   </Field>
 
-                  <div className="md:col-span-2 xl:col-span-3">
-                    <Field label="Company Address">
-                      <input
-                        className={input}
-                        value={form.address}
-                        onChange={(event) =>
-                          setForm((previous) => ({
-                            ...previous,
-                            address: event.target.value,
-                          }))
-                        }
-                        placeholder="Enter registered business address"
-                      />
-                    </Field>
-                  </div>
+                  <Field
+                    label="Company Address"
+                    className="md:col-span-2 xl:col-span-3"
+                  >
+                    <input
+                      className={styles.input}
+                      value={form.address}
+                      onChange={(event) =>
+                        updateForm("address", event.target.value)
+                      }
+                      placeholder="Enter business address"
+                    />
+                  </Field>
 
                   <Field label="Accounting Method">
                     <select
-                      className={input}
+                      className={styles.input}
                       value={form.accountingMethod}
                       onChange={(event) =>
-                        setForm((previous) => ({
-                          ...previous,
-                          accountingMethod: event.target.value,
-                        }))
+                        updateForm("accountingMethod", event.target.value)
                       }
                     >
                       <option value="accrual">Accrual</option>
@@ -639,27 +542,20 @@ export default function AccountingSettings() {
                     </select>
                   </Field>
 
-                  <Field
-                    label="Default Fiscal Year"
-                    hint={
-                      fiscalYears.length
-                        ? `${fiscalYears.length} fiscal year${
-                            fiscalYears.length === 1 ? "" : "s"
-                          } available`
-                        : "Create a fiscal year before selecting a default."
-                    }
-                  >
+                  <Field label="Default Fiscal Year">
                     <select
-                      className={input}
+                      className={styles.input}
                       value={form.defaultFiscalYear}
+                      disabled={!fiscalYears.length}
                       onChange={(event) =>
-                        setForm((previous) => ({
-                          ...previous,
-                          defaultFiscalYear: event.target.value,
-                        }))
+                        updateForm("defaultFiscalYear", event.target.value)
                       }
                     >
-                      <option value="">Not configured</option>
+                      <option value="">
+                        {fiscalYears.length
+                          ? "Not configured"
+                          : "No fiscal year available"}
+                      </option>
                       {fiscalYears.map((fiscalYear) => (
                         <option key={fiscalYear._id} value={fiscalYear._id}>
                           {fiscalYear.name}
@@ -670,13 +566,10 @@ export default function AccountingSettings() {
 
                   <Field label="Fiscal Year Start Month">
                     <select
-                      className={input}
+                      className={styles.input}
                       value={form.fiscalYearStartMonth}
                       onChange={(event) =>
-                        setForm((previous) => ({
-                          ...previous,
-                          fiscalYearStartMonth: event.target.value,
-                        }))
+                        updateForm("fiscalYearStartMonth", event.target.value)
                       }
                     >
                       {months.map((month, index) => (
@@ -689,16 +582,13 @@ export default function AccountingSettings() {
 
                   <Field label="Start Day">
                     <input
-                      className={input}
+                      className={styles.input}
                       type="number"
                       min="1"
                       max="31"
                       value={form.fiscalYearStartDay}
                       onChange={(event) =>
-                        setForm((previous) => ({
-                          ...previous,
-                          fiscalYearStartDay: event.target.value,
-                        }))
+                        updateForm("fiscalYearStartDay", event.target.value)
                       }
                     />
                   </Field>
@@ -707,19 +597,16 @@ export default function AccountingSettings() {
 
               {active === "Currency" ? (
                 <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  <Field
-                    label="Base Currency"
-                    hint="Use a three-letter currency code such as BDT or USD."
-                  >
+                  <Field label="Base Currency">
                     <input
-                      className={input}
+                      className={styles.input}
                       value={form.currency}
-                      maxLength="3"
+                      maxLength={3}
                       onChange={(event) =>
-                        setForm((previous) => ({
-                          ...previous,
-                          currency: event.target.value.toUpperCase(),
-                        }))
+                        updateForm(
+                          "currency",
+                          event.target.value.toUpperCase()
+                        )
                       }
                       placeholder="BDT"
                     />
@@ -727,13 +614,10 @@ export default function AccountingSettings() {
 
                   <Field label="Rounding Precision">
                     <select
-                      className={input}
+                      className={styles.input}
                       value={form.roundingPrecision}
                       onChange={(event) =>
-                        setForm((previous) => ({
-                          ...previous,
-                          roundingPrecision: event.target.value,
-                        }))
+                        updateForm("roundingPrecision", event.target.value)
                       }
                     >
                       {[0, 1, 2, 3, 4].map((number) => (
@@ -744,103 +628,98 @@ export default function AccountingSettings() {
                     </select>
                   </Field>
 
-                  <div className="md:col-span-2 xl:col-span-1">
-                    <ToggleCard
+                  <Field label="Multi-currency">
+                    <Toggle
                       title="Enable multi-currency"
-                      description="Allow transactions and balances in currencies other than the base currency."
                       checked={form.multiCurrencyEnabled}
                       onChange={(event) =>
-                        setForm((previous) => ({
-                          ...previous,
-                          multiCurrencyEnabled: event.target.checked,
-                        }))
+                        updateForm(
+                          "multiCurrencyEnabled",
+                          event.target.checked
+                        )
                       }
                     />
-                  </div>
+                  </Field>
                 </div>
               ) : null}
 
               {active === "Numbering" ? (
-                <div className="mt-5">
-                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 px-4 py-3 text-sm font-semibold text-indigo-700">
-                    Tokens: {"{PREFIX}"}, {"{FY}"}, {"{YYYY}"}, {"{MM}"},{" "}
-                    {"{NUMBER}"}
-                  </div>
-
-                  {/* Keep the numbering/code-line row shapes unchanged. */}
-                  <div className="mt-4 space-y-3">
-                    {Object.entries(form.numberingRules).map(([kind, item]) => (
-                      <div
-                        key={kind}
-                        className="grid grid-cols-1 gap-3 rounded-2xl border border-gray-100 p-4 md:grid-cols-[130px_120px_130px_190px_1fr]"
-                      >
-                        <div className="self-center text-sm font-black capitalize">
-                          {kind}
-                        </div>
-                        <input
-                          className={input}
-                          value={item.prefix}
-                          onChange={(event) =>
-                            setRule(kind, "prefix", event.target.value.toUpperCase())
-                          }
-                          placeholder="Prefix"
-                        />
-                        <input
-                          className={input}
-                          type="number"
-                          min="3"
-                          max="12"
-                          value={item.digitLength}
-                          onChange={(event) =>
-                            setRule(kind, "digitLength", event.target.value)
-                          }
-                        />
-                        <select
-                          className={input}
-                          value={item.reset}
-                          onChange={(event) =>
-                            setRule(kind, "reset", event.target.value)
-                          }
-                        >
-                          <option value="fiscal_year">Fiscal year</option>
-                          <option value="calendar_year">Calendar year</option>
-                          <option value="monthly">Monthly</option>
-                          <option value="never">Never</option>
-                        </select>
-                        <input
-                          className={input}
-                          value={item.format}
-                          onChange={(event) =>
-                            setRule(kind, "format", event.target.value)
-                          }
-                        />
+                <div className="mt-5 space-y-3">
+                  {Object.entries(form.numberingRules).map(([kind, item]) => (
+                    <div
+                      key={kind}
+                      className="grid grid-cols-1 gap-3 rounded-2xl border border-gray-100 p-4 md:grid-cols-[120px_110px_120px_180px_minmax(220px,1fr)]"
+                    >
+                      <div className="self-center text-sm font-black capitalize text-gray-900">
+                        {kind}
                       </div>
-                    ))}
-                  </div>
+
+                      <input
+                        className={styles.input}
+                        value={item.prefix}
+                        onChange={(event) =>
+                          updateRule(
+                            kind,
+                            "prefix",
+                            event.target.value.toUpperCase()
+                          )
+                        }
+                        placeholder="Prefix"
+                        aria-label={`${kind} prefix`}
+                      />
+
+                      <input
+                        className={styles.input}
+                        type="number"
+                        min="3"
+                        max="12"
+                        value={item.digitLength}
+                        onChange={(event) =>
+                          updateRule(kind, "digitLength", event.target.value)
+                        }
+                        aria-label={`${kind} digit length`}
+                      />
+
+                      <select
+                        className={styles.input}
+                        value={item.reset}
+                        onChange={(event) =>
+                          updateRule(kind, "reset", event.target.value)
+                        }
+                        aria-label={`${kind} reset frequency`}
+                      >
+                        <option value="fiscal_year">Fiscal year</option>
+                        <option value="calendar_year">Calendar year</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="never">Never</option>
+                      </select>
+
+                      <input
+                        className={styles.input}
+                        value={item.format}
+                        onChange={(event) =>
+                          updateRule(kind, "format", event.target.value)
+                        }
+                        placeholder="{PREFIX}-{FY}-{NUMBER}"
+                        aria-label={`${kind} number format`}
+                      />
+                    </div>
+                  ))}
                 </div>
               ) : null}
 
               {active === "Default Accounts" ? (
                 <div className="mt-5">
-                  {!readiness.accounts ? (
-                    <div className="mb-4 flex items-start gap-3 rounded-2xl border border-amber-100 bg-amber-50/60 p-4">
-                      <span className="mt-0.5 text-amber-600">
-                        <Icon icon={UnavailableIcon} size={18} strokeWidth={2} />
-                      </span>
-                      <div>
-                        <p className="text-sm font-black text-gray-900">
-                          Chart of Accounts setup required
-                        </p>
-                        <p className="mt-1 text-sm leading-6 text-gray-600">
-                          Create active postable accounts before assigning accounting defaults.
-                        </p>
-                      </div>
+                  {!hasPostableAccounts ? (
+                    <div className="mb-5 flex items-center gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-sm font-bold text-amber-800">
+                      <Icon icon={UnavailableIcon} size={17} strokeWidth={2} />
+                      Create an active postable account first.
                     </div>
                   ) : null}
 
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {accountFields.map(([key, label, types]) =>
-                      accountSelect(key, label, types)
+                  <div className="grid grid-cols-1 gap-x-4 gap-y-5 md:grid-cols-2 xl:grid-cols-3">
+                    {accountFields.map(([key, label]) =>
+                      renderAccountSelect(key, label)
                     )}
                   </div>
                 </div>
@@ -848,38 +727,29 @@ export default function AccountingSettings() {
 
               {active === "Approval" ? (
                 <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <ToggleCard
-                    title="Require accounting approvals"
-                    description="Send eligible journal entries through an approval workflow before posting."
-                    checked={form.approvalEnabled}
-                    onChange={(event) =>
-                      setForm((previous) => ({
-                        ...previous,
-                        approvalEnabled: event.target.checked,
-                      }))
-                    }
-                  />
+                  <Field label="Accounting Approval">
+                    <Toggle
+                      title="Require accounting approvals"
+                      checked={form.approvalEnabled}
+                      onChange={(event) =>
+                        updateForm("approvalEnabled", event.target.checked)
+                      }
+                    />
+                  </Field>
 
-                  <Field
-                    label="Journal Approval Threshold"
-                    hint={
-                      form.approvalEnabled
-                        ? "Journals at or above this amount require approval."
-                        : "Enable accounting approvals to configure the threshold."
-                    }
-                  >
+                  <Field label="Journal Approval Threshold">
                     <input
-                      className={input}
+                      className={styles.input}
                       type="number"
                       min="0"
                       step="0.01"
                       disabled={!form.approvalEnabled}
                       value={form.journalApprovalThreshold}
                       onChange={(event) =>
-                        setForm((previous) => ({
-                          ...previous,
-                          journalApprovalThreshold: event.target.value,
-                        }))
+                        updateForm(
+                          "journalApprovalThreshold",
+                          event.target.value
+                        )
                       }
                     />
                   </Field>
@@ -888,18 +758,12 @@ export default function AccountingSettings() {
 
               {active === "Tax" ? (
                 <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <Field
-                    label="Default Tax Scheme"
-                    hint="Example: Standard VAT, GST, or Sales Tax."
-                  >
+                  <Field label="Default Tax Scheme">
                     <input
-                      className={input}
+                      className={styles.input}
                       value={form.defaultTaxScheme}
                       onChange={(event) =>
-                        setForm((previous) => ({
-                          ...previous,
-                          defaultTaxScheme: event.target.value,
-                        }))
+                        updateForm("defaultTaxScheme", event.target.value)
                       }
                       placeholder="Standard VAT"
                     />
@@ -907,13 +771,10 @@ export default function AccountingSettings() {
 
                   <Field label="Calculation Method">
                     <select
-                      className={input}
+                      className={styles.input}
                       value={form.taxCalculationMethod}
                       onChange={(event) =>
-                        setForm((previous) => ({
-                          ...previous,
-                          taxCalculationMethod: event.target.value,
-                        }))
+                        updateForm("taxCalculationMethod", event.target.value)
                       }
                     >
                       <option value="exclusive">Tax exclusive</option>
@@ -925,67 +786,51 @@ export default function AccountingSettings() {
 
               {active === "Period Locking" ? (
                 <div className="mt-5 grid max-w-4xl grid-cols-1 gap-4 md:grid-cols-2">
-                  <Field
-                    label="Lock Date"
-                    hint="No posting or editing is allowed on or before this date."
-                  >
+                  <Field label="Lock Date">
                     <input
-                      className={input}
+                      className={styles.input}
                       type="date"
                       value={form.lockDate}
                       onChange={(event) =>
-                        setForm((previous) => ({
-                          ...previous,
-                          lockDate: event.target.value,
-                        }))
+                        updateForm("lockDate", event.target.value)
                       }
                     />
                   </Field>
 
-                  <ToggleCard
-                    title="Require bank reconciliation"
-                    description="Prevent period closing until the related bank accounts are reconciled."
-                    checked={form.periodCloseRequireReconciliation}
-                    onChange={(event) =>
-                      setForm((previous) => ({
-                        ...previous,
-                        periodCloseRequireReconciliation: event.target.checked,
-                      }))
-                    }
-                  />
+                  <Field label="Period Closing">
+                    <Toggle
+                      title="Require bank reconciliation"
+                      checked={form.periodCloseRequireReconciliation}
+                      onChange={(event) =>
+                        updateForm(
+                          "periodCloseRequireReconciliation",
+                          event.target.checked
+                        )
+                      }
+                    />
+                  </Field>
                 </div>
               ) : null}
             </>
           )}
         </section>
 
-        <div className={cn(card, "mt-5 p-4 sm:p-5")}>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
-                <Icon icon={CheckmarkCircle02Icon} size={18} />
-              </span>
-              <div>
-                <p className="text-sm font-black text-gray-900">
-                  Save accounting configuration
-                </p>
-                <p className="mt-0.5 text-xs font-medium leading-5 text-gray-500">
-                  Changes apply across journals, invoices, payments, reports, and period controls.
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              className={cn(button, buttonPrimary, "w-full sm:w-auto")}
-              disabled={saving || loading}
-            >
-              <span className={saving ? "animate-pulse" : ""}>
-                <Icon icon={FloppyDiskIcon} size={17} />
-              </span>
-              {saving ? "Saving..." : "Save Settings"}
-            </button>
-          </div>
+        <div className="mt-5 flex justify-end">
+          <button
+            type="submit"
+            className={cn(
+              styles.button,
+              "w-full bg-indigo-600 text-white shadow-sm shadow-indigo-600/20 hover:bg-indigo-700 sm:w-auto"
+            )}
+            disabled={saving || loading}
+          >
+            <Icon
+              icon={FloppyDiskIcon}
+              size={17}
+              className={saving ? "animate-pulse" : ""}
+            />
+            {saving ? "Saving..." : "Save Settings"}
+          </button>
         </div>
       </form>
     </div>

@@ -5,6 +5,7 @@ import BankReconciliation from "../models/bankReconciliation.model.js";
 import Account from "../models/account.model.js";
 import JournalEntry from "../models/journalEntry.model.js";
 import CashAccount from "../models/cashAccount.model.js";
+import AccountingSettings from "../models/accountingSettings.model.js";
 import Invoice from "../models/invoice.model.js";
 import VendorBill from "../models/vendorBill.model.js";
 import { createPostedJournal, movementLines, resolveAccountingAccount, assertOpenAccountingPeriod, assertPostableLedgerAccounts, parsePostingDate } from "../services/accountingPosting.service.js";
@@ -145,9 +146,10 @@ const treasuryBalanceMap = async (ledgerIds) => {
 
 export const listTreasuryAccounts = async (req, res) => {
   try {
-    const [cashAccounts, bankAccounts] = await Promise.all([
+    const [cashAccounts, bankAccounts, settings] = await Promise.all([
       CashAccount.find({ type: "cash", isActive: true }).populate("account", "code name type currency isActive publishedAt").populate("custodian", "name email").sort({ nameLower: 1 }).lean(),
       BankAccount.find({ status: "active" }).populate("ledgerAccount", "code name type currency isActive publishedAt").populate("bank", "bankName shortName").sort({ accountNameLower: 1 }).lean(),
+      AccountingSettings.findOne({ key: "company" }).select("defaultCashAccount").lean(),
     ]);
     const eligibleCash = cashAccounts.filter((item) => item.account?.type === "asset" && item.account?.isActive !== false);
     const eligibleBanks = bankAccounts.filter((item) => item.ledgerAccount?.type === "asset" && item.ledgerAccount?.isActive !== false);
@@ -156,10 +158,18 @@ export const listTreasuryAccounts = async (req, res) => {
     const unlinkedBankAccounts = bankAccounts
       .filter((item) => !item.ledgerAccount?._id)
       .map((item) => ({ _id: item._id, name: item.accountName, accountNumber: item.accountNumber }));
+    const defaultCashLinked = !settings?.defaultCashAccount || eligibleCash.some(
+      (item) => String(item.account?._id || "") === String(settings.defaultCashAccount)
+    );
     return res.json({ accounts: [
       ...eligibleCash.map((item) => ({ _id: item._id, treasuryType: "cash", name: item.name, detail: item.location || "Cash account", currency: item.currency, ledgerAccount: item.account, currentBalance: balances.get(String(item.account._id)) || 0, alert: item.minimumBalance > 0 && (balances.get(String(item.account._id)) || 0) < item.minimumBalance ? "below_minimum" : item.maximumBalance > 0 && (balances.get(String(item.account._id)) || 0) > item.maximumBalance ? "above_maximum" : "" })),
       ...eligibleBanks.map((item) => ({ _id: item._id, treasuryType: "bank", name: item.accountName, detail: `${item.bank?.shortName || item.bank?.bankName || "Bank"} · ${item.accountNumber}`, currency: item.currency, ledgerAccount: item.ledgerAccount, currentBalance: balances.get(String(item.ledgerAccount._id)) || 0, lastReconciledAt: item.lastReconciledAt, lastReconciledBalance: item.lastReconciledBalance })),
-    ], unlinkedBankAccounts, unlinkedCount: unlinkedBankAccounts.length });
+    ],
+    unlinkedBankAccounts,
+    unlinkedCount: unlinkedBankAccounts.length,
+    defaultCashLinked,
+    requiresSynchronization: unlinkedBankAccounts.length > 0 || !defaultCashLinked,
+    });
   } catch (error) { return res.status(500).json({ message: "Failed to load cash and bank accounts.", error: error.message }); }
 };
 

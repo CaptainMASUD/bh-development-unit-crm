@@ -443,6 +443,7 @@ export const connectBankAccountLedgers = async (req, res) => {
   try {
     const accounts = await BankAccount.find({ $or: [{ ledgerAccount: null }, { openingBalance: { $gt: 0 }, openingJournalEntry: null }] }).populate("bank", "bankName shortName status");
     const connected = [];
+    const connectedCash = [];
     const failed = [];
     for (const bankAccount of accounts) {
       try {
@@ -462,7 +463,47 @@ export const connectBankAccountLedgers = async (req, res) => {
         failed.push({ bankAccount: bankAccount._id, name: bankAccount.accountName, message: error.message });
       }
     }
-    return res.json({ message: `${connected.length} bank account(s) connected/synchronized.${failed.length ? ` ${failed.length} require attention.` : ""}`, connected, failed });
+
+    const settings = await AccountingSettings.findOne({ key: "company" })
+      .select("defaultCashAccount currency")
+      .lean();
+    if (settings?.defaultCashAccount) {
+      try {
+        const ledger = await Account.findOne({
+          _id: settings.defaultCashAccount,
+          type: "asset",
+          isActive: true,
+          isGroup: { $ne: true },
+        }).lean();
+        if (!ledger) throw new Error("The configured Default Cash ledger is not an active asset account.");
+        const [existingCash, existingBank] = await Promise.all([
+          CashAccount.findOne({ account: ledger._id }).lean(),
+          BankAccount.findOne({ ledgerAccount: ledger._id }).lean(),
+        ]);
+        if (existingBank) throw new Error("The configured Default Cash ledger is already connected to a bank account.");
+        if (!existingCash) {
+          const cashAccount = await CashAccount.create({
+            name: ledger.name || "Main Cash",
+            type: "cash",
+            account: ledger._id,
+            currency: clean(ledger.currency || settings.currency || "BDT").toUpperCase(),
+            isActive: true,
+            createdBy: req.user?._id || null,
+            updatedBy: req.user?._id || null,
+          });
+          connectedCash.push({ cashAccount: cashAccount._id, ledgerAccount: ledger._id });
+        }
+      } catch (error) {
+        failed.push({ bankAccount: null, name: "Default Cash", message: error.message });
+      }
+    }
+
+    return res.json({
+      message: `${connected.length} bank account(s) and ${connectedCash.length} default cash account(s) connected/synchronized.${failed.length ? ` ${failed.length} require attention.` : ""}`,
+      connected,
+      connectedCash,
+      failed,
+    });
   } catch (error) {
     return res.status(500).json({ message: "Failed to connect bank accounts to accounting.", error: error.message });
   }

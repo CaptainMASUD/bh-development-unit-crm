@@ -47,6 +47,20 @@ function money(value, currency = "") {
   return currency ? `${amount} ${currency}` : amount
 }
 
+function formatDate(value) {
+  if (!value) return "—"
+  const date = new Date(value)
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(date)
+}
+
+function pretty(value) {
+  return String(value || "accounting entry")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
 function Field({ label, children, hint }) {
   return <label className="block"><span className="mb-1.5 block text-sm font-black text-gray-900">{label}</span>{children}{hint ? <span className="mt-1 block text-xs font-semibold text-gray-500">{hint}</span> : null}</label>
 }
@@ -87,6 +101,12 @@ export default function CashManagement() {
     try {
       const settings = await api("/accounting/settings")
       const currency = filters.currency || settings.settings?.currency || "BDT"
+      if (canManage) {
+        const treasuryStatus = await api("/banking/treasury-accounts")
+        if (treasuryStatus.requiresSynchronization) {
+          await api("/banking/treasury-accounts/synchronize", { method: "POST", body: "{}" })
+        }
+      }
       const reportParams = new URLSearchParams({ from: filters.from, to: filters.to, currency })
       const [cash, accounts, people, book, flow] = await Promise.all([
         api("/accounting/cash-accounts?type=cash&active=all&limit=200"),
@@ -182,7 +202,11 @@ export default function CashManagement() {
   }
 
   const flowCurrency = cashFlow.currency || filters.currency
-  const flowTotals = cashFlow.totals || {}
+  const bookTotals = cashBook.summary || {}
+  const bookInflow = Number(bookTotals.cashIn || 0) + Number(bookTotals.bankIn || 0)
+  const bookOutflow = Number(bookTotals.cashOut || 0) + Number(bookTotals.bankOut || 0)
+  const movementRows = [...(cashBook.rows || [])].reverse()
+  const unpostedDealCollections = cashBook.exceptions?.unpostedDealCollections || []
 
   return <div className="min-h-screen bg-[#f6f7fb] p-4 sm:p-6 lg:p-8">
     <Toaster position="top-right" />
@@ -201,10 +225,83 @@ export default function CashManagement() {
     </section>
 
     <section className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      <SummaryCard icon={FiArrowDownLeft} label="Cash Inflow" value={money(flowTotals.inflow, flowCurrency)} tone="emerald" />
-      <SummaryCard icon={FiArrowUpRight} label="Cash Outflow" value={money(flowTotals.outflow, flowCurrency)} tone="rose" />
-      <SummaryCard icon={FiTrendingUp} label="Net Cash Flow" value={money(flowTotals.net, flowCurrency)} tone="indigo" />
-      <SummaryCard icon={FiCheckCircle} label="Closing Cash" value={money(flowTotals.closingBalance, flowCurrency)} tone="amber" />
+      <SummaryCard icon={FiArrowDownLeft} label="All Money In" value={money(bookInflow, flowCurrency)} tone="emerald" />
+      <SummaryCard icon={FiArrowUpRight} label="All Money Out" value={money(bookOutflow, flowCurrency)} tone="rose" />
+      <SummaryCard icon={FiTrendingUp} label="Net Movement" value={money(bookTotals.netMovement, flowCurrency)} tone="indigo" />
+      <SummaryCard icon={FiCheckCircle} label="Closing Treasury" value={money(cashBook.closingBalance, flowCurrency)} tone="amber" />
+    </section>
+
+    {unpostedDealCollections.length ? <section className={`${card} mb-6 overflow-hidden border-amber-200`}>
+      <div className="flex items-start gap-3 border-b border-amber-100 bg-amber-50 p-5">
+        <FiAlertTriangle className="mt-0.5 shrink-0 text-amber-700" />
+        <div>
+          <h2 className="font-black text-amber-950">Unposted legacy deal collections</h2>
+          <p className="mt-1 text-xs font-semibold leading-5 text-amber-800">These CRM payments were saved before treasury-backed receipt posting was enforced. They are shown for control and reconciliation, but are not added to cash balances because no General Ledger receipt exists.</p>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-amber-100 text-left text-sm">
+          <thead className="bg-amber-50/50 text-xs font-black uppercase text-amber-800"><tr>{["Deal", "Invoice", "Customer", "Payment Date", "Method", "Unposted Amount"].map((heading) => <th key={heading} className={`px-4 py-3 ${heading === "Unposted Amount" ? "text-right" : ""}`}>{heading}</th>)}</tr></thead>
+          <tbody className="divide-y divide-amber-100">{unpostedDealCollections.map((item, index) => <tr key={`${item.invoice?._id}-${index}`}><td className="px-4 py-3 font-black">{item.deal?.dealNo || item.deal?.title || "Deal"}</td><td className="px-4 py-3 font-bold text-indigo-700">{item.invoice?.invoiceNo}</td><td className="px-4 py-3 font-semibold">{item.customer?.name || "Customer"}</td><td className="px-4 py-3 font-semibold">{formatDate(item.paidAt)}</td><td className="px-4 py-3 font-semibold capitalize">{pretty(item.method)}</td><td className="px-4 py-3 text-right font-black text-amber-900">{money(item.amount, item.currency)}</td></tr>)}</tbody>
+          <tfoot className="bg-amber-50 font-black text-amber-950"><tr><td colSpan={5} className="px-4 py-3">Total requiring accounting reconciliation</td><td className="px-4 py-3 text-right">{money(cashBook.exceptions?.total, flowCurrency)}</td></tr></tfoot>
+        </table>
+      </div>
+    </section> : null}
+
+    <section className={`${card} mb-6 overflow-hidden`}>
+      <div className="flex flex-col gap-2 border-b border-gray-100 p-5 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-lg font-black">Complete Money Movement Register</h2>
+          <p className="mt-1 text-xs font-semibold text-gray-500">Every posted cash and bank movement, including customer receipts from deal invoices, supplier payments, expenses, payroll, tax, and internal transfers.</p>
+        </div>
+        <p className="text-xs font-black uppercase tracking-[.12em] text-indigo-600">{movementRows.length} posted movement{movementRows.length === 1 ? "" : "s"}</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-[1180px] divide-y divide-gray-100 text-left">
+          <thead className="bg-gray-50 text-xs font-black uppercase tracking-wide text-gray-400">
+            <tr>
+              {["Date / Voucher", "Source", "Deal / Document", "Cash or Bank", "Counter Account", "Money In", "Money Out", "Running Balance"].map((heading) => (
+                <th key={heading} className={`px-4 py-3 ${["Money In", "Money Out", "Running Balance"].includes(heading) ? "text-right" : ""}`}>{heading}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {movementRows.map((row) => {
+              const document = row.documents?.[0]
+              return (
+                <tr key={row.journalEntryId} className="align-top hover:bg-gray-50/70">
+                  <td className="px-4 py-3">
+                    <p className="text-sm font-black text-gray-950">{formatDate(row.date)}</p>
+                    <p className="mt-0.5 text-xs font-semibold text-indigo-600">{row.entryNo || "Posted entry"}</p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${row.direction === "inflow" ? "bg-emerald-50 text-emerald-700" : row.direction === "outflow" ? "bg-rose-50 text-rose-700" : "bg-indigo-50 text-indigo-700"}`}>{row.sourceLabel || pretty(row.sourceType)}</span>
+                    <p className="mt-1.5 max-w-[220px] text-xs font-semibold text-gray-500">{row.particulars || row.reference || "Posted cash movement"}</p>
+                  </td>
+                  <td className="px-4 py-3">
+                    {row.deal ? <><p className="text-sm font-black text-gray-950">{row.deal.dealNo || row.deal.title}</p><p className="text-xs font-semibold text-gray-500">{row.deal.title}</p></> : null}
+                    {document ? <p className={`${row.deal ? "mt-1" : ""} text-xs font-bold text-indigo-600`}>{pretty(document.type)} · {document.number}</p> : null}
+                    {!row.deal && !document ? <span className="text-xs font-semibold text-gray-400">{row.reference || "—"}</span> : null}
+                    {row.partyName ? <p className="mt-1 text-xs font-semibold text-gray-500">{row.partyName}</p> : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    {(row.accounts || []).map((account) => <div key={`${account.kind}-${account._id}`} className="mb-1 last:mb-0"><p className="text-sm font-black text-gray-900">{account.name}</p><p className="text-xs font-semibold capitalize text-gray-500">{account.kind} · {account.code}</p></div>)}
+                  </td>
+                  <td className="px-4 py-3">
+                    {(row.counterparties || []).map((account) => <div key={account._id} className="mb-1 last:mb-0"><p className="text-sm font-bold text-gray-800">{account.name}</p><p className="text-xs font-semibold text-gray-400">{account.code}</p></div>)}
+                    {!row.counterparties?.length ? <span className="text-xs font-semibold text-gray-400">Treasury transfer</span> : null}
+                  </td>
+                  <td className="px-4 py-3 text-right text-sm font-black text-emerald-700">{Number(row.inflow || 0) ? money(row.inflow, flowCurrency) : "—"}</td>
+                  <td className="px-4 py-3 text-right text-sm font-black text-rose-700">{Number(row.outflow || 0) ? money(row.outflow, flowCurrency) : "—"}</td>
+                  <td className="px-4 py-3 text-right text-sm font-black text-gray-950">{money(row.balance, flowCurrency)}</td>
+                </tr>
+              )
+            })}
+            {!movementRows.length ? <tr><td colSpan={8} className="px-5 py-14 text-center text-sm font-bold text-gray-500">No posted cash or bank movements in this period.</td></tr> : null}
+          </tbody>
+        </table>
+      </div>
+      <div className="border-t border-gray-100 bg-gray-50/60 px-5 py-3 text-xs font-semibold text-gray-500">{cashBook.basis}</div>
     </section>
 
     <section className={`${card} mb-6 overflow-hidden`}>
