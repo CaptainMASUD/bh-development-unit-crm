@@ -31,6 +31,7 @@ const LoanManager = lazy(() => import("../Admin/payroll/EmployeeLoans"))
 const LeaveManager = lazy(() => import("../Admin/payroll/LeaveRequests"))
 const RosterManager = lazy(() => import("../Admin/payroll/RosterShiftSetup"))
 const AccessControl = lazy(() => import("../Admin/system/AccessControl"))
+const CompanySetup = lazy(() => import("../Admin/CompanySetup/AdminCompanySetupPage"))
 const TaxSetup = lazy(() => import("../Admin/payroll/TaxSetup"))
 const TaxReport = lazy(() => import("../Admin/reports/TaxReport"))
 const Expenses = lazy(() => import("../Admin/accounting/Expenses"))
@@ -66,6 +67,9 @@ const StockAdjustments = lazy(() => import("../Admin/inventory/StockAdjustments"
 const StockTransfers = lazy(() => import("../Admin/inventory/StockTransfers"))
 const Suppliers = lazy(() => import("../Admin/Supplier/SupplierSetup"))
 const SupplierProducts = lazy(() => import("../Admin/Supplier/SupplierProducts"))
+const PurchaseOrders = lazy(() => import("../Admin/purchase/PurchaseOrders"))
+const GoodsReceipts = lazy(() => import("../Admin/purchase/GoodsReceipts"))
+const PurchaseReturns = lazy(() => import("../Admin/purchase/PurchaseReturns"))
 
 export const sections = {
   Dashboard: {
@@ -154,6 +158,24 @@ export const sections = {
     permission: PERMISSIONS.SUPPLIER_VIEW,
   },
 
+  "Purchase Orders": {
+    icon: <FaClipboardList className="w-5 h-5" />,
+    component: <PurchaseOrders />,
+    permission: PERMISSIONS.PURCHASE_ORDER_VIEW,
+  },
+
+  "Goods Receipts": {
+    icon: <FiPackage className="w-5 h-5" />,
+    component: <GoodsReceipts />,
+    permission: PERMISSIONS.GOODS_RECEIPT_VIEW,
+  },
+
+  "Purchase Returns": {
+    icon: <FiPackage className="w-5 h-5" />,
+    component: <PurchaseReturns />,
+    permission: PERMISSIONS.PURCHASE_RETURN_VIEW,
+  },
+
   Expenses: {
     icon: <FiCreditCard className="w-5 h-5" />,
     component: <Expenses />,
@@ -202,16 +224,15 @@ export const sections = {
     permission: PERMISSIONS.FINANCE_VIEW,
   },
 
-  "General Ledger": {
-    icon: <FiDollarSign className="w-5 h-5" />,
-    component: <GeneralLedger />,
+  Reports: {
+    icon: <FiBarChart2 className="w-5 h-5" />,
     permission: PERMISSIONS.FINANCE_VIEW,
-  },
-
-  "Cash Book": {
-    icon: <FiDollarSign className="w-5 h-5" />,
-    component: <CashBook />,
-    permission: PERMISSIONS.FINANCE_VIEW,
+    subcategories: {
+      "Cash Book": <CashBook />,
+      "General Ledger": <GeneralLedger />,
+      "Balance Sheet": <BalanceSheet />,
+      "Trial Balance": <TrialBalance />,
+    },
   },
 
   "Accounts Receivable": {
@@ -229,18 +250,6 @@ export const sections = {
   "Profit & Loss": {
     icon: <FiBarChart2 className="w-5 h-5" />,
     component: <ProfitLoss />,
-    permission: PERMISSIONS.FINANCE_VIEW,
-  },
-
-  "Trial Balance": {
-    icon: <FiDollarSign className="w-5 h-5" />,
-    component: <TrialBalance />,
-    permission: PERMISSIONS.FINANCE_VIEW,
-  },
-
-  "Balance Sheet": {
-    icon: <FiDollarSign className="w-5 h-5" />,
-    component: <BalanceSheet />,
     permission: PERMISSIONS.FINANCE_VIEW,
   },
 
@@ -356,6 +365,12 @@ export const sections = {
     icon: <FiUsers className="w-5 h-5" />,
     component: <AccessControl />,
     permission: PERMISSIONS.ACCESS_CONTROL_VIEW,
+  },
+
+  "Company Setup": {
+    icon: <FiSettings className="w-5 h-5" />,
+    component: <CompanySetup />,
+    permission: PERMISSIONS.COMPANY_VIEW,
   },
 
   // ✅ ADDED: after Clients, before Profile Settings

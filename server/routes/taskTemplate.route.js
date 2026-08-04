@@ -1,6 +1,5 @@
 // routes/taskTemplate.route.js
 import express from "express";
-import { protect } from "../middleware/auth.middleware.js";
 import {
   createTaskTemplate,
   listTaskTemplates,
@@ -16,20 +15,19 @@ import {
 } from "../controllers/taskTemplate.controller.js";
 
 const router = express.Router();
-router.use(protect);
 
 // templates CRUD
-router.post("/task-templates", createTaskTemplate);
-router.get("/task-templates", listTaskTemplates);
-router.get("/task-templates/:id", getTaskTemplateById);
-router.patch("/task-templates/:id", updateTaskTemplate);
-router.delete("/task-templates/:id", deleteTaskTemplate);
+router.post("/", createTaskTemplate);
+router.get("/", listTaskTemplates);
+router.get("/:id", getTaskTemplateById);
+router.patch("/:id", updateTaskTemplate);
+router.delete("/:id", deleteTaskTemplate);
 
 // subtitle files CRUD
-router.get("/task-templates/:id/subtitles/:subtitleId/files", listTemplateSubtitleFiles);
-router.post("/task-templates/:id/subtitles/:subtitleId/files", addTemplateSubtitleFile);
-router.patch("/task-templates/:id/subtitles/:subtitleId/files/:fileId", renameTemplateSubtitleFile);
-router.patch("/task-templates/:id/subtitles/:subtitleId/files/:fileId/replace", replaceTemplateSubtitleFile);
-router.delete("/task-templates/:id/subtitles/:subtitleId/files/:fileId", deleteTemplateSubtitleFile);
+router.get("/:id/subtitles/:subtitleId/files", listTemplateSubtitleFiles);
+router.post("/:id/subtitles/:subtitleId/files", addTemplateSubtitleFile);
+router.patch("/:id/subtitles/:subtitleId/files/:fileId", renameTemplateSubtitleFile);
+router.patch("/:id/subtitles/:subtitleId/files/:fileId/replace", replaceTemplateSubtitleFile);
+router.delete("/:id/subtitles/:subtitleId/files/:fileId", deleteTemplateSubtitleFile);
 
 export default router;

@@ -154,8 +154,8 @@ async function fetchDeadlineNotifications({
   return Array.isArray(data?.items) ? data.items : []
 }
 
-async function fetchInboxUnreadCount({ signal } = {}) {
-  const res = await fetch(`${API_BASE}/lead-messages/unread-count`, {
+async function fetchNotificationUnreadCount({ signal } = {}) {
+  const res = await fetch(`${API_BASE}/notifications/my?isRead=false&limit=1`, {
     headers: getAuthHeaders(),
     credentials: "include",
     signal,
@@ -163,8 +163,7 @@ async function fetchInboxUnreadCount({ signal } = {}) {
 
   const data = await res.json().catch(() => ({}))
 
-  if (!res.ok) throw new Error(data?.message || "Failed to fetch inbox count")
-
+  if (!res.ok) throw new Error(data?.message || "Failed to fetch notification count")
   return Number(data?.unreadCount || 0)
 }
 
@@ -607,6 +606,7 @@ export default function Sidebar({
           role: roleRaw,
           prettyRole,
           avatarUrl: loggedInUser?.avatarUrl || "",
+          enabledModules: loggedInUser?.enabledModules || [],
         })
       } catch {
         setUser(null)
@@ -646,6 +646,7 @@ export default function Sidebar({
           role: roleRaw,
           prettyRole,
           avatarUrl: me?.avatarUrl || "",
+          enabledModules: me?.enabledModules || [],
         })
 
         try {
@@ -666,6 +667,21 @@ export default function Sidebar({
 
   const refreshNotifCount = useCallback(async () => {
     try {
+      let sessionUser = null
+      try {
+        sessionUser = JSON.parse(localStorage.getItem("user") || "null")
+      } catch {
+        sessionUser = null
+      }
+
+      // Deadline and lead-inbox notifications belong to the tenant CRM
+      // workspace. The platform Super Admin shell must never issue tenant
+      // operational requests, and companies without CRM must fail closed.
+      const canUseCrmNotifications =
+        sessionUser?.role !== "superadmin" &&
+        Array.isArray(sessionUser?.enabledModules) &&
+        sessionUser.enabledModules.includes("crm")
+
       if (abortNotifRef.current) abortNotifRef.current.abort()
 
       const controller = new AbortController()
@@ -673,17 +689,19 @@ export default function Sidebar({
 
       setNotifLoading(true)
 
-      const [items, inboxUnread] = await Promise.all([
-        fetchDeadlineNotifications({
-          windowDays: 7,
-          includeOverdue: true,
-          limit: 500,
-          signal: controller.signal,
-        }),
-        fetchInboxUnreadCount({ signal: controller.signal }),
+      const [items, unread] = await Promise.all([
+        canUseCrmNotifications
+          ? fetchDeadlineNotifications({
+              windowDays: 7,
+              includeOverdue: true,
+              limit: 500,
+              signal: controller.signal,
+            })
+          : Promise.resolve([]),
+        fetchNotificationUnreadCount({ signal: controller.signal }),
       ])
 
-      setNotifCount7d((Array.isArray(items) ? items.length : 0) + Number(inboxUnread || 0))
+      setNotifCount7d((Array.isArray(items) ? items.length : 0) + Number(unread || 0))
     } catch {
     } finally {
       setNotifLoading(false)
@@ -807,6 +825,10 @@ export default function Sidebar({
   }, [filteredSectionKeys, moduleLabel])
 
   const shouldRingBell = !reducedMotion && notifCount7d > 0 && showBellTip && !isMobileViewport
+  const crmNotificationsEnabled =
+    user?.role !== "superadmin" &&
+    Array.isArray(user?.enabledModules) &&
+    user.enabledModules.includes("crm")
   const initials = getInitials(user?.username)
 
   const asideWidth = compact ? "w-[86px]" : "w-[292px]"
@@ -979,6 +1001,7 @@ export default function Sidebar({
         open={showNotifications}
         onClose={() => setShowNotifications(false)}
         isDarkMode={isDarkMode}
+        crmEnabled={crmNotificationsEnabled}
       />
 
       <FlyoutSubmenu

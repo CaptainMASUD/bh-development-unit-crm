@@ -241,7 +241,6 @@ const leadSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Customer",
       default: null,
-      index: true,
     },
 
     convertedAt: { type: Date, default: null, index: true },

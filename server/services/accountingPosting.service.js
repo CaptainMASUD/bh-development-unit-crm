@@ -7,6 +7,7 @@ import JournalEntry from "../models/journalEntry.model.js";
 import VoucherType from "../models/voucherType.model.js";
 import { accountingCache } from "../utils/cache.js";
 import { nextAccountingNumber } from "./accountingNumbering.service.js";
+import { provisionSystemAccounts } from "./accountingSetup.service.js";
 
 export const roundMoney = (value) => Math.round(Number(value || 0) * 100) / 100;
 const clean = (value) => String(value ?? "").trim();
@@ -80,7 +81,11 @@ export const resolveAccountingAccount = async (settingsField, fallbackCode) => {
     const account = await Account.findOne({ _id: configured, isActive: true, isGroup: { $ne: true } }).lean();
     if (account) return account;
   }
-  const account = await Account.findOne({ code: String(fallbackCode), isActive: true, isGroup: { $ne: true } }).lean();
+  let account = await Account.findOne({ code: String(fallbackCode), isActive: true, isGroup: { $ne: true } }).lean();
+  if (!account) {
+    await provisionSystemAccounts();
+    account = await Account.findOne({ code: String(fallbackCode), isActive: true, isGroup: { $ne: true } }).lean();
+  }
   if (!account) throw Object.assign(new Error(`Missing accounting account ${fallbackCode}. Configure Accounting Settings or bootstrap the Chart of Accounts.`), { statusCode: 409 });
   return account;
 };

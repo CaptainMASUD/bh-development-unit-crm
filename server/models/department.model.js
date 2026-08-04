@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const departmentSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true, trim: true, unique: true },
+    name: { type: String, required: true, trim: true },
     nameLower: { type: String, trim: true, default: "", index: true },
     description: { type: String, trim: true, default: "" },
     isActive: { type: Boolean, default: true, index: true },
@@ -14,6 +14,8 @@ const departmentSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+departmentSchema.index({ tenantId: 1, nameLower: 1 }, { unique: true });
 
 departmentSchema.pre("save", function (next) {
   if (this.isModified("name")) {

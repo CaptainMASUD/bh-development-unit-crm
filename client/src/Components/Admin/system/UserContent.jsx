@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
+import { useSelector } from "react-redux"
 import toast, { Toaster } from "react-hot-toast"
 import {
   FiUsers,
@@ -32,6 +33,14 @@ const card =
 
 function getToken() {
   return localStorage.getItem("token")
+}
+
+function getStoredUser() {
+  try {
+    return JSON.parse(localStorage.getItem("user") || "null")
+  } catch {
+    return null
+  }
 }
 
 function getAuthHeadersJson() {
@@ -762,7 +771,10 @@ function RowSkeleton() {
 }
 
 export default function UsersAdminPanel() {
-  const [tab, setTab] = useState("employees") // employees | admins | superadmins
+  const storedUser = getStoredUser()
+  const reduxUser = useSelector((state) => state.user?.currentUser)
+  const sessionUser = reduxUser || storedUser
+  const [tab, setTab] = useState(() => sessionUser?.role === "superadmin" ? "superadmins" : "employees")
 
   const [list, setList] = useState([])
   const [count, setCount] = useState(0)
@@ -796,7 +808,7 @@ export default function UsersAdminPanel() {
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, item: null })
   const [deleteSubmitting, setDeleteSubmitting] = useState(false)
 
-  const [me, setMe] = useState(null)
+  const [me, setMe] = useState(sessionUser)
   const [accessLists, setAccessLists] = useState({
     departments: [],
     positions: [],
@@ -804,7 +816,11 @@ export default function UsersAdminPanel() {
   })
 
   const abortRef = useRef(null)
-  const isSuperAdmin = me?.role === "superadmin"
+  const isSuperAdmin = sessionUser?.role === "superadmin" || me?.role === "superadmin"
+
+  useEffect(() => {
+    if (reduxUser) setMe(reduxUser)
+  }, [reduxUser])
 
   const tabConfig = useMemo(() => {
     return {
@@ -832,6 +848,7 @@ export default function UsersAdminPanel() {
 
   // load me
   useEffect(() => {
+    if (isSuperAdmin) return undefined
     ;(async () => {
       try {
         const res = await fetch(`${API_BASE}/users/me`, {
@@ -843,9 +860,13 @@ export default function UsersAdminPanel() {
         if (res.ok) setMe(data?.user || null)
       } catch {}
     })()
-  }, [])
+  }, [isSuperAdmin])
 
   useEffect(() => {
+    if (isSuperAdmin) {
+      setAccessLists({ departments: [], positions: [], permissionGroups: [] })
+      return undefined
+    }
     ;(async () => {
       try {
         const [departmentsRes, positionsRes, groupsRes] = await Promise.all([
@@ -874,10 +895,11 @@ export default function UsersAdminPanel() {
         })
       } catch {}
     })()
-  }, [])
+  }, [isSuperAdmin])
 
   // if not superadmin, never allow that tab
   useEffect(() => {
+    if (isSuperAdmin && tab !== "superadmins") setTab("superadmins")
     if (!isSuperAdmin && tab === "superadmins") setTab("employees")
   }, [isSuperAdmin, tab])
 
@@ -903,6 +925,7 @@ export default function UsersAdminPanel() {
   }
 
   const fetchUsers = async ({ reset = true } = {}) => {
+    if (isSuperAdmin && endpointBase !== "superadmins") return
     if (abortRef.current) abortRef.current.abort()
     const controller = new AbortController()
     abortRef.current = controller
@@ -1090,7 +1113,7 @@ export default function UsersAdminPanel() {
               <div>
                 <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">User Management</h1>
                 <p className="text-sm text-gray-500">
-                  {me?.role === "superadmin" ? "Super Admins + Admins + Employees" : "Admins + Employees"}
+                  {isSuperAdmin ? "Platform Super Admin accounts" : "Users belonging to your company"}
                 </p>
               </div>
             </div>
@@ -1122,9 +1145,11 @@ export default function UsersAdminPanel() {
 
           {/* Tabs */}
           <div className="mt-4 flex flex-wrap gap-2">
-            <SegTab active={tab === "employees"} onClick={() => setTab("employees")} icon={<FiUser className="w-4 h-4" />} label="Employees" />
-            <SegTab active={tab === "admins"} onClick={() => setTab("admins")} icon={<FiShield className="w-4 h-4" />} label="Admins" />
-            {me?.role === "superadmin" ? (
+            {!isSuperAdmin ? <>
+              <SegTab active={tab === "employees"} onClick={() => setTab("employees")} icon={<FiUser className="w-4 h-4" />} label="Employees" />
+              <SegTab active={tab === "admins"} onClick={() => setTab("admins")} icon={<FiShield className="w-4 h-4" />} label="Admins" />
+            </> : null}
+            {isSuperAdmin ? (
               <SegTab active={tab === "superadmins"} onClick={() => setTab("superadmins")} icon={<FiShield className="w-4 h-4" />} label="Super Admins" />
             ) : null}
           </div>

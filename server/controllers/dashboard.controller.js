@@ -1,6 +1,9 @@
 // src/controllers/dashboard.controller.js
 import Customer from "../models/customer.model.js";
 import User from "../models/user.model.js";
+import Company from "../models/company.model.js";
+import Branch from "../models/branch.model.js";
+import { evaluateCompanyAccess } from "../services/tenant.service.js";
 import { dashboardCache } from "../utils/cache.js";
 import {
   customerAccessMatch,
@@ -89,6 +92,31 @@ export const getDashboard = async (req, res, next) => {
     const cacheKey = `dashboard:v1:${userId}:${user.role}:${days}:${limit}`;
     const cached = dashboardCache.get(cacheKey);
     if (cached) return res.json(cached);
+
+    if (user.role === "superadmin") {
+      const [companies, superAdminsCount] = await Promise.all([
+        Company.find({}).select("name code status subscription enabledModules createdAt").sort({ createdAt: -1 }).lean(),
+        User.countDocuments({ role: "superadmin", isActive: true }),
+      ]);
+      const accessRows = companies.map((company) => ({ ...company, subscriptionAccess: evaluateCompanyAccess(company) }));
+      const platform = {
+        companiesCount: companies.length,
+        activeSubscriptions: accessRows.filter((company) => company.subscriptionAccess.allowed).length,
+        expiringSoon: accessRows.filter((company) => company.subscriptionAccess.allowed && company.subscriptionAccess.daysRemaining != null && company.subscriptionAccess.daysRemaining <= 30).length,
+        blockedSubscriptions: accessRows.filter((company) => !company.subscriptionAccess.allowed).length,
+        trialCompanies: companies.filter((company) => company.status === "trial").length,
+        recentCompanies: accessRows.slice(0, limit),
+      };
+      const payload = {
+        me: { _id: userId, role: user.role, name: user.name, email: user.email },
+        superAdminsCount,
+        employeesCount: 0,
+        adminsCount: 0,
+        platform,
+      };
+      dashboardCache.set(cacheKey, payload);
+      return res.json(payload);
+    }
 
     const match = customerAccessMatch(user);
 
@@ -255,6 +283,31 @@ export const getDashboard = async (req, res, next) => {
     return res.json(payload);
   } catch (err) {
     return next(err);
+  }
+};
+
+// Organization/platform overview that never depends on the CRM entitlement.
+export const getAdministrationDashboard = async (req, res, next) => {
+  if (req.user?.role === "superadmin") return getDashboard(req, res, next);
+
+  try {
+    const [company, branchesCount, employeesCount, adminsCount] = await Promise.all([
+      Company.findById(req.tenantId).select("name code status subscription enabledModules").lean(),
+      Branch.countDocuments({ isActive: { $ne: false } }),
+      User.countDocuments({ role: "employee", isActive: true }),
+      User.countDocuments({ role: "admin", isActive: true }),
+    ]);
+
+    return res.json({
+      me: { _id: req.user._id, role: req.user.role, name: req.user.name, email: req.user.email },
+      company,
+      branchesCount,
+      employeesCount,
+      adminsCount,
+      enabledModulesCount: Array.isArray(req.enabledModules) ? req.enabledModules.length : 0,
+    });
+  } catch (error) {
+    return next(error);
   }
 };
 

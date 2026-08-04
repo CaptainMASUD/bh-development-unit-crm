@@ -89,11 +89,31 @@ export const PERMISSION_KEYS = [
   "supplier:manage",
   "supplier:approve",
   "supplier:delete",
+  "purchase-order:view",
+  "purchase-order:manage",
+  "purchase-order:approve",
+  "purchase-order:delete",
+  "goods-receipt:view",
+  "goods-receipt:manage",
+  "goods-receipt:approve",
+  "goods-receipt:post",
+  "goods-receipt:reverse",
+  "goods-receipt:delete",
+  "purchase-return:view",
+  "purchase-return:manage",
+  "purchase-return:approve",
+  "purchase-return:post",
+  "purchase-return:reverse",
+  "purchase-return:delete",
+  "company:view",
+  "company:manage",
+  "branch:view",
+  "branch:manage",
 ];
 
 const permissionGroupSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true, trim: true, unique: true },
+    name: { type: String, required: true, trim: true },
     nameLower: { type: String, trim: true, default: "", index: true },
     description: { type: String, trim: true, default: "" },
     permissions: {
@@ -115,6 +135,8 @@ const permissionGroupSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+permissionGroupSchema.index({ tenantId: 1, nameLower: 1 }, { unique: true });
 
 permissionGroupSchema.pre("save", function (next) {
   if (this.isModified("name")) {

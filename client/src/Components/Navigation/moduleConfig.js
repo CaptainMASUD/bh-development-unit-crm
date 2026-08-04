@@ -14,10 +14,11 @@ export const MODULES = {
     name: "Accounting",
     description: "Finance operations, accounting setup, ledgers, reports, and banking.",
     permissions: ["finance:view", "finance:manage", "expenses:view", "expenses:manage", "bank-setup:view", "bank-setup:manage"],
-    adminSections: ["Dashboard", "Accounting Setup", "Accounts Receivable", "Accounts Payable", "Cash Management", "Voucher", "Bank Reconciliation", "Journal Entries", "General Ledger", "Cash Book", "Profit & Loss", "Trial Balance", "Balance Sheet", "Cash Flow Statement", "Expenses", "Bank Transactions", "Money Transfer", "Setup"],
-    employeeSections: ["Dashboard", "Accounting Setup", "Accounts Receivable", "Accounts Payable", "Cash Management", "Voucher", "Bank Reconciliation", "Journal Entries", "General Ledger", "Cash Book", "Profit & Loss", "Trial Balance", "Balance Sheet", "Cash Flow Statement", "Expenses", "Bank Transactions", "Money Transfer", "Setup"],
+    adminSections: ["Dashboard", "Accounting Setup", "Accounts Receivable", "Accounts Payable", "Cash Management", "Voucher", "Bank Reconciliation", "Journal Entries", "Reports", "Profit & Loss", "Cash Flow Statement", "Expenses", "Bank Transactions", "Money Transfer", "Setup"],
+    employeeSections: ["Dashboard", "Accounting Setup", "Accounts Receivable", "Accounts Payable", "Cash Management", "Voucher", "Bank Reconciliation", "Journal Entries", "Reports", "Profit & Loss", "Cash Flow Statement", "Expenses", "Bank Transactions", "Money Transfer", "Setup"],
     subcategories: {
       Setup: ["Expense Setup", "Bank Setup"],
+      Reports: ["Cash Book", "General Ledger", "Balance Sheet", "Trial Balance"],
     },
   },
   inventory: {
@@ -82,6 +83,18 @@ export const MODULES = {
     adminSections: ["Dashboard", "Suppliers", "Supplier Products"],
     employeeSections: ["Dashboard", "Suppliers", "Supplier Products"],
   },
+  purchase: {
+    id: "purchase",
+    name: "Purchase",
+    description: "Purchase orders, goods receipts, supplier returns, approvals, and procurement controls.",
+    permissions: [
+      "purchase-order:view", "purchase-order:manage", "purchase-order:approve", "purchase-order:delete",
+      "goods-receipt:view", "goods-receipt:manage", "goods-receipt:approve", "goods-receipt:post", "goods-receipt:reverse", "goods-receipt:delete",
+      "purchase-return:view", "purchase-return:manage", "purchase-return:approve", "purchase-return:post", "purchase-return:reverse", "purchase-return:delete",
+    ],
+    adminSections: ["Dashboard", "Purchase Orders", "Goods Receipts", "Purchase Returns"],
+    employeeSections: ["Dashboard", "Purchase Orders", "Goods Receipts", "Purchase Returns"],
+  },
   payroll: {
     id: "payroll",
     name: "HR Payroll",
@@ -95,15 +108,30 @@ export const MODULES = {
     id: "administration",
     name: "Administration",
     description: "Users, access control, profile, workflow guidance, and system information.",
-    permissions: ["access-control:view", "access-control:manage", "profile:view", "workflow:view"],
-    adminSections: ["Profile Settings", "Users", "Access Control", "About"],
-    employeeSections: ["Profile Settings", "Access Control", "Workflow Procedure", "About"],
+    permissions: ["access-control:view", "access-control:manage", "profile:view", "workflow:view", "company:view", "company:manage", "branch:view", "branch:manage"],
+    adminSections: ["Dashboard", "Company Setup", "Users", "Access Control", "Profile Settings"],
+    employeeSections: ["Dashboard", "Company Setup", "Profile Settings", "Access Control", "Workflow Procedure"],
   },
 }
 
 export const MODULE_IDS = Object.keys(MODULES)
 
 export const isKnownModule = (value) => MODULE_IDS.includes(String(value || "").toLowerCase())
+
+function hasCurrentSubscriptionAccess(user) {
+  if (user?.role === "superadmin") return true
+  if (user?.subscription?.allowed === false) return false
+  const companyStatus = String(user?.company?.status || "active").toLowerCase()
+  if (!["active", "trial"].includes(companyStatus)) return false
+  const start = user?.company?.subscription?.startDate ? new Date(user.company.subscription.startDate) : null
+  const end = user?.company?.subscription?.endDate ? new Date(user.company.subscription.endDate) : null
+  if (start && !Number.isNaN(start.getTime()) && Date.now() < start.getTime()) return false
+  if (end && !Number.isNaN(end.getTime())) {
+    end.setUTCHours(23, 59, 59, 999)
+    if (Date.now() > end.getTime()) return false
+  }
+  return true
+}
 
 export function getModuleBasePath(role, moduleId) {
   const normalizedRole = ["admin", "superadmin"].includes(String(role || "").toLowerCase()) ? "admin" : "employee"
@@ -113,7 +141,16 @@ export function getModuleBasePath(role, moduleId) {
 export function canAccessModule(user, moduleId) {
   const module = MODULES[moduleId]
   if (!module || !user?.isActive) return false
-  if (["admin", "superadmin"].includes(user.role)) return true
+  if (user.role === "superadmin") return moduleId === "administration"
+  if (!hasCurrentSubscriptionAccess(user)) return false
+  // Missing entitlements in a stale/local session must fail closed. A fresh
+  // login or /users/me response always supplies the authoritative list.
+  const companyModules = new Set([
+    ...(Array.isArray(user.enabledModules) ? user.enabledModules : []),
+    "administration",
+  ])
+  if (!companyModules.has(moduleId)) return false
+  if (user.role === "admin") return true
   if (moduleId === "administration") return module.permissions.some((permission) => hasPermission(user, permission))
   return module.permissions.some((permission) => hasPermission(user, permission))
 }
@@ -121,8 +158,11 @@ export function canAccessModule(user, moduleId) {
 export function buildModuleSections(sections, moduleId, role = "admin") {
   const module = MODULES[moduleId]
   if (!module) return {}
-  const employee = String(role).toLowerCase() === "employee"
-  const order = employee ? module.employeeSections : module.adminSections
+  const normalizedRole = String(role).toLowerCase()
+  const employee = normalizedRole === "employee"
+  const order = normalizedRole === "superadmin" && moduleId === "administration"
+    ? ["Dashboard", "Company Setup", "Users", "Profile Settings"]
+    : employee ? module.employeeSections : module.adminSections
   const result = {}
 
   for (const name of order) {

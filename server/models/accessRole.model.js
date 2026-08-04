@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const accessRoleSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true, trim: true, unique: true },
+    name: { type: String, required: true, trim: true },
     nameLower: { type: String, trim: true, default: "", index: true },
     description: { type: String, trim: true, default: "" },
     permissionGroup: {
@@ -20,6 +20,8 @@ const accessRoleSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+accessRoleSchema.index({ tenantId: 1, nameLower: 1 }, { unique: true });
 
 accessRoleSchema.pre("save", function (next) {
   if (this.isModified("name")) {

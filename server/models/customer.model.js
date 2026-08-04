@@ -1,5 +1,6 @@
 // models/customer.model.js
 import mongoose from "mongoose";
+import { clearEmbeddedPathIndexes, compactTenantIndexes } from "../config/tenant.plugin.js";
 
 /* =========================
    SUB SCHEMAS
@@ -416,5 +417,8 @@ customerSchema.index(
     },
   }
 );
+
+clearEmbeddedPathIndexes(customerSchema);
+compactTenantIndexes(customerSchema);
 
 export default mongoose.model("Customer", customerSchema);

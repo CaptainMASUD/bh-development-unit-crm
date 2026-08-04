@@ -1,8 +1,16 @@
 // app.js
+import "./config/tenant.plugin.js";
 import express from "express";
 import cors from "cors";
+import { protect, requireModule } from "./middleware/auth.middleware.js";
 
 const app = express();
+
+// Every operational router is mounted through this boundary. Route-level
+// permissions still decide what a user may do inside an enabled module.
+const mountModuleRoutes = (path, moduleId, ...routers) => {
+  app.use(path, protect, requireModule(moduleId), ...routers);
+};
 
 /* =========================
    EXPRESS CONFIGURATION
@@ -97,10 +105,12 @@ app.use(
 import userRoutes from "./routes/user.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
 import accessControlRoutes from "./routes/accessControl.routes.js";
+import companyRoutes from "./routes/company.routes.js";
+import erpModuleRoutes from "./routes/erpModule.routes.js";
 
 // Core CRM
 import customerRoutes from "./routes/customer.route.js";
-import taskRoutes from "./routes/task.route.js";
+import taskRoutes, { deadlineNotificationRoutes } from "./routes/task.route.js";
 import reportRoutes from "./routes/report.route.js";
 
 import leadRoutes from "./routes/lead.routes.js";
@@ -183,282 +193,164 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+app.use("/api/companies", companyRoutes);
+app.use("/api/erp-modules", erpModuleRoutes);
+
 
 // =========================
 // SUPPLIER MANAGEMENT
 // =========================
 
-app.use("/api/suppliers", supplierRoutes);
+mountModuleRoutes("/api/suppliers", "supplier", supplierRoutes);
 
 
 // =========================
 // PURCHASE MANAGEMENT
 // =========================
 
-app.use(
-  "/api/purchase/purchase-orders",
-  purchaseOrderRoutes
-);
+mountModuleRoutes("/api/purchase/purchase-orders", "purchase", purchaseOrderRoutes);
 
-app.use(
-  "/api/purchase/goods-receipts",
-  goodsReceiptRoutes
-);
+mountModuleRoutes("/api/purchase/goods-receipts", "purchase", goodsReceiptRoutes);
 
-app.use(
-  "/api/purchase/purchase-returns",
-  purchaseReturnRoutes
-);
+mountModuleRoutes("/api/purchase/purchase-returns", "purchase", purchaseReturnRoutes);
 /* =========================
    INVENTORY SETUP
 ========================= */
 
-app.use(
-  "/api/inventory/products",
-  productRoutes
-);
+mountModuleRoutes("/api/inventory/products", "inventory", productRoutes);
 
-app.use(
-  "/api/inventory/categories",
-  productCategoryRoutes
-);
+mountModuleRoutes("/api/inventory/categories", "inventory", productCategoryRoutes);
 
-app.use(
-  "/api/inventory/brands",
-  productBrandRoutes
-);
+mountModuleRoutes("/api/inventory/brands", "inventory", productBrandRoutes);
 
-app.use(
-  "/api/inventory/units",
-  inventoryUnitRoutes
-);
+mountModuleRoutes("/api/inventory/units", "inventory", inventoryUnitRoutes);
 
-app.use(
-  "/api/inventory/warehouses",
-  warehouseRoutes
-);
+mountModuleRoutes("/api/inventory/warehouses", "inventory", warehouseRoutes);
 
-app.use(
-  "/api/inventory/warehouse-locations",
-  warehouseLocationRoutes
-);
+mountModuleRoutes("/api/inventory/warehouse-locations", "inventory", warehouseLocationRoutes);
 
 /* =========================
    INVENTORY OPERATIONS
 ========================= */
 
-app.use(
-  "/api/inventory/stocks",
-  productStockRoutes
-);
+mountModuleRoutes("/api/inventory/stocks", "inventory", productStockRoutes);
 
-app.use(
-  "/api/inventory/stock-movements",
-  stockMovementRoutes
-);
+mountModuleRoutes("/api/inventory/stock-movements", "inventory", stockMovementRoutes);
 
-app.use(
-  "/api/inventory/stock-adjustments",
-  stockAdjustmentRoutes
-);
+mountModuleRoutes("/api/inventory/stock-adjustments", "inventory", stockAdjustmentRoutes);
 
-app.use(
-  "/api/inventory/stock-transfers",
-  stockTransferRoutes
-);
+mountModuleRoutes("/api/inventory/stock-transfers", "inventory", stockTransferRoutes);
 
-app.use(
-  "/api/inventory/reports",
-  inventoryReportRoutes
-);
+mountModuleRoutes("/api/inventory/reports", "inventory", inventoryReportRoutes);
 
 /* =========================
    EMPLOYEE REPORTS
 ========================= */
 
-app.use(
-  "/api/view-preferences/employee-report",
-  employeeReportViewPreferenceRoutes
-);
+mountModuleRoutes("/api/view-preferences/employee-report", "payroll", employeeReportViewPreferenceRoutes);
 
-app.use(
-  "/api/employeeReport",
-  employeeReportRoutes
-);
+mountModuleRoutes("/api/employeeReport", "payroll", employeeReportRoutes);
 
 /* =========================
    SALARY PROFILES
 ========================= */
 
-app.use(
-  "/api/salary-profiles",
-  salaryProfileRoutes
-);
+mountModuleRoutes("/api/salary-profiles", "payroll", salaryProfileRoutes);
 
 /* =========================
    ATTENDANCE
 ========================= */
 
-app.use(
-  "/api/attendance",
-  attendanceRoutes
-);
+mountModuleRoutes("/api/attendance", "payroll", attendanceRoutes);
 
 /* =========================
    HR / EMPLOYEE OPERATIONS
 ========================= */
 
-app.use(
-  "/api/employee-loans",
-  employeeLoanRoutes
-);
+mountModuleRoutes("/api/employee-loans", "payroll", employeeLoanRoutes);
 
-app.use(
-  "/api/leaves",
-  leaveRequestRoutes
-);
+mountModuleRoutes("/api/leaves", "payroll", leaveRequestRoutes);
 
-app.use(
-  "/api/leave-templates",
-  leaveTemplateRoutes
-);
+mountModuleRoutes("/api/leave-templates", "payroll", leaveTemplateRoutes);
 
-app.use(
-  "/api/tax",
-  taxRoutes
-);
+mountModuleRoutes("/api/tax", "payroll", taxRoutes);
 
-app.use(
-  "/api/expenses",
-  expenseRoutes
-);
+mountModuleRoutes("/api/expenses", "accounting", expenseRoutes);
 
 /* =========================
    ACCOUNTING AND BANKING
 ========================= */
 
-app.use(
-  "/api/accounting",
-  accountingRoutes
-);
+mountModuleRoutes("/api/accounting", "accounting", accountingRoutes);
 
-app.use(
-  "/api/banks",
-  bankRoutes
-);
+mountModuleRoutes("/api/banks", "accounting", bankRoutes);
 
-app.use(
-  "/api/banking",
-  bankingRoutes
-);
+mountModuleRoutes("/api/banking", "accounting", bankingRoutes);
 
 /* =========================
    PAYROLL
 ========================= */
 
-app.use(
-  "/api/payroll",
-  payrollRoutes
-);
+mountModuleRoutes("/api/payroll", "payroll", payrollRoutes);
 
 /* =========================
    ROSTER / SHIFT SETUP
 ========================= */
 
-app.use(
-  "/api/roster",
-  rosterRoutes
-);
+mountModuleRoutes("/api/roster", "payroll", rosterRoutes);
 
 /* =========================
    CUSTOMER VIEW PREFERENCES
 ========================= */
 
-app.use(
-  "/api/customer-view-preferences",
-  customerViewPreferenceRoutes
-);
+mountModuleRoutes("/api/customer-view-preferences", "crm", customerViewPreferenceRoutes);
 
 /* =========================
    SERVICE REPORTS
 ========================= */
 
-app.use(
-  "/api/reports",
-  serviceReportRoutes
-);
+mountModuleRoutes("/api/reports", "crm", serviceReportRoutes);
 
 /* =========================
    CRM SALES MODULES
 ========================= */
 
-app.use(
-  "/api/leads",
-  leadRoutes
-);
+mountModuleRoutes("/api/leads", "crm", leadRoutes);
 
-app.use(
-  "/api/activities",
-  activityRoutes
-);
+mountModuleRoutes("/api/activities", "crm", activityRoutes);
 
-app.use(
-  "/api/proposals",
-  proposalRoutes
-);
+mountModuleRoutes("/api/proposals", "crm", proposalRoutes);
 
-app.use(
-  "/api/deals",
-  dealRoutes
-);
+mountModuleRoutes("/api/deals", "crm", dealRoutes);
 
-app.use(
-  "/api/invoices",
-  invoiceRoutes
-);
+mountModuleRoutes("/api/invoices", "crm", invoiceRoutes);
 
-app.use(
-  "/api/lead-messages",
-  leadMessageRoutes
-);
+mountModuleRoutes("/api/lead-messages", "crm", leadMessageRoutes);
 
 /* =========================
    CRM PRODUCTIVITY MODULES
 ========================= */
 
-app.use(
-  "/api/work-queue",
-  workQueueRoutes
-);
+mountModuleRoutes("/api/work-queue", "crm", workQueueRoutes);
 
-app.use(
-  "/api/automation-rules",
-  automationRoutes
-);
+mountModuleRoutes("/api/automation-rules", "crm", automationRoutes);
+
+mountModuleRoutes("/api/notifications/deadlines", "crm", deadlineNotificationRoutes);
 
 app.use(
   "/api/notifications",
   notificationRoutes
 );
 
-app.use(
-  "/api/templates",
-  templateRoutes
-);
+mountModuleRoutes("/api/templates", "crm", templateRoutes);
 
-app.use(
-  "/api/assignments",
-  assignmentRoutes
-);
+mountModuleRoutes("/api/assignments", "crm", assignmentRoutes);
 
 /* =========================
    WORKLOAD
 ========================= */
 
-app.use(
-  "/api/workload",
-  workloadRoutes
-);
+mountModuleRoutes("/api/workload", "crm", workloadRoutes);
 
 /* =========================
    DASHBOARD
@@ -473,34 +365,15 @@ app.use(
    TEMPLATES
 ========================= */
 
-app.use(
-  "/api",
-  taskTemplateRoutes
-);
+mountModuleRoutes("/api/task-templates", "crm", taskTemplateRoutes);
 
-app.use(
-  "/api/engagement-templates",
-  engagementTemplateRoutes
-);
+mountModuleRoutes("/api/engagement-templates", "crm", engagementTemplateRoutes);
 
 /* =========================
    CORE MODULES
 ========================= */
 
-app.use(
-  "/api/customers",
-  customerRoutes
-);
-
-app.use(
-  "/api",
-  taskRoutes
-);
-
-app.use(
-  "/api",
-  reportRoutes
-);
+mountModuleRoutes("/api/customers", "crm", taskRoutes, reportRoutes, customerRoutes);
 
 /* =========================
    UPLOAD / USERS / ACCESS

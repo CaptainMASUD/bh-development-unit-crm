@@ -1,5 +1,8 @@
 import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
+import { resolveVerifiedTenant } from "../services/tenant.service.js";
+import { normalizeModuleIds, permissionsForModules } from "../config/erpModules.js";
+import { PERMISSION_KEYS } from "../models/permissionGroup.model.js";
 
 const USER_POPULATE = [
   { path: "department", select: "name isActive" },
@@ -43,13 +46,37 @@ export const login = async (req, res) => {
 
     await normalizeSystemRole(user);
 
+    const verified = user.role === "superadmin" ? null : await resolveVerifiedTenant(user);
+    if (user.role !== "superadmin" && !verified) {
+      return res.status(403).json({ message: "No active company membership was found for this account." });
+    }
+    if (verified?.accessDenied) {
+      return res.status(403).json({
+        message: verified.subscription.message,
+        code: `SUBSCRIPTION_${String(verified.subscription.state || "inactive").toUpperCase()}`,
+        subscription: verified.subscription,
+      });
+    }
     const token = signToken(user._id);
-    user.password = undefined;
+    const safeUser = user.toObject();
+    delete safeUser.password;
+    safeUser.enabledModules = verified ? normalizeModuleIds(verified.company?.enabledModules) : null;
+    safeUser.permissionCatalog = verified
+      ? permissionsForModules(PERMISSION_KEYS, safeUser.enabledModules)
+      : [...PERMISSION_KEYS];
+    if (verified && safeUser.permissionGroup) {
+      safeUser.permissionGroup.permissions = permissionsForModules(
+        safeUser.permissionGroup.permissions,
+        safeUser.enabledModules
+      );
+    }
+    safeUser.company = verified?.company || null;
+    safeUser.subscription = verified?.subscription || null;
 
     return res.status(200).json({
       message: "Login successful.",
       token,
-      user,
+      user: safeUser,
     });
   } catch (err) {
     return res.status(500).json({
@@ -60,43 +87,7 @@ export const login = async (req, res) => {
 };
 
 export const register = async (req, res) => {
-  try {
-    const { name, email, password, role, isActive } = req.body;
-
-    if (!name || !email || !password || !role) {
-      return res.status(400).json({
-        message: "name, email, password and role are required.",
-      });
-    }
-
-    const allowedRoles = ["superadmin", "admin", "employee"];
-    if (!allowedRoles.includes(role)) {
-      return res.status(400).json({
-        message: 'role must be "superadmin", "admin" or "employee".',
-      });
-    }
-
-    const exists = await User.findOne({ email });
-    if (exists) {
-      return res.status(409).json({ message: "Email already exists." });
-    }
-
-    const user = await User.create({
-      name,
-      email,
-      password,
-      role,
-      isActive: isActive ?? true,
-    });
-
-    return res.status(201).json({
-      message: "User registered successfully.",
-      user,
-    });
-  } catch (err) {
-    return res.status(500).json({
-      message: "Server error in register.",
-      error: err.message,
-    });
-  }
+  return res.status(403).json({
+    message: "Public registration is disabled. Platform Super Admins create companies, and company Admins create tenant users.",
+  });
 };

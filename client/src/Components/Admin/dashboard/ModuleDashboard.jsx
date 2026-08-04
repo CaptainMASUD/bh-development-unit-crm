@@ -68,7 +68,7 @@ const MODULE_PRESENTATION = {
     eyebrow: "System administration",
     title: "Administration Dashboard",
     description: "Users, access control, system governance, and authorized workspaces.",
-    actions: ["Users", "Access Control", "Profile Settings", "Workflow Procedure", "About"],
+    actions: ["Company Setup", "Users", "Access Control", "Profile Settings", "Workflow Procedure"],
   },
   inventory: {
     eyebrow: "Stock operations",
@@ -81,6 +81,12 @@ const MODULE_PRESENTATION = {
     title: "Supplier Dashboard",
     description: "Supplier onboarding, approval status, preferred partners, and product sourcing relationships.",
     actions: ["Suppliers", "Supplier Products"],
+  },
+  purchase: {
+    eyebrow: "Procurement operations",
+    title: "Purchase Dashboard",
+    description: "Purchase orders, goods receipts, supplier returns, approvals, and procurement value overview.",
+    actions: ["Purchase Orders", "Goods Receipts", "Purchase Returns"],
   },
 }
 
@@ -194,6 +200,9 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
   const canViewPayroll = hasPermission(currentUser, "payroll:view")
   const canViewInventoryReport = hasPermission(currentUser, "inventory-report:view")
   const canViewSupplier = hasPermission(currentUser, "supplier:view")
+  const canViewPurchaseOrders = hasPermission(currentUser, "purchase-order:view")
+  const canViewGoodsReceipts = hasPermission(currentUser, "goods-receipt:view")
+  const canViewPurchaseReturns = hasPermission(currentUser, "purchase-return:view")
 
   const load = useCallback(async (signal) => {
     setLoading(true)
@@ -258,9 +267,26 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
         } else {
           setData({})
         }
+      } else if (moduleId === "purchase") {
+        const sources = [
+          canViewPurchaseOrders ? ["purchaseOrderSummary", request("/purchase/purchase-orders/summary", signal)] : null,
+          canViewPurchaseOrders ? ["purchaseOrders", request("/purchase/purchase-orders?limit=6", signal)] : null,
+          canViewGoodsReceipts ? ["goodsReceiptSummary", request("/purchase/goods-receipts/summary", signal)] : null,
+          canViewPurchaseReturns ? ["purchaseReturnSummary", request("/purchase/purchase-returns/summary", signal)] : null,
+        ].filter(Boolean)
+        const results = await Promise.allSettled(sources.map(([, promise]) => promise))
+        const nextData = {}
+        const failures = []
+        results.forEach((result, index) => {
+          const key = sources[index][0]
+          if (result.status === "fulfilled") nextData[key] = result.value || {}
+          else if (result.reason?.name !== "AbortError") failures.push(result.reason?.message || `Failed to load ${key}`)
+        })
+        setData(nextData)
+        if (failures.length) setError(failures.join(" "))
       } else {
-        const dashboard = hasPermission(currentUser, "dashboard:view")
-          ? await request("/dashboard?days=7&limit=5", signal)
+        const dashboard = hasPermission(currentUser, "company:view")
+          ? await request("/dashboard/administration", signal)
           : {}
         setData({ dashboard })
       }
@@ -269,7 +295,7 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
     } finally {
       if (!signal?.aborted) setLoading(false)
     }
-  }, [canViewExpenses, canViewFinance, canViewInventoryReport, canViewPayroll, canViewSupplier, currentUser, moduleId])
+  }, [canViewExpenses, canViewFinance, canViewGoodsReceipts, canViewInventoryReport, canViewPayroll, canViewPurchaseOrders, canViewPurchaseReturns, canViewSupplier, currentUser, moduleId])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -278,6 +304,15 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
   }, [load])
 
   const cards = useMemo(() => {
+    if (moduleId === "administration" && currentUser?.role === "superadmin") {
+      const platform = data.dashboard?.platform || {}
+      return [
+        { label: "Company profiles", value: number(platform.companiesCount), detail: "SaaS tenant companies", icon: <FiDatabase />, tone: "indigo" },
+        { label: "Active subscriptions", value: number(platform.activeSubscriptions), detail: "Companies currently allowed access", icon: <FiCheckCircle />, tone: "green" },
+        { label: "Expiring soon", value: number(platform.expiringSoon), detail: "Subscriptions ending within 30 days", icon: <FiClock />, tone: "amber" },
+        { label: "Super Admins", value: number(data.dashboard?.superAdminsCount), detail: `${number(platform.blockedSubscriptions)} companies blocked or expired`, icon: <FiShield />, tone: "sky" },
+      ]
+    }
     if (moduleId === "crm") {
       const customer = data.dashboard?.customerStats || {}
       const lead = data.leads?.summary || {}
@@ -361,15 +396,60 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
         { label: "Average rating", value: numeric(summary.averageRating).toFixed(1), detail: `${number(summary.onHoldCount)} currently on hold`, icon: <FiTrendingUp />, tone: "sky" },
       ]
     }
+    if (moduleId === "purchase") {
+      const orders = data.purchaseOrderSummary?.summary || {}
+      const receipts = data.goodsReceiptSummary?.summary || {}
+      const returns = data.purchaseReturnSummary?.summary || {}
+      const hasPurchaseAccess = canViewPurchaseOrders || canViewGoodsReceipts || canViewPurchaseReturns
+      if (!hasPurchaseAccess) {
+        return [
+          { label: "Authorized features", value: number(Math.max(0, Object.keys(moduleSections).length - 1)), detail: "Available procurement workspaces", icon: <FiShield />, tone: "indigo" },
+          { label: "Purchase reporting", value: "Restricted", detail: "Purchase totals require a purchase view permission", icon: <FiBarChart2 />, tone: "amber" },
+          { label: "Account status", value: currentUser?.isActive ? "Active" : "Restricted", detail: currentUser?.role || "User", icon: <FiActivity />, tone: currentUser?.isActive ? "green" : "rose" },
+          { label: "Module", value: "Purchase", detail: "Use the permitted features in the sidebar", icon: <FiBriefcase />, tone: "sky" },
+        ]
+      }
+      return [
+        { label: "Purchase orders", value: number(orders.orderCount), detail: `${number(orders.submittedCount)} awaiting approval`, icon: <FiBriefcase />, tone: "indigo" },
+        { label: "Ordered value", value: money(orders.totalValue), detail: `${number(orders.totalReceivedQuantity)} of ${number(orders.totalOrderedQuantity)} units received`, icon: <FiDollarSign />, tone: "sky" },
+        { label: "Goods received", value: number(receipts.receiptCount), detail: `${money(receipts.totalAcceptedValue)} accepted stock value`, icon: <FiBox />, tone: "green" },
+        { label: "Purchase returns", value: number(returns.returnCount), detail: `${money(returns.totalReturnValue)} returned value`, icon: <FiArrowUpRight />, tone: numeric(returns.returnCount) ? "amber" : "green" },
+      ]
+    }
     return [
       { label: "Authorized features", value: number(Math.max(0, Object.keys(moduleSections).length - 1)), detail: "Available in this module", icon: <FiShield />, tone: "indigo" },
       { label: "Employees", value: number(data.dashboard?.employeesCount), detail: "Active employee accounts", icon: <FiUsers />, tone: "sky" },
       { label: "Administrators", value: number(numeric(data.dashboard?.adminsCount) + numeric(data.dashboard?.superAdminsCount)), detail: "Active privileged accounts", icon: <FiShield />, tone: "gray" },
       { label: "Account status", value: currentUser?.isActive ? "Active" : "Restricted", detail: currentUser?.role || "User", icon: <FiActivity />, tone: currentUser?.isActive ? "green" : "rose" },
     ]
-  }, [canViewExpenses, canViewFinance, canViewInventoryReport, canViewPayroll, canViewSupplier, currentUser, data, moduleId, moduleSections])
+  }, [canViewExpenses, canViewFinance, canViewGoodsReceipts, canViewInventoryReport, canViewPayroll, canViewPurchaseOrders, canViewPurchaseReturns, canViewSupplier, currentUser, data, moduleId, moduleSections])
 
   const chartModel = useMemo(() => {
+    if (moduleId === "administration" && currentUser?.role === "superadmin") {
+      const platform = data.dashboard?.platform || {}
+      return {
+        pieTitle: "Subscription Access",
+        pieSubtitle: "Active versus blocked company subscriptions",
+        pie: [
+          { name: "Active", value: numeric(platform.activeSubscriptions) },
+          { name: "Blocked / expired", value: numeric(platform.blockedSubscriptions) },
+        ],
+        barTitle: "SaaS Portfolio",
+        barSubtitle: "Companies, trials, and upcoming expirations",
+        bar: [
+          { name: "Companies", value: numeric(platform.companiesCount) },
+          { name: "Trials", value: numeric(platform.trialCompanies) },
+          { name: "Expiring", value: numeric(platform.expiringSoon) },
+        ],
+        lineTitle: "Platform Governance",
+        lineSubtitle: "Platform accounts and company access",
+        line: [
+          { name: "Super Admins", value: numeric(data.dashboard?.superAdminsCount) },
+          { name: "Active", value: numeric(platform.activeSubscriptions) },
+          { name: "Blocked", value: numeric(platform.blockedSubscriptions) },
+        ],
+      }
+    }
     if (moduleId === "crm") {
       const customer = data.dashboard?.customerStats || {}
       return {
@@ -494,6 +574,35 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
         ],
       }
     }
+    if (moduleId === "purchase") {
+      const orders = data.purchaseOrderSummary?.summary || {}
+      const receipts = data.goodsReceiptSummary?.summary || {}
+      const returns = data.purchaseReturnSummary?.summary || {}
+      return {
+        pieTitle: "Purchase Order Status",
+        pieSubtitle: "Draft, submitted, approved, and received orders",
+        pie: [
+          { name: "Draft", value: numeric(orders.draftCount) },
+          { name: "Submitted", value: numeric(orders.submittedCount) },
+          { name: "Approved", value: numeric(orders.approvedCount) },
+          { name: "Received", value: numeric(orders.receivedCount) },
+        ],
+        barTitle: "Procurement Value",
+        barSubtitle: "Ordered, accepted, and returned value",
+        bar: [
+          { name: "Ordered", value: numeric(orders.totalValue) },
+          { name: "Accepted", value: numeric(receipts.totalAcceptedValue) },
+          { name: "Returned", value: numeric(returns.totalReturnValue) },
+        ],
+        lineTitle: "Processing Pipeline",
+        lineSubtitle: "Documents currently moving through approval and posting",
+        line: [
+          { name: "Orders", value: numeric(orders.submittedCount) },
+          { name: "Receipts", value: numeric(receipts.submittedCount) + numeric(receipts.approvedCount) },
+          { name: "Returns", value: numeric(returns.submittedCount) + numeric(returns.approvedCount) },
+        ],
+      }
+    }
     const employees = numeric(data.dashboard?.employeesCount)
     const admins = numeric(data.dashboard?.adminsCount)
     const superAdmins = numeric(data.dashboard?.superAdminsCount)
@@ -509,17 +618,19 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
       lineSubtitle: "Current access and account indicators",
       line: [{ name: "Access", value: featureCount }, { name: "Employees", value: employees }, { name: "Admins", value: admins + superAdmins }],
     }
-  }, [data, moduleId, moduleSections])
+  }, [currentUser?.role, data, moduleId, moduleSections])
 
   const actions = presentation.actions.filter((name) => moduleSections[name])
   const recentItems = useMemo(() => {
+    if (moduleId === "administration" && currentUser?.role === "superadmin") return (data.dashboard?.platform?.recentCompanies || []).map((item) => ({ ...item, title: item.name || "Company", subtitle: `${item.code || "No code"} · ${String(item.subscriptionAccess?.state || item.status || "pending").replace(/_/g, " ")}` }))
     if (moduleId === "crm") return (data.leads?.items || []).slice(0, 6).map((item) => ({ ...item, title: displayName(item, "Lead"), subtitle: item.pipelineStage || item.status || "New", alert: item.isOverdue }))
     if (moduleId === "accounting") return [...getRows(data.receivables), ...getRows(data.payables)].slice(0, 6).map((item, index) => ({ ...item, title: displayName(item, `Finance record ${index + 1}`), subtitle: item.status || item.type || "Open", amount: item.outstandingAmount ?? item.amount ?? item.balance }))
     if (moduleId === "payroll") return (data.payroll?.payrolls || []).slice(0, 6).map((item) => ({ ...item, title: displayName(item, "Employee payroll"), subtitle: item.status || "Draft", amount: item.netPayable }))
     if (moduleId === "inventory") return (data.inventory?.recentMovements || []).slice(0, 6).map((item, index) => ({ ...item, title: item.movementNo || item.reference || `Movement ${index + 1}`, subtitle: String(item.movementType || "Stock movement").replace(/_/g, " "), amount: item.totalValue }))
     if (moduleId === "supplier") return (data.suppliers?.suppliers || []).slice(0, 6).map((item, index) => ({ ...item, title: displayName(item, `Supplier ${index + 1}`), subtitle: `${String(item.status || "draft").replace(/_/g, " ")}${item.supplierType ? ` · ${String(item.supplierType).replace(/_/g, " ")}` : ""}` }))
+    if (moduleId === "purchase") return (data.purchaseOrders?.purchaseOrders || []).slice(0, 6).map((item, index) => ({ ...item, title: item.orderNo || `Purchase order ${index + 1}`, subtitle: `${displayName(item.supplier, "Supplier")} · ${String(item.status || "draft").replace(/_/g, " ")}`, amount: item.grandTotal }))
     return actions.slice(0, 6).map((name) => ({ title: name, subtitle: "Authorized workspace" }))
-  }, [actions, data, moduleId])
+  }, [actions, currentUser?.role, data, moduleId])
 
   return (
     <div className="min-h-full bg-gray-50 p-1 sm:p-4 lg:p-6">
@@ -596,7 +707,7 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
 }
 
 ModuleDashboard.propTypes = {
-  moduleId: PropTypes.oneOf(["crm", "accounting", "inventory", "supplier", "payroll", "administration"]).isRequired,
+  moduleId: PropTypes.oneOf(["crm", "accounting", "inventory", "supplier", "purchase", "payroll", "administration"]).isRequired,
   moduleSections: PropTypes.object,
   currentUser: PropTypes.shape({ isActive: PropTypes.bool, role: PropTypes.string }),
   onNavigateSection: PropTypes.func.isRequired,

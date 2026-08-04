@@ -4,8 +4,19 @@ import PermissionGroup, { PERMISSION_KEYS } from "../models/permissionGroup.mode
 import AccessRole from "../models/accessRole.model.js";
 import User from "../models/user.model.js";
 import SalaryProfile from "../models/salaryProfile.model.js";
+import { permissionsForModules } from "../config/erpModules.js";
 
 const clean = (value) => String(value ?? "").trim();
+const allowedPermissions = (req) => req.user?.role === "superadmin"
+  ? PERMISSION_KEYS
+  : permissionsForModules(PERMISSION_KEYS, req.enabledModules);
+
+const validateAssignedPermissions = (req, permissions) => {
+  const allowed = new Set(allowedPermissions(req));
+  const normalized = [...new Set(Array.isArray(permissions) ? permissions : [])];
+  const denied = normalized.filter((permission) => !allowed.has(permission));
+  return { ok: denied.length === 0, permissions: normalized, denied };
+};
 
 const roundMoney = (value) => {
   const n = Number(value || 0);
@@ -126,7 +137,7 @@ const buildPositionPatch = (body = {}, { isCreate = false } = {}) => {
 ================================ */
 export const getPermissionCatalog = async (req, res) => {
   return res.json({
-    permissions: PERMISSION_KEYS.map((key) => {
+    permissions: allowedPermissions(req).map((key) => {
       const [module, action] = key.split(/[:.]/);
       return { key, module, action, label: `${module} ${action}` };
     }),
@@ -325,8 +336,13 @@ export const listPermissionGroups = async (req, res) => {
   const permissionGroups = await PermissionGroup.find({})
     .sort({ nameLower: 1 })
     .lean();
-
-  return res.json({ permissionGroups });
+  const allowed = new Set(allowedPermissions(req));
+  return res.json({
+    permissionGroups: permissionGroups.map((group) => ({
+      ...group,
+      permissions: (group.permissions || []).filter((permission) => allowed.has(permission)),
+    })),
+  });
 };
 
 export const createPermissionGroup = async (req, res) => {
@@ -334,10 +350,12 @@ export const createPermissionGroup = async (req, res) => {
     const name = clean(req.body.name);
     if (!name) return res.status(400).json({ message: "Permission group name is required." });
 
+    const checked = validateAssignedPermissions(req, req.body.permissions);
+    if (!checked.ok) return res.status(403).json({ message: "One or more permissions belong to modules not enabled for this company.", denied: checked.denied });
     const permissionGroup = await PermissionGroup.create({
       name,
       description: clean(req.body.description),
-      permissions: req.body.permissions || [],
+      permissions: checked.permissions,
       isActive: req.body.isActive ?? true,
       createdBy: req.user?._id || null,
     });
@@ -360,7 +378,11 @@ export const updatePermissionGroup = async (req, res) => {
     }
 
     if (req.body.description !== undefined) patch.description = clean(req.body.description);
-    if (Array.isArray(req.body.permissions)) patch.permissions = req.body.permissions;
+    if (Array.isArray(req.body.permissions)) {
+      const checked = validateAssignedPermissions(req, req.body.permissions);
+      if (!checked.ok) return res.status(403).json({ message: "One or more permissions belong to modules not enabled for this company.", denied: checked.denied });
+      patch.permissions = checked.permissions;
+    }
     if (typeof req.body.isActive === "boolean") patch.isActive = req.body.isActive;
 
     const permissionGroup = await PermissionGroup.findByIdAndUpdate(req.params.id, patch, {
@@ -405,12 +427,23 @@ export const listAccessRoles = async (req, res) => {
     .populate("permissionGroup", "name permissions isActive")
     .sort({ nameLower: 1 })
     .lean();
+  const catalog = allowedPermissions(req);
+  const allowed = new Set(catalog);
+  const filteredCustomRoles = customRoles.map((role) => ({
+    ...role,
+    permissionGroup: role.permissionGroup
+      ? {
+          ...role.permissionGroup,
+          permissions: (role.permissionGroup.permissions || []).filter((permission) => allowed.has(permission)),
+        }
+      : null,
+  }));
   const systemRoles = [
     {
       _id: "system:admin",
       name: "Admin",
       description: "Built-in administrator role with full administrative access.",
-      permissionGroup: { name: "System administration", permissions: PERMISSION_KEYS, isActive: true },
+      permissionGroup: { name: "System administration", permissions: catalog, isActive: true },
       isActive: true,
       isSystem: true,
     },
@@ -423,7 +456,7 @@ export const listAccessRoles = async (req, res) => {
       isSystem: true,
     },
   ];
-  return res.json({ roles: [...systemRoles, ...customRoles] });
+  return res.json({ roles: [...systemRoles, ...filteredCustomRoles] });
 };
 
 export const createAccessRole = async (req, res) => {

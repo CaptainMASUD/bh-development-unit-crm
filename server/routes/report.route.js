@@ -4,14 +4,11 @@ import {
   updateFinalReport,
   removeReportFile,
 } from "../controllers/report.controller.js";
-import { protect } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-router.use(protect);
-
-router.patch("/customers/:customerId/draft", updateDraftReport);
-router.patch("/customers/:customerId/final", updateFinalReport);
-router.delete("/customers/:customerId/report-file", removeReportFile);
+router.patch("/:customerId/draft", updateDraftReport);
+router.patch("/:customerId/final", updateFinalReport);
+router.delete("/:customerId/report-file", removeReportFile);
 
 export default router;

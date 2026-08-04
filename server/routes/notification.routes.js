@@ -13,11 +13,12 @@ import {
 import {
   protect,
   isAdminOrSuperAdmin,
+  requireModule,
 } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
-router.use(protect);
+router.use(protect, requireModule("administration"));
 
 /* =========================
    MY NOTIFICATIONS

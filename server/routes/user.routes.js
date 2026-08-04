@@ -36,8 +36,9 @@ import {
 
 import {
   protect,
-  isAdminOrSuperAdmin,
   requirePermission,
+  isAdmin,
+  isTenantUser,
   isSuperAdmin,
 } from "../middleware/auth.middleware.js";
 
@@ -59,6 +60,7 @@ router.delete("/me/avatar", protect, deleteMyAvatar);
 router.patch(
   "/:id/avatar",
   protect,
+  isTenantUser,
   requirePermission("employees:manage"),
   upload.single("avatar"),
   adminUpdateUserAvatar
@@ -66,23 +68,24 @@ router.patch(
 router.delete(
   "/:id/avatar",
   protect,
+  isTenantUser,
   requirePermission("employees:manage"),
   adminDeleteUserAvatar
 );
 
 /* EMPLOYEES */
-router.post("/employees", protect, requirePermission("employees:manage"), createEmployee);
-router.get("/employees", protect, requirePermission("employees:view"), getEmployees);
-router.get("/employees/:id", protect, requirePermission("employees:view"), getEmployeeById);
-router.patch("/employees/:id", protect, requirePermission("employees:manage"), updateEmployee);
-router.delete("/employees/:id", protect, requirePermission("employees:manage"), deleteEmployee);
+router.post("/employees", protect, isTenantUser, requirePermission("employees:manage"), createEmployee);
+router.get("/employees", protect, isTenantUser, requirePermission("employees:view"), getEmployees);
+router.get("/employees/:id", protect, isTenantUser, requirePermission("employees:view"), getEmployeeById);
+router.patch("/employees/:id", protect, isTenantUser, requirePermission("employees:manage"), updateEmployee);
+router.delete("/employees/:id", protect, isTenantUser, requirePermission("employees:manage"), deleteEmployee);
 
 /* ADMINS */
-router.post("/admins", protect, isAdminOrSuperAdmin, createAdmin);
-router.get("/admins", protect, isAdminOrSuperAdmin, getAdmins);
-router.get("/admins/:id", protect, isAdminOrSuperAdmin, getAdminById);
-router.patch("/admins/:id", protect, isAdminOrSuperAdmin, updateAdmin);
-router.delete("/admins/:id", protect, isAdminOrSuperAdmin, deleteAdmin);
+router.post("/admins", protect, isAdmin, createAdmin);
+router.get("/admins", protect, isAdmin, getAdmins);
+router.get("/admins/:id", protect, isAdmin, getAdminById);
+router.patch("/admins/:id", protect, isAdmin, updateAdmin);
+router.delete("/admins/:id", protect, isAdmin, deleteAdmin);
 
 /* SUPER ADMINS */
 router.post("/superadmins", protect, isSuperAdmin, createSuperAdmin);

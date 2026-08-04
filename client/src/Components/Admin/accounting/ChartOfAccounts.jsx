@@ -22,6 +22,7 @@ import {
   SearchIcon,
   UnavailableIcon,
 } from "@hugeicons/core-free-icons";
+import { excludeBankManagedAccounts } from "./accountVisibility";
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`;
 
@@ -1304,7 +1305,8 @@ function AccountRow({
                 <Badge value={originLabel} variant="origin" />
               </div>
 
-              {account.description ? (
+              {account.description &&
+              !["X100", "X200"].includes(account.code) ? (
                 <p className="mt-0.5 max-w-[420px] truncate text-xs font-medium text-gray-500">
                   {account.description}
                 </p>
@@ -1409,7 +1411,7 @@ export default function ChartOfAccounts() {
       const data = await api(
         "/accounting/accounts?limit=200&active=all&includeBalances=true",
       );
-      const nextAccounts = data.accounts || [];
+      const nextAccounts = excludeBankManagedAccounts(data.accounts || []);
 
       setAccounts(nextAccounts);
 
@@ -1727,8 +1729,8 @@ export default function ChartOfAccounts() {
                 Chart of Accounts
               </h1>
               <p className="mt-0.5 text-sm text-gray-500">
-                Core system accounts are protected; unused custom accounts can
-                be deleted.
+                Core system accounts are protected. Bank-managed ledgers are
+                maintained in Bank Setup and hidden here.
               </p>
             </div>
           </div>

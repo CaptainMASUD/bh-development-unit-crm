@@ -6,7 +6,6 @@ import { useLocation, useNavigate } from "react-router-dom"
 import { FaAngleDoubleLeft, FaAngleDoubleRight } from "react-icons/fa"
 import Sidebar from "../Admin/Sidebar"
 import { sections } from "./sections"
-import SessionExpiryGuard from "../Auth/SessionExpiredModal"
 import { buildDashboardRouteMap, matchDashboardRoute } from "../Navigation/dashboardRoutes"
 import { filterSectionsByPermission } from "../Auth/permissions"
 import { buildModuleSections, canAccessModule, findModuleForSection, isKnownModule, MODULES } from "../Navigation/moduleConfig"
@@ -192,7 +191,6 @@ export default function EmployeeDashboard() {
 
   return (
     <div className="relative flex h-screen w-full overflow-hidden">
-      <SessionExpiryGuard />
       <Sidebar
         setActiveSection={setActiveSection}
         setActiveSubcategory={setActiveSubcategory}

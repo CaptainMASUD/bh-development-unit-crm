@@ -5,10 +5,8 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Analytics01Icon,
   ArrowDataTransferHorizontalIcon,
-  BalanceScaleIcon,
   BankIcon,
   BanknoteIcon,
-  BookOpen01Icon,
   Briefcase01Icon,
   Calendar03Icon,
   CalendarMinus01Icon,
@@ -18,7 +16,6 @@ import {
   DollarCircleIcon,
   FileChartColumnIcon,
   HandCoinsIcon,
-  InformationCircleIcon,
   Package01Icon,
   Layers01Icon,
   NoteEditIcon,
@@ -70,7 +67,7 @@ const TrialBalance = lazy(() => import("./accounting/TrialBalance"))
 const BalanceSheet = lazy(() => import("./accounting/BalanceSheet"))
 const CashFlowStatement = lazy(() => import("./accounting/CashFlowStatement"))
 const ProfileSettings = lazy(() => import("./system/ProfileSettings"))
-const About = lazy(() => import("./system/About"))
+const AdminCompanySetupPage = lazy(() => import("./CompanySetup/AdminCompanySetupPage"))
 const TitlesAdd = lazy(() => import("./workflow/TittlesAdd"))
 const EngagementTemplatePage = lazy(() => import("./workflow/EngagementTemplatePage"))
 const PurchaseTypePage = lazy(() => import("./workflow/PurchaseTypePage"))
@@ -91,6 +88,9 @@ const StockAdjustments = lazy(() => import("./inventory/StockAdjustments"))
 const StockTransfers = lazy(() => import("./inventory/StockTransfers"))
 const Suppliers = lazy(() => import("./Supplier/SupplierSetup"))
 const SupplierProducts = lazy(() => import("./Supplier/SupplierProducts"))
+const PurchaseOrders = lazy(() => import("./purchase/PurchaseOrders"))
+const GoodsReceipts = lazy(() => import("./purchase/GoodsReceipts"))
+const PurchaseReturns = lazy(() => import("./purchase/PurchaseReturns"))
 
 const createSectionIcon = (icon) => (
   <HugeiconsIcon
@@ -186,6 +186,24 @@ const sections = {
     permission: "supplier:view",
   },
 
+  "Purchase Orders": {
+    icon: createSectionIcon(NoteEditIcon),
+    component: <PurchaseOrders />,
+    permission: "purchase-order:view",
+  },
+
+  "Goods Receipts": {
+    icon: createSectionIcon(Package01Icon),
+    component: <GoodsReceipts />,
+    permission: "goods-receipt:view",
+  },
+
+  "Purchase Returns": {
+    icon: createSectionIcon(ArrowDataTransferHorizontalIcon),
+    component: <PurchaseReturns />,
+    permission: "purchase-return:view",
+  },
+
   "Workflow Setup": {
     icon: createSectionIcon(WorkflowSquare03Icon),
     subcategories: {
@@ -268,16 +286,15 @@ const sections = {
     permission: "finance:view",
   },
 
-  "General Ledger": {
-    icon: createSectionIcon(BookOpen01Icon),
-    component: <GeneralLedger />,
+  Reports: {
+    icon: createSectionIcon(FileChartColumnIcon),
     permission: "finance:view",
-  },
-
-  "Cash Book": {
-    icon: createSectionIcon(BookOpen01Icon),
-    component: <CashBook />,
-    permission: "finance:view",
+    subcategories: {
+      "Cash Book": <CashBook />,
+      "General Ledger": <GeneralLedger />,
+      "Balance Sheet": <BalanceSheet />,
+      "Trial Balance": <TrialBalance />,
+    },
   },
 
   "Accounts Receivable": {
@@ -295,18 +312,6 @@ const sections = {
   "Profit & Loss": {
     icon: createSectionIcon(ChartLineData01Icon),
     component: <ProfitLoss />,
-    permission: "finance:view",
-  },
-
-  "Trial Balance": {
-    icon: createSectionIcon(BalanceScaleIcon),
-    component: <TrialBalance />,
-    permission: "finance:view",
-  },
-
-  "Balance Sheet": {
-    icon: createSectionIcon(FileChartColumnIcon),
-    component: <BalanceSheet />,
     permission: "finance:view",
   },
 
@@ -372,9 +377,9 @@ const sections = {
     component: <ProfileSettings />,
   },
 
-  About: {
-    icon: createSectionIcon(InformationCircleIcon),
-    component: <About />,
+  "Company Setup": {
+    icon: createSectionIcon(Setup02Icon),
+    component: <AdminCompanySetupPage />,
   },
 }
 

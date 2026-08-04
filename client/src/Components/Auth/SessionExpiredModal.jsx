@@ -2,35 +2,58 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useDispatch, useSelector } from "react-redux"
 import { useNavigate } from "react-router-dom"
-import { FiClock, FiLogIn } from "react-icons/fi"
+import { FiClock, FiLogOut } from "react-icons/fi"
 import { signOut } from "../../Redux/UserSlice/UserSlice"
 import { getJwtExpirationMs } from "./authRouting"
 import { SESSION_EXPIRED_EVENT } from "./sessionEvents"
 
-function SessionExpiredModal({ open, onLogin, seconds }) {
-  if (!open || typeof document === "undefined") return null
+const WARNING_SECONDS = 5 * 60
+const WARNING_MS = WARNING_SECONDS * 1000
+
+function formatRemaining(totalSeconds) {
+  const seconds = Math.max(Number(totalSeconds || 0), 0)
+  const minutesPart = Math.floor(seconds / 60)
+  const secondsPart = seconds % 60
+  return `${String(minutesPart).padStart(2, "0")}:${String(secondsPart).padStart(2, "0")}`
+}
+
+function SessionExpiryWarning({ seconds, onLogout }) {
+  if (seconds === null || typeof document === "undefined") return null
+
+  const progress = Math.max(Math.min((seconds / WARNING_SECONDS) * 100, 100), 0)
 
   return createPortal(
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="session-expired-title">
-      <div className="w-full max-w-md rounded-3xl border border-white/70 bg-white p-6 text-center shadow-[0_30px_90px_-30px_rgba(15,23,42,0.65)] sm:p-8">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 ring-1 ring-amber-100">
-          <FiClock className="h-7 w-7" />
+    <aside
+      className="fixed right-4 top-4 z-[10000] w-[calc(100%-2rem)] max-w-sm overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-[0_24px_65px_-24px_rgba(15,23,42,0.55)] sm:right-6 sm:top-6"
+      role="status"
+      aria-live="assertive"
+      aria-label={`Session expires in ${formatRemaining(seconds)}`}
+    >
+      <div className="flex items-start gap-3 p-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700 ring-1 ring-amber-100">
+          <FiClock className="h-5 w-5" />
         </div>
-        <h2 id="session-expired-title" className="mt-5 text-2xl font-black tracking-tight text-gray-950">Session expired</h2>
-        <p className="mt-2 text-sm font-medium leading-6 text-gray-600">
-          Your login session has ended. Please sign in again to continue securely.
-        </p>
-        <button
-          type="button"
-          onClick={onLogin}
-          className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
-        >
-          <FiLogIn className="h-4 w-4" />
-          Go to login
-        </button>
-        <p className="mt-3 text-xs font-semibold text-gray-400">Redirecting automatically in {seconds}s</p>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-black uppercase tracking-[0.14em] text-amber-700">Session ending soon</p>
+          <div className="mt-1 flex items-baseline justify-between gap-3">
+            <p className="text-sm font-bold text-gray-700">Automatic logout in</p>
+            <time className="font-mono text-xl font-black tabular-nums text-gray-950">{formatRemaining(seconds)}</time>
+          </div>
+          <p className="mt-1 text-xs font-semibold leading-5 text-gray-500">Save your work before the countdown reaches zero.</p>
+          <button
+            type="button"
+            onClick={onLogout}
+            className="mt-3 inline-flex items-center gap-1.5 text-xs font-black text-rose-600 transition hover:text-rose-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/30"
+          >
+            <FiLogOut className="h-3.5 w-3.5" />
+            Log out now
+          </button>
+        </div>
       </div>
-    </div>,
+      <div className="h-1.5 bg-amber-100">
+        <div className="h-full bg-amber-500 transition-[width] duration-1000 ease-linear" style={{ width: `${progress}%` }} />
+      </div>
+    </aside>,
     document.body
   )
 }
@@ -39,13 +62,15 @@ export default function SessionExpiryGuard() {
   const dispatch = useDispatch()
   const navigate = useNavigate()
   const currentUser = useSelector((state) => state.user?.currentUser)
-  const [expired, setExpired] = useState(false)
-  const [seconds, setSeconds] = useState(4)
+  const [warningExpiresAt, setWarningExpiresAt] = useState(null)
+  const [remainingSeconds, setRemainingSeconds] = useState(null)
   const redirectedRef = useRef(false)
 
   const goToLogin = useCallback(() => {
     if (redirectedRef.current) return
     redirectedRef.current = true
+    setWarningExpiresAt(null)
+    setRemainingSeconds(null)
     localStorage.removeItem("token")
     localStorage.removeItem("user")
     dispatch(signOut())
@@ -53,62 +78,89 @@ export default function SessionExpiryGuard() {
   }, [dispatch, navigate])
 
   useEffect(() => {
-    if (!currentUser) return
+    if (currentUser) redirectedRef.current = false
+  }, [currentUser])
 
-    const checkExpiration = () => {
+  useEffect(() => {
+    if (!currentUser) {
+      setWarningExpiresAt(null)
+      setRemainingSeconds(null)
+      return undefined
+    }
+
+    let warningTimeoutId = null
+    let expirationTimeoutId = null
+
+    const clearTimers = () => {
+      if (warningTimeoutId) window.clearTimeout(warningTimeoutId)
+      if (expirationTimeoutId) window.clearTimeout(expirationTimeoutId)
+      warningTimeoutId = null
+      expirationTimeoutId = null
+    }
+
+    const scheduleExpiration = () => {
+      clearTimers()
       const token = localStorage.getItem("token")
       const expiresAt = getJwtExpirationMs(token)
 
-      if (!token || (expiresAt !== null && expiresAt <= Date.now())) {
-        setExpired(true)
-        return true
+      if (!token) {
+        goToLogin()
+        return
       }
 
-      return false
+      if (!expiresAt) {
+        setWarningExpiresAt(null)
+        setRemainingSeconds(null)
+        return
+      }
+
+      const remainingMs = expiresAt - Date.now()
+      if (remainingMs <= 0) {
+        goToLogin()
+        return
+      }
+
+      const showWarning = () => setWarningExpiresAt(expiresAt)
+      if (remainingMs <= WARNING_MS) showWarning()
+      else warningTimeoutId = window.setTimeout(showWarning, remainingMs - WARNING_MS)
+
+      expirationTimeoutId = window.setTimeout(goToLogin, remainingMs)
     }
-
-    if (checkExpiration()) return
-
-    const token = localStorage.getItem("token")
-    const expiresAt = getJwtExpirationMs(token)
-    const timeoutId = expiresAt
-      ? window.setTimeout(() => setExpired(true), Math.max(expiresAt - Date.now(), 0))
-      : null
 
     const handleVisibility = () => {
-      if (document.visibilityState === "visible") checkExpiration()
+      if (document.visibilityState === "visible") scheduleExpiration()
     }
     const handleStorage = (event) => {
-      if (event.key === "token") checkExpiration()
+      if (event.key === "token") scheduleExpiration()
     }
-    const handleExpiredResponse = () => setExpired(true)
+    const handleExpiredResponse = () => goToLogin()
 
+    scheduleExpiration()
     document.addEventListener("visibilitychange", handleVisibility)
     window.addEventListener("storage", handleStorage)
     window.addEventListener(SESSION_EXPIRED_EVENT, handleExpiredResponse)
 
     return () => {
-      if (timeoutId) window.clearTimeout(timeoutId)
+      clearTimers()
       document.removeEventListener("visibilitychange", handleVisibility)
       window.removeEventListener("storage", handleStorage)
       window.removeEventListener(SESSION_EXPIRED_EVENT, handleExpiredResponse)
     }
-  }, [currentUser])
+  }, [currentUser, goToLogin])
 
   useEffect(() => {
-    if (!expired) return
+    if (!warningExpiresAt) return undefined
 
-    setSeconds(4)
-    const countdownId = window.setInterval(() => {
-      setSeconds((value) => Math.max(value - 1, 0))
-    }, 1000)
-    const redirectId = window.setTimeout(goToLogin, 4000)
-
-    return () => {
-      window.clearInterval(countdownId)
-      window.clearTimeout(redirectId)
+    const updateCountdown = () => {
+      const seconds = Math.max(Math.ceil((warningExpiresAt - Date.now()) / 1000), 0)
+      setRemainingSeconds(seconds)
+      if (seconds <= 0) goToLogin()
     }
-  }, [expired, goToLogin])
 
-  return <SessionExpiredModal open={expired} onLogin={goToLogin} seconds={seconds} />
+    updateCountdown()
+    const countdownId = window.setInterval(updateCountdown, 1000)
+    return () => window.clearInterval(countdownId)
+  }, [warningExpiresAt, goToLogin])
+
+  return <SessionExpiryWarning seconds={remainingSeconds} onLogout={goToLogin} />
 }

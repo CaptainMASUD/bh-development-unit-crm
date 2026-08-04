@@ -6,9 +6,8 @@ import { useLocation, useNavigate } from "react-router-dom"
 import { FaAngleDoubleLeft, FaAngleDoubleRight } from "react-icons/fa"
 import Sidebar from "./Sidebar"
 import { sections } from "./sections"
-import SessionExpiryGuard from "../Auth/SessionExpiredModal"
 import { buildDashboardRouteMap, matchDashboardRoute } from "../Navigation/dashboardRoutes"
-import { buildModuleSections, findModuleForSection, isKnownModule, MODULES } from "../Navigation/moduleConfig"
+import { buildModuleSections, canAccessModule, findModuleForSection, isKnownModule, MODULES } from "../Navigation/moduleConfig"
 
 const ModuleDashboard = React.lazy(() => import("./dashboard/ModuleDashboard"))
 
@@ -17,9 +16,9 @@ export default function AdminDashboard() {
   const location = useLocation()
   const currentUser = useSelector((state) => state.user?.currentUser)
   const moduleId = location.pathname.split("/").filter(Boolean)[1] || ""
-  const validModule = isKnownModule(moduleId)
+  const validModule = isKnownModule(moduleId) && canAccessModule(currentUser, moduleId)
   const moduleBasePath = validModule ? `/admin/${moduleId}` : "/admin"
-  const moduleSections = useMemo(() => validModule ? buildModuleSections(sections, moduleId, "admin") : {}, [moduleId, validModule])
+  const moduleSections = useMemo(() => validModule ? buildModuleSections(sections, moduleId, currentUser?.role) : {}, [currentUser?.role, moduleId, validModule])
   const routeMap = useMemo(() => buildDashboardRouteMap(moduleBasePath, moduleSections), [moduleBasePath, moduleSections])
   const routeState = useMemo(
     () => matchDashboardRoute(location.pathname, moduleBasePath, routeMap),
@@ -51,9 +50,9 @@ export default function AdminDashboard() {
     }
     const legacyMap = buildDashboardRouteMap("/admin", sections)
     const legacy = matchDashboardRoute(location.pathname, "/admin", legacyMap)
-    const targetModule = findModuleForSection(legacy.section, "admin")
+    const targetModule = findModuleForSection(legacy.section, currentUser?.role)
     if (!targetModule) return navigate("/module", { replace: true })
-    const targetSections = buildModuleSections(sections, targetModule, "admin")
+    const targetSections = buildModuleSections(sections, targetModule, currentUser?.role)
     const targetMap = buildDashboardRouteMap(`/admin/${targetModule}`, targetSections)
     navigate(targetMap.reverse[`${legacy.section}::${legacy.subcategory || ""}`] || `/admin/${targetModule}`, { replace: true })
   }, [currentUser, location.pathname, navigate, validModule])
@@ -143,7 +142,6 @@ export default function AdminDashboard() {
 
   return (
     <div className="relative flex h-screen w-full overflow-hidden">
-      <SessionExpiryGuard />
       <Sidebar
         setActiveSection={setActiveSection}
         setActiveSubcategory={setActiveSubcategory}

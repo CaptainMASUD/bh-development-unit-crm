@@ -118,12 +118,28 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
 
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      default: null,
+      index: true,
+    },
+
+    defaultBranch: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Branch",
+      default: null,
+      index: true,
+    },
+
     managerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
       index: true,
     },
+
+    designation: { type: String, trim: true, default: "" },
 
     joiningDate: { type: Date, default: null, index: true },
     leavingDate: { type: Date, default: null },
@@ -257,13 +273,14 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
   },
-  { timestamps: true }
+  { timestamps: true, tenantGlobalUniquePaths: ["email"] }
 );
 
 /* ===============================
    ✅ Performance indexes
 ================================ */
 userSchema.index({ role: 1, createdAt: -1, _id: -1 });
+userSchema.index({ tenantId: 1, role: 1, isActive: 1, createdAt: -1, _id: -1 });
 userSchema.index({ role: 1, isActive: 1, createdAt: -1, _id: -1 });
 userSchema.index({ role: 1, isActive: 1, nameLower: 1, _id: -1 });
 userSchema.index({ department: 1, position: 1, isActive: 1 });
@@ -424,5 +441,22 @@ userSchema.methods.canReceiveAutoAssignedLead = function () {
     this.role === "employee"
   );
 };
+
+userSchema.post("save", async function syncCompanyMembership(document) {
+  if (document.role === "superadmin" || !document.tenantId) return;
+  const { default: CompanyMembership } = await import("./companyMembership.model.js");
+  await CompanyMembership.findOneAndUpdate(
+    { user: document._id },
+    {
+      $set: {
+        tenantId: document.tenantId,
+        role: document.role === "admin" ? "admin" : "employee",
+        defaultBranch: document.defaultBranch || null,
+        isActive: document.isActive !== false,
+      },
+    },
+    { upsert: true, setDefaultsOnInsert: true }
+  );
+});
 
 export default mongoose.model("User", userSchema);

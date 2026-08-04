@@ -1,29 +1,32 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import toast, { Toaster } from "react-hot-toast"
+import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  FiActivity,
-  FiBriefcase,
-  FiCalendar,
-  FiCheck,
-  FiChevronLeft,
-  FiChevronRight,
-  FiCreditCard,
-  FiDollarSign,
-  FiEdit3,
-  FiFileText,
-  FiFilter,
-  FiPlus,
-  FiRefreshCcw,
-  FiSearch,
-  FiShield,
-  FiTrash2,
-  FiTrendingDown,
-  FiTrendingUp,
-  FiUser,
-  FiX,
-} from "react-icons/fi"
+  Activity01Icon,
+  Add01Icon,
+  ArrowDown02Icon,
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  ArrowUp02Icon,
+  Calendar03Icon,
+  Cancel01Icon,
+  CheckmarkCircle02Icon,
+  CreditCardIcon,
+  Delete02Icon,
+  Dollar01Icon,
+  File02Icon,
+  FilterIcon,
+  MoreVerticalIcon,
+  PencilEdit02Icon,
+  RefreshIcon,
+  Search01Icon,
+  SecurityCheckIcon,
+  UserIcon,
+  ViewIcon,
+} from "@hugeicons/core-free-icons"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const PAGE_SIZE = 20
@@ -35,6 +38,8 @@ const btn =
 const btnPrimary = "bg-indigo-600 text-white shadow-sm hover:bg-indigo-700"
 const btnGhost = "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
 const btnDanger = "bg-rose-600 text-white hover:bg-rose-700"
+const iconBtn =
+  "inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-50"
 const input =
   "h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/15"
 const softInput =
@@ -126,6 +131,19 @@ const emptyForm = {
 }
 
 const defaultFilters = { active: "all", department: "", position: "" }
+
+function HIcon({ icon, size = 18, className = "" }) {
+  return (
+    <HugeiconsIcon
+      icon={icon}
+      size={size}
+      color="currentColor"
+      strokeWidth={1.8}
+      className={className}
+      aria-hidden="true"
+    />
+  )
+}
 
 function authHeaders(isJson = true) {
   const token = localStorage.getItem("token")
@@ -277,7 +295,7 @@ function Modal({ open, title, subtitle, icon, children, footer, onClose, maxWidt
                 </div>
               </div>
               <button onClick={onClose} className="rounded-xl p-2 transition hover:bg-gray-100" type="button">
-                <FiX className="h-5 w-5 text-gray-700" />
+                <HIcon icon={Cancel01Icon} className="h-5 w-5 text-gray-700" />
               </button>
             </div>
             <div className="max-h-[calc(100vh-13rem)] overflow-y-auto bg-[#fbfcff] p-4 sm:p-5">{children}</div>
@@ -295,7 +313,7 @@ function EmployeeAvatar({ employee, size = "h-11 w-11" }) {
       {employee?.avatarUrl ? (
         <img src={employee.avatarUrl} alt={employee.name || "Employee"} className="h-full w-full object-cover" />
       ) : (
-        <FiUser className="h-5 w-5 text-gray-500" />
+        <HIcon icon={UserIcon} className="h-5 w-5 text-gray-500" />
       )}
     </div>
   )
@@ -370,12 +388,12 @@ function EmployeeSearch({ value, onSelect, placeholder = "Search employee" }) {
             }}
             className="rounded-xl p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
           >
-            <FiX />
+            <HIcon icon={Cancel01Icon} />
           </button>
         </div>
       ) : (
         <div className="flex h-11 items-center gap-2 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-3 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-indigo-500/10">
-          <FiSearch className="h-4 w-4 shrink-0 text-gray-400" />
+          <HIcon icon={Search01Icon} className="h-4 w-4 shrink-0 text-gray-400" />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -434,6 +452,97 @@ function StatusBadge({ active }) {
     >
       {active ? "Active" : "Inactive"}
     </span>
+  )
+}
+
+function FilterChip({ label, value, onClear }) {
+  return (
+    <button
+      type="button"
+      onClick={onClear}
+      className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+      title={`Remove ${label} filter`}
+      aria-label={`Remove ${label} filter`}
+    >
+      <span className="text-indigo-400">{label}:</span>
+      <span className="max-w-[180px] truncate sm:max-w-[220px]">{value}</span>
+      <HIcon icon={Cancel01Icon} className="h-3.5 w-3.5 shrink-0 text-indigo-600" />
+    </button>
+  )
+}
+
+function SalaryHeaderSearchFilters({
+  searchText,
+  onSearchChange,
+  activeFilterEntries,
+  activeFilterCount,
+  onClearFilter,
+  onReset,
+  onOpenFilters,
+}) {
+  return (
+    <div
+      className={`w-full transition-all duration-200 ${
+        activeFilterCount
+          ? "lg:min-w-[520px] lg:max-w-[72%] lg:flex-[0_1_72%]"
+          : "lg:max-w-[46%] lg:flex-[0_1_46%]"
+      }`}
+    >
+      <div className="flex min-h-[42px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
+        <HIcon icon={Search01Icon} className="h-4 w-4 shrink-0 text-gray-400" />
+
+        {searchText.trim() ? (
+          <FilterChip label="Search" value={searchText.trim()} onClear={() => onSearchChange("")} />
+        ) : null}
+
+        {activeFilterEntries.map((filter) => (
+          <FilterChip
+            key={filter.key}
+            label={filter.label}
+            value={filter.value}
+            onClear={() => onClearFilter(filter.key)}
+          />
+        ))}
+
+        <input
+          className="min-w-[110px] flex-1 border-0 bg-transparent px-1 py-1 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:outline-none focus:ring-0"
+          value={searchText}
+          onChange={(event) => onSearchChange(event.target.value)}
+          placeholder={activeFilterCount ? "Search..." : "Search salary profiles..."}
+          type="text"
+        />
+
+        <button
+          type="button"
+          onClick={onOpenFilters}
+          className={`inline-flex h-8 shrink-0 items-center gap-2 rounded-xl px-2.5 text-xs font-black transition ${
+            activeFilterCount
+              ? "bg-indigo-600 text-white hover:bg-indigo-700"
+              : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
+          }`}
+        >
+          <HIcon icon={FilterIcon} className="h-3.5 w-3.5" />
+          Filters
+          {activeFilterCount ? (
+            <span className="rounded-full bg-white/20 px-1.5 text-[10px]">
+              {activeFilterCount}
+            </span>
+          ) : null}
+        </button>
+
+        {activeFilterCount ? (
+          <button
+            type="button"
+            onClick={onReset}
+            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+            title="Clear search and filters"
+            aria-label="Clear search and filters"
+          >
+            <HIcon icon={Cancel01Icon} className="h-4 w-4" />
+          </button>
+        ) : null}
+      </div>
+    </div>
   )
 }
 
@@ -516,6 +625,379 @@ function RuleCard({ title, icon, value, onChange, showGrace = false, calculation
   )
 }
 
+
+function salaryRuleItems(rules = {}) {
+  const value = safeRules(rules)
+  return [
+    { key: "overtime", label: "Overtime", active: value.overtime.enabled, tone: "emerald" },
+    { key: "late", label: "Late", active: value.lateDeduction.enabled, tone: "amber" },
+    { key: "absent", label: "Absent", active: value.absentDeduction.enabled, tone: "rose" },
+    { key: "leave", label: "Unpaid leave", active: value.unpaidLeaveDeduction.enabled, tone: "rose" },
+  ].filter((item) => item.active)
+}
+
+function RulePill({ item }) {
+  const tone =
+    item.tone === "emerald"
+      ? "bg-emerald-50 text-emerald-700 ring-emerald-600/10"
+      : item.tone === "amber"
+        ? "bg-amber-50 text-amber-700 ring-amber-600/10"
+        : "bg-rose-50 text-rose-700 ring-rose-600/10"
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-extrabold ring-1 ${tone}`}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current opacity-45" />
+      {item.label}
+    </span>
+  )
+}
+
+function SalaryRowActionMenu({ profile, onView, onEdit, onDeactivate, onDelete }) {
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const buttonRef = useRef(null)
+  const isActive = profile?.isActive !== false
+
+  const closeMenu = useCallback(() => setOpen(false), [])
+
+  const runAction = useCallback(
+    (action) => {
+      closeMenu()
+      window.requestAnimationFrame(() => action?.(profile))
+    },
+    [closeMenu, profile]
+  )
+
+  useEffect(() => {
+    if (!open) return
+
+    const updatePosition = () => {
+      const rect = buttonRef.current?.getBoundingClientRect()
+      if (!rect) return
+
+      const width = 220
+      const height = 138
+      const gap = 8
+      const left = Math.min(window.innerWidth - width - 12, Math.max(12, rect.right - width))
+      const openAbove = rect.bottom + height + gap > window.innerHeight
+      const top = openAbove
+        ? Math.max(12, rect.top - height - gap)
+        : Math.min(window.innerHeight - height - 12, rect.bottom + gap)
+
+      setPosition({ top, left })
+    }
+
+    updatePosition()
+    const onOutside = () => closeMenu()
+    const onKey = (event) => event.key === "Escape" && closeMenu()
+
+    window.addEventListener("click", onOutside)
+    window.addEventListener("keydown", onKey)
+    window.addEventListener("scroll", updatePosition, true)
+    window.addEventListener("resize", updatePosition)
+
+    return () => {
+      window.removeEventListener("click", onOutside)
+      window.removeEventListener("keydown", onKey)
+      window.removeEventListener("scroll", updatePosition, true)
+      window.removeEventListener("resize", updatePosition)
+    }
+  }, [open, closeMenu])
+
+  const itemClass =
+    "flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-bold text-gray-700 transition hover:bg-gray-50"
+
+  const menu =
+    open && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            style={{ position: "fixed", top: position.top, left: position.left, width: 220 }}
+            className="z-[9999] overflow-hidden rounded-2xl border border-gray-100 bg-white p-2 text-left shadow-[0_22px_60px_-28px_rgba(15,23,42,0.65)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button type="button" className={itemClass} onClick={() => runAction(onEdit)}>
+              <HIcon icon={PencilEdit02Icon} className="text-indigo-600" />
+              Edit salary profile
+            </button>
+
+            {isActive ? (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-bold text-amber-700 transition hover:bg-amber-50"
+                onClick={() => runAction(onDeactivate)}
+              >
+                <HIcon icon={SecurityCheckIcon} />
+                Deactivate profile
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-bold text-rose-700 transition hover:bg-rose-50"
+                onClick={() => runAction(onDelete)}
+              >
+                <HIcon icon={Delete02Icon} />
+                Delete profile
+              </button>
+            )}
+          </div>,
+          document.body
+        )
+      : null
+
+  return (
+    <div className="relative flex items-center justify-end gap-2" onClick={(event) => event.stopPropagation()}>
+      <button
+        type="button"
+        className={`${btn} ${btnPrimary} h-10 px-3 py-2 shadow-sm shadow-indigo-600/20`}
+        onClick={() => runAction(onView)}
+      >
+        <HIcon icon={ViewIcon} className="h-4 w-4" />
+        View
+      </button>
+
+      <button
+        ref={buttonRef}
+        type="button"
+        className={iconBtn}
+        title="More actions"
+        aria-label="More salary profile actions"
+        onClick={(event) => {
+          event.stopPropagation()
+          setOpen((prev) => !prev)
+        }}
+      >
+        <HIcon icon={MoreVerticalIcon} className="h-4 w-4" />
+      </button>
+
+      {menu}
+    </div>
+  )
+}
+
+function SalaryMobileCard({ profile, onView, onEdit, onDeactivate, onDelete }) {
+  const employee = profile.employee || {}
+  const preview = calculatePreview(profile)
+  const rules = salaryRuleItems(profile.rules)
+
+  return (
+    <article className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <EmployeeAvatar employee={employee} />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-extrabold text-gray-900">{employee.name || "Unnamed employee"}</p>
+            <p className="truncate text-xs font-semibold text-gray-500">{employee.email || "No email"}</p>
+            <p className="mt-1 truncate text-xs font-bold text-indigo-600">
+              {employee.department?.name || "No department"} · {employee.position?.title || "No position"}
+            </p>
+          </div>
+        </div>
+        <StatusBadge active={profile.isActive !== false} />
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <div className="rounded-xl bg-gray-50 p-3">
+          <p className="text-[11px] font-extrabold uppercase tracking-wide text-gray-400">Basic salary</p>
+          <p className="mt-1 text-sm font-extrabold text-gray-900">{money(profile.basicSalary, profile.currency)}</p>
+        </div>
+        <div className="rounded-xl bg-indigo-50 p-3">
+          <p className="text-[11px] font-extrabold uppercase tracking-wide text-indigo-400">Net salary</p>
+          <p className="mt-1 text-sm font-extrabold text-indigo-700">{money(preview.netSalary, profile.currency)}</p>
+        </div>
+        <div className="rounded-xl bg-gray-50 p-3">
+          <p className="text-[11px] font-extrabold uppercase tracking-wide text-gray-400">Schedule</p>
+          <p className="mt-1 text-sm font-bold text-gray-800">
+            {profile.workingDaysPerMonth || 26} days · {profile.workingHoursPerDay || 8} hrs
+          </p>
+        </div>
+        <div className="rounded-xl bg-gray-50 p-3">
+          <p className="text-[11px] font-extrabold uppercase tracking-wide text-gray-400">Effective</p>
+          <p className="mt-1 text-sm font-bold text-gray-800">{dateText(profile.effectiveFrom)}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex min-h-7 flex-wrap gap-2">
+        {rules.length ? rules.slice(0, 3).map((item) => <RulePill key={item.key} item={item} />) : (
+          <span className="text-xs font-semibold text-gray-400">No active attendance rules</span>
+        )}
+        {rules.length > 3 ? (
+          <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-xs font-extrabold text-gray-600">
+            +{rules.length - 3}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mt-4 border-t border-gray-100 pt-4">
+        <SalaryRowActionMenu
+          profile={profile}
+          onView={onView}
+          onEdit={onEdit}
+          onDeactivate={onDeactivate}
+          onDelete={onDelete}
+        />
+      </div>
+    </article>
+  )
+}
+
+function DetailItem({ label, value, tone = "gray" }) {
+  const toneClass =
+    tone === "indigo"
+      ? "bg-indigo-50 text-indigo-700"
+      : tone === "emerald"
+        ? "bg-emerald-50 text-emerald-700"
+        : tone === "rose"
+          ? "bg-rose-50 text-rose-700"
+          : "bg-gray-50 text-gray-800"
+
+  return (
+    <div className={`rounded-2xl p-4 ${toneClass}`}>
+      <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] opacity-60">{label}</p>
+      <p className="mt-1.5 break-words text-base font-extrabold">{value || "—"}</p>
+    </div>
+  )
+}
+
+function SalaryProfileDetails({ profile }) {
+  if (!profile) return null
+
+  const employee = profile.employee || {}
+  const preview = calculatePreview(profile)
+  const rules = salaryRuleItems(profile.rules)
+  const components = Array.isArray(profile.components) ? profile.components.filter((item) => item.isActive !== false) : []
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <EmployeeAvatar employee={employee} size="h-14 w-14" />
+          <div className="min-w-0">
+            <p className="truncate text-lg font-extrabold text-gray-900">{employee.name || "Unnamed employee"}</p>
+            <p className="truncate text-sm font-semibold text-gray-500">{employee.email || "No email"}</p>
+            <p className="mt-1 truncate text-xs font-extrabold text-indigo-600">
+              {employee.department?.name || "No department"} · {employee.position?.title || "No position"}
+            </p>
+          </div>
+        </div>
+        <StatusBadge active={profile.isActive !== false} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <DetailItem label="Basic salary" value={money(profile.basicSalary, profile.currency)} />
+        <DetailItem label="Gross salary" value={money(preview.grossSalary, profile.currency)} tone="indigo" />
+        <DetailItem label="Fixed deduction" value={money(preview.fixedDeductions, profile.currency)} tone="rose" />
+        <DetailItem label="Net salary" value={money(preview.netSalary, profile.currency)} tone="emerald" />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700">
+              <HIcon icon={Calendar03Icon} />
+            </span>
+            <div>
+              <p className="text-sm font-extrabold text-gray-900">Profile setup</p>
+              <p className="text-xs font-semibold text-gray-500">Salary schedule and effective period</p>
+            </div>
+          </div>
+          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-xl bg-gray-50 p-3">
+              <dt className="text-xs font-bold text-gray-400">Salary type</dt>
+              <dd className="mt-1 text-sm font-extrabold text-gray-900">{pretty(profile.salaryType)}</dd>
+            </div>
+            <div className="rounded-xl bg-gray-50 p-3">
+              <dt className="text-xs font-bold text-gray-400">Working schedule</dt>
+              <dd className="mt-1 text-sm font-extrabold text-gray-900">
+                {profile.workingDaysPerMonth || 26} days · {profile.workingHoursPerDay || 8} hrs/day
+              </dd>
+            </div>
+            <div className="rounded-xl bg-gray-50 p-3">
+              <dt className="text-xs font-bold text-gray-400">Effective from</dt>
+              <dd className="mt-1 text-sm font-extrabold text-gray-900">{dateText(profile.effectiveFrom)}</dd>
+            </div>
+            <div className="rounded-xl bg-gray-50 p-3">
+              <dt className="text-xs font-bold text-gray-400">Effective to</dt>
+              <dd className="mt-1 text-sm font-extrabold text-gray-900">
+                {profile.effectiveTo ? dateText(profile.effectiveTo) : "Current"}
+              </dd>
+            </div>
+          </dl>
+        </div>
+
+        <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700">
+              <HIcon icon={SecurityCheckIcon} />
+            </span>
+            <div>
+              <p className="text-sm font-extrabold text-gray-900">Attendance rules</p>
+              <p className="text-xs font-semibold text-gray-500">Rules applied during payroll calculation</p>
+            </div>
+          </div>
+          <div className="flex min-h-12 flex-wrap content-start gap-2">
+            {rules.length ? rules.map((item) => <RulePill key={item.key} item={item} />) : (
+              <p className="text-sm font-semibold text-gray-400">No active attendance rules.</p>
+            )}
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-xl bg-gray-50 p-3">
+              <p className="text-xs font-bold text-gray-400">Weekly holiday paid</p>
+              <p className="mt-1 text-sm font-extrabold text-gray-900">{safeRules(profile.rules).weeklyHolidayPaid ? "Yes" : "No"}</p>
+            </div>
+            <div className="rounded-xl bg-gray-50 p-3">
+              <p className="text-xs font-bold text-gray-400">Paid leave allowed</p>
+              <p className="mt-1 text-sm font-extrabold text-gray-900">{safeRules(profile.rules).paidLeaveAllowed ? "Yes" : "No"}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-extrabold text-gray-900">Salary components</p>
+            <p className="text-xs font-semibold text-gray-500">Active recurring earnings and deductions</p>
+          </div>
+          <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-extrabold text-indigo-700">
+            {components.length} items
+          </span>
+        </div>
+
+        {components.length ? (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {components.map((item, index) => (
+              <div key={item._id || `${item.name}-${index}`} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-extrabold text-gray-900">{item.name || "Unnamed component"}</p>
+                    <p className="mt-1 text-xs font-semibold text-gray-500">
+                      {pretty(item.calculationType)} · based on {pretty(item.basedOn)}
+                    </p>
+                  </div>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-extrabold ${item.type === "earning" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+                    {item.type === "earning" ? "+" : "-"} {item.calculationType === "percentage" ? `${Number(item.value || 0)}%` : money(item.value, profile.currency)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-sm font-semibold text-gray-400">
+            No active salary components.
+          </div>
+        )}
+      </div>
+
+      {profile.note ? (
+        <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+          <p className="text-xs font-extrabold uppercase tracking-wide text-amber-600">Internal note</p>
+          <p className="mt-1.5 whitespace-pre-wrap text-sm font-semibold leading-6 text-amber-900">{profile.note}</p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export default function AdminSalaryPage() {
   const [profiles, setProfiles] = useState([])
   const [loading, setLoading] = useState(false)
@@ -534,6 +1016,7 @@ export default function AdminSalaryPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(emptyForm)
+  const [viewProfile, setViewProfile] = useState(null)
   const [deleteState, setDeleteState] = useState({ open: false, profile: null, loading: false })
   const [deactivateState, setDeactivateState] = useState({ open: false, profile: null, date: new Date().toISOString().slice(0, 10), loading: false })
 
@@ -581,7 +1064,7 @@ export default function AdminSalaryPage() {
     return entries
   }, [employeeFilter, filters, departments, positions])
 
-  const activeFilterCount = activeFilterEntries.length
+  const activeFilterCount = activeFilterEntries.length + (searchText.trim() ? 1 : 0)
 
   const updateFilterDraft = (key, value) => {
     setFilterDraft((prev) => ({
@@ -838,7 +1321,7 @@ export default function AdminSalaryPage() {
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
-                <FiCreditCard className="h-5 w-5" />
+                <HIcon icon={CreditCardIcon} className="h-5 w-5" />
               </div>
               <div>
                 <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Salary Profiles</h1>
@@ -849,74 +1332,30 @@ export default function AdminSalaryPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button className={`${btn} ${btnGhost}`} onClick={() => loadProfiles(page)} disabled={loading}>
-                <FiRefreshCcw className={loading ? "animate-spin" : ""} />
+                <HIcon icon={RefreshIcon} className={loading ? "animate-spin" : ""} />
                 Refresh
               </button>
               <button className={`${btn} ${btnPrimary}`} onClick={openCreate}>
-                <FiPlus />
+                <HIcon icon={Add01Icon} />
                 New Salary Profile
               </button>
             </div>
           </div>
 
           <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="w-full max-w-4xl">
-              <div className="flex min-h-[46px] w-full flex-wrap items-center gap-2 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-3 py-1.5 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
-                <FiSearch className="h-4 w-4 shrink-0 text-gray-400" />
-
-                {activeFilterEntries.map((filter) => (
-                  <button
-                    key={filter.key}
-                    type="button"
-                    className="inline-flex max-w-[170px] items-center gap-2 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-extrabold text-indigo-700 ring-1 ring-indigo-600/10 transition hover:bg-indigo-100"
-                    onClick={() => clearSingleFilter(filter.key)}
-                    title="Remove filter"
-                  >
-                    <span className="truncate">
-                      <span className="text-indigo-500">{filter.label}:</span> {filter.value}
-                    </span>
-                    <FiX className="h-3.5 w-3.5 shrink-0" />
-                  </button>
-                ))}
-
-                <input
-                  value={searchText}
-                  onChange={(event) => setSearchText(event.target.value)}
-                  placeholder={activeFilterCount ? "Search profiles..." : "Search salary profiles..."}
-                  className="min-w-[150px] flex-1 border-0 bg-transparent px-1 py-2 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:outline-none focus:ring-0"
-                  type="text"
-                />
-
-                <button
-                  type="button"
-                  className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-extrabold transition ${
-                    activeFilterCount
-                      ? "bg-indigo-600 text-white hover:bg-indigo-700"
-                      : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
-                  }`}
-                  onClick={() => {
-                    setFilterDraft(filters)
-                    setEmployeeDraft(employeeFilter)
-                    setFiltersOpen(true)
-                  }}
-                >
-                  <FiFilter className="h-4 w-4" />
-                  Filters
-                  {activeFilterCount ? <span className="rounded-full bg-white/20 px-1.5 text-xs">{activeFilterCount}</span> : null}
-                </button>
-
-                {(searchText || activeFilterCount) ? (
-                  <button
-                    type="button"
-                    className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
-                    onClick={resetFilters}
-                    title="Clear search and filters"
-                  >
-                    <FiX className="h-4 w-4" />
-                  </button>
-                ) : null}
-              </div>
-            </div>
+            <SalaryHeaderSearchFilters
+              searchText={searchText}
+              onSearchChange={setSearchText}
+              activeFilterEntries={activeFilterEntries}
+              activeFilterCount={activeFilterCount}
+              onClearFilter={clearSingleFilter}
+              onReset={resetFilters}
+              onOpenFilters={() => {
+                setFilterDraft(filters)
+                setEmployeeDraft(employeeFilter)
+                setFiltersOpen(true)
+              }}
+            />
 
             <p className="text-sm font-bold text-gray-500">
               Showing <span className="text-gray-900">{visibleProfiles.length}</span> of <span className="text-gray-900">{total}</span> profiles
@@ -932,7 +1371,7 @@ export default function AdminSalaryPage() {
                 <p className="mt-2 text-2xl font-extrabold text-gray-900">{total}</p>
               </div>
               <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10">
-                <FiFileText />
+                <HIcon icon={File02Icon} />
               </span>
             </div>
           </div>
@@ -943,7 +1382,7 @@ export default function AdminSalaryPage() {
                 <p className="mt-2 text-2xl font-extrabold text-emerald-700">{totals.active}</p>
               </div>
               <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/10">
-                <FiCheck />
+                <HIcon icon={CheckmarkCircle02Icon} />
               </span>
             </div>
           </div>
@@ -954,7 +1393,7 @@ export default function AdminSalaryPage() {
                 <p className="mt-2 text-2xl font-extrabold text-gray-900">{money(totals.payroll)}</p>
               </div>
               <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10">
-                <FiDollarSign />
+                <HIcon icon={Dollar01Icon} />
               </span>
             </div>
           </div>
@@ -965,129 +1404,154 @@ export default function AdminSalaryPage() {
                 <p className="mt-2 text-2xl font-extrabold text-gray-900">{money(totals.avg)}</p>
               </div>
               <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-50 text-amber-700 ring-1 ring-amber-600/10">
-                <FiActivity />
+                <HIcon icon={Activity01Icon} />
               </span>
             </div>
           </div>
         </div>
 
-        <section className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-[0_18px_45px_-34px_rgba(15,23,42,0.45)]">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1180px] border-separate border-spacing-0 text-left">
-              <thead>
+        <section className={`${card} overflow-hidden`}>
+          <div className="hidden h-[620px] overflow-auto xl:block">
+            <table className="min-w-full border-separate border-spacing-0 text-left">
+              <thead className="sticky top-0 z-20 bg-gray-50/95 backdrop-blur">
                 <tr>
-                  {["Employee", "Salary", "Preview", "Rules", "Effective", "Status", "Actions"].map((heading) => (
-                    <th
-                      key={heading}
-                      className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-extrabold uppercase tracking-[0.06em] text-gray-600"
-                    >
-                      {heading}
-                    </th>
-                  ))}
+                  <th className="whitespace-nowrap border-b border-gray-100 px-5 py-3 text-[11px] font-extrabold uppercase tracking-[0.08em] text-gray-400">Employee</th>
+                  <th className="whitespace-nowrap border-b border-gray-100 px-5 py-3 text-[11px] font-extrabold uppercase tracking-[0.08em] text-gray-400">Compensation</th>
+                  <th className="whitespace-nowrap border-b border-gray-100 px-5 py-3 text-[11px] font-extrabold uppercase tracking-[0.08em] text-gray-400">Monthly preview</th>
+                  <th className="whitespace-nowrap border-b border-gray-100 px-5 py-3 text-[11px] font-extrabold uppercase tracking-[0.08em] text-gray-400">Attendance rules</th>
+                  <th className="whitespace-nowrap border-b border-gray-100 px-5 py-3 text-[11px] font-extrabold uppercase tracking-[0.08em] text-gray-400">Effective period</th>
+                  <th className="whitespace-nowrap border-b border-gray-100 px-5 py-3 text-[11px] font-extrabold uppercase tracking-[0.08em] text-gray-400">Status</th>
+                  <th
+                    className="sticky right-0 z-30 whitespace-nowrap border-b border-l border-gray-100 bg-gray-50/95 px-5 py-3 text-right text-[11px] font-extrabold uppercase tracking-[0.08em] text-gray-400 shadow-none drop-shadow-none"
+                    style={{ boxShadow: "none", filter: "none" }}
+                  >
+                    Actions
+                  </th>
                 </tr>
               </thead>
+
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="px-5 py-12 text-center text-sm font-bold text-gray-500">
-                      Loading salary profiles...
+                    <td colSpan={7} className="bg-white px-5 py-16 text-center">
+                      <div className="mx-auto flex max-w-xs flex-col items-center gap-3">
+                        <HIcon icon={RefreshIcon} className="animate-spin text-indigo-600" size={24} />
+                        <p className="text-sm font-bold text-gray-500">Loading salary profiles...</p>
+                      </div>
                     </td>
                   </tr>
                 ) : visibleProfiles.length ? (
                   visibleProfiles.map((profile) => {
                     const employee = profile.employee || {}
                     const preview = calculatePreview(profile)
-                    const rules = safeRules(profile.rules || {})
+                    const activeRules = salaryRuleItems(profile.rules)
+
                     return (
-                      <tr key={profile._id} className="group align-top">
-                        <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40">
-                          <div className="flex items-center gap-3">
+                      <tr
+                        key={profile._id}
+                        className="group cursor-default transition hover:bg-gray-50/80"
+                        onDoubleClick={() => setViewProfile(profile)}
+                      >
+                        <td className="border-b border-gray-100 px-5 py-4 align-middle">
+                          <div className="flex min-w-[240px] items-center gap-3">
                             <EmployeeAvatar employee={employee} />
                             <div className="min-w-0">
-                              <p className="truncate text-base font-extrabold text-gray-900">{employee.name || "Unnamed"}</p>
-                              <p className="truncate text-sm font-semibold text-gray-500">{employee.email || "No email"}</p>
+                              <p className="truncate text-sm font-extrabold text-gray-900">{employee.name || "Unnamed employee"}</p>
+                              <p className="mt-0.5 truncate text-xs font-semibold text-gray-500">{employee.email || "No email"}</p>
                               <p className="mt-1 truncate text-xs font-extrabold text-indigo-600">
                                 {employee.department?.name || "No department"} · {employee.position?.title || "No position"}
                               </p>
                             </div>
                           </div>
                         </td>
-                        <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40">
-                          <p className="text-base font-extrabold text-gray-900">{money(profile.basicSalary, profile.currency)}</p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-extrabold text-gray-700 ring-1 ring-gray-200">
-                              {pretty(profile.salaryType)}
-                            </span>
-                            <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-extrabold text-indigo-700 ring-1 ring-indigo-600/10">
-                              {profile.workingDaysPerMonth || 26} days · {profile.workingHoursPerDay || 8} hrs
-                            </span>
+
+                        <td className="border-b border-gray-100 px-5 py-4 align-middle">
+                          <div className="min-w-[185px]">
+                            <p className="text-base font-extrabold text-gray-900">{money(profile.basicSalary, profile.currency)}</p>
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-extrabold text-gray-700 ring-1 ring-gray-200">
+                                {pretty(profile.salaryType)}
+                              </span>
+                              <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-extrabold text-indigo-700 ring-1 ring-indigo-600/10">
+                                {profile.workingDaysPerMonth || 26}d · {profile.workingHoursPerDay || 8}h
+                              </span>
+                            </div>
                           </div>
                         </td>
-                        <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40">
-                          <div className="space-y-1 text-sm font-bold text-gray-600">
-                            <p>Gross: <span className="text-gray-900">{money(preview.grossSalary, profile.currency)}</span></p>
-                            <p>Deduction: <span className="text-rose-700">{money(preview.fixedDeductions, profile.currency)}</span></p>
-                            <p>Net: <span className="text-emerald-700">{money(preview.netSalary, profile.currency)}</span></p>
+
+                        <td className="border-b border-gray-100 px-5 py-4 align-middle">
+                          <div className="min-w-[205px] rounded-2xl bg-gray-50 p-3 ring-1 ring-gray-100">
+                            <div className="flex items-center justify-between gap-4">
+                              <span className="text-xs font-bold text-gray-500">Gross</span>
+                              <span className="text-sm font-extrabold text-gray-900">{money(preview.grossSalary, profile.currency)}</span>
+                            </div>
+                            <div className="mt-2 flex items-center justify-between gap-4">
+                              <span className="text-xs font-bold text-gray-500">Deduction</span>
+                              <span className="text-sm font-extrabold text-rose-700">{money(preview.fixedDeductions, profile.currency)}</span>
+                            </div>
+                            <div className="mt-2 border-t border-gray-200 pt-2">
+                              <div className="flex items-center justify-between gap-4">
+                                <span className="text-xs font-extrabold text-emerald-700">Net</span>
+                                <span className="text-sm font-extrabold text-emerald-700">{money(preview.netSalary, profile.currency)}</span>
+                              </div>
+                            </div>
                           </div>
                         </td>
-                        <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40">
-                          <div className="flex flex-wrap gap-2">
-                            {rules.overtime.enabled ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-extrabold text-emerald-700">Overtime</span> : null}
-                            {rules.lateDeduction.enabled ? <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-extrabold text-amber-700">Late</span> : null}
-                            {rules.absentDeduction.enabled ? <span className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-extrabold text-rose-700">Absent</span> : null}
-                            {rules.unpaidLeaveDeduction.enabled ? <span className="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-extrabold text-rose-700">Unpaid Leave</span> : null}
-                            {!rules.overtime.enabled && !rules.lateDeduction.enabled && !rules.absentDeduction.enabled && !rules.unpaidLeaveDeduction.enabled ? (
-                              <span className="text-sm font-semibold text-gray-400">No active rules</span>
-                            ) : null}
-                          </div>
-                        </td>
-                        <td className="border-b border-gray-100 px-5 py-4 text-sm font-bold text-gray-600 group-hover:bg-indigo-50/40">
-                          <p>{dateText(profile.effectiveFrom)}</p>
-                          <p className="mt-1 text-xs text-gray-400">To: {dateText(profile.effectiveTo)}</p>
-                        </td>
-                        <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40">
-                          <StatusBadge active={profile.isActive !== false} />
-                        </td>
-                        <td className="border-b border-gray-100 px-5 py-4 text-right group-hover:bg-indigo-50/40">
-                          <div className="flex justify-end gap-2">
-                            <button
-                              className="inline-flex rounded-xl p-2.5 text-indigo-600 transition hover:bg-indigo-50"
-                              onClick={() => openEdit(profile)}
-                              title="Edit salary profile"
-                              type="button"
-                            >
-                              <FiEdit3 />
-                            </button>
-                            {profile.isActive ? (
-                              <button
-                                className="inline-flex rounded-xl p-2.5 text-amber-700 transition hover:bg-amber-50"
-                                onClick={() => setDeactivateState({ open: true, profile, date: new Date().toISOString().slice(0, 10), loading: false })}
-                                title="Deactivate profile"
-                                type="button"
-                              >
-                                <FiShield />
-                              </button>
+
+                        <td className="border-b border-gray-100 px-5 py-4 align-middle">
+                          <div className="flex min-w-[180px] flex-wrap gap-2">
+                            {activeRules.length ? (
+                              <>
+                                {activeRules.slice(0, 2).map((item) => <RulePill key={item.key} item={item} />)}
+                                {activeRules.length > 2 ? (
+                                  <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-xs font-extrabold text-gray-600 ring-1 ring-gray-200">
+                                    +{activeRules.length - 2} more
+                                  </span>
+                                ) : null}
+                              </>
                             ) : (
-                              <button
-                                className="inline-flex rounded-xl p-2.5 text-rose-600 transition hover:bg-rose-50"
-                                onClick={() => setDeleteState({ open: true, profile, loading: false })}
-                                title="Delete profile"
-                                type="button"
-                              >
-                                <FiTrash2 />
-                              </button>
+                              <span className="text-sm font-semibold text-gray-400">No active rules</span>
                             )}
                           </div>
+                        </td>
+
+                        <td className="border-b border-gray-100 px-5 py-4 align-middle">
+                          <div className="min-w-[150px]">
+                            <div className="flex items-center gap-2 text-sm font-extrabold text-gray-800">
+                              <HIcon icon={Calendar03Icon} className="text-gray-400" />
+                              {dateText(profile.effectiveFrom)}
+                            </div>
+                            <p className="mt-1.5 pl-6 text-xs font-semibold text-gray-400">
+                              {profile.effectiveTo ? `Until ${dateText(profile.effectiveTo)}` : "Current profile"}
+                            </p>
+                          </div>
+                        </td>
+
+                        <td className="border-b border-gray-100 px-5 py-4 align-middle">
+                          <StatusBadge active={profile.isActive !== false} />
+                        </td>
+
+                        <td
+                          className="sticky right-0 z-10 border-b border-l border-gray-100 bg-white px-5 py-4 text-right align-middle shadow-none drop-shadow-none group-hover:bg-gray-50"
+                          style={{ boxShadow: "none", filter: "none" }}
+                        >
+                          <SalaryRowActionMenu
+                            profile={profile}
+                            onView={setViewProfile}
+                            onEdit={openEdit}
+                            onDeactivate={(selected) => setDeactivateState({ open: true, profile: selected, date: new Date().toISOString().slice(0, 10), loading: false })}
+                            onDelete={(selected) => setDeleteState({ open: true, profile: selected, loading: false })}
+                          />
                         </td>
                       </tr>
                     )
                   })
                 ) : (
                   <tr>
-                    <td colSpan={7} className="px-5 py-12 text-center">
+                    <td colSpan={7} className="bg-white px-5 py-16 text-center">
                       <div className="mx-auto flex max-w-sm flex-col items-center">
                         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10">
-                          <FiCreditCard className="h-5 w-5" />
+                          <HIcon icon={CreditCardIcon} size={22} />
                         </div>
                         <p className="mt-3 text-sm font-extrabold text-gray-900">No salary profiles found</p>
                         <p className="mt-1 text-sm font-semibold text-gray-500">Create a salary profile or change your filters.</p>
@@ -1099,9 +1563,39 @@ export default function AdminSalaryPage() {
             </table>
           </div>
 
-          <div className="flex flex-col gap-3 border-t border-gray-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm font-bold text-gray-700">
-              Page {page} of {totalPages} · {total} total profiles
+          <div className="space-y-3 p-4 xl:hidden">
+            {loading ? (
+              <div className="flex min-h-48 items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50">
+                <div className="flex items-center gap-2 text-sm font-bold text-gray-500">
+                  <HIcon icon={RefreshIcon} className="animate-spin text-indigo-600" />
+                  Loading salary profiles...
+                </div>
+              </div>
+            ) : visibleProfiles.length ? (
+              visibleProfiles.map((profile) => (
+                <SalaryMobileCard
+                  key={profile._id}
+                  profile={profile}
+                  onView={setViewProfile}
+                  onEdit={openEdit}
+                  onDeactivate={(selected) => setDeactivateState({ open: true, profile: selected, date: new Date().toISOString().slice(0, 10), loading: false })}
+                  onDelete={(selected) => setDeleteState({ open: true, profile: selected, loading: false })}
+                />
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-indigo-700 shadow-sm">
+                  <HIcon icon={CreditCardIcon} size={22} />
+                </div>
+                <p className="mt-3 text-sm font-extrabold text-gray-900">No salary profiles found</p>
+                <p className="mt-1 text-sm font-semibold text-gray-500">Create a salary profile or change your filters.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-3 border-t border-gray-100 bg-gray-50/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-bold text-gray-600">
+              Page <span className="text-gray-900">{page}</span> of <span className="text-gray-900">{totalPages}</span> · {total} total profiles
             </p>
             <div className="flex gap-2">
               <button
@@ -1110,7 +1604,7 @@ export default function AdminSalaryPage() {
                 onClick={() => loadProfiles(page - 1)}
                 type="button"
               >
-                <FiChevronLeft />
+                <HIcon icon={ArrowLeft01Icon} />
                 Previous
               </button>
               <button
@@ -1120,7 +1614,7 @@ export default function AdminSalaryPage() {
                 type="button"
               >
                 Next
-                <FiChevronRight />
+                <HIcon icon={ArrowRight01Icon} />
               </button>
             </div>
           </div>
@@ -1128,10 +1622,40 @@ export default function AdminSalaryPage() {
       </div>
 
       <Modal
+        open={Boolean(viewProfile)}
+        title="Salary Profile Details"
+        subtitle={viewProfile?.employee?.name || "Review employee compensation and salary rules"}
+        icon={<HIcon icon={ViewIcon} size={20} />}
+        onClose={() => setViewProfile(null)}
+        maxWidthClass="max-w-5xl"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <button className={`${btn} ${btnGhost}`} type="button" onClick={() => setViewProfile(null)}>
+              Close
+            </button>
+            <button
+              className={`${btn} ${btnPrimary}`}
+              type="button"
+              onClick={() => {
+                const selected = viewProfile
+                setViewProfile(null)
+                window.requestAnimationFrame(() => selected && openEdit(selected))
+              }}
+            >
+              <HIcon icon={PencilEdit02Icon} />
+              Edit Profile
+            </button>
+          </div>
+        }
+      >
+        <SalaryProfileDetails profile={viewProfile} />
+      </Modal>
+
+      <Modal
         open={filtersOpen}
         title="Salary Filters"
         subtitle="Filter salary profiles by employee, department, position, and status."
-        icon={<FiFilter className="h-5 w-5" />}
+        icon={<HIcon icon={FilterIcon} className="h-5 w-5" />}
         onClose={() => setFiltersOpen(false)}
         maxWidthClass="max-w-4xl"
         footer={
@@ -1212,7 +1736,7 @@ export default function AdminSalaryPage() {
         open={modalOpen}
         title={editing ? "Edit Salary Profile" : "Create Salary Profile"}
         subtitle="Assign base salary, components, overtime and deduction rules."
-        icon={<FiCreditCard className="h-5 w-5" />}
+        icon={<HIcon icon={CreditCardIcon} className="h-5 w-5" />}
         onClose={closeModal}
         footer={
           <div className="flex justify-end gap-2">
@@ -1228,7 +1752,7 @@ export default function AdminSalaryPage() {
             <div className="space-y-4">
               <div className={`${card} p-4`}>
                 <div className="mb-4 flex items-center gap-2">
-                  <FiUser className="text-indigo-600" />
+                  <HIcon icon={UserIcon} className="text-indigo-600" />
                   <h3 className="text-sm font-extrabold text-gray-900">Employee & Salary Setup</h3>
                 </div>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -1314,7 +1838,7 @@ export default function AdminSalaryPage() {
               <div className={`${card} p-4`}>
                 <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-2">
-                    <FiPlus className="text-indigo-600" />
+                    <HIcon icon={Add01Icon} className="text-indigo-600" />
                     <h3 className="text-sm font-extrabold text-gray-900">Earnings & Deductions</h3>
                   </div>
                   <button
@@ -1322,7 +1846,7 @@ export default function AdminSalaryPage() {
                     className={`${btn} ${btnGhost}`}
                     onClick={() => updateForm("components", [...form.components, { ...emptyComponent }])}
                   >
-                    <FiPlus />
+                    <HIcon icon={Add01Icon} />
                     Add Component
                   </button>
                 </div>
@@ -1359,7 +1883,7 @@ export default function AdminSalaryPage() {
                             onClick={() => removeComponent(index)}
                             title="Remove"
                           >
-                            <FiTrash2 />
+                            <HIcon icon={Delete02Icon} />
                           </button>
                         </div>
                         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -1389,13 +1913,13 @@ export default function AdminSalaryPage() {
 
               <div className={`${card} p-4`}>
                 <div className="mb-4 flex items-center gap-2">
-                  <FiShield className="text-indigo-600" />
+                  <HIcon icon={SecurityCheckIcon} className="text-indigo-600" />
                   <h3 className="text-sm font-extrabold text-gray-900">Attendance Salary Rules</h3>
                 </div>
                 <div className="space-y-4">
                   <RuleCard
                     title="Overtime Earning"
-                    icon={<FiTrendingUp />}
+                    icon={<HIcon icon={ArrowUp02Icon} />}
                     value={form.rules.overtime}
                     onChange={(value) => updateRule("overtime", value)}
                     calculationOptions={[
@@ -1406,7 +1930,7 @@ export default function AdminSalaryPage() {
                   />
                   <RuleCard
                     title="Late Deduction"
-                    icon={<FiActivity />}
+                    icon={<HIcon icon={Activity01Icon} />}
                     value={form.rules.lateDeduction}
                     onChange={(value) => updateRule("lateDeduction", value)}
                     showGrace
@@ -1418,7 +1942,7 @@ export default function AdminSalaryPage() {
                   />
                   <RuleCard
                     title="Absent Deduction"
-                    icon={<FiTrendingDown />}
+                    icon={<HIcon icon={ArrowDown02Icon} />}
                     value={form.rules.absentDeduction}
                     onChange={(value) => updateRule("absentDeduction", value)}
                     calculationOptions={[
@@ -1429,7 +1953,7 @@ export default function AdminSalaryPage() {
                   />
                   <RuleCard
                     title="Unpaid Leave Deduction"
-                    icon={<FiCalendar />}
+                    icon={<HIcon icon={Calendar03Icon} />}
                     value={form.rules.unpaidLeaveDeduction}
                     onChange={(value) => updateRule("unpaidLeaveDeduction", value)}
                     calculationOptions={[
@@ -1518,7 +2042,7 @@ export default function AdminSalaryPage() {
         open={deactivateState.open}
         title="Deactivate Salary Profile"
         subtitle={deactivateState.profile?.employee?.name || "Close this active profile"}
-        icon={<FiShield className="h-5 w-5" />}
+        icon={<HIcon icon={SecurityCheckIcon} className="h-5 w-5" />}
         onClose={() => !deactivateState.loading && setDeactivateState({ open: false, profile: null, date: new Date().toISOString().slice(0, 10), loading: false })}
         maxWidthClass="max-w-md"
         footer={
@@ -1556,7 +2080,7 @@ export default function AdminSalaryPage() {
         open={deleteState.open}
         title="Delete Salary Profile"
         subtitle={deleteState.profile?.employee?.name || "Delete inactive salary profile"}
-        icon={<FiTrash2 className="h-5 w-5" />}
+        icon={<HIcon icon={Delete02Icon} className="h-5 w-5" />}
         onClose={() => !deleteState.loading && setDeleteState({ open: false, profile: null, loading: false })}
         maxWidthClass="max-w-md"
         footer={

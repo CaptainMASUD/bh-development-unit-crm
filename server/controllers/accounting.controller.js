@@ -19,6 +19,7 @@ import { accountingCache } from "../utils/cache.js";
 import { getReqMeta, writeAudit } from "../utils/audit.js";
 import { nextAccountingNumber } from "../services/accountingNumbering.service.js";
 import { createPostedJournal } from "../services/accountingPosting.service.js";
+import { provisionSystemAccounts } from "../services/accountingSetup.service.js";
 
 const money = (value) => Math.round(Number(value || 0) * 100) / 100;
 const clean = (value) => String(value ?? "").trim();
@@ -123,34 +124,6 @@ const DEFAULT_VOUCHER_TYPES = [
 ];
 const numberingRuleForVoucher = async (voucherType) => (await VoucherType.findOne({ key: voucherType, isActive: true }).select("numberingRule").lean())?.numberingRule || (voucherType === "journal" ? "journal" : "voucher");
 
-const SYSTEM_ACCOUNTS = [
-  { code: "A000", name: "ASSETS", type: "asset", subType: "Asset", isGroup: true },
-  { code: "L000", name: "LIABILITIES", type: "liability", subType: "Liability", isGroup: true },
-  { code: "E000", name: "EQUITY", type: "equity", subType: "Equity", isGroup: true },
-  { code: "I000", name: "INCOME", type: "revenue", subType: "Income", isGroup: true },
-  { code: "X000", name: "EXPENSES", type: "expense", subType: "Expense", isGroup: true },
-  { code: "1000", name: "Cash on Hand", type: "asset", subType: "Current Asset", parentCode: "A000" },
-  { code: "1010", name: "Bank Account", type: "asset", subType: "Current Asset", parentCode: "A000" },
-  { code: "1100", name: "Accounts Receivable", type: "asset", subType: "Current Asset", parentCode: "A000", isControlAccount: true, controlType: "receivable" },
-  { code: "1200", name: "Input VAT / Tax Receivable", type: "asset", subType: "Current Asset", parentCode: "A000", isControlAccount: true, controlType: "tax" },
-  { code: "1300", name: "Inventory", type: "asset", subType: "Current Asset", parentCode: "A000", isControlAccount: true, controlType: "inventory", description: "Inventory control account for the value of stock on hand." },
-  { code: "1500", name: "Furniture", type: "asset", subType: "Fixed Asset", parentCode: "A000", description: "Furniture and fixtures used in business operations." },
-  { code: "2000", name: "Accounts Payable", type: "liability", subType: "Current Liability", parentCode: "L000", isControlAccount: true, controlType: "payable" },
-  { code: "2100", name: "Output VAT / Tax Payable", type: "liability", subType: "Current Liability", parentCode: "L000", isControlAccount: true, controlType: "tax" },
-  { code: "2200", name: "Payroll Payable", type: "liability", subType: "Current Liability", parentCode: "L000" },
-  { code: "2300", name: "Loan", type: "liability", subType: "Long-term Liability", parentCode: "L000", description: "Outstanding long-term loan principal payable." },
-  { code: "3000", name: "Owner Equity", type: "equity", subType: "Capital", parentCode: "E000" },
-  { code: "3100", name: "Opening Balance Equity", type: "equity", subType: "Equity", parentCode: "E000" },
-  { code: "3200", name: "Retained Earnings", type: "equity", subType: "Retained Earnings", parentCode: "E000" },
-  { code: "4000", name: "Sales Revenue", type: "revenue", subType: "Operating Income", parentCode: "I000" },
-  { code: "5000", name: "Operating Expense", type: "expense", subType: "Indirect Expense", parentCode: "X000" },
-  { code: "5010", name: "Purchases", type: "expense", subType: "Direct Expense", parentCode: "X000" },
-  { code: "5100", name: "Payroll Expense", type: "expense", subType: "Indirect Expense", parentCode: "X000" },
-  { code: "5110", name: "Salary Expense", type: "expense", subType: "Indirect Expense", parentCode: "X000" },
-  { code: "5120", name: "Rent Expense", type: "expense", subType: "Indirect Expense", parentCode: "X000" },
-  { code: "5200", name: "Tax Expense", type: "expense", subType: "Indirect Expense", parentCode: "X000" },
-];
-
 const CORE_SYSTEM_ACCOUNT_CODES = new Set(["A000", "L000", "E000", "I000", "X000"]);
 const SYSTEM_ACCOUNT_LOCKED_FIELDS = new Set([
   "code",
@@ -193,7 +166,11 @@ const resolveSystemAccount = async (code) => {
       if (account) return account._id;
     }
   }
-  const account = await Account.findOne({ code: String(code), isActive: true }).lean();
+  let account = await Account.findOne({ code: String(code), isActive: true }).lean();
+  if (!account) {
+    await provisionSystemAccounts();
+    account = await Account.findOne({ code: String(code), isActive: true }).lean();
+  }
   if (!account) throw new Error(`Missing system account ${code}. Run /api/accounting/accounts/bootstrap first.`);
   return account._id;
 };
@@ -257,7 +234,17 @@ const assertPostableAccounts = async (lines = []) => {
   const childSet = new Set(childParents.map(String));
   const publishedRequired = Boolean(await AccountingSettings.exists({ key: "company", coaPublishedAt: { $ne: null } }));
   const invalid = accounts.find((account) => !account.isActive || account.isGroup || childSet.has(String(account._id)) || (publishedRequired && !account.publishedAt));
-  if (invalid) { const err = new Error(`Account ${invalid.code} - ${invalid.name} is not an active, published leaf account and cannot receive postings.`); err.statusCode = 400; throw err; }
+  if (invalid) {
+    let suggestion = "Activate the account and publish the Chart of Accounts before trying again.";
+    if (invalid.isGroup || childSet.has(String(invalid._id))) {
+      suggestion = "Use one of its active leaf accounts, or correct the hierarchy in Chart of Accounts and publish it again.";
+    } else if (publishedRequired && !invalid.publishedAt) {
+      suggestion = "Publish the Chart of Accounts, then reload Opening Balance and try again.";
+    }
+    const err = new Error(`Account ${invalid.code} - ${invalid.name} cannot receive an opening balance. ${suggestion}`);
+    err.statusCode = 400;
+    throw err;
+  }
 };
 
 const postJournalEntry = async ({
@@ -946,22 +933,10 @@ export const getProfitLoss = async (req, res) => {
 
 export const bootstrapChartOfAccounts = async (req, res) => {
   try {
-    const created = [];
-    const updated = [];
-    const ordered = [...SYSTEM_ACCOUNTS].sort((a, b) => Number(Boolean(a.parentCode)) - Number(Boolean(b.parentCode)));
-    for (const source of ordered) {
-      const item = { ...source };
-      delete item.parentCode;
-      if (source.parentCode) item.parent = (await Account.findOne({ code: source.parentCode }).select("_id").lean())?._id || null;
-      const existing = await Account.findOne({ code: item.code });
-      if (existing) {
-        existing.set({ ...item, isSystem: true, isActive: existing.isActive !== false, updatedBy: req.user?._id || null });
-        await existing.save();
-        updated.push(existing);
-      } else {
-        created.push(await Account.create({ ...item, isSystem: true, createdBy: req.user?._id || null }));
-      }
-    }
+    const { created, updated } = await provisionSystemAccounts({
+      userId: req.user?._id || null,
+      updateExisting: true,
+    });
     return res.json({ message: "Chart of accounts bootstrapped.", created: created.length, updated: updated.length });
   } catch (error) {
     return res.status(500).json({ message: "Failed to bootstrap accounts.", error: error.message });
@@ -1321,6 +1296,7 @@ export const createFiscalYear = async (req, res) => {
 
 export const listAccounts = async (req, res) => {
   try {
+    await provisionSystemAccounts({ userId: req.user?._id || null });
     const requestedLimit = Number(req.query.limit || 200);
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 500) : 200;
     const filter = {};
@@ -1335,6 +1311,24 @@ export const listAccounts = async (req, res) => {
       .sort({ type: 1, code: 1, _id: 1 })
       .limit(limit)
       .lean();
+    const [linkedBankLedgerIds, activeChildParentIds] = accounts.length
+      ? await Promise.all([
+          BankAccount.distinct("ledgerAccount", {
+            ledgerAccount: { $in: accounts.map((account) => account._id) },
+          }),
+          Account.distinct("parent", {
+            parent: { $in: accounts.map((account) => account._id) },
+            isActive: true,
+          }),
+        ])
+      : [[], []];
+    const linkedBankLedgerSet = new Set(linkedBankLedgerIds.map(String));
+    const activeChildParentSet = new Set(activeChildParentIds.map(String));
+    for (const account of accounts) {
+      account.isBankManaged =
+        account.code === "1010" || linkedBankLedgerSet.has(String(account._id));
+      account.hasActiveChildren = activeChildParentSet.has(String(account._id));
+    }
     if (String(req.query.includeBalances) === "true" && accounts.length) {
       const balances = await JournalEntry.aggregate([
         { $match: { status: { $in: ACTIVE_LEDGER_STATUSES } } },
@@ -2442,7 +2436,15 @@ export const postOpeningBalances = async (req, res) => {
     return res.status(201).json({ message: "Opening balance saved as draft.", openingBalance });
   } catch (error) {
     const status = error?.code === 11000 ? 409 : error.statusCode || 500;
-    return res.status(status).json({ message: status === 409 ? "An opening balance already exists for this fiscal year." : "Failed to save opening balance.", error: error.message });
+    return res.status(status).json({
+      message:
+        status === 409
+          ? "An opening balance already exists for this fiscal year."
+          : error?.statusCode
+            ? error.message
+            : "Failed to save opening balance.",
+      error: error.message,
+    });
   }
 };
 

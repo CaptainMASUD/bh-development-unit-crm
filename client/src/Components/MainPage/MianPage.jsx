@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { forwardRef, useEffect, useMemo, useRef, useState } from "react"
 import { useDispatch, useSelector } from "react-redux"
 import { useNavigate } from "react-router-dom"
 import { AnimatePresence, motion } from "framer-motion"
@@ -14,7 +14,6 @@ import {
   Home01Icon,
   Layers01Icon,
   Search01Icon,
-  ShoppingBag01Icon,
   Logout03Icon,
 } from "@hugeicons/core-free-icons"
 import suitelogo from "../../assets/logo/textsuitelogo.png"
@@ -23,6 +22,7 @@ import administrationIcon from "../../assets/icon-pack/administration.png"
 import crmIcon from "../../assets/icon-pack/crm.png"
 import inventoryIcon from "../../assets/icon-pack/inventory.png"
 import payrollIcon from "../../assets/icon-pack/payroll.png"
+import purchaseIcon from "../../assets/icon-pack/purchase.png"
 import posIcon from "../../assets/icon-pack/pos.png"
 import salesIcon from "../../assets/icon-pack/sales.png"
 import supplierIcon from "../../assets/icon-pack/supplier.png"
@@ -138,10 +138,10 @@ const modules = [
     id: "purchase",
     name: "Purchase",
     category: "Operations",
-    status: "upcoming",
-    subscribed: false,
+    status: "active",
+    subscribed: true,
     route: "/admin/purchase",
-    icon: ShoppingBag01Icon,
+    image: purchaseIcon,
     tone: "orange",
   },
   {
@@ -290,14 +290,14 @@ function StatusBadge({ status }) {
   )
 }
 
-function ModuleTile({
+const ModuleTile = forwardRef(function ModuleTile({
   module,
   index,
   subscribed,
   subscribing,
   onOpen,
   onSubscribe,
-}) {
+}, ref) {
   const moduleIcon = module.icon
   const iconStyle = iconTones[module.tone] || iconTones.indigo
 
@@ -325,6 +325,7 @@ function ModuleTile({
 
   return (
     <motion.article
+      ref={ref}
       layout
       initial={{
         opacity: 0,
@@ -538,7 +539,7 @@ function ModuleTile({
       ) : null}
     </motion.article>
   )
-}
+})
 
 function SectionHeader({ title, count, type = "default" }) {
   return (

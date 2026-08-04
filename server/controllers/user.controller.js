@@ -12,12 +12,13 @@
 import User from "../models/user.model.js";
 import Department from "../models/department.model.js";
 import Position from "../models/position.model.js";
-import PermissionGroup from "../models/permissionGroup.model.js";
+import PermissionGroup, { PERMISSION_KEYS } from "../models/permissionGroup.model.js";
 import AccessRole from "../models/accessRole.model.js";
 import LeaveTemplate from "../models/leaveTemplate.model.js";
 import SalaryProfile from "../models/salaryProfile.model.js";
 import TaxSlab from "../models/taxSlab.model.js";
 import { uploadCloudinary, deleteCloudinary } from "../utils/cloudinary.js";
+import { permissionsForModules } from "../config/erpModules.js";
 
 /* =========================
    ROLE HELPERS
@@ -78,7 +79,7 @@ const requireRequesterPassword = async (req, res) => {
    OPTIMIZATION HELPERS
 ========================= */
 const LIST_PROJECTION =
-  "_id name email role employeeId phone alternatePhone gender dateOfBirth address emergencyContact joiningDate leavingDate employmentType salaryType employeeStatus leaveEntitlement leaveTemplate leavePolicy isActive avatarUrl department position permissionGroup accessRole teamRole dailyLeadLimit isAvailableForAssignment workStatus managerId createdAt updatedAt";
+  "_id name email role tenantId defaultBranch employeeId phone alternatePhone gender dateOfBirth address emergencyContact joiningDate leavingDate employmentType salaryType employeeStatus leaveEntitlement leaveTemplate leavePolicy isActive avatarUrl department position permissionGroup accessRole teamRole dailyLeadLimit isAvailableForAssignment workStatus managerId createdAt updatedAt";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -1590,7 +1591,24 @@ export const getMe = async (req, res) => {
       return res.status(404).json({ message: "User not found." });
     }
 
-    return res.status(200).json({ user });
+    if (user.permissionGroup) {
+      user.permissionGroup.permissions = permissionsForModules(
+        user.permissionGroup.permissions,
+        req.enabledModules
+      );
+    }
+
+    return res.status(200).json({
+      user: {
+        ...user,
+        enabledModules: req.enabledModules,
+        permissionCatalog: req.user?.role === "superadmin"
+          ? [...PERMISSION_KEYS]
+          : permissionsForModules(PERMISSION_KEYS, req.enabledModules),
+        company: req.company || null,
+        subscription: req.subscription || null,
+      },
+    });
   } catch (err) {
     return res.status(500).json({
       message: "Server error in getMe.",

@@ -62,8 +62,12 @@ async function fetchAdminDeadlineNotifications({ windowDays = 365, includeOverdu
   return Array.isArray(data?.items) ? data.items : []
 }
 
-async function fetchInboxNotifications({ limit = 50 }) {
-  const qs = new URLSearchParams({ type: "lead", entityType: "Lead", limit: String(limit) })
+async function fetchInboxNotifications({ limit = 50, crmOnly = false }) {
+  const qs = new URLSearchParams({ limit: String(limit) })
+  if (crmOnly) {
+    qs.set("type", "lead")
+    qs.set("entityType", "Lead")
+  }
   const res = await fetch(`${API_BASE}/notifications/my?${qs.toString()}`, {
     headers: getAuthHeaders(),
   })
@@ -79,10 +83,10 @@ function InboxNotificationItem({ item, isDarkMode }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className={cx("truncate text-sm font-bold", isDarkMode ? "text-white" : "text-gray-900")}>{item?.title || "Inbox message"}</p>
+            <p className={cx("truncate text-sm font-bold", isDarkMode ? "text-white" : "text-gray-900")}>{item?.title || "Notification"}</p>
             {!item?.isRead ? <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white">New</span> : null}
           </div>
-          <p className={cx("mt-1 line-clamp-2 text-sm", isDarkMode ? "text-gray-300" : "text-gray-600")}>{item?.message || "New lead inbox message"}</p>
+          <p className={cx("mt-1 line-clamp-2 text-sm", isDarkMode ? "text-gray-300" : "text-gray-600")}>{item?.message || "New ERP notification"}</p>
           <p className={cx("mt-2 text-xs font-semibold", isDarkMode ? "text-gray-400" : "text-gray-500")}>
             {item?.createdBy?.name || "System"} · {created ? created.toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—"}
           </p>
@@ -214,7 +218,7 @@ const isOverdue = (ms) => ms !== null && ms < 0
 const isUpcoming = (ms) => ms !== null && ms >= 0
 const withinDays = (ms, days) => ms !== null && ms >= 0 && ms <= days * DAY
 
-export default function AdminNotificationModal({ open, onClose, isDarkMode, onOpenCustomer }) {
+export default function AdminNotificationModal({ open, onClose, isDarkMode, onOpenCustomer, crmEnabled = false }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [items, setItems] = useState([])
@@ -248,14 +252,17 @@ export default function AdminNotificationModal({ open, onClose, isDarkMode, onOp
 
   useEffect(() => {
     if (!open) return
+    if (!crmEnabled) setActiveTab("inbox")
     let alive = true
 
     setLoading(true)
     setError("")
 
     Promise.all([
-      fetchAdminDeadlineNotifications({ windowDays: 365, includeOverdue: true, limit: 500 }),
-      fetchInboxNotifications({ limit: 80 }),
+      crmEnabled
+        ? fetchAdminDeadlineNotifications({ windowDays: 365, includeOverdue: true, limit: 500 })
+        : Promise.resolve([]),
+      fetchInboxNotifications({ limit: 80, crmOnly: crmEnabled }),
     ])
       .then(([arr, inbox]) => {
         if (!alive) return
@@ -276,7 +283,7 @@ export default function AdminNotificationModal({ open, onClose, isDarkMode, onOp
     return () => {
       alive = false
     }
-  }, [open])
+  }, [crmEnabled, open])
 
   const enriched = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -369,9 +376,9 @@ export default function AdminNotificationModal({ open, onClose, isDarkMode, onOp
               <Bell className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <p className="text-base font-bold truncate">Deadlines (Admin)</p>
+              <p className="text-base font-bold truncate">{crmEnabled ? "ERP Notifications & Deadlines" : "ERP Notifications"}</p>
               <p className={cx("text-xs truncate", isDarkMode ? "text-gray-300" : "text-gray-600")}>
-                Shows all employee task deadlines + assignees
+                {crmEnabled ? "Company notifications, task deadlines, and assignees" : "Platform and company notifications"}
               </p>
             </div>
           </div>
@@ -402,7 +409,7 @@ export default function AdminNotificationModal({ open, onClose, isDarkMode, onOp
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search task / customer / employee…"
+                placeholder={crmEnabled ? "Search task / customer / employee…" : "Search notifications…"}
                 className={cx(
                   "w-full pl-10 pr-3 py-2.5 rounded-2xl border outline-none",
                   isDarkMode
@@ -413,14 +420,16 @@ export default function AdminNotificationModal({ open, onClose, isDarkMode, onOp
             </div>
 
             <div className="flex items-center gap-2 flex-wrap">
-              {[
-                ["inbox", "Inbox", counts.inbox],
-                ["upcoming", "Upcoming", counts.upcoming],
-                ["d3", "3 Days", counts.d3],
-                ["d7", "7 Days", counts.d7],
-                ["overdue", "Overdue", counts.overdue],
-                ["all", "All", counts.all],
-              ].map(([key, label, count]) => {
+              {([
+                ["inbox", crmEnabled ? "Inbox" : "Notifications", counts.inbox],
+                ...(crmEnabled ? [
+                  ["upcoming", "Upcoming", counts.upcoming],
+                  ["d3", "3 Days", counts.d3],
+                  ["d7", "7 Days", counts.d7],
+                  ["overdue", "Overdue", counts.overdue],
+                  ["all", "All", counts.all],
+                ] : []),
+              ]).map(([key, label, count]) => {
                 const active = activeTab === key
                 return (
                   <button
@@ -470,8 +479,8 @@ export default function AdminNotificationModal({ open, onClose, isDarkMode, onOp
                 <div className={cx("mx-auto w-12 h-12 rounded-2xl flex items-center justify-center border", isDarkMode ? "bg-white/5 border-white/10" : "bg-gray-50 border-gray-200")}>
                   <Bell className="w-5 h-5" />
                 </div>
-                <p className={cx("mt-3 text-sm font-semibold", isDarkMode ? "text-gray-100" : "text-gray-800")}>No inbox notifications</p>
-                <p className={cx("mt-1 text-xs", isDarkMode ? "text-gray-400" : "text-gray-500")}>New lead messages will appear here.</p>
+                <p className={cx("mt-3 text-sm font-semibold", isDarkMode ? "text-gray-100" : "text-gray-800")}>No notifications</p>
+                <p className={cx("mt-1 text-xs", isDarkMode ? "text-gray-400" : "text-gray-500")}>{crmEnabled ? "New lead messages will appear here." : "New ERP notifications will appear here."}</p>
               </div>
             ) : (
               <div className={cx("divide-y", isDarkMode ? "divide-white/10" : "divide-gray-100")}>

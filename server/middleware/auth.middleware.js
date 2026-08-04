@@ -1,5 +1,8 @@
 import jwt from "jsonwebtoken";
 import User from "../models/user.model.js";
+import { ERP_MODULE_IDS, normalizeModuleIds, permissionModule } from "../config/erpModules.js";
+import { runWithTenant } from "../config/tenantContext.js";
+import { resolveVerifiedTenant } from "../services/tenant.service.js";
 
 const normalizeSystemRole = async (user) => {
   if (["superadmin", "admin", "employee"].includes(user?.role)) return;
@@ -9,6 +12,10 @@ const normalizeSystemRole = async (user) => {
 
 export const protect = async (req, res, next) => {
   try {
+    // Module routers may also keep their own protect middleware. When the app
+    // mount already authenticated the request, reuse that verified context.
+    if (req.user) return next();
+
     if (
       req.originalUrl === "/api/users/register" ||
       req.originalUrl === "/api/users/login"
@@ -40,8 +47,38 @@ export const protect = async (req, res, next) => {
 
     await normalizeSystemRole(user);
 
+    if (req.body && typeof req.body === "object") delete req.body.tenantId;
+
+    if (user.role === "superadmin") {
+      req.user = user;
+      req.tenantId = null;
+      req.enabledModules = null;
+      return runWithTenant({ bypassTenant: true, userId: user._id }, () => next());
+    }
+
+    const verified = await resolveVerifiedTenant(user);
+    if (!verified) {
+      return res.status(403).json({ message: "No active company membership was found for this account." });
+    }
+    if (verified.accessDenied) {
+      return res.status(403).json({
+        message: verified.subscription.message,
+        code: `SUBSCRIPTION_${String(verified.subscription.state || "inactive").toUpperCase()}`,
+        subscription: verified.subscription,
+      });
+    }
+
+    if (req.query?.tenantId) delete req.query.tenantId;
     req.user = user;
-    next();
+    req.membership = verified.membership;
+    req.company = verified.company;
+    req.tenantId = verified.company._id;
+    req.enabledModules = normalizeModuleIds(verified.company.enabledModules);
+    req.subscription = verified.subscription;
+    return runWithTenant(
+      { tenantId: req.tenantId, userId: user._id, bypassTenant: false },
+      () => next()
+    );
   } catch (err) {
     return res.status(401).json({
       message: "Not authorized. Invalid or expired token.",
@@ -58,8 +95,8 @@ export const isSuperAdmin = (req, res, next) => {
 };
 
 export const isAdminOrSuperAdmin = (req, res, next) => {
-  if (!["admin", "superadmin"].includes(req.user?.role)) {
-    return res.status(403).json({ message: "Admin access required." });
+  if (req.user?.role !== "admin" || !req.tenantId) {
+    return res.status(403).json({ message: "Company Admin access required." });
   }
   next();
 };
@@ -71,6 +108,13 @@ export const isAdmin = (req, res, next) => {
   next();
 };
 
+export const isTenantUser = (req, res, next) => {
+  if (req.user?.role === "superadmin" || !req.tenantId) {
+    return res.status(403).json({ message: "This operation belongs to a company workspace." });
+  }
+  return next();
+};
+
 export const isEmployee = (req, res, next) => {
   if (req.user?.role !== "employee") {
     return res.status(403).json({ message: "Employee access required." });
@@ -79,7 +123,21 @@ export const isEmployee = (req, res, next) => {
 };
 
 export const requirePermission = (permission) => (req, res, next) => {
-  if (["admin", "superadmin"].includes(req.user?.role)) return next();
+  if (req.user?.role === "superadmin") {
+    const platformPermissions = new Set([
+      "dashboard:view", "company:view", "company:manage", "branch:view", "profile:view",
+    ]);
+    if (platformPermissions.has(permission)) return next();
+    return res.status(403).json({ message: "Tenant operational data is not available in the platform Super Admin workspace." });
+  }
+  const requiredModule = permissionModule(permission);
+  if (!requiredModule) {
+    return res.status(403).json({ message: "Permission is not assigned to a registered ERP module.", code: "UNREGISTERED_PERMISSION" });
+  }
+  if (requiredModule !== "administration" && !req.enabledModules?.includes(requiredModule)) {
+    return res.status(403).json({ message: `${requiredModule} module is not enabled for this company.`, code: "MODULE_NOT_ENABLED", module: requiredModule });
+  }
+  if (req.user?.role === "admin") return next();
 
   const permissions = req.user?.permissionGroup?.isActive === false
     ? []
@@ -122,13 +180,45 @@ export const requirePermission = (permission) => (req, res, next) => {
   return next();
 };
 
+export const requireModule = (moduleId) => {
+  if (!ERP_MODULE_IDS.includes(moduleId)) {
+    throw new Error(`Unknown ERP module guard: ${moduleId}`);
+  }
+  return (req, res, next) => {
+    if (req.user?.role === "superadmin") {
+      if (moduleId === "administration") return next();
+      return res.status(403).json({ message: "Tenant operational data is not available in the platform Super Admin workspace." });
+    }
+    if (!req.tenantId) return res.status(403).json({ message: "This operation belongs to a company workspace." });
+    if (!req.enabledModules?.includes(moduleId)) {
+      return res.status(403).json({
+        message: `${moduleId} module is not enabled for this company.`,
+        code: "MODULE_NOT_ENABLED",
+        module: moduleId,
+      });
+    }
+    return next();
+  };
+};
+
 export const requireAnyPermission = (requiredPermissions = []) => (req, res, next) => {
-  if (["admin", "superadmin"].includes(req.user?.role)) return next();
+  if (req.user?.role === "superadmin") {
+    const platformPermissions = new Set([
+      "dashboard:view", "company:view", "company:manage", "branch:view", "profile:view",
+    ]);
+    if (requiredPermissions.some((permission) => platformPermissions.has(permission))) return next();
+    return res.status(403).json({ message: "Tenant operational data is not available in the platform Super Admin workspace." });
+  }
+  const companyPermissions = requiredPermissions.filter((permission) => {
+    const moduleId = permissionModule(permission);
+    return Boolean(moduleId) && (moduleId === "administration" || req.enabledModules?.includes(moduleId));
+  });
+  if (req.user?.role === "admin" && companyPermissions.length) return next();
 
   const permissions = req.user?.permissionGroup?.isActive === false
     ? []
     : req.user?.permissionGroup?.permissions || [];
-  const allowed = requiredPermissions.some((permission) => {
+  const allowed = companyPermissions.some((permission) => {
     if (permissions.includes(permission)) return true;
     if (String(permission).endsWith(":view")) {
       return permissions.includes(String(permission).replace(/:view$/, ":manage"));
