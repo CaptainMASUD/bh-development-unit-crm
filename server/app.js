@@ -453,4 +453,5 @@ app.use((err, req, res, next) => {
     .json(response);
 });
 
+export default app;
 export { app };

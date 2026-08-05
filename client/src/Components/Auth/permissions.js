@@ -1,4 +1,6 @@
 export const PERMISSIONS = {
+  USERS_VIEW: "users:view",
+  USERS_MANAGE: "users:manage",
   DASHBOARD_VIEW: "dashboard:view",
   CUSTOMERS_VIEW: "customers:view",
   CUSTOMERS_MANAGE: "customers:manage",

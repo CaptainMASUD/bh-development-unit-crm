@@ -13,6 +13,36 @@ const QUERY_OPERATIONS = [
 ];
 
 const tenantError = () => new Error("A verified tenant membership is required for this operation.");
+const tenantScopedCollectionNames = () => new Set(
+  mongoose.modelNames()
+    .map((modelName) => mongoose.model(modelName))
+    .filter((model) => model.schema.path("tenantId") && model.schema.options.tenantScoped !== false)
+    .map((model) => model.collection.name)
+);
+
+const scopeJoinedPipelines = (stages, tenantId, scopedCollections) => {
+  for (const stage of stages || []) {
+    if (stage.$lookup) {
+      if (scopedCollections.has(stage.$lookup.from)) {
+        stage.$lookup.pipeline = [
+          { $match: { tenantId } },
+          ...(stage.$lookup.pipeline || []),
+        ];
+      }
+      scopeJoinedPipelines(stage.$lookup.pipeline, tenantId, scopedCollections);
+    }
+    if (stage.$facet) {
+      for (const pipeline of Object.values(stage.$facet)) scopeJoinedPipelines(pipeline, tenantId, scopedCollections);
+    }
+    if (stage.$unionWith?.coll && scopedCollections.has(stage.$unionWith.coll)) {
+      stage.$unionWith.pipeline = [
+        { $match: { tenantId } },
+        ...(stage.$unionWith.pipeline || []),
+      ];
+      scopeJoinedPipelines(stage.$unionWith.pipeline, tenantId, scopedCollections);
+    }
+  }
+};
 const mongoTypeForPath = (schema, pathName) => {
   const instance = schema.path(pathName)?.instance;
   return { String: "string", ObjectId: "objectId", Number: "number", Date: "date", Boolean: "bool" }[instance] || null;
@@ -144,9 +174,11 @@ function tenantPlugin(schema) {
     const context = getTenantContext();
     if (!context || context.bypassTenant === true) return next();
     if (!context.tenantId) return next(tenantError());
-    const match = { $match: { tenantId: new mongoose.Types.ObjectId(String(context.tenantId)) } };
+    const tenantId = new mongoose.Types.ObjectId(String(context.tenantId));
+    const match = { $match: { tenantId } };
     const pipeline = this.pipeline();
     pipeline.splice(pipeline[0]?.$geoNear ? 1 : 0, 0, match);
+    scopeJoinedPipelines(pipeline, tenantId, tenantScopedCollectionNames());
     return next();
   });
 

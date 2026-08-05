@@ -3,8 +3,9 @@ import Company from "../models/company.model.js";
 import Branch from "../models/branch.model.js";
 import CompanyMembership from "../models/companyMembership.model.js";
 import User from "../models/user.model.js";
-import { ERP_MODULES, normalizeModuleIds, unknownModuleIds } from "../config/erpModules.js";
-import { evaluateCompanyAccess, upsertMembership } from "../services/tenant.service.js";
+import Account from "../models/account.model.js";
+import { ERP_MODULES, missingModuleDependencies, normalizeModuleIds, unknownModuleIds } from "../config/erpModules.js";
+import { evaluateCompanyAccess, reconcilePermissionGroupsForCompany, upsertMembership } from "../services/tenant.service.js";
 import { runWithTenant } from "../config/tenantContext.js";
 import { provisionSystemAccounts } from "../services/accountingSetup.service.js";
 import { invalidateDashboardCache } from "../utils/cache.js";
@@ -80,7 +81,11 @@ const validateRequestedModules = (body = {}) => {
   const requested = body.moduleIds ?? body.enabledModules;
   if (requested !== undefined && !Array.isArray(requested)) return "ERP modules must be provided as an array.";
   const unknown = unknownModuleIds(requested);
-  return unknown.length ? `Unknown ERP module${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}.` : "";
+  if (unknown.length) return `Unknown ERP module${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}.`;
+  const missing = missingModuleDependencies(requested || []);
+  return missing.length
+    ? `Missing required module dependencies: ${missing.map(({ moduleId, dependency }) => `${moduleId} requires ${dependency}`).join(", ")}.`
+    : "";
 };
 
 async function addCompanyMetrics(companies) {
@@ -217,6 +222,7 @@ export const createCompany = async (req, res) => {
       await Promise.allSettled([
         Company.deleteOne({ _id: company._id }), Branch.deleteMany({ tenantId: company._id }),
         CompanyMembership.deleteMany({ tenantId: company._id }), createdUser?._id ? User.deleteOne({ _id: createdUser._id }) : Promise.resolve(),
+        Account.deleteMany({ tenantId: company._id }),
       ]);
     }
     if (assignedExistingUser?._id && existingUserSnapshot) {
@@ -257,6 +263,7 @@ export const updateCompany = async (req, res) => {
     delete patch.code;
     const company = await Company.findByIdAndUpdate(companyId, { $set: patch }, { new: true, runValidators: true }).lean();
     if (!company) return res.status(404).json({ message: "Company not found." });
+    if (isSuper(req)) await reconcilePermissionGroupsForCompany(company._id, company.enabledModules || []);
     let mainBranch = await Branch.findOneAndUpdate(
       { tenantId: companyId, isMain: true },
       { $set: { ...headOffice, updatedBy: req.user._id } },
@@ -340,18 +347,38 @@ export const updateBranch = async (req, res) => {
 };
 
 export const setDefaultBranch = async (req, res) => {
-  const branch = await Branch.findById(req.params.branchId);
-  if (!branch || branch.isActive === false) return res.status(404).json({ message: "Active branch not found." });
-  const previous = await Branch.findOne({ isDefault: true }).select("_id").lean();
-  await Branch.updateMany({ isDefault: true }, { $set: { isDefault: false, updatedBy: req.user._id } });
-  branch.isDefault = true; branch.updatedBy = req.user._id; await branch.save();
-  const priorIds = [null, previous?._id].filter((value, index, list) => index === 0 || value);
-  await Promise.all([
-    User.updateMany({ defaultBranch: { $in: priorIds } }, { $set: { defaultBranch: branch._id } }),
-    CompanyMembership.updateMany(
-      { tenantId: req.tenantId, defaultBranch: { $in: priorIds } },
-      { $set: { defaultBranch: branch._id } }
-    ),
-  ]);
-  return res.json({ message: `${branch.name} is now the default branch.`, branch });
+  try {
+    const branch = await Branch.findById(req.params.branchId);
+    if (!branch || branch.isActive === false) return res.status(404).json({ message: "Active branch not found." });
+    if (branch.isDefault) return res.json({ message: `${branch.name} is already the default branch.`, branch });
+    const previous = await Branch.findOne({ isDefault: true }).select("_id").lean();
+    await Branch.updateMany(
+      { isDefault: true, _id: { $ne: branch._id } },
+      { $set: { isDefault: false, updatedBy: req.user._id } }
+    );
+    try {
+      branch.isDefault = true;
+      branch.updatedBy = req.user._id;
+      await branch.save();
+    } catch (error) {
+      if (previous?._id) {
+        await Branch.updateOne({ _id: previous._id }, { $set: { isDefault: true, updatedBy: req.user._id } }).catch(() => {});
+      }
+      throw error;
+    }
+    const priorIds = [null, previous?._id].filter((value, index) => index === 0 || value);
+    await Promise.all([
+      User.updateMany({ defaultBranch: { $in: priorIds } }, { $set: { defaultBranch: branch._id } }),
+      CompanyMembership.updateMany(
+        { tenantId: req.tenantId, defaultBranch: { $in: priorIds } },
+        { $set: { defaultBranch: branch._id } }
+      ),
+    ]);
+    return res.json({ message: `${branch.name} is now the default branch.`, branch });
+  } catch (error) {
+    return res.status(error?.code === 11000 ? 409 : 500).json({
+      message: error?.code === 11000 ? "Another branch became the default. Refresh and try again." : "Failed to change the default branch.",
+      error: error.message,
+    });
+  }
 };

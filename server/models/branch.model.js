@@ -19,6 +19,13 @@ const branchSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 branchSchema.index({ tenantId: 1, code: 1 }, { unique: true });
-branchSchema.index({ tenantId: 1, isDefault: 1 });
+branchSchema.index(
+  { tenantId: 1, isDefault: 1 },
+  {
+    unique: true,
+    name: "tenant_default_branch_unique",
+    partialFilterExpression: { isDefault: true },
+  }
+);
 
 export default mongoose.model("Branch", branchSchema);

@@ -13,12 +13,13 @@ import User from "../models/user.model.js";
 import Department from "../models/department.model.js";
 import Position from "../models/position.model.js";
 import PermissionGroup, { PERMISSION_KEYS } from "../models/permissionGroup.model.js";
+import CompanyMembership from "../models/companyMembership.model.js";
+import { delegablePermissionsForModules, permissionsForModules } from "../config/erpModules.js";
 import AccessRole from "../models/accessRole.model.js";
 import LeaveTemplate from "../models/leaveTemplate.model.js";
 import SalaryProfile from "../models/salaryProfile.model.js";
 import TaxSlab from "../models/taxSlab.model.js";
 import { uploadCloudinary, deleteCloudinary } from "../utils/cloudinary.js";
-import { permissionsForModules } from "../config/erpModules.js";
 
 /* =========================
    ROLE HELPERS
@@ -354,6 +355,7 @@ const validateEmployeeAccessRefs = async ({
   department,
   position,
   permissionGroup,
+  enabledModules,
 }) => {
   const departmentId = department || null;
   const positionId = position || null;
@@ -378,8 +380,13 @@ const validateEmployeeAccessRefs = async ({
   }
 
   if (permissionGroupId) {
-    const group = await PermissionGroup.exists({ _id: permissionGroupId });
+    const group = await PermissionGroup.findById(permissionGroupId).select("permissions").lean();
     if (!group) return { ok: false, message: "Permission group not found." };
+    const allowed = new Set(delegablePermissionsForModules(PERMISSION_KEYS, enabledModules || []));
+    const denied = (group.permissions || []).filter((permission) => !allowed.has(permission));
+    if (denied.length) {
+      return { ok: false, message: `Permission group contains access to disabled modules: ${denied.join(", ")}.` };
+    }
   }
 
   return { ok: true };
@@ -851,6 +858,7 @@ export const createEmployee = async (req, res) => {
       position,
       permissionGroup,
       accessRole,
+      enabledModules: req.enabledModules,
     });
 
     if (!refsOk.ok) {
@@ -916,7 +924,10 @@ export const createEmployee = async (req, res) => {
     });
 
     if (!salaryResult.ok) {
-      await User.findByIdAndDelete(createdEmployeeId);
+      await Promise.all([
+        User.findByIdAndDelete(createdEmployeeId),
+        CompanyMembership.deleteOne({ user: createdEmployeeId }),
+      ]);
       return res.status(400).json({ message: salaryResult.message });
     }
 
@@ -937,7 +948,10 @@ export const createEmployee = async (req, res) => {
     if (createdEmployeeId) {
       try {
         await SalaryProfile.deleteMany({ employee: createdEmployeeId });
-        await User.findByIdAndDelete(createdEmployeeId);
+        await Promise.all([
+          User.findByIdAndDelete(createdEmployeeId),
+          CompanyMembership.deleteOne({ user: createdEmployeeId }),
+        ]);
       } catch {}
     }
 
@@ -1065,6 +1079,7 @@ export const updateEmployee = async (req, res) => {
       department: nextDepartment,
       position: nextPosition,
       permissionGroup: nextPermissionGroup,
+      enabledModules: req.enabledModules,
     });
 
     if (!refsOk.ok) {
@@ -1203,10 +1218,16 @@ export const deleteEmployee = async (req, res) => {
       await deleteCloudinary(employee.avatarPublicId);
     }
 
-    await SalaryProfile.deleteMany({ employee: employee._id });
-    await employee.deleteOne();
+    employee.isActive = false;
+    employee.employeeStatus = "terminated";
+    employee.leavingDate = employee.leavingDate || new Date();
+    await employee.save({ validateBeforeSave: false });
+    await Promise.all([
+      SalaryProfile.updateMany({ employee: employee._id, isActive: true }, { $set: { isActive: false, effectiveTo: new Date() } }),
+      CompanyMembership.updateOne({ user: employee._id }, { $set: { isActive: false } }),
+    ]);
 
-    return res.status(200).json({ message: "Employee deleted." });
+    return res.status(200).json({ message: "Employee deactivated. Historical payroll, attendance, and accounting references were preserved." });
   } catch (err) {
     return res.status(500).json({
       message: "Server error in deleteEmployee.",
@@ -1371,9 +1392,11 @@ export const deleteAdmin = async (req, res) => {
       await deleteCloudinary(target.avatarPublicId);
     }
 
-    await target.deleteOne();
+    target.isActive = false;
+    await target.save({ validateBeforeSave: false });
+    await CompanyMembership.updateOne({ user: target._id }, { $set: { isActive: false } });
 
-    return res.status(200).json({ message: "Admin deleted." });
+    return res.status(200).json({ message: "Admin deactivated. Historical tenant records were preserved." });
   } catch (err) {
     return res.status(500).json({
       message: "Server error in deleteAdmin.",

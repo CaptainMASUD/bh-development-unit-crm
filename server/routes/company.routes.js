@@ -3,16 +3,16 @@ import {
   createBranch, createCompany, getCompany, listBranches, listCompanies, listModules,
   setDefaultBranch, updateBranch, updateCompany, updateCompanyStatus,
 } from "../controllers/company.controller.js";
-import { isAdmin, isSuperAdmin, protect, requirePermission } from "../middleware/auth.middleware.js";
+import { isAdmin, isCompanyAdminOrSuperAdmin, isSuperAdmin, protect, requirePermission } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 router.use(protect);
 
 router.get("/modules", listModules);
-router.get("/", requirePermission("company:view"), listCompanies);
+router.get("/", requirePermission("company:view"), isCompanyAdminOrSuperAdmin, listCompanies);
 router.post("/", isSuperAdmin, createCompany);
-router.get("/:id", requirePermission("company:view"), getCompany);
-router.patch("/:id", requirePermission("company:manage"), updateCompany);
+router.get("/:id", requirePermission("company:view"), isCompanyAdminOrSuperAdmin, getCompany);
+router.patch("/:id", requirePermission("company:manage"), isCompanyAdminOrSuperAdmin, updateCompany);
 router.patch("/:id/status", isSuperAdmin, updateCompanyStatus);
 router.get("/:companyId/branches", requirePermission("branch:view"), listBranches);
 router.post("/:companyId/branches", requirePermission("branch:manage"), createBranch);

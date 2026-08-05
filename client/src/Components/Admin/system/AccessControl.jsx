@@ -71,6 +71,14 @@ const emptyPositionForm = {
 }
 
 const PERMISSION_LABELS = {
+  "users:view": {
+    label: "View Company Users",
+    helper: "See user accounts that belong to this company.",
+  },
+  "users:manage": {
+    label: "Manage Company Users",
+    helper: "Create, update, deactivate, and assign access to company users.",
+  },
   "dashboard:view": {
     label: "View Dashboard",
     helper: "Open the employee dashboard overview.",

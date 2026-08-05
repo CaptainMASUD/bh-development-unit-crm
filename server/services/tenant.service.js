@@ -3,6 +3,8 @@ import Company from "../models/company.model.js";
 import Branch from "../models/branch.model.js";
 import CompanyMembership from "../models/companyMembership.model.js";
 import User from "../models/user.model.js";
+import PermissionGroup, { PERMISSION_KEYS } from "../models/permissionGroup.model.js";
+import { delegablePermissionsForModules } from "../config/erpModules.js";
 import { LEGACY_ENABLED_MODULE_IDS } from "../config/erpModules.js";
 
 const LEGACY_COMPANY_CODE = "LEGACY";
@@ -29,7 +31,6 @@ async function migrateLegacyCollections(tenantId) {
 async function repairLegacyTenantIndexes() {
   const excluded = new Set(["companies", "companymemberships"]);
   for (const [name, collection] of Object.entries(mongoose.connection.collections)) {
-    if (excluded.has(name)) continue;
     const indexes = await collection.indexes().catch(() => []);
     for (const index of indexes) {
       const paths = Object.keys(index.key || {});
@@ -40,6 +41,7 @@ async function repairLegacyTenantIndexes() {
         });
         continue;
       }
+      if (excluded.has(name)) continue;
       if (!index.unique || index.name === "_id_") continue;
       const invalidOptionalTenantIndex = Boolean(index.key?.tenantId && index.sparse === true && !index.partialFilterExpression);
       if (index.key?.tenantId && !invalidOptionalTenantIndex) continue;
@@ -105,6 +107,76 @@ async function repairCompanySubscriptionDates() {
       { _id: company._id },
       { $set: { "subscription.startDate": startDate, "subscription.endDate": endDate } }
     );
+  }
+}
+
+export async function repairCompanyMemberships() {
+  const [companies, users, branches, memberships] = await Promise.all([
+    Company.find({}).select("_id").lean(),
+    User.find({ role: { $ne: "superadmin" }, tenantId: { $ne: null } })
+      .select("_id role tenantId defaultBranch isActive")
+      .lean(),
+    Branch.find({ isActive: { $ne: false } }).select("_id tenantId isDefault isMain").lean(),
+    CompanyMembership.find({}).select("_id user").lean(),
+  ]);
+  const companyIds = new Set(companies.map((company) => String(company._id)));
+  const userIds = new Set(users.map((user) => String(user._id)));
+  const branchById = new Map(branches.map((branch) => [String(branch._id), branch]));
+  const defaultBranchByTenant = new Map();
+  for (const branch of branches.sort((left, right) => Number(Boolean(right.isDefault)) - Number(Boolean(left.isDefault)) || Number(Boolean(right.isMain)) - Number(Boolean(left.isMain)))) {
+    if (!defaultBranchByTenant.has(String(branch.tenantId))) defaultBranchByTenant.set(String(branch.tenantId), branch);
+  }
+
+  const operations = [];
+  const userBranchRepairs = [];
+  for (const user of users) {
+    if (!companyIds.has(String(user.tenantId))) continue;
+    const selectedBranch = branchById.get(String(user.defaultBranch || ""));
+    const defaultBranch = selectedBranch && String(selectedBranch.tenantId) === String(user.tenantId)
+      ? selectedBranch._id
+      : defaultBranchByTenant.get(String(user.tenantId))?._id || null;
+    operations.push({
+      updateOne: {
+        filter: { user: user._id },
+        update: { $set: {
+          tenantId: user.tenantId,
+          role: user.role === "admin" ? "admin" : "employee",
+          defaultBranch,
+          isActive: user.isActive !== false,
+        } },
+        upsert: true,
+      },
+    });
+    if (String(user.defaultBranch || "") !== String(defaultBranch || "")) {
+      userBranchRepairs.push({ updateOne: { filter: { _id: user._id }, update: { $set: { defaultBranch } } } });
+    }
+  }
+  if (operations.length) await CompanyMembership.bulkWrite(operations, { ordered: false });
+  if (userBranchRepairs.length) await User.collection.bulkWrite(userBranchRepairs, { ordered: false });
+
+  const danglingIds = memberships.filter((membership) => !userIds.has(String(membership.user))).map((membership) => membership._id);
+  if (danglingIds.length) await CompanyMembership.deleteMany({ _id: { $in: danglingIds } });
+  return { upserted: operations.length, removedDangling: danglingIds.length, repairedBranches: userBranchRepairs.length };
+}
+
+export async function reconcilePermissionGroupsForCompany(tenantId, enabledModules) {
+  const allowed = new Set(delegablePermissionsForModules(PERMISSION_KEYS, enabledModules));
+  const groups = await PermissionGroup.find({ tenantId }).select("permissions");
+  let updated = 0;
+  for (const group of groups) {
+    const next = (group.permissions || []).filter((permission) => allowed.has(permission));
+    if (next.length === (group.permissions || []).length) continue;
+    group.permissions = next;
+    await group.save();
+    updated += 1;
+  }
+  return updated;
+}
+
+async function repairPermissionGroups() {
+  const companies = await Company.find({}).select("_id enabledModules").lean();
+  for (const company of companies) {
+    await reconcilePermissionGroupsForCompany(company._id, company.enabledModules || []);
   }
 }
 
@@ -252,15 +324,15 @@ export async function initializeTenantArchitecture() {
   } else if (legacyCompany) {
     await migrateLegacyCollections(legacyCompany._id);
   }
+  await repairCompanyMemberships();
+  await repairPermissionGroups();
   await repairCompanySubscriptionDates();
   await repairLegacyTenantIndexes();
   await repairIndexSpecificationConflicts();
-  const indexResults = await Promise.allSettled(
-    mongoose.modelNames().map((modelName) => {
-      const model = mongoose.model(modelName);
-      return modelName === "Customer" ? model.syncIndexes() : model.createIndexes();
-    })
-  );
-  const failedIndex = indexResults.find((result) => result.status === "rejected");
-  if (failedIndex) throw failedIndex.reason;
+  // Synchronize sequentially so obsolete pre-tenant indexes are removed and
+  // index creation never races across dozens of collections. This prevents
+  // collections from drifting toward MongoDB's per-collection index limit.
+  for (const modelName of mongoose.modelNames()) {
+    await mongoose.model(modelName).syncIndexes();
+  }
 }

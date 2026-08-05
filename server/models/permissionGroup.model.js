@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 
 export const PERMISSION_KEYS = [
+  "users:view",
+  "users:manage",
   "dashboard:view",
   "customers:view",
   "customers:manage",

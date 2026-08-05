@@ -228,6 +228,7 @@ const sections = {
   Users: {
     icon: createSectionIcon(UserMultiple02Icon),
     component: <Users />,
+    permission: "users:view",
   },
 
   Employee: {

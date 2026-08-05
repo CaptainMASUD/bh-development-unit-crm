@@ -108,6 +108,15 @@ export const isAdmin = (req, res, next) => {
   next();
 };
 
+export const isCompanyAdminOrSuperAdmin = (req, res, next) => {
+  const isPlatformAdmin = req.user?.role === "superadmin";
+  const isTenantAdmin = req.user?.role === "admin" && Boolean(req.tenantId);
+  if (!isPlatformAdmin && !isTenantAdmin) {
+    return res.status(403).json({ message: "Company Admin access required." });
+  }
+  return next();
+};
+
 export const isTenantUser = (req, res, next) => {
   if (req.user?.role === "superadmin" || !req.tenantId) {
     return res.status(403).json({ message: "This operation belongs to a company workspace." });

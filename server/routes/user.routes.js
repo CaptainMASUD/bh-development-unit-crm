@@ -36,6 +36,7 @@ import {
 
 import {
   protect,
+  requireAnyPermission,
   requirePermission,
   isAdmin,
   isTenantUser,
@@ -74,11 +75,11 @@ router.delete(
 );
 
 /* EMPLOYEES */
-router.post("/employees", protect, isTenantUser, requirePermission("employees:manage"), createEmployee);
-router.get("/employees", protect, isTenantUser, requirePermission("employees:view"), getEmployees);
-router.get("/employees/:id", protect, isTenantUser, requirePermission("employees:view"), getEmployeeById);
-router.patch("/employees/:id", protect, isTenantUser, requirePermission("employees:manage"), updateEmployee);
-router.delete("/employees/:id", protect, isTenantUser, requirePermission("employees:manage"), deleteEmployee);
+router.post("/employees", protect, isTenantUser, requireAnyPermission(["users:manage", "employees:manage"]), createEmployee);
+router.get("/employees", protect, isTenantUser, requireAnyPermission(["users:view", "employees:view"]), getEmployees);
+router.get("/employees/:id", protect, isTenantUser, requireAnyPermission(["users:view", "employees:view"]), getEmployeeById);
+router.patch("/employees/:id", protect, isTenantUser, requireAnyPermission(["users:manage", "employees:manage"]), updateEmployee);
+router.delete("/employees/:id", protect, isTenantUser, requireAnyPermission(["users:manage", "employees:manage"]), deleteEmployee);
 
 /* ADMINS */
 router.post("/admins", protect, isAdmin, createAdmin);

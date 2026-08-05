@@ -108,9 +108,9 @@ export const MODULES = {
     id: "administration",
     name: "Administration",
     description: "Users, access control, profile, workflow guidance, and system information.",
-    permissions: ["access-control:view", "access-control:manage", "profile:view", "workflow:view", "company:view", "company:manage", "branch:view", "branch:manage"],
+    permissions: ["users:view", "users:manage", "access-control:view", "access-control:manage", "profile:view", "workflow:view", "branch:view", "branch:manage"],
     adminSections: ["Dashboard", "Company Setup", "Users", "Access Control", "Profile Settings"],
-    employeeSections: ["Dashboard", "Company Setup", "Profile Settings", "Access Control", "Workflow Procedure"],
+    employeeSections: ["Dashboard", "Profile Settings", "Access Control", "Workflow Procedure"],
   },
 }
 

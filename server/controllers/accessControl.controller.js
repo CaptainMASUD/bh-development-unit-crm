@@ -4,12 +4,12 @@ import PermissionGroup, { PERMISSION_KEYS } from "../models/permissionGroup.mode
 import AccessRole from "../models/accessRole.model.js";
 import User from "../models/user.model.js";
 import SalaryProfile from "../models/salaryProfile.model.js";
-import { permissionsForModules } from "../config/erpModules.js";
+import { delegablePermissionsForModules } from "../config/erpModules.js";
 
 const clean = (value) => String(value ?? "").trim();
 const allowedPermissions = (req) => req.user?.role === "superadmin"
   ? PERMISSION_KEYS
-  : permissionsForModules(PERMISSION_KEYS, req.enabledModules);
+  : delegablePermissionsForModules(PERMISSION_KEYS, req.enabledModules);
 
 const validateAssignedPermissions = (req, permissions) => {
   const allowed = new Set(allowedPermissions(req));

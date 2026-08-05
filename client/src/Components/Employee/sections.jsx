@@ -31,7 +31,6 @@ const LoanManager = lazy(() => import("../Admin/payroll/EmployeeLoans"))
 const LeaveManager = lazy(() => import("../Admin/payroll/LeaveRequests"))
 const RosterManager = lazy(() => import("../Admin/payroll/RosterShiftSetup"))
 const AccessControl = lazy(() => import("../Admin/system/AccessControl"))
-const CompanySetup = lazy(() => import("../Admin/CompanySetup/AdminCompanySetupPage"))
 const TaxSetup = lazy(() => import("../Admin/payroll/TaxSetup"))
 const TaxReport = lazy(() => import("../Admin/reports/TaxReport"))
 const Expenses = lazy(() => import("../Admin/accounting/Expenses"))
@@ -365,12 +364,6 @@ export const sections = {
     icon: <FiUsers className="w-5 h-5" />,
     component: <AccessControl />,
     permission: PERMISSIONS.ACCESS_CONTROL_VIEW,
-  },
-
-  "Company Setup": {
-    icon: <FiSettings className="w-5 h-5" />,
-    component: <CompanySetup />,
-    permission: PERMISSIONS.COMPANY_VIEW,
   },
 
   // ✅ ADDED: after Clients, before Profile Settings

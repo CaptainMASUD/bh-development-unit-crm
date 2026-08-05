@@ -5,7 +5,7 @@ export const ERP_MODULES = [
   { id: "supplier", code: "SUPPLIER", name: "Supplier", category: "Operations", description: "Supplier onboarding, approvals, and product sourcing.", permissionPrefixes: ["supplier"] },
   { id: "purchase", code: "PURCHASE", name: "Purchase", category: "Operations", description: "Purchase orders, goods receipts, and supplier returns.", permissionPrefixes: ["purchase-order", "goods-receipt", "purchase-return"] },
   { id: "payroll", code: "PAYROLL", name: "HR Payroll", category: "People", description: "Employees, attendance, salary, payroll, leave, loans, and tax.", permissionPrefixes: ["attendance", "payroll", "tax", "loans", "leaves", "roster", "employees", "salary"] },
-  { id: "administration", code: "ADMINISTRATION", name: "Administration", category: "Operations", description: "Company profile, branches, users, roles, permissions, and settings.", permissionPrefixes: ["notifications", "access-control", "profile", "company", "branch"] },
+  { id: "administration", code: "ADMINISTRATION", name: "Administration", category: "Operations", description: "Company profile, branches, users, roles, permissions, and settings.", permissionPrefixes: ["users", "notifications", "access-control", "profile", "company", "branch"] },
 ];
 
 export const ERP_MODULE_IDS = ERP_MODULES.map((item) => item.id);
@@ -18,6 +18,22 @@ export const LEGACY_ENABLED_MODULE_IDS = Object.freeze([
 ]);
 
 export const REQUIRED_MODULE_IDS = Object.freeze(["administration"]);
+export const TENANT_ADMIN_ONLY_PERMISSIONS = Object.freeze(["company:view", "company:manage"]);
+
+export const ERP_MODULE_DEPENDENCIES = Object.freeze({
+  supplier: Object.freeze(["inventory"]),
+  purchase: Object.freeze(["supplier", "inventory"]),
+  payroll: Object.freeze(["accounting"]),
+});
+
+export const missingModuleDependencies = (values = []) => {
+  const selected = new Set(normalizeModuleIds(values));
+  return [...selected].flatMap((moduleId) =>
+    (ERP_MODULE_DEPENDENCIES[moduleId] || [])
+      .filter((dependency) => !selected.has(dependency))
+      .map((dependency) => ({ moduleId, dependency }))
+  );
+};
 
 const PREFIX_MODULE = Object.fromEntries(
   ERP_MODULES.flatMap((module) => (module.permissionPrefixes || []).map((prefix) => [prefix, module.id]))
@@ -46,4 +62,9 @@ export const permissionModule = (permission) => {
 export const permissionsForModules = (permissions, moduleIds = []) => {
   const enabled = new Set(normalizeModuleIds(moduleIds));
   return (permissions || []).filter((permission) => enabled.has(permissionModule(permission)));
+};
+
+export const delegablePermissionsForModules = (permissions, moduleIds = []) => {
+  const adminOnly = new Set(TENANT_ADMIN_ONLY_PERMISSIONS);
+  return permissionsForModules(permissions, moduleIds).filter((permission) => !adminOnly.has(permission));
 };

@@ -28,6 +28,46 @@ import { hasPermission } from "../../Auth/permissions"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const PAGE_SIZE = 20
+const REQUIRED_MODULE_IDS = new Set(["administration"])
+const MODULE_DEPENDENCIES = {
+  supplier: ["inventory"],
+  purchase: ["supplier", "inventory"],
+  payroll: ["accounting"],
+}
+
+function normalizeModuleSelection(values = []) {
+  const selected = new Set([...values.map(String), ...REQUIRED_MODULE_IDS])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const moduleId of [...selected]) {
+      for (const dependency of MODULE_DEPENDENCIES[moduleId] || []) {
+        if (!selected.has(dependency)) {
+          selected.add(dependency)
+          changed = true
+        }
+      }
+    }
+  }
+  return [...selected]
+}
+
+function removeModuleAndDependents(values, removedId) {
+  const selected = new Set(values.map(String))
+  selected.delete(String(removedId))
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const moduleId of [...selected]) {
+      if ((MODULE_DEPENDENCIES[moduleId] || []).some((dependency) => !selected.has(dependency))) {
+        selected.delete(moduleId)
+        changed = true
+      }
+    }
+  }
+  for (const required of REQUIRED_MODULE_IDS) selected.add(required)
+  return [...selected]
+}
 
 /*
   Expected API contract. Rename these paths to match your backend.
@@ -1003,8 +1043,8 @@ function ModuleAccessSelector({ modules, selectedIds, onChange }) {
     const id = String(moduleId)
     onChange(
       selectedSet.has(id)
-        ? selectedIds.filter((item) => String(item) !== id)
-        : [...selectedIds, id]
+        ? removeModuleAndDependents(selectedIds, id)
+        : normalizeModuleSelection([...selectedIds, id])
     )
   }
 
@@ -1021,14 +1061,14 @@ function ModuleAccessSelector({ modules, selectedIds, onChange }) {
           <button
             type="button"
             className="rounded-xl bg-white px-3 py-2 text-xs font-extrabold text-indigo-700 ring-1 ring-indigo-100 transition hover:bg-indigo-100"
-            onClick={() => onChange(modules.map((module) => String(getId(module))))}
+            onClick={() => onChange(normalizeModuleSelection(modules.map((module) => String(getId(module))))) }
           >
             Select all
           </button>
           <button
             type="button"
             className="rounded-xl bg-white px-3 py-2 text-xs font-extrabold text-gray-600 ring-1 ring-gray-200 transition hover:bg-gray-100"
-            onClick={() => onChange([])}
+            onClick={() => onChange([...REQUIRED_MODULE_IDS])}
           >
             Clear
           </button>
