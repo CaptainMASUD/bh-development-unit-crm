@@ -10,6 +10,7 @@ dotenv.config({
 })
 
 const port = Number(process.env.PORT || 4000)
+const isVercel = Boolean(process.env.VERCEL)
 const ensurePortAvailable = () => new Promise((resolve, reject) => {
     const probe = net.createServer()
     probe.unref()
@@ -21,7 +22,7 @@ const startServer = async () => {
     let portReservation = null
     try {
         portReservation = await ensurePortAvailable()
-        await connectDB()
+        await connectDB({ initializeArchitecture: true })
         await new Promise((resolve, reject) => portReservation.close((error) => error ? reject(error) : resolve()))
         portReservation = null
         const server = app.listen(port, () => {
@@ -59,6 +60,33 @@ const startServer = async () => {
     }
 }
 
-startServer()
+// Vercel owns the HTTP listener. Exporting a request handler prevents a
+// serverless invocation from binding a port, registering shutdown hooks, or
+// terminating the worker with process.exit(). The cached connection promise
+// is reused by warm invocations.
+const handler = async (req, res) => {
+    // CORS preflight does not need MongoDB. Keeping it database-independent
+    // also lets the browser receive the correct 204 response during a brief
+    // database outage.
+    if (req.method === "OPTIONS") return app(req, res)
+
+    try {
+        await connectDB()
+        return app(req, res)
+    } catch (error) {
+        console.error("Request database initialization failed.", error)
+        if (res.headersSent) return undefined
+        return res.status(503).json({
+            success: false,
+            statusCode: 503,
+            message: "The database is temporarily unavailable.",
+        })
+    }
+}
+
+if (!isVercel) startServer()
+
+export default handler
+export { handler, startServer }
 
 
