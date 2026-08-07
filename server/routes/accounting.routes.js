@@ -32,6 +32,7 @@ import {
   listJournalEntries,
   listOpeningBalances,
   listVendorBills,
+  getVendorBillMatchOptions,
   listVoucherTypes,
   lockAccountingPeriod,
   payVendorBill,
@@ -215,6 +216,7 @@ router.patch(
   reconcileCashAccount
 );
 
+router.get("/vendor-bills/match-options", getVendorBillMatchOptions);
 router.get("/vendor-bills", listVendorBills);
 router.post(
   "/vendor-bills",

@@ -3,6 +3,7 @@ import {
   createWarehouse,
   deleteWarehouse,
   getWarehouse,
+  getWarehouseFormOptions,
   listWarehouseOptions,
   listWarehouses,
   restoreWarehouse,
@@ -15,6 +16,7 @@ const router = express.Router();
 router.use(protect);
 
 router.get("/options", requirePermission("inventory-warehouse:view"), listWarehouseOptions);
+router.get("/form-options", requirePermission("inventory-warehouse:view"), getWarehouseFormOptions);
 router.get("/", requirePermission("inventory-warehouse:view"), listWarehouses);
 router.post("/", requirePermission("inventory-warehouse:manage"), createWarehouse);
 router.get("/:id", requirePermission("inventory-warehouse:view"), getWarehouse);

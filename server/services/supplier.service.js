@@ -898,7 +898,9 @@ const buildSupplierFilter = (query = {}, { options = false } = {}) => {
   const filter = {};
 
   if (options) {
-    filter.status = "active";
+    filter.status = String(query.includeUnavailable) === "true"
+      ? { $ne: "archived" }
+      : "active";
   } else if (query.status && query.status !== "all") {
     const status = lower(query.status);
     assertEnum(status, SUPPLIER_STATUSES, "Supplier status");
@@ -1085,8 +1087,10 @@ export const listSuppliersService = async (query = {}) => {
 };
 
 export const listSupplierOptionsService = async (query = {}) => {
-  const limit = parseLimit(query.limit, 20, 50);
+  const limit = parseLimit(query.limit, 20, 200);
   const normalized = {
+    tenantId: clean(query._verifiedTenantId),
+    includeUnavailable: String(query.includeUnavailable) === "true",
     q: lower(query.q),
     supplierType: lower(query.supplierType),
     supplierScope: lower(query.supplierScope),
@@ -1109,7 +1113,10 @@ export const listSupplierOptionsService = async (query = {}) => {
 
   const result = {
     count: suppliers.length,
-    suppliers: suppliers.map(({ businessNameLower, ...item }) => item),
+    suppliers: suppliers.map(({ businessNameLower, ...item }) => ({
+      ...item,
+      isSelectable: item.status === "active",
+    })),
   };
 
   readCache.set(cacheKey, result, OPTIONS_CACHE_MS);

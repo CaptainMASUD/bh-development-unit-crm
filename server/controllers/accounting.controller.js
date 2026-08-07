@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Deal from "../models/deal.model.js";
 import Expense from "../models/expense.model.js";
 import Invoice from "../models/invoice.model.js";
+import { SalesInvoice } from "../models/sales/salesInvoice.model.js";
 import Account from "../models/account.model.js";
 import JournalEntry from "../models/journalEntry.model.js";
 import AccountingPeriod from "../models/accountingPeriod.model.js";
@@ -14,6 +15,9 @@ import BankReconciliation from "../models/bankReconciliation.model.js";
 import BankTransaction from "../models/bankTransaction.model.js";
 import VoucherType from "../models/voucherType.model.js";
 import VendorBill from "../models/vendorBill.model.js";
+import Supplier from "../models/supplier.model.js";
+import PurchaseOrder from "../models/purchaseOrder.model.js";
+import GoodsReceipt from "../models/goodsReceipt.model.js";
 import User from "../models/user.model.js";
 import { accountingCache } from "../utils/cache.js";
 import { getReqMeta, writeAudit } from "../utils/audit.js";
@@ -147,9 +151,11 @@ const resolveSystemAccount = async (code) => {
     1000: "defaultCashAccount",
     1010: "defaultBankAccount",
     1100: "receivableAccount",
+    1200: "vatReceivableAccount",
     1300: "inventoryAccount",
     1500: "furnitureAccount",
     2000: "payableAccount",
+    2050: "inventoryClearingAccount",
     2200: "payrollPayableAccount",
     2300: "loanAccount",
     2100: "vatAccount",
@@ -640,13 +646,37 @@ export const getReceivables = async (req, res) => {
     const filter = { ...controlFilter, issuedAt: { ...controlFilter.issuedAt } };
     if (range.from) filter.issuedAt.$gte = range.from;
     if (range.to && range.to < asOf) filter.issuedAt.$lte = range.to;
-    const documents = await Invoice.find(filter)
-      .populate("customerId", "name companyName email phone")
-      .populate({ path: "dealId", select: "dealNo title ownerId", populate: { path: "ownerId", select: "name email" } })
-      .sort({ dueAt: 1, issuedAt: 1 }).lean();
+    const salesControlFilter = { "accountingPosting.journalEntryId": { $ne: null }, status: { $nin: ["draft", "void", "cancelled"] }, dueAmount: { $gt: 0 }, invoiceDate: { $lte: asOf } };
+    const salesFilter = { ...salesControlFilter, invoiceDate: { ...salesControlFilter.invoiceDate } };
+    if (range.from) salesFilter.invoiceDate.$gte = range.from;
+    if (range.to && range.to < asOf) salesFilter.invoiceDate.$lte = range.to;
+    const [legacyDocuments, salesDocuments] = await Promise.all([
+      Invoice.find(filter)
+        .populate("customerId", "name companyName email phone")
+        .populate({ path: "dealId", select: "dealNo title ownerId", populate: { path: "ownerId", select: "name email" } })
+        .sort({ dueAt: 1, issuedAt: 1 }).lean(),
+      SalesInvoice.find(salesFilter)
+        .populate("customerId", "name companyName email phone")
+        .populate("salespersonId", "name email")
+        .sort({ dueDate: 1, invoiceDate: 1 }).lean(),
+    ]);
+    const documents = [
+      ...legacyDocuments,
+      ...salesDocuments.map((invoice) => ({
+        ...invoice,
+        invoiceNo: invoice.invoiceNumber,
+        issuedAt: invoice.invoiceDate,
+        dueAt: invoice.dueDate,
+        total: invoice.totals?.grandTotal || 0,
+        paidTotal: invoice.paidAmount || 0,
+        dueTotal: invoice.dueAmount || 0,
+        salesperson: invoice.salespersonId || null,
+        sourceModule: "sales",
+      })),
+    ];
     const q = clean(req.query.q).toLowerCase(); const salespersonId = clean(req.query.salespersonId);
     const filtered = documents.filter((invoice) => {
-      const customer = invoice.customerId || {}; const owner = invoice.dealId?.ownerId || {};
+      const customer = invoice.customerId || {}; const owner = invoice.dealId?.ownerId || invoice.salesperson || {};
       const haystack = [invoice.invoiceNo, customer.name, customer.companyName, customer.email, owner.name, owner.email].map(clean).join(" ").toLowerCase();
       return (!q || haystack.includes(q)) && (!salespersonId || String(owner._id || owner) === salespersonId);
     });
@@ -655,22 +685,29 @@ export const getReceivables = async (req, res) => {
       const party = invoice.customerId || {}; const key = String(party._id || "unassigned"); const bucket = agingBucket(invoice.dueAt, asOf);
       const row = partyMap.get(key) || { party: { _id: party._id, name: party.companyName || party.name || "Unassigned customer", email: party.email, phone: party.phone }, ...emptyAging(), invoices: [] };
       addAging(row, bucket, invoice.dueTotal); addAging(totalAging, bucket, invoice.dueTotal);
-      row.invoices.push({ _id: invoice._id, invoiceNo: invoice.invoiceNo, issuedAt: invoice.issuedAt, dueAt: invoice.dueAt, total: invoice.total, paidTotal: invoice.paidTotal, dueTotal: invoice.dueTotal, status: bucket === "current" ? invoice.status : "overdue", daysOverdue: invoice.dueAt ? Math.max(Math.floor((asOf - new Date(invoice.dueAt)) / DAY_MS), 0) : 0, salesperson: invoice.dealId?.ownerId || null });
+      row.invoices.push({ _id: invoice._id, invoiceNo: invoice.invoiceNo, issuedAt: invoice.issuedAt, dueAt: invoice.dueAt, total: invoice.total, paidTotal: invoice.paidTotal, dueTotal: invoice.dueTotal, status: bucket === "current" ? invoice.status : "overdue", daysOverdue: invoice.dueAt ? Math.max(Math.floor((asOf - new Date(invoice.dueAt)) / DAY_MS), 0) : 0, salesperson: invoice.dealId?.ownerId || invoice.salesperson || null, sourceModule: invoice.sourceModule || "crm" });
       partyMap.set(key, row);
     }
     const aging = [...partyMap.values()].sort((a, b) => b.total - a.total);
     const overdueAmount = money(totalAging.total - totalAging.current);
-    const controlSubledgerTotal = await subledgerOutstanding(Invoice, controlFilter);
-    const [settled, reconciliation] = await Promise.all([
+    const [legacySubledgerTotal, salesSubledgerRows, legacySettled, salesSettled] = await Promise.all([
+      subledgerOutstanding(Invoice, controlFilter),
+      SalesInvoice.aggregate([{ $match: salesControlFilter }, { $group: { _id: null, amount: { $sum: "$dueAmount" } } }]),
       Invoice.find({ journalEntry: { $ne: null }, status: { $nin: ["draft", "void"] }, paidTotal: { $gt: 0 } }).select("issuedAt payments").lean(),
-      reconciliationResult("1100", controlSubledgerTotal, "All open posted customer invoices"),
+      SalesInvoice.find({ "accountingPosting.journalEntryId": { $ne: null }, paidAmount: { $gt: 0 }, status: { $nin: ["draft", "void", "cancelled"] } }).select("invoiceDate paymentAllocations").lean(),
     ]);
+    const controlSubledgerTotal = money(legacySubledgerTotal + Number(salesSubledgerRows[0]?.amount || 0));
+    const settled = [
+      ...legacySettled,
+      ...salesSettled.map((invoice) => ({ issuedAt: invoice.invoiceDate, payments: (invoice.paymentAllocations || []).map((payment) => ({ paidAt: payment.paymentDate })) })),
+    ];
+    const reconciliation = await reconciliationResult("1100", controlSubledgerTotal, "All open posted CRM and Sales invoices");
     const limit = parseLimit(req.query.limit, 75); const rows = aging.flatMap((party) => party.invoices.map((invoice) => ({ ...invoice, customer: party.party }))).slice(0, limit);
     return res.json({
       summary: { outstandingAmount: totalAging.total, receivableAmount: totalAging.total, invoiceDueAmount: totalAging.total, overdueAmount, overdueCount: filtered.filter((invoice) => invoice.dueAt && new Date(invoice.dueAt) < asOf).length, customerCount: aging.length, openInvoiceCount: filtered.length, dso: paymentDayAverage(settled, "issuedAt") },
       aging, agingTotals: totalAging, rows, topCustomers: aging.slice(0, 5).map(({ party, total }) => ({ party, amount: total })), dsoTrend: paymentDaysTrend(settled, "issuedAt"), reconciliation,
       filters: { salespersonId: salespersonId || null }, pageInfo: { limit, hasNextPage: filtered.length > limit, nextCursor: "" },
-      basis: "Posted customer invoices less applied Receive Voucher payments. Unbilled deals and draft invoices are excluded.",
+      basis: "Posted CRM and Sales invoices less applied receipt-voucher payments. Unbilled deals and draft invoices are excluded.",
     });
   } catch (error) {
     return res.status(500).json({ message: "Failed to load receivables.", error: error.message });
@@ -682,7 +719,20 @@ export const getCustomerStatement = async (req, res) => {
     if (!isId(req.params.customerId)) return res.status(400).json({ message: "Invalid customer ID." });
     const asOf = req.query.asOf ? parsePostingDate(req.query.asOf, null) : new Date();
     if (!asOf) return res.status(400).json({ message: "Invalid as-of date." }); asOf.setHours(23, 59, 59, 999);
-    const invoices = await Invoice.find({ customerId: req.params.customerId, journalEntry: { $ne: null }, status: { $nin: ["draft", "void"] }, issuedAt: { $lte: asOf } }).populate("customerId", "name companyName email phone").sort({ issuedAt: 1 }).lean();
+    const [legacyInvoices, salesInvoices] = await Promise.all([
+      Invoice.find({ customerId: req.params.customerId, journalEntry: { $ne: null }, status: { $nin: ["draft", "void"] }, issuedAt: { $lte: asOf } }).populate("customerId", "name companyName email phone").sort({ issuedAt: 1 }).lean(),
+      SalesInvoice.find({ customerId: req.params.customerId, "accountingPosting.journalEntryId": { $ne: null }, status: { $nin: ["draft", "void", "cancelled"] }, invoiceDate: { $lte: asOf } }).populate("customerId", "name companyName email phone").sort({ invoiceDate: 1 }).lean(),
+    ]);
+    const invoices = [
+      ...legacyInvoices,
+      ...salesInvoices.map((invoice) => ({
+        ...invoice,
+        invoiceNo: invoice.invoiceNumber,
+        issuedAt: invoice.invoiceDate,
+        total: invoice.totals?.grandTotal || 0,
+        payments: (invoice.paymentAllocations || []).map((payment) => ({ amount: payment.amount, paidAt: payment.paymentDate, transactionId: payment.reference })),
+      })),
+    ];
     const transactions = invoices.flatMap((invoice) => [
       { date: invoice.issuedAt, reference: invoice.invoiceNo, description: "Customer invoice", charge: money(invoice.total), payment: 0, invoiceId: invoice._id },
       ...(invoice.payments || []).filter((payment) => new Date(payment.paidAt) <= asOf).map((payment) => ({ date: payment.paidAt, reference: payment.transactionId || invoice.invoiceNo, description: `Payment received - ${invoice.invoiceNo}`, charge: 0, payment: money(payment.amount), invoiceId: invoice._id })),
@@ -948,9 +998,13 @@ const SETTINGS_ACCOUNT_FIELDS = [
   "defaultBankAccount",
   "salesAccount",
   "purchaseAccount",
+  "cogsAccount",
   "receivableAccount",
   "payableAccount",
   "inventoryAccount",
+  "inventoryClearingAccount",
+  "purchasePriceVarianceAccount",
+  "inventoryAdjustmentAccount",
   "furnitureAccount",
   "loanAccount",
   "payrollExpenseAccount",
@@ -969,9 +1023,13 @@ const SETTINGS_ACCOUNT_LABELS = {
   defaultBankAccount: "Default Bank",
   salesAccount: "Sales / Income",
   purchaseAccount: "Purchases",
+  cogsAccount: "Cost of Goods Sold",
   receivableAccount: "Accounts Receivable Control",
   payableAccount: "Accounts Payable Control",
   inventoryAccount: "Inventory Control",
+  inventoryClearingAccount: "Goods Received Not Invoiced",
+  purchasePriceVarianceAccount: "Purchase Price Variance",
+  inventoryAdjustmentAccount: "Inventory Adjustment Gain or Loss",
   furnitureAccount: "Furniture",
   loanAccount: "Loan",
   payrollExpenseAccount: "Payroll Expense",
@@ -1021,12 +1079,23 @@ const matchesSettingsAccountPurpose = (field, account, links) => {
         (account.code === "5010" ||
           hasText("purchase", "cost of goods", "cost of sales"))
       );
+    case "cogsAccount":
+      return (
+        isType("expense") &&
+        (account.code === "5020" || hasText("cost of goods sold", "cost of sales", "cogs"))
+      );
     case "receivableAccount":
       return isType("asset") && account.controlType === "receivable";
     case "payableAccount":
       return isType("liability") && account.controlType === "payable";
     case "inventoryAccount":
       return isType("asset") && account.controlType === "inventory";
+    case "inventoryClearingAccount":
+      return isType("liability") && (account.code === "2050" || hasText("goods received not invoiced", "grni", "inventory clearing"));
+    case "purchasePriceVarianceAccount":
+      return isType("expense") && (account.code === "5030" || hasText("purchase price variance"));
+    case "inventoryAdjustmentAccount":
+      return isType("expense") && (account.code === "5040" || hasText("inventory adjustment", "stock adjustment"));
     case "furnitureAccount":
       return (
         isType("asset") &&
@@ -2192,6 +2261,9 @@ export const listVendorBills = async (req, res) => {
     if (cursor) filter.$or = [{ billDate: { $lt: cursor.date } }, { billDate: cursor.date, _id: { $lt: cursor.id } }];
     const rows = await VendorBill.find(filter)
       .populate("expenseAccount payableAccount", "code name type")
+      .populate("supplier", "supplierCode businessName tradingName contactPerson")
+      .populate("purchaseOrder", "orderNo orderDate grandTotal status")
+      .populate("goodsReceipts", "receiptNo receiptDate totalAcceptedValue status")
       .sort({ billDate: -1, _id: -1 })
       .limit(limit + 1)
       .lean();
@@ -2204,27 +2276,144 @@ export const listVendorBills = async (req, res) => {
   }
 };
 
+export const getVendorBillMatchOptions = async (req, res) => {
+  try {
+    const supplierFilter = { status: "active" };
+    if (isId(req.query.supplier)) supplierFilter._id = req.query.supplier;
+    const usedReceiptIds = await VendorBill.distinct("goodsReceipts", {
+      status: { $in: ["approved", "partially_paid", "paid"] },
+      goodsReceipts: { $ne: null },
+    });
+    const receiptFilter = {
+      status: "posted",
+      _id: { $nin: usedReceiptIds },
+    };
+    const orderFilter = { status: { $in: ["approved", "partially_received", "received", "closed"] } };
+    if (isId(req.query.supplier)) {
+      receiptFilter.supplier = req.query.supplier;
+      orderFilter.supplier = req.query.supplier;
+    }
+    const [suppliers, purchaseOrders, goodsReceipts] = await Promise.all([
+      Supplier.find(supplierFilter).select("code businessName status").sort({ businessName: 1 }).limit(500).lean(),
+      PurchaseOrder.find(orderFilter).select("orderNo orderDate supplier currency grandTotal status").sort({ orderDate: -1 }).limit(500).lean(),
+      GoodsReceipt.find(receiptFilter).select("receiptNo receiptDate purchaseOrder supplier currency totalAcceptedValue status").sort({ receiptDate: -1 }).limit(500).lean(),
+    ]);
+    return res.json({ suppliers, purchaseOrders, goodsReceipts });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load supplier invoice matching options.", error: error.message });
+  }
+};
+
+const resolveVendorBillMatch = async ({ supplierId, purchaseOrderId, goodsReceiptIds, subtotal, currency, toleranceAmount = 0.01 }) => {
+  if (!purchaseOrderId && !goodsReceiptIds.length) {
+    return { purchaseOrder: null, goodsReceipts: [], matchStatus: "unlinked", receivedAmount: 0, variance: 0, currency: clean(currency || "BDT").toUpperCase() };
+  }
+  if (!isId(supplierId) || !isId(purchaseOrderId)) {
+    throw Object.assign(new Error("Supplier and purchase order are required for a matched inventory bill."), { statusCode: 400 });
+  }
+  const order = await PurchaseOrder.findOne({ _id: purchaseOrderId, supplier: supplierId }).select("_id supplier orderNo status currency").lean();
+  if (!order) throw Object.assign(new Error("Purchase order does not belong to the selected supplier."), { statusCode: 400 });
+  if (currency && clean(order.currency).toUpperCase() !== clean(currency).toUpperCase()) {
+    throw Object.assign(new Error("Supplier bill currency must match the purchase order currency."), { statusCode: 400 });
+  }
+  const matchCurrency = clean(currency || order.currency).toUpperCase();
+  const ids = [...new Set(goodsReceiptIds.filter(isId).map(String))];
+  if (!ids.length) throw Object.assign(new Error("Select at least one posted goods receipt for invoice matching."), { statusCode: 400 });
+  const receipts = await GoodsReceipt.find({ _id: { $in: ids }, purchaseOrder: order._id, supplier: supplierId, status: "posted" })
+    .select("_id totalAcceptedValue currency")
+    .lean();
+  if (receipts.length !== ids.length) {
+    throw Object.assign(new Error("Every matched goods receipt must be posted and belong to the selected supplier and purchase order."), { statusCode: 400 });
+  }
+  if (receipts.some((receipt) => clean(receipt.currency).toUpperCase() !== matchCurrency)) {
+    throw Object.assign(new Error("Every matched goods receipt must use the supplier bill currency."), { statusCode: 400 });
+  }
+  const receivedAmount = money(receipts.reduce((sum, receipt) => sum + Number(receipt.totalAcceptedValue || 0), 0));
+  const variance = money(Number(subtotal || 0) - receivedAmount);
+  return {
+    purchaseOrder: order._id,
+    goodsReceipts: receipts.map((receipt) => receipt._id),
+    matchStatus: Math.abs(variance) <= Number(toleranceAmount || 0.01) ? "matched" : "exception",
+    receivedAmount,
+    variance,
+    currency: matchCurrency,
+  };
+};
+
+const vendorBillPostingLines = async (bill) => {
+  const lines = [{
+    account: bill.expenseAccount,
+    debit: bill.subtotal,
+    credit: 0,
+    description: bill.memo,
+    contactType: "vendor",
+    contactId: bill.supplier,
+  }];
+  if (Number(bill.taxAmount || 0) > 0) {
+    lines.push({ account: await resolveSystemAccount("1200"), debit: bill.taxAmount, credit: 0, description: `Input tax - ${bill.billNo}` });
+  }
+  lines.push({ account: bill.payableAccount, debit: 0, credit: bill.total, description: bill.vendorName, contactType: "vendor", contactId: bill.supplier });
+  return lines;
+};
+
+const assertReceiptsAvailableForBill = async (bill) => {
+  if (!bill.goodsReceipts?.length) return;
+  const conflict = await VendorBill.findOne({
+    _id: { $ne: bill._id },
+    goodsReceipts: { $in: bill.goodsReceipts },
+    status: { $in: ["approved", "partially_paid", "paid"] },
+  }).select("billNo").lean();
+  if (conflict) {
+    throw Object.assign(new Error(`One or more goods receipts are already matched to ${conflict.billNo}.`), { statusCode: 409 });
+  }
+};
+
 export const createVendorBill = async (req, res) => {
   try {
-    const expenseAccount = req.body.expenseAccount || await resolveSystemAccount("5000");
+    const supplier = isId(req.body.supplier) ? await Supplier.findById(req.body.supplier).select("_id businessName tradingName contactPerson").lean() : null;
+    if (req.body.supplier && !supplier) return res.status(400).json({ message: "Selected supplier was not found." });
+    if (!supplier && !clean(req.body.vendorName)) return res.status(400).json({ message: "Supplier is required." });
+    const supplierInvoiceNo = clean(req.body.supplierInvoiceNo).toUpperCase();
+    if (supplier && supplierInvoiceNo && await VendorBill.exists({ supplier: supplier._id, supplierInvoiceNo, status: { $ne: "void" } })) {
+      return res.status(409).json({ message: "This supplier invoice number is already registered." });
+    }
+    const subtotal = money(req.body.subtotal || req.body.total);
+    const taxAmount = money(req.body.taxAmount);
+    const total = money(subtotal + taxAmount);
+    const requestedCurrency = clean(req.body.currency).toUpperCase();
+    if (subtotal <= 0 || total <= 0) return res.status(400).json({ message: "A positive bill subtotal is required." });
+    const goodsReceiptIds = Array.isArray(req.body.goodsReceipts) ? req.body.goodsReceipts : [];
+    const match = await resolveVendorBillMatch({ supplierId: supplier?._id, purchaseOrderId: req.body.purchaseOrder, goodsReceiptIds, subtotal, currency: requestedCurrency, toleranceAmount: req.body.toleranceAmount });
+    const currency = match.currency || requestedCurrency || "BDT";
+    const expenseAccount = match.matchStatus === "unlinked"
+      ? (req.body.expenseAccount || await resolveSystemAccount("5000"))
+      : await resolveSystemAccount("2050");
     const payableAccount = req.body.payableAccount || await resolveSystemAccount("2000");
     const billDate = parsePostingDate(req.body.billDate) || new Date();
     const bill = await VendorBill.create({
       billNo: await nextAccountingNumber("bill", billDate),
-      vendorName: req.body.vendorName,
+      vendorName: supplier?.businessName || supplier?.tradingName || supplier?.contactPerson || req.body.vendorName,
+      supplier: supplier?._id || null,
+      supplierInvoiceNo,
+      purchaseOrder: match.purchaseOrder,
+      goodsReceipts: match.goodsReceipts,
       expense: isId(req.body.expense) ? req.body.expense : null,
       expenseAccount,
       payableAccount,
-      currency: clean(req.body.currency || "BDT"),
+      currency,
       billDate,
       dueDate: parsePostingDate(req.body.dueDate, null),
-      subtotal: money(req.body.subtotal || req.body.total),
-      taxAmount: money(req.body.taxAmount),
-      total: money(req.body.total),
+      subtotal,
+      taxAmount,
+      total,
       memo: clean(req.body.memo),
+      matchStatus: match.matchStatus,
+      matchSummary: { receivedAmount: match.receivedAmount, invoicedAmount: subtotal, amountVariance: match.variance, toleranceAmount: money(req.body.toleranceAmount || 0.01), checkedAt: match.matchStatus === "unlinked" ? null : new Date() },
       createdBy: req.user?._id || null,
     });
     if (req.body.post === true || req.body.status === "approved") {
+      if (bill.matchStatus === "exception") throw Object.assign(new Error("The supplier invoice does not match the selected goods receipts. Resolve the variance before posting."), { statusCode: 409 });
+      await assertReceiptsAvailableForBill(bill);
       const journal = await postJournalEntry({
         date: bill.billDate,
         sourceType: "vendor_bill",
@@ -2233,10 +2422,7 @@ export const createVendorBill = async (req, res) => {
         memo: bill.memo || `Vendor bill from ${bill.vendorName}`,
         currency: bill.currency,
         userId: req.user?._id || null,
-        lines: [
-          { account: bill.expenseAccount, debit: bill.total, credit: 0, description: bill.memo },
-          { account: bill.payableAccount, debit: 0, credit: bill.total, description: bill.vendorName, contactType: "vendor" },
-        ],
+        lines: await vendorBillPostingLines(bill),
       });
       bill.status = "approved";
       bill.approvedBy = req.user?._id || null;
@@ -2255,6 +2441,8 @@ export const approveVendorBill = async (req, res) => {
     const bill = await VendorBill.findById(req.params.id);
     if (!bill) return res.status(404).json({ message: "Vendor bill not found." });
     if (bill.status !== "draft") return res.status(409).json({ message: "Only draft bills can be approved." });
+    if (bill.matchStatus === "exception") return res.status(409).json({ message: "The supplier invoice does not match the selected goods receipts. Resolve the variance before approval." });
+    await assertReceiptsAvailableForBill(bill);
     const journal = await postJournalEntry({
       date: bill.billDate,
       sourceType: "vendor_bill",
@@ -2263,10 +2451,7 @@ export const approveVendorBill = async (req, res) => {
       memo: bill.memo || `Vendor bill from ${bill.vendorName}`,
       currency: bill.currency,
       userId: req.user?._id || null,
-      lines: [
-        { account: bill.expenseAccount, debit: bill.total, credit: 0, description: bill.memo },
-        { account: bill.payableAccount, debit: 0, credit: bill.total, description: bill.vendorName, contactType: "vendor" },
-      ],
+      lines: await vendorBillPostingLines(bill),
     });
     bill.status = "approved";
     bill.approvedBy = req.user?._id || null;

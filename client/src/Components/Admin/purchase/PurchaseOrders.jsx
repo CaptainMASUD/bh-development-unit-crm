@@ -48,17 +48,6 @@ const FALLBACK_META = {
   taxTypes: ["none", "exclusive", "inclusive"],
 }
 
-const EMPTY_SUMMARY = {
-  orderCount: 0,
-  draftCount: 0,
-  submittedCount: 0,
-  approvedCount: 0,
-  partialCount: 0,
-  receivedCount: 0,
-  totalOrderedQuantity: 0,
-  totalReceivedQuantity: 0,
-  totalValue: 0,
-}
 
 const shell = "min-h-screen bg-gray-50"
 const card =
@@ -276,7 +265,7 @@ function Field({ label, hint, required = false, children }) {
 
 function SectionCard({ title, description, children }) {
   return (
-    <section className="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 sm:p-5">
+    <section className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4 sm:p-5">
       <div className="mb-4">
         <h3 className="text-sm font-black text-gray-900">{title}</h3>
         {description ? (
@@ -350,55 +339,99 @@ function StatusBadge({ value }) {
   )
 }
 
-function ModalShell({ open, onClose, title, subtitle, icon, children, footer, maxWidthClass = "max-w-6xl" }) {
+function ModalShell({
+  open,
+  onClose,
+  title,
+  subtitle,
+  icon,
+  children,
+  footer,
+  maxWidthClass = "max-w-6xl",
+}) {
   useEffect(() => {
     if (!open) return undefined
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") onClose()
-    }
-    document.addEventListener("keydown", onKeyDown)
-    const previous = document.body.style.overflow
+
+    const previousOverflow = document.body.style.overflow
     document.body.style.overflow = "hidden"
+
     return () => {
-      document.removeEventListener("keydown", onKeyDown)
-      document.body.style.overflow = previous
+      document.body.style.overflow = previousOverflow
     }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return undefined
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") onClose?.()
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
   }, [open, onClose])
 
   if (!open || typeof document === "undefined") return null
 
   return createPortal(
-    <div className="fixed inset-0 z-[120] overflow-y-auto bg-gray-950/45 p-3 backdrop-blur-[2px] sm:p-5">
-      <div className="flex min-h-full items-center justify-center">
-        <motion.div
-          initial={{ opacity: 0, y: 14, scale: 0.985 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          className={cn("w-full overflow-hidden rounded-3xl bg-white shadow-2xl", maxWidthClass)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-gray-100 bg-white px-4 py-4 sm:px-5">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700">
-                {icon}
+    <div className="fixed inset-0 z-[120]" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 overflow-y-auto">
+        <div className="flex min-h-full items-start justify-center p-4 sm:items-center sm:p-6">
+          <motion.button
+            type="button"
+            aria-label="Close modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="fixed inset-0 cursor-default bg-black/40 backdrop-blur-md"
+            onClick={onClose}
+          />
+
+          <motion.div
+            initial={{ opacity: 0, y: 14, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ type: "spring", stiffness: 260, damping: 24 }}
+            className={cn(
+              "relative w-full overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-[0_30px_70px_-30px_rgba(0,0,0,0.65)]",
+              maxWidthClass
+            )}
+          >
+            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-100 bg-gray-50/90 p-4 backdrop-blur sm:p-5">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
+                  {icon}
+                </div>
+
+                <div className="min-w-0">
+                  <h2 className="truncate text-base font-bold text-gray-900 sm:text-lg">
+                    {title}
+                  </h2>
+                  {subtitle ? (
+                    <p className="truncate text-sm text-gray-600">{subtitle}</p>
+                  ) : null}
+                </div>
               </div>
-              <div className="min-w-0">
-                <h2 className="truncate text-lg font-black text-gray-950">{title}</h2>
-                {subtitle ? <p className="truncate text-sm font-medium text-gray-500">{subtitle}</p> : null}
-              </div>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-xl p-2 text-gray-700 transition hover:bg-gray-100"
+                aria-label="Close modal"
+              >
+                <Icon icon={Cancel01Icon} className="h-5 w-5" />
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-xl p-2 text-gray-600 transition hover:bg-gray-100"
-              aria-label="Close modal"
-            >
-              <Icon icon={Cancel01Icon} className="h-5 w-5" />
-            </button>
-          </div>
-          <div className="max-h-[calc(100vh-13rem)] overflow-y-auto p-4 sm:p-5">{children}</div>
-          {footer ? <div className="sticky bottom-0 z-20 border-t border-gray-100 bg-white p-4 sm:p-5">{footer}</div> : null}
-        </motion.div>
+
+            <div className="max-h-[calc(100vh-14rem)] overflow-y-auto bg-white p-4 sm:p-5">
+              {children}
+            </div>
+
+            {footer ? (
+              <div className="sticky bottom-0 z-20 border-t border-gray-100 bg-white p-4 sm:p-5">
+                {footer}
+              </div>
+            ) : null}
+          </motion.div>
+        </div>
       </div>
     </div>,
     document.body
@@ -429,31 +462,769 @@ async function api(path, options = {}) {
   return data
 }
 
-function SummaryCards({ summary, onSelect }) {
-  const items = [
-    ["All Orders", summary.orderCount, "all", formatMoney(summary.totalValue)],
-    ["Drafts", summary.draftCount, "draft", "Waiting for completion"],
-    ["Submitted", summary.submittedCount, "submitted", "Waiting for approval"],
-    ["Approved", summary.approvedCount, "approved", "Ready for receiving"],
-    ["Partial", summary.partialCount, "partially_received", "Still has open quantity"],
-    ["Received", summary.receivedCount, "received", `${formatNumber(summary.totalReceivedQuantity)} units`],
-  ]
+
+function FilterChip({ label, value, onClear }) {
+  return (
+    <button
+      type="button"
+      onClick={onClear}
+      className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+      title={`Remove ${label} filter`}
+      aria-label={`Remove ${label} filter`}
+    >
+      <span className="text-indigo-400">{label}:</span>
+      <span className="max-w-[180px] truncate sm:max-w-[220px]">{value}</span>
+      <Icon icon={Cancel01Icon} className="h-3.5 w-3.5 shrink-0" />
+    </button>
+  )
+}
+
+function Skeleton({ className = "" }) {
+  return (
+    <div
+      className={cn(
+        "animate-pulse rounded-lg bg-gray-200/80",
+        className
+      )}
+    />
+  )
+}
+
+function HeaderSearchFilters({
+  activeTab,
+  filters,
+  updateFilter,
+  resetFilters,
+  filterChipCount,
+  selectedSupplierName,
+  selectedWarehouseName,
+  selectedProductName,
+  onClearStatus,
+  onOpenFilters,
+}) {
+  const hasAnything = Boolean(clean(filters.q)) || filterChipCount > 0
 
   return (
-    <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-      {items.map(([label, value, tab, note]) => (
+    <div
+      className={cn(
+        "w-full transition-[max-width,flex-basis] duration-200",
+        filterChipCount === 0
+          ? "lg:max-w-[50%] lg:flex-[0_1_50%]"
+          : filterChipCount <= 2
+            ? "lg:max-w-[64%] lg:flex-[0_1_64%]"
+            : "lg:max-w-[78%] lg:flex-[0_1_78%]"
+      )}
+    >
+      <div className="flex min-h-[40px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
+        <Icon
+          icon={Search01Icon}
+          className="h-4 w-4 shrink-0 text-gray-400"
+        />
+
+        {activeTab !== "all" ? (
+          <FilterChip
+            label="Status"
+            value={pretty(activeTab)}
+            onClear={onClearStatus}
+          />
+        ) : null}
+
+        {filters.supplier !== "all" ? (
+          <FilterChip
+            label="Supplier"
+            value={selectedSupplierName || "Selected supplier"}
+            onClear={() => updateFilter("supplier", "all")}
+          />
+        ) : null}
+
+        {filters.warehouse !== "all" ? (
+          <FilterChip
+            label="Warehouse"
+            value={selectedWarehouseName || "Selected warehouse"}
+            onClear={() => updateFilter("warehouse", "all")}
+          />
+        ) : null}
+
+        {filters.product !== "all" ? (
+          <FilterChip
+            label="Product"
+            value={selectedProductName || "Selected product"}
+            onClear={() => updateFilter("product", "all")}
+          />
+        ) : null}
+
+        {clean(filters.currency) ? (
+          <FilterChip
+            label="Currency"
+            value={clean(filters.currency).toUpperCase()}
+            onClear={() => updateFilter("currency", "")}
+          />
+        ) : null}
+
+        {filters.dateFrom ? (
+          <FilterChip
+            label="From"
+            value={formatDate(filters.dateFrom)}
+            onClear={() => updateFilter("dateFrom", "")}
+          />
+        ) : null}
+
+        {filters.dateTo ? (
+          <FilterChip
+            label="To"
+            value={formatDate(filters.dateTo)}
+            onClear={() => updateFilter("dateTo", "")}
+          />
+        ) : null}
+
+        <FocusPlaceholderInput
+          className="h-8 min-w-[150px] basis-[180px] flex-1 border-0 bg-transparent px-1 py-0 text-sm font-medium text-gray-800 outline-none ring-0 shadow-none placeholder:text-gray-400 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+          style={{ outline: "none", boxShadow: "none" }}
+          value={filters.q}
+          onChange={(event) => updateFilter("q", event.target.value)}
+          placeholder="Search order number..."
+          type="search"
+          aria-label="Search purchase orders"
+        />
+
         <button
-          key={label}
           type="button"
-          onClick={() => onSelect(tab)}
-          className={cn(card, "p-4 text-left transition hover:border-indigo-100 hover:bg-indigo-50/20")}
+          onClick={onOpenFilters}
+          className={cn(
+            "inline-flex h-8 shrink-0 items-center gap-2 rounded-xl px-2.5 text-xs font-black transition",
+            filterChipCount
+              ? "bg-indigo-600 text-white hover:bg-indigo-700"
+              : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
+          )}
         >
-          <p className="text-xs font-black uppercase tracking-wide text-gray-400">{label}</p>
-          <p className="mt-2 text-xl font-black text-gray-950">{formatNumber(value, 0)}</p>
-          <p className="mt-1 truncate text-xs font-semibold text-gray-500">{note}</p>
+          <Icon icon={FilterIcon} className="h-3.5 w-3.5" />
+          Filters
+          {filterChipCount ? (
+            <span className="rounded-full bg-white/20 px-1.5 text-[10px]">
+              {filterChipCount}
+            </span>
+          ) : null}
         </button>
-      ))}
+
+        {hasAnything ? (
+          <button
+            type="button"
+            onClick={() => resetFilters(false)}
+            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+            title="Clear search and filters"
+            aria-label="Clear search and filters"
+          >
+            <Icon icon={Cancel01Icon} className="h-4 w-4" />
+          </button>
+        ) : null}
+      </div>
     </div>
+  )
+}
+
+function PurchaseOrderTableSkeleton({ rows = 8 }) {
+  return Array.from({ length: rows }).map((_, index) => (
+    <tr key={`order-skeleton-${index}`}>
+      <td className="px-5 py-4">
+        <Skeleton className="h-4 w-28" />
+        <Skeleton className="mt-2 h-3 w-20" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-4 w-36" />
+        <Skeleton className="mt-2 h-3 w-20" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="mt-2 h-3 w-32" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="mt-2 h-1.5 w-28 rounded-full" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="mt-2 h-3 w-14" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-7 w-20 rounded-full" />
+      </td>
+      <td className="sticky right-0 bg-white px-5 py-4">
+        <div className="flex justify-end gap-2">
+          <Skeleton className="h-10 w-20 rounded-xl" />
+          <Skeleton className="h-10 w-10 rounded-xl" />
+        </div>
+      </td>
+    </tr>
+  ))
+}
+
+function PurchaseOrderMobileSkeleton({ rows = 5 }) {
+  return Array.from({ length: rows }).map((_, index) => (
+    <article key={`mobile-order-skeleton-${index}`} className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="mt-2 h-3 w-20" />
+        </div>
+        <Skeleton className="h-7 w-20 rounded-full" />
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-gray-50 p-3">
+        {Array.from({ length: 4 }).map((__, metricIndex) => (
+          <div key={metricIndex}>
+            <Skeleton className="h-3 w-14" />
+            <Skeleton className="mt-2 h-4 w-24" />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 flex gap-2">
+        <Skeleton className="h-10 flex-1 rounded-xl" />
+        <Skeleton className="h-10 w-10 rounded-xl" />
+      </div>
+    </article>
+  ))
+}
+
+function PurchaseOrderActions({
+  order,
+  busy,
+  meta,
+  canManage,
+  canApprove,
+  canDelete,
+  onView,
+  onEdit,
+  onSubmit,
+  onApprove,
+  onReject,
+  onCancel,
+  onCloseOrder,
+  onReceipt,
+  onDelete,
+  mobile = false,
+}) {
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const working = String(busy.id) === String(order._id)
+
+  useEffect(() => {
+    if (!open) return undefined
+
+    const close = () => setOpen(false)
+    const onPointer = (event) => {
+      if (!event.target.closest?.("[data-po-actions-menu]")) close()
+    }
+
+    window.addEventListener("resize", close)
+    window.addEventListener("scroll", close, true)
+    document.addEventListener("mousedown", onPointer)
+
+    return () => {
+      window.removeEventListener("resize", close)
+      window.removeEventListener("scroll", close, true)
+      document.removeEventListener("mousedown", onPointer)
+    }
+  }, [open])
+
+  const openMenu = (event) => {
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    const menuWidth = 250
+    const estimatedHeight = 340
+    const gutter = 8
+    const left = Math.min(
+      window.innerWidth - menuWidth - gutter,
+      Math.max(gutter, rect.right - menuWidth)
+    )
+    const fitsBelow =
+      window.innerHeight - rect.bottom >= Math.min(estimatedHeight, 300)
+    const top = fitsBelow
+      ? rect.bottom + gutter
+      : Math.max(gutter, rect.top - estimatedHeight - gutter)
+
+    setPosition({ top, left })
+    setOpen((previous) => !previous)
+  }
+
+  const menuItems = []
+
+  if (canManage && meta.editableStatuses.includes(order.status)) {
+    menuItems.push({
+      key: "edit",
+      label: "Edit order",
+      icon: Edit02Icon,
+      onClick: () => onEdit(order),
+    })
+  }
+
+  if (canManage && ["draft", "rejected"].includes(order.status)) {
+    menuItems.push({
+      key: "submit",
+      label: "Submit for approval",
+      icon: Tick02Icon,
+      onClick: () => onSubmit(order),
+    })
+  }
+
+  if (canApprove && order.status === "submitted") {
+    menuItems.push(
+      {
+        key: "approve",
+        label: "Approve order",
+        icon: Tick02Icon,
+        onClick: () => onApprove(order),
+      },
+      {
+        key: "reject",
+        label: "Reject order",
+        icon: Cancel01Icon,
+        danger: true,
+        onClick: () => onReject(order),
+      }
+    )
+  }
+
+  if (
+    canManage &&
+    ["draft", "submitted", "approved", "rejected"].includes(order.status) &&
+    Number(order.totalReceivedQuantity || 0) === 0
+  ) {
+    menuItems.push({
+      key: "cancel",
+      label: "Cancel order",
+      icon: Cancel01Icon,
+      danger: true,
+      onClick: () => onCancel(order),
+    })
+  }
+
+  if (
+    canApprove &&
+    ["approved", "partially_received", "received"].includes(order.status)
+  ) {
+    menuItems.push({
+      key: "close",
+      label: "Close order",
+      icon: Archive02Icon,
+      onClick: () => onCloseOrder(order),
+    })
+  }
+
+  if (canManage && meta.openStatuses.includes(order.status) && onReceipt) {
+    menuItems.push({
+      key: "receipt",
+      label: "Create goods receipt",
+      icon: Add01Icon,
+      onClick: () => onReceipt(order),
+    })
+  }
+
+  if (
+    canDelete &&
+    ["draft", "rejected", "cancelled"].includes(order.status)
+  ) {
+    menuItems.push({
+      key: "delete",
+      label: "Delete order",
+      icon: Archive02Icon,
+      danger: true,
+      separator: true,
+      onClick: () => onDelete(order),
+    })
+  }
+
+  const activeBusyType = working ? busy.type : ""
+
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2",
+        mobile ? "w-full" : "justify-end"
+      )}
+      data-po-actions-menu
+    >
+      <button
+        type="button"
+        className={cn(
+          button,
+          ghostButton,
+          mobile ? "h-10 flex-1 px-3" : "h-10 px-3"
+        )}
+        onClick={() => onView(order)}
+        disabled={working}
+      >
+        <Icon
+          icon={activeBusyType === "view" ? RefreshIcon : ViewIcon}
+          className={cn(
+            "h-4 w-4",
+            activeBusyType === "view" ? "animate-spin" : ""
+          )}
+        />
+        View
+      </button>
+
+      {menuItems.length ? (
+        <button
+          type="button"
+          onClick={openMenu}
+          disabled={working}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-xl font-bold leading-none text-gray-600 transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+          aria-label={`More actions for ${order.orderNo}`}
+          title="More actions"
+        >
+          {working && activeBusyType !== "view" ? (
+            <Icon icon={RefreshIcon} className="h-4 w-4 animate-spin" />
+          ) : (
+            <span aria-hidden="true">⋮</span>
+          )}
+        </button>
+      ) : null}
+
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              data-po-actions-menu
+              className="fixed z-[150] w-[250px] overflow-hidden rounded-2xl border border-gray-100 bg-white p-1.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.45)]"
+              style={{ top: position.top, left: position.left }}
+            >
+              {menuItems.map((item) => (
+                <div key={item.key}>
+                  {item.separator ? (
+                    <div className="my-1 border-t border-gray-100" />
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false)
+                      item.onClick()
+                    }}
+                    disabled={working}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition",
+                      item.danger
+                        ? "text-rose-700 hover:bg-rose-50"
+                        : "text-gray-700 hover:bg-gray-50"
+                    )}
+                  >
+                    <Icon icon={item.icon} className="h-4 w-4 shrink-0" />
+                    <span>{item.label}</span>
+                  </button>
+                </div>
+              ))}
+            </div>,
+            document.body
+          )
+        : null}
+    </div>
+  )
+}
+
+function PurchaseOrderList({
+  orders,
+  loading,
+  loadingMore,
+  hasMore,
+  busy,
+  meta,
+  canManage,
+  canApprove,
+  canDelete,
+  onView,
+  onEdit,
+  onSubmit,
+  onApprove,
+  onReject,
+  onCancel,
+  onCloseOrder,
+  onReceipt,
+  onDelete,
+  onLoadMore,
+}) {
+  const actionProps = {
+    busy,
+    meta,
+    canManage,
+    canApprove,
+    canDelete,
+    onView,
+    onEdit,
+    onSubmit,
+    onApprove,
+    onReject,
+    onCancel,
+    onCloseOrder,
+    onReceipt,
+    onDelete,
+  }
+
+  return (
+    <div className={cn(card, "overflow-hidden rounded-3xl")}>
+      <div className="hidden h-[600px] overflow-auto lg:block xl:h-[650px]">
+        <table className="w-full min-w-[1120px] text-left">
+          <thead className="sticky top-0 z-20 bg-gray-50/95 backdrop-blur">
+            <tr className="text-xs font-black uppercase tracking-wide text-gray-500">
+              <th className="px-5 py-3">Order</th>
+              <th className="px-5 py-3">Supplier</th>
+              <th className="px-5 py-3">Delivery</th>
+              <th className="px-5 py-3">Quantity</th>
+              <th className="px-5 py-3">Total</th>
+              <th className="px-5 py-3">Status</th>
+              <th className="sticky right-0 bg-gray-50/95 px-5 py-3 text-right">
+                Actions
+              </th>
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-gray-100">
+            {loading ? (
+              <PurchaseOrderTableSkeleton />
+            ) : orders.length ? (
+              orders.map((order) => {
+                const ordered = Number(order.totalOrderedQuantity || 0)
+                const received = Number(order.totalReceivedQuantity || 0)
+                const progress = ordered
+                  ? Math.min(100, (received / ordered) * 100)
+                  : 0
+
+                return (
+                  <tr
+                    key={order._id}
+                    className="group bg-white transition hover:bg-indigo-50/30"
+                  >
+                    <td className="px-5 py-4">
+                      <p className="text-sm font-semibold text-gray-900">
+                        {order.orderNo}
+                      </p>
+                      <p className="mt-1 text-xs font-medium text-gray-500">
+                        {formatDate(order.orderDate)}
+                      </p>
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <p className="max-w-[230px] truncate text-sm font-semibold text-gray-900">
+                        {order.supplier?.businessName ||
+                          order.supplierSnapshot?.name ||
+                          "-"}
+                      </p>
+                      <p className="mt-1 text-xs font-medium text-gray-500">
+                        {order.supplier?.code ||
+                          order.supplierSnapshot?.code ||
+                          "-"}
+                      </p>
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <p className="text-sm font-medium text-gray-800">
+                        {formatDate(order.expectedDeliveryDate)}
+                      </p>
+                      <p className="mt-1 max-w-[220px] truncate text-xs font-medium text-gray-500">
+                        {relationLabel(
+                          order.defaultWarehouse,
+                          "No default warehouse"
+                        )}
+                      </p>
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <p className="text-sm font-semibold text-gray-900">
+                        {formatNumber(received)} / {formatNumber(ordered)}
+                      </p>
+                      <div className="mt-2 h-1.5 w-28 overflow-hidden rounded-full bg-gray-100">
+                        <div
+                          className="h-full rounded-full bg-indigo-600"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <p className="text-sm font-semibold text-gray-900">
+                        {formatMoney(order.grandTotal, order.currency)}
+                      </p>
+                      <p className="mt-1 text-xs font-medium text-gray-500">
+                        {formatNumber(order.lineCount, 0)} lines
+                      </p>
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <StatusBadge value={order.status} />
+                    </td>
+
+                    <td className="sticky right-0 bg-white px-5 py-4 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.45)] group-hover:bg-indigo-50/30">
+                      <PurchaseOrderActions order={order} {...actionProps} />
+                    </td>
+                  </tr>
+                )
+              })
+            ) : (
+              <tr>
+                <td
+                  colSpan={7}
+                  className="px-5 py-16 text-center"
+                >
+                  <Icon
+                    icon={FolderLibraryIcon}
+                    className="mx-auto h-8 w-8 text-gray-300"
+                  />
+                  <p className="mt-3 text-sm font-bold text-gray-900">
+                    No purchase orders found
+                  </p>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Create an order or adjust the current filters.
+                  </p>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="divide-y divide-gray-100 lg:hidden">
+        {loading ? (
+          <PurchaseOrderMobileSkeleton />
+        ) : orders.length ? (
+          orders.map((order) => (
+            <article key={order._id} className="p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-gray-900">
+                    {order.orderNo}
+                  </p>
+                  <p className="mt-1 text-xs font-medium text-gray-500">
+                    {formatDate(order.orderDate)}
+                  </p>
+                </div>
+                <StatusBadge value={order.status} />
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-gray-50 p-3">
+                <div>
+                  <p className="text-xs font-bold text-gray-400">Supplier</p>
+                  <p className="mt-1 truncate text-sm font-semibold text-gray-900">
+                    {order.supplier?.businessName ||
+                      order.supplierSnapshot?.name ||
+                      "-"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-gray-400">Total</p>
+                  <p className="mt-1 text-sm font-semibold text-gray-900">
+                    {formatMoney(order.grandTotal, order.currency)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-gray-400">Received</p>
+                  <p className="mt-1 text-sm font-semibold text-gray-900">
+                    {formatNumber(order.totalReceivedQuantity)} /{" "}
+                    {formatNumber(order.totalOrderedQuantity)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-gray-400">Delivery</p>
+                  <p className="mt-1 text-sm font-semibold text-gray-900">
+                    {formatDate(order.expectedDeliveryDate)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <PurchaseOrderActions
+                  order={order}
+                  {...actionProps}
+                  mobile
+                />
+              </div>
+            </article>
+          ))
+        ) : (
+          <div className="p-12 text-center">
+            <Icon
+              icon={FolderLibraryIcon}
+              className="mx-auto h-8 w-8 text-gray-300"
+            />
+            <p className="mt-3 text-sm font-bold text-gray-900">
+              No purchase orders found
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-3 border-t border-gray-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs font-semibold text-gray-500">
+          {orders.length} order{orders.length === 1 ? "" : "s"} loaded
+        </p>
+
+        {hasMore ? (
+          <button
+            type="button"
+            className={cn(button, ghostButton, "min-w-[140px]")}
+            onClick={onLoadMore}
+            disabled={loadingMore}
+          >
+            <Icon
+              icon={RefreshIcon}
+              className={cn("h-4 w-4", loadingMore ? "animate-spin" : "")}
+            />
+            {loadingMore ? "Loading..." : "Load More"}
+          </button>
+        ) : orders.length ? (
+          <span className="text-xs font-semibold text-gray-400">
+            All orders loaded
+          </span>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function ConfirmActionModal({ state, working, onClose, onConfirm }) {
+  return (
+    <ModalShell
+      open={state.open}
+      onClose={onClose}
+      title={state.title || "Confirm action"}
+      subtitle={state.item?.orderNo || "Purchase order"}
+      icon={<Icon icon={Alert02Icon} className="h-5 w-5" />}
+      maxWidthClass="max-w-lg"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            className={cn(button, ghostButton)}
+            onClick={onClose}
+            disabled={working}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={cn(
+              button,
+              state.danger ? dangerButton : primaryButton
+            )}
+            onClick={onConfirm}
+            disabled={working}
+          >
+            <Icon
+              icon={working ? RefreshIcon : Tick02Icon}
+              className={cn("h-4 w-4", working ? "animate-spin" : "")}
+            />
+            {working ? "Working..." : state.actionLabel || "Continue"}
+          </button>
+        </div>
+      }
+    >
+      <p className="text-sm font-medium leading-6 text-gray-600">
+        {state.message}
+      </p>
+
+      {state.danger ? (
+        <div className="mt-4 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+          This action is destructive and cannot be undone.
+        </div>
+      ) : null}
+    </ModalShell>
   )
 }
 
@@ -506,7 +1277,6 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
   const canDelete = hasPermission(currentUser, DELETE_PERMISSION)
 
   const [meta, setMeta] = useState(FALLBACK_META)
-  const [summary, setSummary] = useState(EMPTY_SUMMARY)
   const [orders, setOrders] = useState([])
   const [suppliers, setSuppliers] = useState([])
   const [products, setProducts] = useState([])
@@ -546,6 +1316,16 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
     danger: false,
     reason: "",
     error: "",
+  })
+
+  const [confirmState, setConfirmState] = useState({
+    open: false,
+    item: null,
+    type: "",
+    title: "",
+    message: "",
+    actionLabel: "",
+    danger: false,
   })
 
   const supplierMap = useMemo(
@@ -604,21 +1384,25 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
   }
 
   const loadReferenceData = async () => {
-    try {
-      const [metaData, supplierData, productData, unitData, warehouseData] = await Promise.all([
-        api("/purchase/purchase-orders/meta"),
-        api("/suppliers/options?limit=100"),
-        api("/inventory/products?status=active&limit=100"),
-        api("/inventory/units/options?limit=200"),
-        api("/inventory/warehouses/options?limit=100"),
-      ])
-      setMeta({ ...FALLBACK_META, ...(metaData || {}) })
-      setSuppliers(supplierData.suppliers || [])
-      setProducts(productData.products || [])
-      setUnits(unitData.units || [])
-      setWarehouses(warehouseData.warehouses || [])
-    } catch (error) {
-      toast.error(error.message || "Failed to load purchase-order options")
+    const results = await Promise.allSettled([
+      api("/purchase/purchase-orders/meta"),
+      api("/suppliers/options?limit=200&includeUnavailable=true"),
+      api("/inventory/products?status=active&limit=100"),
+      api("/inventory/units/options?limit=200"),
+      api("/inventory/warehouses/options?limit=100"),
+    ])
+    const value = (index, fallback = {}) =>
+      results[index].status === "fulfilled" ? results[index].value : fallback
+
+    setMeta({ ...FALLBACK_META, ...value(0) })
+    setSuppliers(value(1).suppliers || [])
+    setProducts(value(2).products || [])
+    setUnits(value(3).units || [])
+    setWarehouses(value(4).warehouses || [])
+
+    const firstFailure = results.find((result) => result.status === "rejected")
+    if (firstFailure) {
+      toast.error(firstFailure.reason?.message || "Some purchase-order options could not be loaded")
     }
   }
 
@@ -636,8 +1420,14 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
     return params
   }
 
-  const loadOrders = async ({ append = false, signal } = {}) => {
-    append ? setLoadingMore(true) : setLoading(true)
+  const loadOrders = async ({
+    append = false,
+    showLoader = true,
+    signal,
+  } = {}) => {
+    if (append) setLoadingMore(true)
+    else if (showLoader) setLoading(true)
+
     try {
       const data = await api(`/purchase/purchase-orders?${buildParams({ append })}`, { signal })
       const incoming = data.purchaseOrders || []
@@ -647,18 +1437,11 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
     } catch (error) {
       if (error.name !== "AbortError") toast.error(error.message || "Failed to load purchase orders")
     } finally {
-      append ? setLoadingMore(false) : setLoading(false)
+      if (append) setLoadingMore(false)
+      else if (showLoader) setLoading(false)
     }
   }
 
-  const loadSummary = async ({ signal } = {}) => {
-    try {
-      const data = await api(`/purchase/purchase-orders/summary?${buildParams()}`, { signal })
-      setSummary({ ...EMPTY_SUMMARY, ...(data.summary || {}) })
-    } catch (error) {
-      if (error.name !== "AbortError") toast.error(error.message || "Failed to load order summary")
-    }
-  }
 
   useEffect(() => {
     loadReferenceData()
@@ -667,10 +1450,7 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
   useEffect(() => {
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      Promise.all([
-        loadOrders({ signal: controller.signal }),
-        loadSummary({ signal: controller.signal }),
-      ])
+      loadOrders({ signal: controller.signal })
     }, 250)
     return () => {
       window.clearTimeout(timer)
@@ -688,7 +1468,7 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
   ])
 
   const refresh = async () => {
-    await Promise.all([loadReferenceData(), loadOrders(), loadSummary()])
+    await Promise.all([loadReferenceData(), loadOrders()])
   }
 
   const updateFilter = (key, value) => {
@@ -697,10 +1477,20 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
     setHasMore(false)
   }
 
-  const resetFilters = () => {
+  const resetFilters = (closeFilter = false) => {
     setActiveTab("all")
-    setFilters({ q: "", supplier: "all", warehouse: "all", product: "all", currency: "", dateFrom: "", dateTo: "" })
-    setFilterOpen(false)
+    setFilters({
+      q: "",
+      supplier: "all",
+      warehouse: "all",
+      product: "all",
+      currency: "",
+      dateFrom: "",
+      dateTo: "",
+    })
+    setNextCursor(null)
+    setHasMore(false)
+    if (closeFilter) setFilterOpen(false)
   }
 
   const switchTab = (tab) => {
@@ -965,7 +1755,7 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
       )
       toast.success(data.message || (editing ? "Purchase order updated" : "Purchase order created"))
       closeForm(true)
-      await Promise.all([loadOrders(), loadSummary()])
+      await loadOrders({ showLoader: false })
     } catch (error) {
       setFormError(error.message || "Failed to save purchase order")
     } finally {
@@ -990,7 +1780,8 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
       })
       toast.success(data.message || `${pretty(type)} completed`)
       setReasonState((previous) => ({ ...previous, open: false, reason: "", error: "" }))
-      await Promise.all([loadOrders(), loadSummary()])
+      setConfirmState((previous) => ({ ...previous, open: false, item: null }))
+      await loadOrders({ showLoader: false })
       if (detailsModal.item?._id === order._id) {
         const detail = await api(`/purchase/purchase-orders/${order._id}`)
         setDetailsModal({ open: true, item: detail.purchaseOrder })
@@ -1024,13 +1815,76 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
     })
   }
 
+  const openConfirm = (order, type) => {
+    const config = {
+      submit: {
+        title: "Submit purchase order",
+        message: `Submit ${order.orderNo} for approval?`,
+        actionLabel: "Submit",
+        danger: false,
+      },
+      approve: {
+        title: "Approve purchase order",
+        message: `Approve ${order.orderNo}? The order will become available for receiving.`,
+        actionLabel: "Approve",
+        danger: false,
+      },
+      delete: {
+        title: "Delete purchase order",
+        message: `Delete ${order.orderNo}? This is only allowed for unreceived draft, rejected, or cancelled orders and cannot be undone.`,
+        actionLabel: "Delete",
+        danger: true,
+      },
+    }[type]
+
+    if (!config) return
+
+    setConfirmState({
+      open: true,
+      item: order,
+      type,
+      ...config,
+    })
+  }
+
+  const closeConfirm = () => {
+    if (
+      confirmState.item?._id &&
+      busy.id === confirmState.item._id &&
+      busy.type === confirmState.type
+    ) {
+      return
+    }
+
+    setConfirmState({
+      open: false,
+      item: null,
+      type: "",
+      title: "",
+      message: "",
+      actionLabel: "",
+      danger: false,
+    })
+  }
+
   const deleteOrder = async (order) => {
-    if (!window.confirm(`Delete ${order.orderNo}? This is allowed only for unreceived draft, rejected, or cancelled orders.`)) return
     setBusy({ id: order._id, type: "delete" })
+
     try {
-      const data = await api(`/purchase/purchase-orders/${order._id}`, { method: "DELETE" })
+      const data = await api(`/purchase/purchase-orders/${order._id}`, {
+        method: "DELETE",
+      })
       toast.success(data.message || "Purchase order deleted")
-      await Promise.all([loadOrders(), loadSummary()])
+      setConfirmState({
+        open: false,
+        item: null,
+        type: "",
+        title: "",
+        message: "",
+        actionLabel: "",
+        danger: false,
+      })
+      await loadOrders({ showLoader: false })
     } catch (error) {
       toast.error(error.message || "Failed to delete purchase order")
     } finally {
@@ -1038,211 +1892,311 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
     }
   }
 
-  const actionButtons = (order, mobile = false) => {
-    const working = busy.id === order._id
-    const small = mobile ? "flex-1" : "h-9 w-9 p-0"
-    return (
-      <div className={cn("flex flex-wrap items-center gap-2", mobile ? "mt-4" : "justify-end")}>
-        <button className={cn(button, ghostButton, small)} type="button" onClick={() => openDetails(order)} disabled={working} title="View order">
-          <Icon icon={busy.id === order._id && busy.type === "view" ? RefreshIcon : ViewIcon} className={cn("h-4 w-4", busy.id === order._id && busy.type === "view" ? "animate-spin" : "")} />
-          {mobile ? "View" : null}
-        </button>
-        {canManage && meta.editableStatuses.includes(order.status) ? (
-          <button className={cn(button, ghostButton, small)} type="button" onClick={() => openEdit(order)} disabled={working} title="Edit order">
-            <Icon icon={busy.id === order._id && busy.type === "edit" ? RefreshIcon : Edit02Icon} className={cn("h-4 w-4", busy.id === order._id && busy.type === "edit" ? "animate-spin" : "")} />
-            {mobile ? "Edit" : null}
-          </button>
-        ) : null}
-        {canManage && ["draft", "rejected"].includes(order.status) ? (
-          <button className={cn(button, primaryButton, small)} type="button" onClick={() => runAction(order, "submit")} disabled={working} title="Submit">
-            <Icon icon={Tick02Icon} className="h-4 w-4" />{mobile ? "Submit" : null}
-          </button>
-        ) : null}
-        {canApprove && order.status === "submitted" ? (
-          <>
-            <button className={cn(button, primaryButton, small)} type="button" onClick={() => runAction(order, "approve")} disabled={working} title="Approve">
-              <Icon icon={Tick02Icon} className="h-4 w-4" />{mobile ? "Approve" : null}
-            </button>
-            <button className={cn(button, dangerButton, small)} type="button" onClick={() => openReason(order, "reject")} disabled={working} title="Reject">
-              <Icon icon={Cancel01Icon} className="h-4 w-4" />{mobile ? "Reject" : null}
-            </button>
-          </>
-        ) : null}
-        {canManage && ["draft", "submitted", "approved", "rejected"].includes(order.status) && Number(order.totalReceivedQuantity || 0) === 0 ? (
-          <button className={cn(button, dangerButton, small)} type="button" onClick={() => openReason(order, "cancel")} disabled={working} title="Cancel">
-            <Icon icon={Cancel01Icon} className="h-4 w-4" />{mobile ? "Cancel" : null}
-          </button>
-        ) : null}
-        {canApprove && ["approved", "partially_received", "received"].includes(order.status) ? (
-          <button className={cn(button, ghostButton, small)} type="button" onClick={() => openReason(order, "close")} disabled={working} title="Close">
-            <Icon icon={Archive02Icon} className="h-4 w-4" />{mobile ? "Close" : null}
-          </button>
-        ) : null}
-        {canManage && meta.openStatuses.includes(order.status) && onCreateGoodsReceipt ? (
-          <button className={cn(button, primaryButton, mobile ? "flex-1" : "px-3")} type="button" onClick={() => onCreateGoodsReceipt(order)} disabled={working}>
-            <Icon icon={Add01Icon} className="h-4 w-4" />{mobile ? "Receive" : "Receipt"}
-          </button>
-        ) : null}
-        {canDelete && ["draft", "rejected", "cancelled"].includes(order.status) ? (
-          <button className={cn(button, dangerButton, small)} type="button" onClick={() => deleteOrder(order)} disabled={working} title="Delete">
-            <Icon icon={Archive02Icon} className="h-4 w-4" />{mobile ? "Delete" : null}
-          </button>
-        ) : null}
-      </div>
-    )
-  }
+  const filterChipCount = useMemo(
+    () =>
+      [
+        activeTab !== "all",
+        filters.supplier !== "all",
+        filters.warehouse !== "all",
+        filters.product !== "all",
+        Boolean(clean(filters.currency)),
+        Boolean(filters.dateFrom),
+        Boolean(filters.dateTo),
+      ].filter(Boolean).length,
+    [activeTab, filters]
+  )
 
-  const activeFilterCount = [
-    filters.supplier !== "all",
-    filters.warehouse !== "all",
-    filters.product !== "all",
-    Boolean(clean(filters.currency)),
-    Boolean(filters.dateFrom),
-    Boolean(filters.dateTo),
-  ].filter(Boolean).length
+  const selectedSupplierName = useMemo(
+    () =>
+      filters.supplier === "all"
+        ? ""
+        : relationLabel(
+            supplierMap.get(String(filters.supplier)),
+            "Selected supplier"
+          ),
+    [filters.supplier, supplierMap]
+  )
+
+  const selectedWarehouseName = useMemo(
+    () =>
+      filters.warehouse === "all"
+        ? ""
+        : relationLabel(
+            warehouseMap.get(String(filters.warehouse)),
+            "Selected warehouse"
+          ),
+    [filters.warehouse, warehouseMap]
+  )
+
+  const selectedProductName = useMemo(
+    () =>
+      filters.product === "all"
+        ? ""
+        : relationLabel(
+            productMap.get(String(filters.product)),
+            "Selected product"
+          ),
+    [filters.product, productMap]
+  )
 
   return (
-    <div className={shell}>
-      <Toaster position="top-right" />
-      <div className="mx-auto max-w-[1600px] px-3 py-5 sm:px-5 lg:px-7">
-        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
-                <Icon icon={FolderLibraryIcon} className="h-5 w-5" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-black tracking-tight text-gray-950 sm:text-3xl">Purchase Orders</h1>
-                <p className="mt-1 text-sm font-medium text-gray-500">Create, approve, receive, and close supplier orders.</p>
-              </div>
+    <div className={`${shell} p-4 sm:p-6 lg:p-8`}>
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 2600,
+          style: {
+            borderRadius: "14px",
+            fontWeight: 700,
+          },
+        }}
+      />
+
+      <section className={cn(card, "mb-4 p-4 sm:p-5")}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
+              <Icon icon={FolderLibraryIcon} className="h-5 w-5" />
+            </div>
+
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-extrabold tracking-tight text-gray-900">
+                Purchase Orders
+              </h1>
             </div>
           </div>
+
           <div className="flex flex-wrap gap-2">
-            <button type="button" className={cn(button, ghostButton)} onClick={refresh}>
-              <Icon icon={RefreshIcon} className="h-4 w-4" />Refresh
-            </button>
-            {canManage ? (
-              <button type="button" className={cn(button, primaryButton)} onClick={openCreate}>
-                <Icon icon={Add01Icon} className="h-4 w-4" />New Purchase Order
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        {!canManage ? (
-          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">You have view-only purchase-order access.</div>
-        ) : null}
-
-        <SummaryCards summary={summary} onSelect={switchTab} />
-
-        <div className={cn(card, "mb-6 p-2")}>
-          <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
-            {["all", "draft", "submitted", "approved", "partially_received", "received", "closed", "rejected", "cancelled"].map((status) => (
-              <button
-                key={status}
-                type="button"
-                onClick={() => switchTab(status)}
-                className={cn(
-                  "rounded-xl px-3 py-3 text-xs font-extrabold transition sm:px-4 sm:text-sm",
-                  activeTab === status ? "bg-indigo-600 text-white shadow-sm" : "text-gray-700 hover:bg-gray-50"
-                )}
-              >
-                {status === "all" ? "All" : pretty(status)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className={cn(card, "mb-5 p-3 sm:p-4")}>
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <div className="flex min-h-[44px] flex-1 items-center gap-2 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-3 focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
-              <Icon icon={Search01Icon} className="h-4 w-4 text-gray-400" />
-              <FocusPlaceholderInput
-                className="min-w-0 flex-1 border-0 bg-transparent py-2 text-sm font-semibold text-gray-800 outline-none"
-                value={filters.q}
-                onChange={(event) => updateFilter("q", event.target.value)}
-                placeholder="Search by purchase-order number..."
+            <button
+              type="button"
+              className={cn(button, ghostButton)}
+              onClick={refresh}
+              disabled={loading}
+            >
+              <Icon
+                icon={RefreshIcon}
+                className={cn("h-4 w-4", loading ? "animate-spin" : "")}
               />
-            </div>
-            <button type="button" className={cn(button, ghostButton)} onClick={() => setFilterOpen(true)}>
-              <Icon icon={FilterIcon} className="h-4 w-4" />Filters{activeFilterCount ? ` (${activeFilterCount})` : ""}
+              Refresh
             </button>
-            {activeFilterCount ? (
-              <button type="button" className={cn(button, ghostButton)} onClick={resetFilters}>Clear</button>
+
+            {canManage ? (
+              <button
+                type="button"
+                className={cn(button, primaryButton)}
+                onClick={openCreate}
+              >
+                <Icon icon={Add01Icon} className="h-4 w-4" />
+                New Purchase Order
+              </button>
             ) : null}
           </div>
         </div>
 
-        <div className={cn(card, "overflow-hidden")}>
-          <div className="hidden overflow-x-auto lg:block">
-            <table className="min-w-full">
-              <thead className="bg-gray-50">
-                <tr className="text-left text-xs font-black uppercase tracking-wide text-gray-400">
-                  <th className="px-5 py-4">Order</th>
-                  <th className="px-5 py-4">Supplier</th>
-                  <th className="px-5 py-4">Delivery</th>
-                  <th className="px-5 py-4">Quantity</th>
-                  <th className="px-5 py-4">Total</th>
-                  <th className="px-5 py-4">Status</th>
-                  <th className="px-5 py-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {loading ? (
-                  <tr><td colSpan="7" className="px-5 py-16 text-center text-sm font-semibold text-gray-500"><Icon icon={RefreshIcon} className="mx-auto mb-2 h-5 w-5 animate-spin" />Loading purchase orders...</td></tr>
-                ) : orders.length ? (
-                  orders.map((order) => (
-                    <tr key={order._id} className="transition hover:bg-gray-50/70">
-                      <td className="px-5 py-4"><p className="font-black text-gray-950">{order.orderNo}</p><p className="mt-1 text-xs font-semibold text-gray-500">{formatDate(order.orderDate)}</p></td>
-                      <td className="px-5 py-4"><p className="font-bold text-gray-900">{order.supplier?.businessName || order.supplierSnapshot?.name || "-"}</p><p className="mt-1 text-xs font-semibold text-gray-500">{order.supplier?.code || order.supplierSnapshot?.code || "-"}</p></td>
-                      <td className="px-5 py-4"><p className="font-semibold text-gray-800">{formatDate(order.expectedDeliveryDate)}</p><p className="mt-1 text-xs font-semibold text-gray-500">{relationLabel(order.defaultWarehouse, "No default warehouse")}</p></td>
-                      <td className="px-5 py-4"><p className="font-black text-gray-950">{formatNumber(order.totalReceivedQuantity)} / {formatNumber(order.totalOrderedQuantity)}</p><div className="mt-2 h-1.5 w-28 overflow-hidden rounded-full bg-gray-100"><div className="h-full rounded-full bg-indigo-600" style={{ width: `${Math.min(100, Number(order.totalOrderedQuantity) ? (Number(order.totalReceivedQuantity) / Number(order.totalOrderedQuantity)) * 100 : 0)}%` }} /></div></td>
-                      <td className="px-5 py-4"><p className="font-black text-gray-950">{formatMoney(order.grandTotal, order.currency)}</p><p className="mt-1 text-xs font-semibold text-gray-500">{formatNumber(order.lineCount, 0)} lines</p></td>
-                      <td className="px-5 py-4"><StatusBadge value={order.status} /></td>
-                      <td className="px-5 py-4">{actionButtons(order)}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr><td colSpan="7" className="px-5 py-16 text-center"><Icon icon={FolderLibraryIcon} className="mx-auto h-8 w-8 text-gray-300" /><p className="mt-3 font-black text-gray-900">No purchase orders found</p><p className="mt-1 text-sm font-medium text-gray-500">Create an order or adjust the current filters.</p></td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+        <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <HeaderSearchFilters
+            activeTab={activeTab}
+            filters={filters}
+            updateFilter={updateFilter}
+            resetFilters={resetFilters}
+            filterChipCount={filterChipCount}
+            selectedSupplierName={selectedSupplierName}
+            selectedWarehouseName={selectedWarehouseName}
+            selectedProductName={selectedProductName}
+            onClearStatus={() => switchTab("all")}
+            onOpenFilters={() => setFilterOpen(true)}
+          />
 
-          <div className="divide-y divide-gray-100 lg:hidden">
-            {loading ? (
-              <div className="p-10 text-center text-sm font-semibold text-gray-500"><Icon icon={RefreshIcon} className="mx-auto mb-2 h-5 w-5 animate-spin" />Loading...</div>
-            ) : orders.length ? orders.map((order) => (
-              <article key={order._id} className="p-4">
-                <div className="flex items-start justify-between gap-3"><div><p className="font-black text-gray-950">{order.orderNo}</p><p className="mt-1 text-xs font-semibold text-gray-500">{formatDate(order.orderDate)}</p></div><StatusBadge value={order.status} /></div>
-                <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-gray-50 p-3 text-sm"><div><p className="text-xs font-bold text-gray-400">Supplier</p><p className="mt-1 font-bold text-gray-900">{order.supplier?.businessName || order.supplierSnapshot?.name || "-"}</p></div><div><p className="text-xs font-bold text-gray-400">Total</p><p className="mt-1 font-black text-gray-950">{formatMoney(order.grandTotal, order.currency)}</p></div><div><p className="text-xs font-bold text-gray-400">Received</p><p className="mt-1 font-bold text-gray-900">{formatNumber(order.totalReceivedQuantity)} / {formatNumber(order.totalOrderedQuantity)}</p></div><div><p className="text-xs font-bold text-gray-400">Delivery</p><p className="mt-1 font-bold text-gray-900">{formatDate(order.expectedDeliveryDate)}</p></div></div>
-                {actionButtons(order, true)}
-              </article>
-            )) : <div className="p-12 text-center"><Icon icon={FolderLibraryIcon} className="mx-auto h-8 w-8 text-gray-300" /><p className="mt-3 font-black text-gray-900">No purchase orders found</p></div>}
-          </div>
+          <p className="shrink-0 text-sm font-bold text-gray-500">
+            Showing <span className="text-gray-900">{orders.length}</span>{" "}
+            orders{hasMore ? "+" : ""}
+          </p>
+        </div>
+      </section>
 
-          {hasMore ? (
-            <div className="border-t border-gray-100 p-4 text-center"><button type="button" className={cn(button, ghostButton)} onClick={() => loadOrders({ append: true })} disabled={loadingMore}><Icon icon={RefreshIcon} className={cn("h-4 w-4", loadingMore ? "animate-spin" : "")} />{loadingMore ? "Loading" : "Load More"}</button></div>
-          ) : null}
+      {!canManage ? (
+        <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+          You have view-only purchase-order access.
+        </div>
+      ) : null}
+
+      <div className={cn(card, "mb-4 p-2")}>
+        <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
+          {[
+            "all",
+            "draft",
+            "submitted",
+            "approved",
+            "partially_received",
+            "received",
+            "closed",
+            "rejected",
+            "cancelled",
+          ].map((status) => (
+            <button
+              key={status}
+              type="button"
+              onClick={() => switchTab(status)}
+              className={cn(
+                "rounded-xl px-3 py-2.5 text-xs font-extrabold transition sm:px-4 sm:text-sm",
+                activeTab === status
+                  ? "bg-indigo-600 text-white shadow-sm"
+                  : "text-gray-700 hover:bg-gray-50"
+              )}
+            >
+              {status === "all" ? "All" : pretty(status)}
+            </button>
+          ))}
         </div>
       </div>
+
+      <PurchaseOrderList
+        orders={orders}
+        loading={loading}
+        loadingMore={loadingMore}
+        hasMore={hasMore}
+        busy={busy}
+        meta={meta}
+        canManage={canManage}
+        canApprove={canApprove}
+        canDelete={canDelete}
+        onView={openDetails}
+        onEdit={openEdit}
+        onSubmit={(order) => openConfirm(order, "submit")}
+        onApprove={(order) => openConfirm(order, "approve")}
+        onReject={(order) => openReason(order, "reject")}
+        onCancel={(order) => openReason(order, "cancel")}
+        onCloseOrder={(order) => openReason(order, "close")}
+        onReceipt={onCreateGoodsReceipt}
+        onDelete={(order) => openConfirm(order, "delete")}
+        onLoadMore={() => loadOrders({ append: true })}
+      />
 
       <ModalShell
         open={filterOpen}
         onClose={() => setFilterOpen(false)}
         title="Purchase-order filters"
-        subtitle="Narrow the order list"
         icon={<Icon icon={FilterIcon} className="h-5 w-5" />}
-        maxWidthClass="max-w-3xl"
-        footer={<div className="flex justify-end gap-3"><button type="button" className={cn(button, ghostButton)} onClick={resetFilters}>Reset</button><button type="button" className={cn(button, primaryButton)} onClick={() => setFilterOpen(false)}>Apply Filters</button></div>}
+        maxWidthClass="max-w-4xl"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              className={cn(button, ghostButton)}
+              onClick={() => resetFilters(false)}
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              className={cn(button, primaryButton)}
+              onClick={() => setFilterOpen(false)}
+            >
+              <Icon icon={Tick02Icon} className="h-4 w-4" />
+              Apply Filters
+            </button>
+          </div>
+        }
       >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Supplier"><select className={input} value={filters.supplier} onChange={(event) => updateFilter("supplier", event.target.value)}><option value="all">All suppliers</option>{suppliers.map((supplier) => <option key={supplier._id} value={supplier._id}>{relationLabel(supplier)}</option>)}</select></Field>
-          <Field label="Warehouse"><select className={input} value={filters.warehouse} onChange={(event) => updateFilter("warehouse", event.target.value)}><option value="all">All warehouses</option>{warehouses.map((warehouse) => <option key={warehouse._id} value={warehouse._id}>{relationLabel(warehouse)}</option>)}</select></Field>
-          <Field label="Product"><select className={input} value={filters.product} onChange={(event) => updateFilter("product", event.target.value)}><option value="all">All products</option>{products.map((product) => <option key={product._id} value={product._id}>{relationLabel(product)}</option>)}</select></Field>
-          <Field label="Currency"><FocusPlaceholderInput className={input} value={filters.currency} onChange={(event) => updateFilter("currency", event.target.value.toUpperCase())} placeholder="BDT" maxLength={12} /></Field>
-          <Field label="Date From"><input className={input} type="date" value={filters.dateFrom} onChange={(event) => updateFilter("dateFrom", event.target.value)} /></Field>
-          <Field label="Date To"><input className={input} type="date" value={filters.dateTo} onChange={(event) => updateFilter("dateTo", event.target.value)} /></Field>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Field label="Status">
+            <select
+              className={input}
+              value={activeTab}
+              onChange={(event) => switchTab(event.target.value)}
+            >
+              {[
+                "all",
+                "draft",
+                "submitted",
+                "approved",
+                "partially_received",
+                "received",
+                "closed",
+                "rejected",
+                "cancelled",
+              ].map((status) => (
+                <option key={status} value={status}>
+                  {status === "all" ? "All statuses" : pretty(status)}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Supplier">
+            <select
+              className={input}
+              value={filters.supplier}
+              onChange={(event) => updateFilter("supplier", event.target.value)}
+            >
+              <option value="all">All suppliers</option>
+              {suppliers.map((supplier) => (
+                <option key={supplier._id} value={supplier._id}>
+                  {relationLabel(supplier)}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Warehouse">
+            <select
+              className={input}
+              value={filters.warehouse}
+              onChange={(event) => updateFilter("warehouse", event.target.value)}
+            >
+              <option value="all">All warehouses</option>
+              {warehouses.map((warehouse) => (
+                <option key={warehouse._id} value={warehouse._id}>
+                  {relationLabel(warehouse)}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Product">
+            <select
+              className={input}
+              value={filters.product}
+              onChange={(event) => updateFilter("product", event.target.value)}
+            >
+              <option value="all">All products</option>
+              {products.map((product) => (
+                <option key={product._id} value={product._id}>
+                  {relationLabel(product)}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Currency">
+            <FocusPlaceholderInput
+              className={input}
+              value={filters.currency}
+              onChange={(event) =>
+                updateFilter("currency", event.target.value.toUpperCase())
+              }
+              placeholder="BDT"
+              maxLength={12}
+            />
+          </Field>
+
+          <Field label="Date From">
+            <input
+              className={input}
+              type="date"
+              value={filters.dateFrom}
+              onChange={(event) => updateFilter("dateFrom", event.target.value)}
+            />
+          </Field>
+
+          <Field label="Date To">
+            <input
+              className={input}
+              type="date"
+              value={filters.dateTo}
+              onChange={(event) => updateFilter("dateTo", event.target.value)}
+            />
+          </Field>
         </div>
       </ModalShell>
 
@@ -1261,7 +2215,7 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <Field label="Order Date" required><input className={input} type="date" value={form.orderDate} onChange={(event) => setForm((previous) => ({ ...previous, orderDate: event.target.value }))} /></Field>
               <Field label="Expected Delivery"><input className={input} type="date" value={form.expectedDeliveryDate} onChange={(event) => setForm((previous) => ({ ...previous, expectedDeliveryDate: event.target.value }))} /></Field>
-              <Field label="Supplier" required><select className={input} value={form.supplier} onChange={(event) => changeSupplier(event.target.value)} disabled={Boolean(formModal.item)}><option value="">Select supplier</option>{suppliers.map((supplier) => <option key={supplier._id} value={supplier._id}>{relationLabel(supplier)}</option>)}</select></Field>
+              <Field label="Supplier" hint="Pending or inactive suppliers remain visible but require approval before purchasing." required><select className={input} value={form.supplier} onChange={(event) => changeSupplier(event.target.value)} disabled={Boolean(formModal.item)}><option value="">Select active supplier</option>{suppliers.map((supplier) => <option key={supplier._id} value={supplier._id} disabled={supplier.isSelectable === false}>{relationLabel(supplier)}{supplier.isSelectable === false ? ` — ${pretty(supplier.status)}` : ""}</option>)}</select></Field>
               <Field label="Currency" required><FocusPlaceholderInput className={input} value={form.currency} onChange={(event) => setForm((previous) => ({ ...previous, currency: event.target.value.toUpperCase() }))} placeholder="BDT" maxLength={12} /></Field>
               <Field label="Default Warehouse"><select className={input} value={form.defaultWarehouse} onChange={(event) => changeDefaultWarehouse(event.target.value)}><option value="">Select warehouse</option>{warehouses.map((warehouse) => <option key={warehouse._id} value={warehouse._id}>{relationLabel(warehouse)}</option>)}</select></Field>
               <Field label="Default Location"><select className={input} value={form.defaultLocation} onChange={(event) => setForm((previous) => ({ ...previous, defaultLocation: event.target.value }))} disabled={!form.defaultWarehouse}><option value="">No default location</option>{(locationsByWarehouse[form.defaultWarehouse] || []).map((location) => <option key={location._id} value={location._id}>{relationLabel(location)}</option>)}</select></Field>
@@ -1343,6 +2297,24 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
           </div>
         ) : null}
       </ModalShell>
+
+      <ConfirmActionModal
+        state={confirmState}
+        working={
+          Boolean(confirmState.item?._id) &&
+          busy.id === confirmState.item?._id &&
+          busy.type === confirmState.type
+        }
+        onClose={closeConfirm}
+        onConfirm={() => {
+          if (!confirmState.item) return
+          if (confirmState.type === "delete") {
+            deleteOrder(confirmState.item)
+          } else {
+            runAction(confirmState.item, confirmState.type)
+          }
+        }}
+      />
 
       <ReasonModal
         state={{ ...reasonState, setReason: (reason) => setReasonState((previous) => ({ ...previous, reason, error: "" })) }}

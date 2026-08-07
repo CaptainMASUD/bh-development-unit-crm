@@ -33,7 +33,7 @@ const PRODUCT_DELETE_PERMISSION =
 
 const SUPPLIER_OPTIONS_PATH =
   import.meta.env.VITE_SUPPLIER_OPTIONS_PATH ||
-  "/suppliers/options?limit=50"
+  "/suppliers/options?limit=200&includeUnavailable=true"
 
 const PRODUCT_TYPES = [
   ["inventory", "Inventory Product"],
@@ -2361,8 +2361,13 @@ function RelationSelect({
       ) : null}
 
       {options.map((item) => (
-        <option key={item._id} value={item._id}>
+        <option
+          key={item._id}
+          value={item._id}
+          disabled={item.isSelectable === false}
+        >
           {optionLabel(item, type)}
+          {item.isSelectable === false ? ` — ${pretty(item.status)}` : ""}
         </option>
       ))}
     </select>
@@ -2592,7 +2597,7 @@ function ProductFormModal({
                   supplierOptionsAvailable
                     ? supplierOptionsLoading
                       ? "Loading active suppliers..."
-                      : "Selecting a supplier also creates or updates its Supplier Products relationship."
+                      : "All suppliers are shown; only approved active suppliers can be selected as the default."
                     : "Supplier options are currently unavailable."
                 }
               >

@@ -16,6 +16,10 @@ import GoodsReceipt, {
 } from "../models/goodsReceipt.model.js";
 import StockMovement from "../models/inventory/stockMovement.model.js";
 import PurchaseReturn from "../models/purchaseReturn.model.js";
+import {
+  postGoodsReceiptAccounting,
+  reverseProcurementAccounting,
+} from "../services/procurementAccounting.service.js";
 
 const LIST_FIELDS = [
   "receiptNo",
@@ -40,16 +44,31 @@ const LIST_FIELDS = [
   "postedAt",
   "movement",
   "reversalMovement",
+  "journalEntry",
+  "reversalJournalEntry",
   "createdBy",
   "updatedAt",
 ].join(" ");
 
 const clean = (value) => String(value ?? "").trim();
-const runTransaction = (session, work) =>
-  session.withTransaction(work, {
+let transactionSupport;
+const supportsTransactions = async () => {
+  if (transactionSupport !== undefined) return transactionSupport;
+  try {
+    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
+    transactionSupport = Boolean(hello?.setName || hello?.msg === "isdbgrid");
+  } catch {
+    transactionSupport = false;
+  }
+  return transactionSupport;
+};
+const runTransaction = async (session, work) => {
+  if (!(await supportsTransactions())) return work();
+  return session.withTransaction(work, {
     readConcern: { level: "snapshot" },
     writeConcern: { w: "majority" },
   });
+};
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -934,6 +953,7 @@ export const postGoodsReceipt = async (req, res) => {
     const actorId = req.user?._id || null;
     let receipt;
     let movement;
+    let journalEntry;
 
     await runTransaction(session, async () => {
       receipt = await GoodsReceipt.findById(req.params.id).session(session);
@@ -992,8 +1012,15 @@ export const postGoodsReceipt = async (req, res) => {
         session,
       });
 
+      journalEntry = await postGoodsReceiptAccounting({
+        document: receipt,
+        userId: actorId,
+        session,
+      });
+
       receipt.status = "posted";
       receipt.movement = movement?._id || null;
+      receipt.journalEntry = journalEntry?._id || null;
       receipt.postedAt = new Date();
       receipt.postedBy = actorId;
       receipt.updatedBy = actorId;
@@ -1007,6 +1034,7 @@ export const postGoodsReceipt = async (req, res) => {
         : "Rejected-only goods receipt posted without changing inventory.",
       goodsReceipt: populated,
       movement,
+      journalEntry,
     });
   } catch (error) {
     return sendError(res, error, "Failed to post goods receipt.");
@@ -1024,6 +1052,7 @@ export const reverseGoodsReceipt = async (req, res) => {
     const actorId = req.user?._id || null;
     let receipt;
     let reversal;
+    let reversalJournalEntry;
 
     await runTransaction(session, async () => {
       receipt = await GoodsReceipt.findById(req.params.id).session(session);
@@ -1067,8 +1096,18 @@ export const reverseGoodsReceipt = async (req, res) => {
         userId: actorId,
         session,
       });
+      reversalJournalEntry = await reverseProcurementAccounting({
+        sourceType: "goods_receipt",
+        sourceId: receipt._id,
+        date: new Date(),
+        reference: `REV-${receipt.receiptNo}`,
+        reason,
+        userId: actorId,
+        session,
+      });
       receipt.status = "reversed";
       receipt.reversalMovement = reversal?._id || null;
+      receipt.reversalJournalEntry = reversalJournalEntry?._id || null;
       receipt.reversedAt = new Date();
       receipt.reversedBy = actorId;
       receipt.reversalReason = reason;
@@ -1083,6 +1122,7 @@ export const reverseGoodsReceipt = async (req, res) => {
         : "Rejected-only goods receipt reversed.",
       goodsReceipt: populated,
       reversalMovement: reversal,
+      reversalJournalEntry,
     });
   } catch (error) {
     return sendError(res, error, "Failed to reverse goods receipt.");

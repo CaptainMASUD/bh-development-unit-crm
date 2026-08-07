@@ -2,6 +2,9 @@ import mongoose from "mongoose";
 import Warehouse, { WAREHOUSE_STATUSES, WAREHOUSE_TYPES } from "../../models/inventory/warehouse.model.js";
 import WarehouseLocation from "../../models/inventory/warehouseLocation.model.js";
 import ProductStock from "../../models/inventory/productStock.model.js";
+import Branch from "../../models/branch.model.js";
+import User from "../../models/user.model.js";
+import AccessRole from "../../models/accessRole.model.js";
 
 const LIST_FIELDS = [
   "name",
@@ -21,6 +24,36 @@ const LIST_FIELDS = [
 ].join(" ");
 
 const OPTION_FIELDS = "name code warehouseType branch isDefault status";
+const MANAGER_USER_ROLES = ["admin", "employee"];
+let transactionSupport;
+
+const supportsTransactions = async () => {
+  if (transactionSupport !== undefined) return transactionSupport;
+  try {
+    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
+    transactionSupport = Boolean(hello?.setName || hello?.msg === "isdbgrid");
+  } catch {
+    transactionSupport = false;
+  }
+  return transactionSupport;
+};
+
+const runWarehouseWrite = async (work) => {
+  if (!(await supportsTransactions())) return work(null);
+
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => {
+      result = await work(session);
+    });
+    return result;
+  } finally {
+    await session.endSession();
+  }
+};
+
+const sessionOptions = (session) => (session ? { session } : {});
 
 const clean = (value) => String(value ?? "").trim();
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
@@ -127,6 +160,42 @@ const validatePayload = (payload, { partial = false } = {}) => {
   return errors;
 };
 
+const validateRelations = async (payload, { requireBranch = false } = {}) => {
+  if (requireBranch && !payload.branch) {
+    const error = new Error("Select an active company branch for this warehouse.");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (payload.branch) {
+    const branch = await Branch.findOne({ _id: payload.branch, isActive: true })
+      .select("_id")
+      .maxTimeMS(3000)
+      .lean();
+    if (!branch) {
+      const error = new Error("The selected branch is unavailable in this company.");
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
+  if (payload.manager) {
+    const manager = await User.findOne({
+      _id: payload.manager,
+      role: { $in: MANAGER_USER_ROLES },
+      isActive: true,
+    })
+      .select("_id")
+      .maxTimeMS(3000)
+      .lean();
+    if (!manager) {
+      const error = new Error("The selected manager is not an active user in this company.");
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+};
+
 const duplicateMessage = (error) => {
   const fields = Object.keys(error?.keyPattern || error?.keyValue || {});
   if (fields.includes("code")) return "A warehouse with this code already exists.";
@@ -212,8 +281,8 @@ export const listWarehouses = async (req, res) => {
 
     const warehouses = await Warehouse.find(filter)
       .select(`${LIST_FIELDS} +nameLower`)
-      .populate("branch", "name code status")
-      .populate("manager", "name email")
+      .populate("branch", "name code isActive isMain isDefault")
+      .populate({ path: "manager", select: "name email role employeeId designation accessRole", populate: { path: "accessRole", select: "name" } })
       .sort({ nameLower: 1, _id: 1 })
       .limit(limit + 1)
       .maxTimeMS(5000)
@@ -227,6 +296,52 @@ export const listWarehouses = async (req, res) => {
     return res.json({ count: data.length, hasMore, nextCursor, warehouses: data });
   } catch (error) {
     return res.status(500).json({ message: "Failed to load warehouses.", error: error.message });
+  }
+};
+
+export const getWarehouseFormOptions = async (req, res) => {
+  try {
+    const [branches, users, accessRoles] = await Promise.all([
+      Branch.find({ isActive: true })
+        .select("name code isMain isDefault")
+        .sort({ isDefault: -1, isMain: -1, name: 1 })
+        .limit(250)
+        .maxTimeMS(3000)
+        .lean(),
+      User.find({ role: { $in: MANAGER_USER_ROLES }, isActive: true })
+        .select("name email role employeeId designation accessRole")
+        .sort({ role: 1, nameLower: 1, name: 1 })
+        .limit(500)
+        .maxTimeMS(3000)
+        .lean(),
+      AccessRole.find({ isActive: true })
+        .select("name")
+        .sort({ nameLower: 1, name: 1 })
+        .maxTimeMS(3000)
+        .lean(),
+    ]);
+
+    const managers = users.map((user) => ({
+      ...user,
+      managerRoleKey:
+        user.role === "admin"
+          ? "system:admin"
+          : user.accessRole
+            ? String(user.accessRole)
+            : "system:employee",
+    }));
+
+    return res.json({
+      branches,
+      managerRoles: [
+        { value: "system:admin", label: "Admin" },
+        { value: "system:employee", label: "Employee (no custom role)" },
+        ...accessRoles.map((role) => ({ value: String(role._id), label: role.name })),
+      ],
+      managers,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load warehouse form options.", error: error.message });
   }
 };
 
@@ -263,8 +378,8 @@ export const getWarehouse = async (req, res) => {
 
     const warehouse = await Warehouse.findById(req.params.id)
       .select("-nameLower")
-      .populate("branch", "name code status")
-      .populate("manager", "name email")
+      .populate("branch", "name code isActive isMain isDefault")
+      .populate({ path: "manager", select: "name email role employeeId designation accessRole", populate: { path: "accessRole", select: "name" } })
       .populate("createdBy", "name email")
       .populate("updatedBy", "name email")
       .maxTimeMS(3000)
@@ -310,12 +425,12 @@ export const getWarehouse = async (req, res) => {
 };
 
 export const createWarehouse = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     const userId = req.user?._id || null;
     const payload = buildWarehousePayload(req.body, userId);
     const errors = validatePayload(payload);
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
+    await validateRelations(payload, { requireBranch: true });
 
     payload.warehouseType = payload.warehouseType || "store";
     payload.status = payload.status || "active";
@@ -323,29 +438,26 @@ export const createWarehouse = async (req, res) => {
     payload.branch = payload.branch ?? null;
     payload.manager = payload.manager ?? null;
 
-    let warehouse;
-    await session.withTransaction(async () => {
+    const warehouse = await runWarehouseWrite(async (session) => {
       if (payload.isDefault) {
         await Warehouse.updateMany(
           { branch: payload.branch, isDefault: true },
           { $set: { isDefault: false, updatedBy: userId } },
-          { session }
+          sessionOptions(session)
         );
       }
-      warehouse = new Warehouse({ ...payload, createdBy: userId, updatedBy: userId });
-      await warehouse.save({ session });
+      const created = new Warehouse({ ...payload, createdBy: userId, updatedBy: userId });
+      await created.save(sessionOptions(session));
+      return created;
     });
 
     return res.status(201).json({ message: "Warehouse created.", warehouse });
   } catch (error) {
     return sendWriteError(res, error, "Failed to create warehouse.");
-  } finally {
-    await session.endSession();
   }
 };
 
 export const updateWarehouse = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid warehouse ID." });
 
@@ -356,6 +468,7 @@ export const updateWarehouse = async (req, res) => {
 
     const errors = validatePayload(payload, { partial: true });
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
+    await validateRelations(payload, { requireBranch: payload.branch !== undefined });
 
     const current = await Warehouse.findById(req.params.id)
       .select("branch isDefault status")
@@ -382,29 +495,26 @@ export const updateWarehouse = async (req, res) => {
       }
     }
 
-    let warehouse;
-    await session.withTransaction(async () => {
+    const warehouse = await runWarehouseWrite(async (session) => {
       const nextBranch = payload.branch !== undefined ? payload.branch : current.branch || null;
       if (nextDefault) {
         await Warehouse.updateMany(
           { _id: { $ne: req.params.id }, branch: nextBranch, isDefault: true },
           { $set: { isDefault: false, updatedBy: userId } },
-          { session }
+          sessionOptions(session)
         );
       }
-      warehouse = await Warehouse.findByIdAndUpdate(req.params.id, payload, {
+      return Warehouse.findByIdAndUpdate(req.params.id, payload, {
         new: true,
         runValidators: true,
         context: "query",
-        session,
+        ...sessionOptions(session),
       }).select("-nameLower");
     });
 
     return res.json({ message: "Warehouse updated.", warehouse });
   } catch (error) {
     return sendWriteError(res, error, "Failed to update warehouse.");
-  } finally {
-    await session.endSession();
   }
 };
 
@@ -436,7 +546,6 @@ export const updateWarehouseStatus = async (req, res) => {
 };
 
 export const deleteWarehouse = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid warehouse ID." });
 
@@ -450,13 +559,12 @@ export const deleteWarehouse = async (req, res) => {
       return res.status(409).json({ message: "A warehouse with stock activity or balances cannot be archived." });
     }
 
-    let warehouse;
-    await session.withTransaction(async () => {
+    const warehouse = await runWarehouseWrite(async (session) => {
       const now = new Date();
-      warehouse = await Warehouse.findByIdAndUpdate(
+      const archived = await Warehouse.findByIdAndUpdate(
         req.params.id,
         { status: "archived", archivedAt: now, isDefault: false, updatedBy: req.user?._id || null },
-        { new: true, runValidators: true, session }
+        { new: true, runValidators: true, ...sessionOptions(session) }
       ).select("name code status archivedAt");
 
       await WarehouseLocation.updateMany(
@@ -471,21 +579,20 @@ export const deleteWarehouse = async (req, res) => {
             updatedBy: req.user?._id || null,
           },
         },
-        { session }
+        sessionOptions(session)
       );
 
       await ProductStock.updateMany(
         { warehouse: req.params.id, status: { $ne: "archived" } },
         { $set: { status: "archived", archivedAt: now, updatedBy: req.user?._id || null } },
-        { session }
+        sessionOptions(session)
       );
+      return archived;
     });
 
     return res.json({ message: "Warehouse archived. Zero-balance locations and stock records were archived safely.", warehouse });
   } catch (error) {
     return sendWriteError(res, error, "Failed to archive warehouse.");
-  } finally {
-    await session.endSession();
   }
 };
 

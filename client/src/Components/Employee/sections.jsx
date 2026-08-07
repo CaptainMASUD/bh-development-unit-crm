@@ -69,6 +69,8 @@ const SupplierProducts = lazy(() => import("../Admin/Supplier/SupplierProducts")
 const PurchaseOrders = lazy(() => import("../Admin/purchase/PurchaseOrders"))
 const GoodsReceipts = lazy(() => import("../Admin/purchase/GoodsReceipts"))
 const PurchaseReturns = lazy(() => import("../Admin/purchase/PurchaseReturns"))
+const SalesPage = lazy(() => import("../Admin/sales/SalesPage"))
+const SalesReports = lazy(() => import("../Admin/sales/SalesReports"))
 
 export const sections = {
   Dashboard: {
@@ -174,6 +176,13 @@ export const sections = {
     component: <PurchaseReturns />,
     permission: PERMISSIONS.PURCHASE_RETURN_VIEW,
   },
+
+  "Sales Quotations": { icon: <FaClipboardList className="w-5 h-5" />, component: <SalesPage kind="quotations" />, permission: PERMISSIONS.SALES_QUOTATION_VIEW },
+  "Sales Orders": { icon: <FiCreditCard className="w-5 h-5" />, component: <SalesPage kind="orders" />, permission: PERMISSIONS.SALES_ORDER_VIEW },
+  Deliveries: { icon: <FiPackage className="w-5 h-5" />, component: <SalesPage kind="deliveries" />, permission: PERMISSIONS.SALES_DELIVERY_VIEW },
+  "Sales Invoices": { icon: <FiDollarSign className="w-5 h-5" />, component: <SalesPage kind="invoices" />, permission: PERMISSIONS.SALES_INVOICE_VIEW },
+  "Sales Returns": { icon: <FiPackage className="w-5 h-5" />, component: <SalesPage kind="returns" />, permission: PERMISSIONS.SALES_RETURN_VIEW },
+  "Sales Reports": { icon: <FiBarChart2 className="w-5 h-5" />, component: <SalesReports />, permission: PERMISSIONS.SALES_REPORT_VIEW },
 
   Expenses: {
     icon: <FiCreditCard className="w-5 h-5" />,

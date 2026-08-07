@@ -329,10 +329,13 @@ export async function initializeTenantArchitecture() {
   await repairCompanySubscriptionDates();
   await repairLegacyTenantIndexes();
   await repairIndexSpecificationConflicts();
-  // Synchronize sequentially so obsolete pre-tenant indexes are removed and
-  // index creation never races across dozens of collections. This prevents
-  // collections from drifting toward MongoDB's per-collection index limit.
-  for (const modelName of mongoose.modelNames()) {
-    await mongoose.model(modelName).syncIndexes();
+  // Full index synchronization is a maintenance operation, not a server-start
+  // prerequisite. Running it on every nodemon restart can keep port 4000
+  // offline for minutes in a large ERP schema. Enable it explicitly when
+  // deploying a planned index migration.
+  if (process.env.MONGO_SYNC_INDEXES === "true") {
+    for (const modelName of mongoose.modelNames()) {
+      await mongoose.model(modelName).syncIndexes();
+    }
   }
 }

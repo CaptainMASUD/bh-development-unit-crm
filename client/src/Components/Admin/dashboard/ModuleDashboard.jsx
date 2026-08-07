@@ -88,6 +88,12 @@ const MODULE_PRESENTATION = {
     description: "Purchase orders, goods receipts, supplier returns, approvals, and procurement value overview.",
     actions: ["Purchase Orders", "Goods Receipts", "Purchase Returns"],
   },
+  sales: {
+    eyebrow: "Revenue operations",
+    title: "Sales Dashboard",
+    description: "Quotations, orders, fulfillment, invoices, collections, returns, and profitability in one view.",
+    actions: ["Sales Quotations", "Sales Orders", "Deliveries", "Sales Invoices", "Sales Returns", "Sales Reports"],
+  },
 }
 
 function authHeaders() {
@@ -203,6 +209,8 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
   const canViewPurchaseOrders = hasPermission(currentUser, "purchase-order:view")
   const canViewGoodsReceipts = hasPermission(currentUser, "goods-receipt:view")
   const canViewPurchaseReturns = hasPermission(currentUser, "purchase-return:view")
+  const canViewSalesReport = hasPermission(currentUser, "sales-report:view")
+  const canViewSalesInvoices = hasPermission(currentUser, "sales-invoice:view")
 
   const load = useCallback(async (signal) => {
     setLoading(true)
@@ -284,6 +292,21 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
         })
         setData(nextData)
         if (failures.length) setError(failures.join(" "))
+      } else if (moduleId === "sales") {
+        const sources = [
+          canViewSalesReport ? ["sales", request("/sales/dashboard", signal)] : null,
+          canViewSalesInvoices ? ["salesInvoices", request("/sales/invoices?limit=6", signal)] : null,
+        ].filter(Boolean)
+        const results = await Promise.allSettled(sources.map(([, promise]) => promise))
+        const nextData = {}
+        const failures = []
+        results.forEach((result, index) => {
+          const key = sources[index][0]
+          if (result.status === "fulfilled") nextData[key] = result.value || {}
+          else if (result.reason?.name !== "AbortError") failures.push(result.reason?.message || `Failed to load ${key}`)
+        })
+        setData(nextData)
+        if (failures.length) setError(failures.join(" "))
       } else {
         const dashboard = hasPermission(currentUser, "company:view")
           ? await request("/dashboard/administration", signal)
@@ -295,7 +318,7 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
     } finally {
       if (!signal?.aborted) setLoading(false)
     }
-  }, [canViewExpenses, canViewFinance, canViewGoodsReceipts, canViewInventoryReport, canViewPayroll, canViewPurchaseOrders, canViewPurchaseReturns, canViewSupplier, currentUser, moduleId])
+  }, [canViewExpenses, canViewFinance, canViewGoodsReceipts, canViewInventoryReport, canViewPayroll, canViewPurchaseOrders, canViewPurchaseReturns, canViewSalesInvoices, canViewSalesReport, canViewSupplier, currentUser, moduleId])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -416,13 +439,28 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
         { label: "Purchase returns", value: number(returns.returnCount), detail: `${money(returns.totalReturnValue)} returned value`, icon: <FiArrowUpRight />, tone: numeric(returns.returnCount) ? "amber" : "green" },
       ]
     }
+    if (moduleId === "sales") {
+      const summary = data.sales?.data?.summary || {}
+      if (!canViewSalesReport) return [
+        { label: "Authorized features", value: number(Math.max(0, Object.keys(moduleSections).length - 1)), detail: "Available Sales workspaces", icon: <FiShield />, tone: "indigo" },
+        { label: "Sales reporting", value: "Restricted", detail: "Performance totals require report permission", icon: <FiBarChart2 />, tone: "amber" },
+        { label: "Account status", value: currentUser?.isActive ? "Active" : "Restricted", detail: currentUser?.role || "User", icon: <FiActivity />, tone: currentUser?.isActive ? "green" : "rose" },
+        { label: "Module", value: "Sales", detail: "Use the permitted features in the sidebar", icon: <FiTrendingUp />, tone: "sky" },
+      ]
+      return [
+        { label: "Invoiced", value: money(summary.invoiced), detail: `${number(summary.invoiceCount)} posted invoices`, icon: <FiDollarSign />, tone: "indigo" },
+        { label: "Collected", value: money(summary.paid), detail: "Allocated customer receipts", icon: <FiCheckCircle />, tone: "green" },
+        { label: "Receivable", value: money(summary.due), detail: "Outstanding customer balance", icon: <FiCreditCard />, tone: "amber" },
+        { label: "Gross profit", value: money(summary.grossProfit), detail: `${numeric(summary.grossMarginPercent).toFixed(1)}% gross margin`, icon: <FiTrendingUp />, tone: "sky" },
+      ]
+    }
     return [
       { label: "Authorized features", value: number(Math.max(0, Object.keys(moduleSections).length - 1)), detail: "Available in this module", icon: <FiShield />, tone: "indigo" },
       { label: "Employees", value: number(data.dashboard?.employeesCount), detail: "Active employee accounts", icon: <FiUsers />, tone: "sky" },
       { label: "Administrators", value: number(numeric(data.dashboard?.adminsCount) + numeric(data.dashboard?.superAdminsCount)), detail: "Active privileged accounts", icon: <FiShield />, tone: "gray" },
       { label: "Account status", value: currentUser?.isActive ? "Active" : "Restricted", detail: currentUser?.role || "User", icon: <FiActivity />, tone: currentUser?.isActive ? "green" : "rose" },
     ]
-  }, [canViewExpenses, canViewFinance, canViewGoodsReceipts, canViewInventoryReport, canViewPayroll, canViewPurchaseOrders, canViewPurchaseReturns, canViewSupplier, currentUser, data, moduleId, moduleSections])
+  }, [canViewExpenses, canViewFinance, canViewGoodsReceipts, canViewInventoryReport, canViewPayroll, canViewPurchaseOrders, canViewPurchaseReturns, canViewSalesReport, canViewSupplier, currentUser, data, moduleId, moduleSections])
 
   const chartModel = useMemo(() => {
     if (moduleId === "administration" && currentUser?.role === "superadmin") {
@@ -603,6 +641,21 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
         ],
       }
     }
+    if (moduleId === "sales") {
+      const sales = data.sales?.data || {}
+      const summary = sales.summary || {}
+      return {
+        pieTitle: "Cash Conversion",
+        pieSubtitle: "Collected versus outstanding customer balances",
+        pie: [{ name: "Collected", value: numeric(summary.paid) }, { name: "Receivable", value: numeric(summary.due) }],
+        barTitle: "Sales Performance",
+        barSubtitle: "Net sales, COGS, and gross profit",
+        bar: [{ name: "Net Sales", value: numeric(summary.netSales) }, { name: "COGS", value: numeric(summary.cogs) }, { name: "Gross Profit", value: numeric(summary.grossProfit) }],
+        lineTitle: "Order Pipeline",
+        lineSubtitle: "Sales orders grouped by workflow status",
+        line: (sales.orders || []).slice(0, 8).map((item) => ({ name: String(item._id || "Status").replace(/_/g, " "), value: numeric(item.value) })),
+      }
+    }
     const employees = numeric(data.dashboard?.employeesCount)
     const admins = numeric(data.dashboard?.adminsCount)
     const superAdmins = numeric(data.dashboard?.superAdminsCount)
@@ -629,6 +682,7 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
     if (moduleId === "inventory") return (data.inventory?.recentMovements || []).slice(0, 6).map((item, index) => ({ ...item, title: item.movementNo || item.reference || `Movement ${index + 1}`, subtitle: String(item.movementType || "Stock movement").replace(/_/g, " "), amount: item.totalValue }))
     if (moduleId === "supplier") return (data.suppliers?.suppliers || []).slice(0, 6).map((item, index) => ({ ...item, title: displayName(item, `Supplier ${index + 1}`), subtitle: `${String(item.status || "draft").replace(/_/g, " ")}${item.supplierType ? ` · ${String(item.supplierType).replace(/_/g, " ")}` : ""}` }))
     if (moduleId === "purchase") return (data.purchaseOrders?.purchaseOrders || []).slice(0, 6).map((item, index) => ({ ...item, title: item.orderNo || `Purchase order ${index + 1}`, subtitle: `${displayName(item.supplier, "Supplier")} · ${String(item.status || "draft").replace(/_/g, " ")}`, amount: item.grandTotal }))
+    if (moduleId === "sales") return (data.salesInvoices?.data || []).slice(0, 6).map((item, index) => ({ ...item, title: item.invoiceNumber || `Sales invoice ${index + 1}`, subtitle: String(item.status || "draft").replace(/_/g, " "), amount: item.totals?.grandTotal }))
     return actions.slice(0, 6).map((name) => ({ title: name, subtitle: "Authorized workspace" }))
   }, [actions, currentUser?.role, data, moduleId])
 
@@ -707,7 +761,7 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
 }
 
 ModuleDashboard.propTypes = {
-  moduleId: PropTypes.oneOf(["crm", "accounting", "inventory", "supplier", "purchase", "payroll", "administration"]).isRequired,
+  moduleId: PropTypes.oneOf(["crm", "accounting", "inventory", "supplier", "purchase", "sales", "payroll", "administration"]).isRequired,
   moduleSections: PropTypes.object,
   currentUser: PropTypes.shape({ isActive: PropTypes.bool, role: PropTypes.string }),
   onNavigateSection: PropTypes.func.isRequired,

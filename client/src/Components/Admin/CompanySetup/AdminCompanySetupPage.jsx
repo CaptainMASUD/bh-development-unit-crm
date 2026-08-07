@@ -1,6 +1,21 @@
 "use client"
 
+/**
+ * CompanySetupPage.clean-animated.jsx
+ * Business Hub SUITE — Company subscriptions, tenant setup and ERP entitlements.
+ *
+ * UI update:
+ * - Lead-page inspired premium header
+ * - Search, filters and active filter chips inside the header
+ * - Compact KPI cards with normal typography and reduced copy
+ * - Simplified responsive company directory without visual clutter
+ * - Framer Motion loading, list, modal and interaction animations
+ * - Fully Hugeicons-based icon system
+ * - Existing permissions, API requests, modals and branch workflows preserved
+ */
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { AnimatePresence, motion } from "framer-motion"
 import { createPortal } from "react-dom"
 import { useSelector } from "react-redux"
 import toast, { Toaster } from "react-hot-toast"
@@ -10,11 +25,14 @@ import {
   Add01Icon,
   ArrowLeft01Icon,
   ArrowRight01Icon,
+  Building03Icon,
   Calendar03Icon,
   Cancel01Icon,
   CheckmarkCircle02Icon,
   File02Icon,
   FilterIcon,
+  GitBranchIcon,
+  Location01Icon,
   MoreVerticalIcon,
   PencilEdit02Icon,
   RefreshIcon,
@@ -86,22 +104,45 @@ const ENDPOINTS = {
   modules: "/erp-modules",
 }
 
-const shell = "min-h-screen bg-[#f7f8fb]"
+const shell = "min-h-screen bg-gradient-to-b from-gray-50 to-white"
 const card =
-  "rounded-2xl border border-gray-100 bg-white shadow-[0_16px_45px_-32px_rgba(15,23,42,0.45)]"
+  "rounded-2xl border border-gray-100 bg-white shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]"
 const btn =
-  "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+  "inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60"
 const btnPrimary = "bg-indigo-600 text-white shadow-sm hover:bg-indigo-700"
-const btnGhost = "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
-const btnDanger = "bg-rose-600 text-white hover:bg-rose-700"
+const btnGhost = "border border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
+const btnDanger = "bg-rose-600 text-white shadow-sm hover:bg-rose-700"
 const iconBtn =
-  "inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+  "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-50"
 const input =
-  "h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/15"
+  "h-11 w-full rounded-xl border border-gray-200 bg-white px-3.5 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-transparent focus-visible:ring-2 focus-visible:ring-indigo-500/35 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
 const textarea =
-  "min-h-28 w-full resize-y rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/15"
+  "min-h-28 w-full resize-y rounded-xl border border-gray-200 bg-white px-3.5 py-3 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-transparent focus-visible:ring-2 focus-visible:ring-indigo-500/35"
 const softInput =
   "h-10 w-full border-0 bg-transparent px-1 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:outline-none focus:ring-0"
+const companyGrid =
+  "grid grid-cols-[minmax(240px,1.2fr)_minmax(175px,.82fr)_minmax(175px,.8fr)_minmax(190px,.88fr)_minmax(158px,auto)] gap-4"
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 12 },
+  visible: { opacity: 1, y: 0 },
+}
+
+const stagger = {
+  hidden: {},
+  visible: {
+    transition: {
+      staggerChildren: 0.06,
+      delayChildren: 0.04,
+    },
+  },
+}
+
+const springTransition = {
+  type: "spring",
+  stiffness: 260,
+  damping: 24,
+}
 
 const defaultFilters = {
   status: "all",
@@ -199,61 +240,16 @@ function HIcon({ icon, size = 18, className = "" }) {
   )
 }
 
-function LocationPin({ className = "h-5 w-5" }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />
-      <circle cx="12" cy="10" r="2.5" />
-    </svg>
-  )
+function LocationPin({ className = "h-5 w-5", size = 20 }) {
+  return <HIcon icon={Location01Icon} size={size} className={className} />
 }
 
-function BuildingIcon({ className = "h-5 w-5" }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M4 21V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v16" />
-      <path d="M17 9h2a1 1 0 0 1 1 1v11" />
-      <path d="M8 7h5M8 11h5M8 15h5M8 19h5M2 21h20" />
-    </svg>
-  )
+function BuildingIcon({ className = "h-5 w-5", size = 20 }) {
+  return <HIcon icon={Building03Icon} size={size} className={className} />
 }
 
-function BranchIcon({ className = "h-5 w-5" }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <circle cx="6" cy="5" r="2" />
-      <circle cx="18" cy="5" r="2" />
-      <circle cx="12" cy="19" r="2" />
-      <path d="M6 7v3a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7M12 12v5" />
-    </svg>
-  )
+function BranchIcon({ className = "h-5 w-5", size = 20 }) {
+  return <HIcon icon={GitBranchIcon} size={size} className={className} />
 }
 
 function authHeaders(isJson = true) {
@@ -483,47 +479,61 @@ function Modal({
     return () => window.removeEventListener("keydown", onKey)
   }, [open, onClose])
 
-  if (!open) return null
-
   return (
-    <div className="fixed inset-0 z-[90]" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 overflow-y-auto">
-        <div className="flex min-h-full items-start justify-center p-4 sm:items-center sm:p-6">
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-md" onClick={onClose} />
-          <div
-            className={`relative w-full overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_30px_70px_-30px_rgba(0,0,0,0.65)] ${maxWidthClass}`}
-          >
-            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-100 bg-white p-4 sm:p-5">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
-                  {icon}
-                </div>
-                <div className="min-w-0">
-                  <h2 className="truncate text-base font-extrabold text-gray-900 sm:text-lg">{title}</h2>
-                  {subtitle ? <p className="truncate text-sm font-semibold text-gray-500">{subtitle}</p> : null}
-                </div>
-              </div>
-              <button
+    <AnimatePresence>
+      {open ? (
+        <div className="fixed inset-0 z-[90]" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 overflow-y-auto">
+            <div className="flex min-h-full items-start justify-center p-4 sm:items-center sm:p-6">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18 }}
+                className="fixed inset-0 bg-black/40 backdrop-blur-md"
                 onClick={onClose}
-                className="rounded-xl p-2 transition hover:bg-gray-100"
-                type="button"
-                aria-label="Close modal"
+              />
+
+              <motion.div
+                initial={{ opacity: 0, y: 14, scale: 0.985 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.985 }}
+                transition={springTransition}
+                className={`relative w-full overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_30px_70px_-30px_rgba(0,0,0,0.65)] ${maxWidthClass}`}
               >
-                <HIcon icon={Cancel01Icon} className="h-5 w-5 text-gray-700" />
-              </button>
+                <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-100 bg-white p-4 sm:p-5">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
+                      {icon}
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="truncate text-base font-bold text-gray-900 sm:text-lg">{title}</h2>
+                      {subtitle ? <p className="truncate text-sm text-gray-500">{subtitle}</p> : null}
+                    </div>
+                  </div>
+                  <button
+                    onClick={onClose}
+                    className="rounded-xl p-2 transition hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+                    type="button"
+                    aria-label="Close modal"
+                  >
+                    <HIcon icon={Cancel01Icon} className="h-5 w-5 text-gray-700" />
+                  </button>
+                </div>
+                <div className="max-h-[calc(100vh-13rem)] overflow-y-auto bg-[#fbfcff] p-4 sm:p-5">
+                  {children}
+                </div>
+                {footer ? (
+                  <div className="sticky bottom-0 z-20 border-t border-gray-100 bg-white p-4 sm:p-5">
+                    {footer}
+                  </div>
+                ) : null}
+              </motion.div>
             </div>
-            <div className="max-h-[calc(100vh-13rem)] overflow-y-auto bg-[#fbfcff] p-4 sm:p-5">
-              {children}
-            </div>
-            {footer ? (
-              <div className="sticky bottom-0 z-20 border-t border-gray-100 bg-white p-4 sm:p-5">
-                {footer}
-              </div>
-            ) : null}
           </div>
         </div>
-      </div>
-    </div>
+      ) : null}
+    </AnimatePresence>
   )
 }
 
@@ -531,15 +541,18 @@ function StatusBadge({ status }) {
   const normalized = String(status || "active").toLowerCase()
   const classes =
     normalized === "active"
-      ? "bg-emerald-50 text-emerald-700 ring-emerald-600/10"
+      ? "bg-emerald-50 text-emerald-700 ring-emerald-600/15"
       : normalized === "trial"
-        ? "bg-sky-50 text-sky-700 ring-sky-600/10"
-        : normalized === "pending"
-          ? "bg-amber-50 text-amber-700 ring-amber-600/10"
-          : "bg-rose-50 text-rose-700 ring-rose-600/10"
+        ? "bg-sky-50 text-sky-700 ring-sky-600/15"
+        : normalized === "pending" || normalized === "scheduled"
+          ? "bg-amber-50 text-amber-700 ring-amber-600/15"
+          : "bg-rose-50 text-rose-700 ring-rose-600/15"
 
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-extrabold ring-1 ${classes}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${classes}`}
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-current opacity-80" />
       {pretty(normalized)}
     </span>
   )
@@ -549,7 +562,7 @@ function CompanyAvatar({ company, size = "h-11 w-11" }) {
   const logoUrl = company?.logoUrl || company?.logo
   return (
     <div
-      className={`flex ${size} shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-indigo-50 text-sm font-black text-indigo-700 ring-1 ring-indigo-100`}
+      className={`flex ${size} shrink-0 items-center justify-center overflow-hidden rounded-xl bg-indigo-50 text-sm font-black text-indigo-700 ring-1 ring-indigo-100`}
     >
       {logoUrl ? (
         <img src={logoUrl} alt={company?.name || "Company"} className="h-full w-full object-cover" />
@@ -562,9 +575,9 @@ function CompanyAvatar({ company, size = "h-11 w-11" }) {
 
 function ModulePill({ module }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-extrabold text-indigo-700 ring-1 ring-indigo-600/10">
+    <span className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-100 bg-indigo-50/70 px-2 py-1 text-xs font-bold text-indigo-700">
       <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
-      {module?.name || module?.code || "Module"}
+      <span className="max-w-[115px] truncate">{module?.name || module?.code || "Module"}</span>
     </span>
   )
 }
@@ -681,34 +694,44 @@ function CompanyActionMenu({ company, onView, onEdit, onChangeStatus, onManageBr
     "flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-bold text-gray-700 transition hover:bg-gray-50"
 
   const menu =
-    open && typeof document !== "undefined"
+    typeof document !== "undefined"
       ? createPortal(
-          <div
-            style={{ position: "fixed", top: position.top, left: position.left, width: 230 }}
-            className="z-[9999] overflow-hidden rounded-2xl border border-gray-100 bg-white p-2 text-left shadow-[0_22px_60px_-28px_rgba(15,23,42,0.65)]"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button type="button" className={itemClass} onClick={() => runAction(onEdit)}>
-              <HIcon icon={PencilEdit02Icon} className="text-indigo-600" />
-              Edit company setup
-            </button>
-            <button type="button" className={itemClass} onClick={() => runAction(onManageBranches)}>
-              <BranchIcon className="h-4 w-4 text-indigo-600" />
-              Manage branches
-            </button>
-            {onChangeStatus ? <button
-              type="button"
-              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-bold transition ${
-                status === "active"
-                  ? "text-rose-700 hover:bg-rose-50"
-                  : "text-emerald-700 hover:bg-emerald-50"
-              }`}
-              onClick={() => runAction(onChangeStatus)}
-            >
-              <HIcon icon={SecurityCheckIcon} />
-              {status === "active" ? "Suspend company" : "Reactivate company"}
-            </button> : null}
-          </div>,
+          <AnimatePresence>
+            {open ? (
+              <motion.div
+                initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                transition={{ duration: 0.16, ease: "easeOut" }}
+                style={{ position: "fixed", top: position.top, left: position.left, width: 230 }}
+                className="z-[9999] overflow-hidden rounded-2xl border border-gray-100 bg-white p-2 text-left shadow-[0_22px_60px_-28px_rgba(15,23,42,0.65)]"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <button type="button" className={itemClass} onClick={() => runAction(onEdit)}>
+                  <HIcon icon={PencilEdit02Icon} className="text-indigo-600" />
+                  Edit company
+                </button>
+                <button type="button" className={itemClass} onClick={() => runAction(onManageBranches)}>
+                  <BranchIcon className="h-4 w-4 text-indigo-600" />
+                  Manage branches
+                </button>
+                {onChangeStatus ? (
+                  <button
+                    type="button"
+                    className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-bold transition ${
+                      status === "active"
+                        ? "text-rose-700 hover:bg-rose-50"
+                        : "text-emerald-700 hover:bg-emerald-50"
+                    }`}
+                    onClick={() => runAction(onChangeStatus)}
+                  >
+                    <HIcon icon={SecurityCheckIcon} />
+                    {status === "active" ? "Suspend company" : "Reactivate company"}
+                  </button>
+                ) : null}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>,
           document.body
         )
       : null
@@ -717,7 +740,7 @@ function CompanyActionMenu({ company, onView, onEdit, onChangeStatus, onManageBr
     <div className="relative flex items-center justify-end gap-2" onClick={(event) => event.stopPropagation()}>
       <button
         type="button"
-        className={`${btn} ${btnPrimary} h-10 px-3 py-2 shadow-sm shadow-indigo-600/20`}
+        className={`${btn} ${btnPrimary} h-10 px-3.5`}
         onClick={() => runAction(onView)}
       >
         <HIcon icon={ViewIcon} className="h-4 w-4" />
@@ -743,20 +766,32 @@ function CompanyActionMenu({ company, onView, onEdit, onChangeStatus, onManageBr
 
 function CompanyMobileCard({ company, modules, onView, onEdit, onChangeStatus, onManageBranches }) {
   const address = getCompanyAddress(company)
+  const manager =
+    company.headOffice?.manager ||
+    company.manager ||
+    company.primaryContact ||
+    {}
   const moduleIds = getCompanyModuleIds(company)
   const enabledModules = modules.filter((module) => moduleIds.includes(String(getId(module))))
   const plan = company.subscription?.plan || company.planName || company.plan || "Custom"
 
   return (
-    <article className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+    <motion.article
+      layout
+      variants={fadeUp}
+      transition={springTransition}
+      whileHover={{ y: -2 }}
+      className="rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_8px_24px_-22px_rgba(15,23,42,0.45)]"
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <CompanyAvatar company={company} />
+          <CompanyAvatar company={company} size="h-11 w-11" />
           <div className="min-w-0">
-            <p className="truncate text-sm font-extrabold text-gray-900">{company.name || company.companyName}</p>
-            <p className="truncate text-xs font-semibold text-gray-500">{company.code || company.companyCode || "No company code"}</p>
-            <p className="mt-1 truncate text-xs font-bold text-indigo-600">
-              {company.industry || "Industry not configured"}
+            <p className="truncate text-sm font-bold text-gray-900">
+              {company.name || company.companyName || "Unnamed company"}
+            </p>
+            <p className="mt-0.5 truncate text-xs text-gray-500">
+              {company.code || company.companyCode || "No code"}
             </p>
           </div>
         </div>
@@ -765,39 +800,33 @@ function CompanyMobileCard({ company, modules, onView, onEdit, onChangeStatus, o
 
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div className="rounded-xl bg-gray-50 p-3">
-          <p className="text-[11px] font-extrabold uppercase tracking-wide text-gray-400">Location</p>
-          <p className="mt-1 truncate text-sm font-extrabold text-gray-900">
+          <div className="flex items-center gap-2 text-gray-500">
+            <LocationPin className="h-4 w-4 text-indigo-500" />
+            <span className="text-xs font-medium">Location</span>
+          </div>
+          <p className="mt-1.5 truncate text-sm font-semibold text-gray-900">
             {[address.city, address.country].filter(Boolean).join(", ") || "Not configured"}
           </p>
         </div>
-        <div className="rounded-xl bg-indigo-50 p-3">
-          <p className="text-[11px] font-extrabold uppercase tracking-wide text-indigo-400">ERP access</p>
-          <p className="mt-1 text-sm font-extrabold text-indigo-700">{enabledModules.length} modules</p>
-        </div>
+
         <div className="rounded-xl bg-gray-50 p-3">
-          <p className="text-[11px] font-extrabold uppercase tracking-wide text-gray-400">Plan</p>
-          <p className="mt-1 truncate text-sm font-extrabold text-gray-900">{pretty(plan)}</p>
-        </div>
-        <div className="rounded-xl bg-gray-50 p-3">
-          <p className="text-[11px] font-extrabold uppercase tracking-wide text-gray-400">Locations</p>
-          <p className="mt-1 text-sm font-extrabold text-gray-900">{getBranchCount(company)} branches</p>
+          <div className="flex items-center gap-2 text-gray-500">
+            <HIcon icon={UserIcon} className="h-4 w-4 text-indigo-500" />
+            <span className="text-xs font-medium">Manager</span>
+          </div>
+          <p className="mt-1.5 truncate text-sm font-semibold text-gray-900">
+            {manager.name || "Not assigned"}
+          </p>
         </div>
       </div>
 
-      <div className="mt-4 flex min-h-7 flex-wrap gap-2">
-        {enabledModules.length ? (
-          enabledModules.slice(0, 3).map((module) => <ModulePill key={getId(module)} module={module} />)
-        ) : (
-          <span className="text-xs font-semibold text-gray-400">No ERP modules assigned</span>
-        )}
-        {enabledModules.length > 3 ? (
-          <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-xs font-extrabold text-gray-600">
-            +{enabledModules.length - 3}
-          </span>
-        ) : null}
-      </div>
-
-      <div className="mt-4 border-t border-gray-100 pt-4">
+      <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-gray-100 px-3 py-2.5">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-gray-900">{pretty(plan)}</p>
+          <p className="mt-0.5 text-xs text-gray-500">
+            {enabledModules.length} ERP module{enabledModules.length === 1 ? "" : "s"}
+          </p>
+        </div>
         <CompanyActionMenu
           company={company}
           onView={onView}
@@ -806,7 +835,145 @@ function CompanyMobileCard({ company, modules, onView, onEdit, onChangeStatus, o
           onManageBranches={onManageBranches}
         />
       </div>
-    </article>
+    </motion.article>
+  )
+}
+
+function CompanyDesktopRow({
+  company,
+  modules,
+  onView,
+  onEdit,
+  onChangeStatus,
+  onManageBranches,
+}) {
+  const address = getCompanyAddress(company)
+  const manager =
+    company.headOffice?.manager ||
+    company.manager ||
+    company.primaryContact ||
+    {}
+  const moduleIds = getCompanyModuleIds(company)
+  const enabledModules = modules.filter((module) => moduleIds.includes(String(getId(module))))
+  const plan = company.subscription?.plan || company.planName || company.plan || "Custom"
+
+  return (
+    <motion.article
+      layout
+      variants={fadeUp}
+      transition={springTransition}
+      whileHover={{ y: -2, transition: { duration: 0.16 } }}
+      className={`${companyGrid} items-center rounded-2xl border border-gray-200 bg-white px-4 py-3.5 shadow-[0_8px_24px_-24px_rgba(15,23,42,0.5)] transition-colors hover:border-indigo-200`}
+    >
+      <div className="flex min-w-0 items-center gap-3">
+        <CompanyAvatar company={company} size="h-11 w-11" />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold text-gray-900">
+            {company.name || company.companyName || "Unnamed company"}
+          </p>
+          <p className="mt-0.5 truncate text-xs text-gray-500">
+            {company.code || company.companyCode || "No code"}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex min-w-0 items-center gap-2.5">
+        <LocationPin className="h-4 w-4 shrink-0 text-indigo-500" />
+        <p className="truncate text-sm font-semibold text-gray-800">
+          {[address.city, address.country].filter(Boolean).join(", ") || "Not configured"}
+        </p>
+      </div>
+
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold text-gray-800">{manager.name || "Not assigned"}</p>
+        {manager.email ? <p className="mt-0.5 truncate text-xs text-gray-500">{manager.email}</p> : null}
+      </div>
+
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-gray-900">{pretty(plan)}</p>
+          {company.subscription?.endDate ? (
+            <p className="mt-0.5 truncate text-xs text-gray-500">Ends {dateText(company.subscription.endDate)}</p>
+          ) : null}
+        </div>
+        <span className="shrink-0 rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">
+          {enabledModules.length} ERP
+        </span>
+      </div>
+
+      <div className="flex items-center justify-end gap-3">
+        <StatusBadge status={companyStatus(company)} />
+        <CompanyActionMenu
+          company={company}
+          onView={onView}
+          onEdit={onEdit}
+          onChangeStatus={onChangeStatus}
+          onManageBranches={onManageBranches}
+        />
+      </div>
+    </motion.article>
+  )
+}
+
+function CompanyDirectoryLoading() {
+  return (
+    <div>
+      <div className="hidden space-y-2.5 xl:block">
+        {[0, 1, 2, 3].map((item) => (
+          <motion.div
+            key={item}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: item * 0.05 }}
+            className={`${companyGrid} items-center rounded-2xl border border-gray-100 bg-white px-4 py-4`}
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-11 w-11 animate-pulse rounded-xl bg-gray-100" />
+              <div className="space-y-2">
+                <div className="h-3.5 w-36 animate-pulse rounded bg-gray-100" />
+                <div className="h-3 w-20 animate-pulse rounded bg-gray-100" />
+              </div>
+            </div>
+            {["w-32", "w-28", "w-36"].map((width, index) => (
+              <div key={index} className="space-y-2">
+                <div className={`h-3.5 ${width} animate-pulse rounded bg-gray-100`} />
+                {index !== 0 ? <div className="h-3 w-20 animate-pulse rounded bg-gray-100" /> : null}
+              </div>
+            ))}
+            <div className="ml-auto flex items-center gap-2">
+              <div className="h-7 w-16 animate-pulse rounded-full bg-gray-100" />
+              <div className="h-10 w-20 animate-pulse rounded-xl bg-gray-100" />
+            </div>
+          </motion.div>
+        ))}
+      </div>
+
+      <div className="space-y-3 xl:hidden">
+        {[0, 1, 2].map((item) => (
+          <motion.div
+            key={item}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: item * 0.05 }}
+            className="rounded-2xl border border-gray-100 bg-white p-4"
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-11 w-11 animate-pulse rounded-xl bg-gray-100" />
+              <div className="flex-1 space-y-2">
+                <div className="h-3.5 w-2/5 animate-pulse rounded bg-gray-100" />
+                <div className="h-3 w-1/4 animate-pulse rounded bg-gray-100" />
+              </div>
+              <div className="h-7 w-16 animate-pulse rounded-full bg-gray-100" />
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="h-16 animate-pulse rounded-xl bg-gray-100" />
+              <div className="h-16 animate-pulse rounded-xl bg-gray-100" />
+            </div>
+            <div className="mt-3 h-12 animate-pulse rounded-xl bg-gray-100" />
+          </motion.div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -1428,30 +1595,38 @@ export default function AdminCompanySetupPage() {
     <div className={shell}>
       <Toaster
         position="top-right"
-        toastOptions={{ duration: 2600, style: { borderRadius: "14px", fontWeight: 700 } }}
+        toastOptions={{
+          duration: 2600,
+          style: {
+            border: "1px solid #e2e8f0",
+            borderRadius: "14px",
+            boxShadow: "0 18px 45px -26px rgba(15, 23, 42, 0.45)",
+            fontWeight: 700,
+          },
+        }}
       />
 
-      <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8">
-        <div className={`${card} mb-5 overflow-hidden`}>
-          <div className="relative p-4 sm:p-5">
-            <div className="pointer-events-none absolute right-0 top-0 h-40 w-64 bg-gradient-to-bl from-indigo-100/80 via-indigo-50/20 to-transparent" />
-            <div className="relative flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
-                  <BuildingIcon />
+      <div className="mx-auto max-w-[1440px] px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+        <motion.header
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={springTransition}
+          className={`${card} mb-5 overflow-hidden`}
+        >
+          <div className="p-4 sm:p-5">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
+                  <BuildingIcon size={21} />
                 </div>
-                <div>
-                  <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">
+                <div className="min-w-0">
+                  <h1 className="text-xl font-black tracking-tight text-gray-900 sm:text-2xl">
                     {isSuperAdmin ? "Company Subscriptions & ERP Access" : "My Company Profile"}
                   </h1>
-                  <p className="mt-1 max-w-3xl text-sm font-semibold text-gray-500">
-                    {isSuperAdmin
-                      ? "Manage SaaS companies, tenant Admins, subscription dates and entitled ERP modules."
-                      : "Review your company, update permitted profile information and manage authorized branches."}
-                  </p>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
+
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   className={`${btn} ${btnGhost}`}
                   onClick={() => loadCompanies(page)}
@@ -1461,20 +1636,92 @@ export default function AdminCompanySetupPage() {
                   <HIcon icon={RefreshIcon} className={loading ? "animate-spin" : ""} />
                   Refresh
                 </button>
-                {isSuperAdmin ? <button className={`${btn} ${btnPrimary}`} onClick={openCreate} type="button">
-                  <HIcon icon={Add01Icon} />
-                  Add Company
-                </button> : null}
+                {isSuperAdmin ? (
+                  <button className={`${btn} ${btnPrimary}`} onClick={openCreate} type="button">
+                    <HIcon icon={Add01Icon} />
+                    Add Company
+                  </button>
+                ) : null}
               </div>
             </div>
+
+            {isSuperAdmin ? (
+              <div className="mt-5 flex flex-col gap-3 border-t border-gray-100 pt-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex min-h-[44px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-gray-50 px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)] lg:max-w-[820px]">
+                  <HIcon icon={Search01Icon} className="h-4 w-4 shrink-0 text-gray-400" />
+
+                  {searchText.trim() ? (
+                    <FilterChip label="Search" value={searchText.trim()} onClear={() => setSearchText("")} />
+                  ) : null}
+
+                  {activeFilterEntries.map((filter) => (
+                    <FilterChip
+                      key={filter.key}
+                      label={filter.label}
+                      value={filter.value}
+                      onClear={() => clearSingleFilter(filter.key)}
+                    />
+                  ))}
+
+                  <input
+                    className="min-w-[120px] flex-1 border-0 bg-transparent px-1 py-1 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:outline-none focus:ring-0"
+                    value={searchText}
+                    onChange={(event) => setSearchText(event.target.value)}
+                    placeholder={activeFilterCount ? "Search..." : "Search company, code, city or manager..."}
+                    type="search"
+                    aria-label="Search companies"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterDraft(filters)
+                      setFiltersOpen(true)
+                    }}
+                    className={`inline-flex h-8 shrink-0 items-center gap-2 rounded-xl px-2.5 text-xs font-black transition ${
+                      activeFilterEntries.length
+                        ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                        : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
+                    }`}
+                  >
+                    <HIcon icon={FilterIcon} className="h-3.5 w-3.5" />
+                    Filters
+                    {activeFilterEntries.length ? (
+                      <span className="rounded-full bg-white/20 px-1.5 text-[10px]">
+                        {activeFilterEntries.length}
+                      </span>
+                    ) : null}
+                  </button>
+
+                  {activeFilterCount ? (
+                    <button
+                      type="button"
+                      onClick={resetFilters}
+                      className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                      title="Clear search and filters"
+                      aria-label="Clear search and filters"
+                    >
+                      <HIcon icon={Cancel01Icon} className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
+
+                <p className="shrink-0 text-sm font-bold text-gray-500">
+                  <span className="text-gray-900">{visibleCompanies.length}</span> /{" "}
+                  <span className="text-gray-900">{total || companies.length}</span> companies
+                </p>
+              </div>
+            ) : null}
           </div>
-        </div>
+        </motion.header>
 
         {!isSuperAdmin && !loading && companies[0] ? (
-          <section className={`${card} mb-5 p-4 sm:p-5`}>
-            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <section className={`${card} mb-4 p-4 sm:p-5`}>
+            <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-xs font-extrabold uppercase tracking-[0.12em] text-indigo-500">Tenant workspace</p>
+                <p className="text-xs font-extrabold uppercase tracking-[0.12em] text-indigo-500">
+                  Tenant workspace
+                </p>
                 <h2 className="mt-1 text-xl font-black text-gray-900">{companies[0].name}</h2>
                 <p className="mt-1 text-sm font-semibold text-gray-500">
                   Subscription: {pretty(companies[0].subscriptionAccess?.state || companies[0].status)}
@@ -1484,149 +1731,123 @@ export default function AdminCompanySetupPage() {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                {canManageBranches ? <button className={`${btn} ${btnGhost}`} type="button" onClick={() => manageBranches(companies[0])}>
-                  <BranchIcon className="h-4 w-4" /> Manage Branches
-                </button> : null}
-                {canManageCompany ? <button className={`${btn} ${btnPrimary}`} type="button" onClick={() => openEdit(companies[0])}>
-                  <HIcon icon={PencilEdit02Icon} /> Edit Company Profile
-                </button> : null}
+                {canManageBranches ? (
+                  <button
+                    className={`${btn} ${btnGhost}`}
+                    type="button"
+                    onClick={() => manageBranches(companies[0])}
+                  >
+                    <BranchIcon className="h-4 w-4" />
+                    Manage Branches
+                  </button>
+                ) : null}
+                {canManageCompany ? (
+                  <button
+                    className={`${btn} ${btnPrimary}`}
+                    type="button"
+                    onClick={() => openEdit(companies[0])}
+                  >
+                    <HIcon icon={PencilEdit02Icon} />
+                    Edit Company Profile
+                  </button>
+                ) : null}
               </div>
             </div>
-            <CompanyDetails company={companies[0]} modules={modules} onManageBranches={canManageBranches ? manageBranches : undefined} />
+            <CompanyDetails
+              company={companies[0]}
+              modules={modules}
+              onManageBranches={canManageBranches ? manageBranches : undefined}
+            />
           </section>
         ) : null}
 
-        <section className={`${!isSuperAdmin ? "hidden " : ""}mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4`}>
+        <motion.section
+          variants={stagger}
+          initial="hidden"
+          animate="visible"
+          className={`${!isSuperAdmin ? "hidden " : ""}mb-4 grid grid-cols-2 gap-3 xl:grid-cols-4`}
+        >
           {[
             {
               label: "Active subscriptions",
               value: totals.active,
-              hint: `${total || companies.length} total companies`,
               icon: <HIcon icon={CheckmarkCircle02Icon} />,
-              tone: "emerald",
+              iconClass: "bg-emerald-50 text-emerald-700",
             },
             {
               label: "Expiring soon",
               value: totals.expiring,
-              hint: "Within the next 30 days",
-              icon: <HIcon icon={SecurityCheckIcon} />,
-              tone: "rose",
+              icon: <HIcon icon={Calendar03Icon} />,
+              iconClass: "bg-amber-50 text-amber-700",
             },
             {
-              label: "Blocked / expired",
+              label: "Blocked or expired",
               value: totals.blocked,
-              hint: "Tenant access is unavailable",
               icon: <HIcon icon={SecurityCheckIcon} />,
-              tone: "rose",
+              iconClass: "bg-rose-50 text-rose-700",
             },
             {
-              label: "Company locations",
+              label: "Locations",
               value: totals.branches,
-              hint: "Head offices and branches",
               icon: <BranchIcon />,
-              tone: "indigo",
+              iconClass: "bg-indigo-50 text-indigo-700",
             },
-          ].map((stat) => {
-            const toneClass =
-              stat.tone === "emerald"
-                ? "bg-emerald-50 text-emerald-700"
-                : stat.tone === "rose"
-                  ? "bg-rose-50 text-rose-700"
-                  : stat.tone === "amber"
-                    ? "bg-amber-50 text-amber-700"
-                    : "bg-indigo-50 text-indigo-700"
-            return (
-              <div key={stat.label} className={`${card} p-4`}>
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-extrabold uppercase tracking-[0.12em] text-gray-400">{stat.label}</p>
-                    <p className="mt-2 text-2xl font-black text-gray-900">{stat.value}</p>
-                    <p className="mt-1 text-xs font-semibold text-gray-500">{stat.hint}</p>
-                  </div>
-                  <span className={`flex h-11 w-11 items-center justify-center rounded-2xl ${toneClass}`}>
-                    {stat.icon}
-                  </span>
+          ].map((stat) => (
+            <motion.article
+              key={stat.label}
+              variants={fadeUp}
+              transition={springTransition}
+              whileHover={{ y: -3, transition: { duration: 0.16 } }}
+              className={`${card} p-4`}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-gray-600">{stat.label}</p>
+                  <p className="mt-1 text-2xl font-bold leading-none text-gray-900">{stat.value}</p>
                 </div>
-              </div>
-            )
-          })}
-        </section>
-
-        <section className={`${card} ${!isSuperAdmin ? "hidden" : ""}`}>
-          <div className="border-b border-gray-100 p-4 sm:p-5">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex min-h-[42px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)] lg:max-w-[760px]">
-                <HIcon icon={Search01Icon} className="h-4 w-4 shrink-0 text-gray-400" />
-                {searchText.trim() ? (
-                  <FilterChip label="Search" value={searchText.trim()} onClear={() => setSearchText("")} />
-                ) : null}
-                {activeFilterEntries.map((filter) => (
-                  <FilterChip
-                    key={filter.key}
-                    label={filter.label}
-                    value={filter.value}
-                    onClear={() => clearSingleFilter(filter.key)}
-                  />
-                ))}
-                <input
-                  className="min-w-[120px] flex-1 border-0 bg-transparent px-1 py-1 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:outline-none focus:ring-0"
-                  value={searchText}
-                  onChange={(event) => setSearchText(event.target.value)}
-                  placeholder={activeFilterCount ? "Search..." : "Search company, code, city or manager..."}
-                  type="text"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFilterDraft(filters)
-                    setFiltersOpen(true)
-                  }}
-                  className={`inline-flex h-8 shrink-0 items-center gap-2 rounded-xl px-2.5 text-xs font-black transition ${
-                    activeFilterEntries.length
-                      ? "bg-indigo-600 text-white hover:bg-indigo-700"
-                      : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
-                  }`}
+                <motion.span
+                  whileHover={{ rotate: 6, scale: 1.05 }}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${stat.iconClass}`}
                 >
-                  <HIcon icon={FilterIcon} className="h-3.5 w-3.5" />
-                  Filters
-                  {activeFilterEntries.length ? (
-                    <span className="rounded-full bg-white/20 px-1.5 text-[10px]">
-                      {activeFilterEntries.length}
-                    </span>
-                  ) : null}
-                </button>
-                {activeFilterCount ? (
-                  <button
-                    type="button"
-                    onClick={resetFilters}
-                    className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
-                    title="Clear search and filters"
-                  >
-                    <HIcon icon={Cancel01Icon} className="h-4 w-4" />
-                  </button>
-                ) : null}
+                  {stat.icon}
+                </motion.span>
               </div>
+            </motion.article>
+          ))}
+        </motion.section>
 
-              <div className="flex items-center justify-between gap-3 lg:justify-end">
-                <p className="text-sm font-bold text-gray-500">
-                  Showing <span className="text-gray-900">{visibleCompanies.length}</span> of{" "}
-                  <span className="text-gray-900">{total || companies.length}</span>
-                </p>
-              </div>
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ ...springTransition, delay: 0.12 }}
+          className={`${card} ${!isSuperAdmin ? "hidden" : ""} overflow-hidden`}
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-4 sm:px-5">
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-lg font-bold text-gray-900">Companies</h2>
+              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600">
+                {total || companies.length}
+              </span>
             </div>
+
+            {activeFilterCount ? (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="inline-flex h-9 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-xs font-semibold text-gray-700 transition hover:bg-gray-50"
+              >
+                <HIcon icon={Cancel01Icon} className="h-3.5 w-3.5" />
+                Reset
+              </button>
+            ) : null}
           </div>
 
           <div className="p-4 sm:p-5">
             {loading ? (
-              <div className="flex min-h-72 items-center justify-center">
-                <div className="text-center">
-                  <HIcon icon={RefreshIcon} className="mx-auto h-7 w-7 animate-spin text-indigo-600" />
-                  <p className="mt-3 text-sm font-bold text-gray-500">Loading company setups...</p>
-                </div>
-              </div>
+              <CompanyDirectoryLoading />
             ) : visibleCompanies.length ? (
               <>
-                <div className="space-y-3 lg:hidden">
+                <motion.div variants={stagger} initial="hidden" animate="visible" className="space-y-3 xl:hidden">
                   {visibleCompanies.map((company) => (
                     <CompanyMobileCard
                       key={getId(company)}
@@ -1634,152 +1855,62 @@ export default function AdminCompanySetupPage() {
                       modules={modules}
                       onView={setViewCompany}
                       onEdit={openEdit}
-                      onChangeStatus={isSuperAdmin ? (selected) =>
-                        setStatusState({ open: true, company: selected, loading: false })
-                      : undefined}
+                      onChangeStatus={
+                        isSuperAdmin
+                          ? (selected) =>
+                              setStatusState({ open: true, company: selected, loading: false })
+                          : undefined
+                      }
                       onManageBranches={manageBranches}
                     />
                   ))}
-                </div>
+                </motion.div>
 
-                <div className="hidden overflow-x-auto lg:block">
-                  <table className="w-full min-w-[1120px] border-separate border-spacing-0">
-                    <thead>
-                      <tr className="text-left">
-                        {[
-                          "Company",
-                          "Primary location",
-                          "Manager",
-                          "Plan",
-                          "ERP access",
-                          "Status",
-                          "Actions",
-                        ].map((heading) => (
-                          <th
-                            key={heading}
-                            className="border-b border-gray-100 bg-gray-50/80 px-4 py-3 text-xs font-extrabold uppercase tracking-[0.1em] text-gray-400 first:rounded-l-xl last:rounded-r-xl"
-                          >
-                            {heading}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleCompanies.map((company) => {
-                        const address = getCompanyAddress(company)
-                        const manager =
-                          company.headOffice?.manager ||
-                          company.manager ||
-                          company.primaryContact ||
-                          {}
-                        const enabledModules = getCompanyModuleIds(company)
-                          .map((id) => moduleMap.get(String(id)))
-                          .filter(Boolean)
-                        const plan =
-                          company.subscription?.plan ||
-                          company.planName ||
-                          company.plan ||
-                          "Custom"
+                <div className="hidden xl:block">
+                  <div
+                    className={`${companyGrid} mb-2 px-4 text-xs font-semibold text-gray-500`}
+                  >
+                    <span>Company</span>
+                    <span>Primary location</span>
+                    <span>Manager</span>
+                    <span>Subscription</span>
+                    <span className="text-right">Status</span>
+                  </div>
 
-                        return (
-                          <tr
-                            key={getId(company)}
-                            className="group cursor-pointer transition hover:bg-indigo-50/30"
-                            onClick={() => setViewCompany(company)}
-                          >
-                            <td className="border-b border-gray-100 px-4 py-4">
-                              <div className="flex min-w-0 items-center gap-3">
-                                <CompanyAvatar company={company} />
-                                <div className="min-w-0">
-                                  <p className="max-w-[240px] truncate text-sm font-extrabold text-gray-900">
-                                    {company.name || company.companyName || "Unnamed company"}
-                                  </p>
-                                  <p className="mt-1 max-w-[240px] truncate text-xs font-semibold text-gray-500">
-                                    {company.code || company.companyCode || "No code"} · {company.industry || "No industry"}
-                                  </p>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="border-b border-gray-100 px-4 py-4">
-                              <div className="flex max-w-[240px] items-start gap-2">
-                                <LocationPin className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500" />
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-extrabold text-gray-900">
-                                    {[address.city, address.country].filter(Boolean).join(", ") || "Not configured"}
-                                  </p>
-                                  <p className="mt-1 truncate text-xs font-semibold text-gray-500">
-                                    {getBranchCount(company)} location{getBranchCount(company) === 1 ? "" : "s"}
-                                  </p>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="border-b border-gray-100 px-4 py-4">
-                              <p className="max-w-[180px] truncate text-sm font-extrabold text-gray-900">
-                                {manager.name || "Not assigned"}
-                              </p>
-                              <p className="mt-1 max-w-[180px] truncate text-xs font-semibold text-gray-500">
-                                {manager.email || manager.phone || "No contact"}
-                              </p>
-                            </td>
-                            <td className="border-b border-gray-100 px-4 py-4">
-                              <p className="text-sm font-extrabold text-gray-900">{pretty(plan)}</p>
-                              <p className="mt-1 text-xs font-semibold text-gray-500">
-                                {company.subscription?.endDate
-                                  ? `Until ${dateText(company.subscription.endDate)}`
-                                  : "No expiry"}
-                              </p>
-                            </td>
-                            <td className="border-b border-gray-100 px-4 py-4">
-                              <div className="flex max-w-[320px] flex-wrap gap-1.5">
-                                {enabledModules.length ? (
-                                  enabledModules.slice(0, 3).map((module) => (
-                                    <ModulePill key={getId(module)} module={module} />
-                                  ))
-                                ) : (
-                                  <span className="text-xs font-semibold text-gray-400">No modules</span>
-                                )}
-                                {enabledModules.length > 3 ? (
-                                  <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-1 text-xs font-extrabold text-gray-600">
-                                    +{enabledModules.length - 3}
-                                  </span>
-                                ) : null}
-                              </div>
-                            </td>
-                            <td className="border-b border-gray-100 px-4 py-4">
-                              <StatusBadge status={companyStatus(company)} />
-                            </td>
-                            <td className="border-b border-gray-100 px-4 py-4">
-                              <CompanyActionMenu
-                                company={company}
-                                onView={setViewCompany}
-                                onEdit={openEdit}
-                                onChangeStatus={isSuperAdmin ? (selected) =>
-                                  setStatusState({ open: true, company: selected, loading: false })
-                                : undefined}
-                                onManageBranches={manageBranches}
-                              />
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+                  <motion.div variants={stagger} initial="hidden" animate="visible" className="space-y-2.5">
+                    {visibleCompanies.map((company) => (
+                      <CompanyDesktopRow
+                        key={getId(company)}
+                        company={company}
+                        modules={modules}
+                        onView={setViewCompany}
+                        onEdit={openEdit}
+                        onChangeStatus={
+                          isSuperAdmin
+                            ? (selected) =>
+                                setStatusState({ open: true, company: selected, loading: false })
+                            : undefined
+                        }
+                        onManageBranches={manageBranches}
+                      />
+                    ))}
+                  </motion.div>
                 </div>
               </>
             ) : (
-              <div className="flex min-h-72 items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50">
+              <div className="flex min-h-72 items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50/80">
                 <div className="max-w-md px-6 text-center">
-                  <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-indigo-600 shadow-sm ring-1 ring-gray-100">
+                  <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-indigo-600 shadow-sm ring-1 ring-slate-200">
                     <BuildingIcon className="h-7 w-7" />
                   </span>
-                  <h3 className="mt-4 text-base font-extrabold text-gray-900">No companies found</h3>
-                  <p className="mt-1 text-sm font-semibold leading-6 text-gray-500">
-                    Add a company or clear the current search and filters.
-                  </p>
-                  {isSuperAdmin ? <button className={`${btn} ${btnPrimary} mt-4`} onClick={openCreate} type="button">
-                    <HIcon icon={Add01Icon} />
-                    Add Company
-                  </button> : null}
+                  <h3 className="mt-4 text-base font-black text-gray-900">No companies found</h3>
+                  <p className="mt-1 text-sm text-gray-500">Try a different search or add a company.</p>
+                  {isSuperAdmin ? (
+                    <button className={`${btn} ${btnPrimary} mt-4`} onClick={openCreate} type="button">
+                      <HIcon icon={Add01Icon} />
+                      Add Company
+                    </button>
+                  ) : null}
                 </div>
               </div>
             )}
@@ -1811,7 +1942,7 @@ export default function AdminCompanySetupPage() {
               </div>
             </div>
           </div>
-        </section>
+        </motion.section>
       </div>
 
       <Modal

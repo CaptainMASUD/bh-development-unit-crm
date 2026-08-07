@@ -1,4 +1,5 @@
 "use client"
+/* eslint-disable react/prop-types -- internal settings primitives receive local component props */
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import toast, { Toaster } from "react-hot-toast"
@@ -61,9 +62,13 @@ const emptyForm = {
   defaultBankAccount: "",
   salesAccount: "",
   purchaseAccount: "",
+  cogsAccount: "",
   receivableAccount: "",
   payableAccount: "",
   inventoryAccount: "",
+  inventoryClearingAccount: "",
+  purchasePriceVarianceAccount: "",
+  inventoryAdjustmentAccount: "",
   furnitureAccount: "",
   loanAccount: "",
   payrollExpenseAccount: "",
@@ -113,9 +118,13 @@ const accountFields = [
   ["defaultBankAccount", "Default Bank"],
   ["salesAccount", "Sales / Income"],
   ["purchaseAccount", "Purchases"],
+  ["cogsAccount", "Cost of Goods Sold"],
   ["receivableAccount", "Accounts Receivable Control"],
   ["payableAccount", "Accounts Payable Control"],
   ["inventoryAccount", "Inventory Control"],
+  ["inventoryClearingAccount", "Goods Received Not Invoiced"],
+  ["purchasePriceVarianceAccount", "Purchase Price Variance"],
+  ["inventoryAdjustmentAccount", "Inventory Adjustment Gain / Loss"],
   ["furnitureAccount", "Furniture"],
   ["loanAccount", "Loan"],
   ["payrollExpenseAccount", "Payroll Expense"],

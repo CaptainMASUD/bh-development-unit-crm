@@ -3,6 +3,24 @@ import test from "node:test";
 
 import { app } from "../app.js";
 
+test("API root identifies the running service", async (t) => {
+  const server = await new Promise((resolve) => {
+    const listener = app.listen(0, "127.0.0.1", () => resolve(listener));
+  });
+  t.after(() => new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  }));
+
+  const { port } = server.address();
+  const response = await fetch(`http://127.0.0.1:${port}/`);
+  const payload = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.success, true);
+  assert.equal(payload.service, "BusinessHub ERP API");
+  assert.equal(payload.health, "/api/health");
+});
+
 test("public login is not intercepted by a tenant module guard", async (t) => {
   const server = await new Promise((resolve) => {
     const listener = app.listen(0, "127.0.0.1", () => resolve(listener));
@@ -38,6 +56,10 @@ test("explicit ERP route mounts preserve existing URLs", async (t) => {
     "/api/customers/000000000000000000000000/draft",
     "/api/notifications/deadlines",
     "/api/dashboard/administration",
+    "/api/sales/quotations",
+    "/api/sales/dashboard",
+    "/api/sales/returns",
+    "/api/sales/invoices/000000000000000000000000/pdf",
   ];
 
   for (const path of paths) {

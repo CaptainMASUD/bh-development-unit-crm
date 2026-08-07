@@ -180,10 +180,22 @@ import supplierRoutes from "./routes/supplier.routes.js";
 import purchaseOrderRoutes from "./routes/purchaseOrder.routes.js";
 import goodsReceiptRoutes from "./routes/goodsReceipt.routes.js";
 import purchaseReturnRoutes from "./routes/purchaseReturn.routes.js";
+import salesRoutes from "./routes/sales/sales.routes.js";
 
 /* =========================
    HEALTH CHECK
 ========================= */
+
+app.get("/", (req, res) => {
+  return res.status(200).json({
+    success: true,
+    service: "BusinessHub ERP API",
+    message: "BusinessHub ERP backend is online.",
+    version: "1.0.0",
+    health: "/api/health",
+    timestamp: new Date().toISOString(),
+  });
+});
 
 app.get("/api/health", (req, res) => {
   return res.status(200).json({
@@ -213,6 +225,12 @@ mountModuleRoutes("/api/purchase/purchase-orders", "purchase", purchaseOrderRout
 mountModuleRoutes("/api/purchase/goods-receipts", "purchase", goodsReceiptRoutes);
 
 mountModuleRoutes("/api/purchase/purchase-returns", "purchase", purchaseReturnRoutes);
+
+/* =========================
+   SALES MODULE
+========================= */
+
+mountModuleRoutes("/api/sales", "sales", salesRoutes);
 /* =========================
    INVENTORY SETUP
 ========================= */

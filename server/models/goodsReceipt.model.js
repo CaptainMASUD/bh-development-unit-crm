@@ -226,6 +226,8 @@ const goodsReceiptSchema = new mongoose.Schema(
       ref: "StockMovement",
       default: null,
     },
+    journalEntry: { type: mongoose.Schema.Types.ObjectId, ref: "JournalEntry", default: null, index: true },
+    reversalJournalEntry: { type: mongoose.Schema.Types.ObjectId, ref: "JournalEntry", default: null },
     submittedAt: { type: Date, default: null },
     submittedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     approvedAt: { type: Date, default: null },

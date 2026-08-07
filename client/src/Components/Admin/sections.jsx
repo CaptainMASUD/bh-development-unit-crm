@@ -4,6 +4,7 @@ import { lazy } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Analytics01Icon,
+  Archive02Icon,
   ArrowDataTransferHorizontalIcon,
   BankIcon,
   BanknoteIcon,
@@ -91,6 +92,8 @@ const SupplierProducts = lazy(() => import("./Supplier/SupplierProducts"))
 const PurchaseOrders = lazy(() => import("./purchase/PurchaseOrders"))
 const GoodsReceipts = lazy(() => import("./purchase/GoodsReceipts"))
 const PurchaseReturns = lazy(() => import("./purchase/PurchaseReturns"))
+const SalesPage = lazy(() => import("./sales/SalesPage"))
+const SalesReports = lazy(() => import("./sales/SalesReports"))
 
 const createSectionIcon = (icon) => (
   <HugeiconsIcon
@@ -203,6 +206,13 @@ const sections = {
     component: <PurchaseReturns />,
     permission: "purchase-return:view",
   },
+
+  "Sales Quotations": { icon: createSectionIcon(NoteEditIcon), component: <SalesPage kind="quotations" />, permission: "sales-quotation:view" },
+  "Sales Orders": { icon: createSectionIcon(Briefcase01Icon), component: <SalesPage kind="orders" />, permission: "sales-order:view" },
+  Deliveries: { icon: createSectionIcon(ArrowDataTransferHorizontalIcon), component: <SalesPage kind="deliveries" />, permission: "sales-delivery:view" },
+  "Sales Invoices": { icon: createSectionIcon(ReceiptDollarIcon), component: <SalesPage kind="invoices" />, permission: "sales-invoice:view" },
+  "Sales Returns": { icon: createSectionIcon(Archive02Icon), component: <SalesPage kind="returns" />, permission: "sales-return:view" },
+  "Sales Reports": { icon: createSectionIcon(ChartLineData01Icon), component: <SalesReports />, permission: "sales-report:view" },
 
   "Workflow Setup": {
     icon: createSectionIcon(WorkflowSquare03Icon),

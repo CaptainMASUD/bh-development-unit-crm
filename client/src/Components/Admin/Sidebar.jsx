@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useCallback, memo, useRef, useMemo, useId } from "react"
 import { useNavigate } from "react-router-dom"
+import { AnimatePresence, motion } from "framer-motion"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   ArrowLeftDoubleIcon,
@@ -18,6 +19,7 @@ import {
 import { useDispatch } from "react-redux"
 import { signOut } from "../../Redux/UserSlice/UserSlice"
 
+import suitelogo from "../../assets/logo/suite.png"
 import jetsky from "../../../public/jetsky.svg"
 import JetskyModal from "./JetskyModal"
 import NotificationModal from "./NotificationModal"
@@ -291,29 +293,26 @@ const SubMenuInline = memo(function SubMenuInline({
   const buttonsRef = useRef([])
   buttonsRef.current = []
 
-  const setBtnRef = (el) => {
-    if (el) buttonsRef.current.push(el)
+  const setBtnRef = (element) => {
+    if (element) buttonsRef.current.push(element)
   }
 
-  const onKeyDown = (e) => {
+  const onKeyDown = (event) => {
     if (!isExpanded) return
 
     const keys = ["ArrowDown", "ArrowUp", "Home", "End"]
-    if (!keys.includes(e.key)) return
+    if (!keys.includes(event.key)) return
 
-    e.preventDefault()
+    event.preventDefault()
+    const currentIndex = buttonsRef.current.indexOf(document.activeElement)
 
-    const idx = buttonsRef.current.indexOf(document.activeElement)
-
-    if (e.key === "ArrowDown") {
-      const next = Math.min(idx + 1, buttonsRef.current.length - 1)
-      buttonsRef.current[next]?.focus()
-    } else if (e.key === "ArrowUp") {
-      const prev = Math.max(idx - 1, 0)
-      buttonsRef.current[prev]?.focus()
-    } else if (e.key === "Home") {
+    if (event.key === "ArrowDown") {
+      buttonsRef.current[Math.min(currentIndex + 1, buttonsRef.current.length - 1)]?.focus()
+    } else if (event.key === "ArrowUp") {
+      buttonsRef.current[Math.max(currentIndex - 1, 0)]?.focus()
+    } else if (event.key === "Home") {
       buttonsRef.current[0]?.focus()
-    } else if (e.key === "End") {
+    } else if (event.key === "End") {
       buttonsRef.current[buttonsRef.current.length - 1]?.focus()
     }
   }
@@ -327,7 +326,7 @@ const SubMenuInline = memo(function SubMenuInline({
       className={`overflow-hidden ${
         reducedMotion
           ? ""
-          : `transition-[max-height,opacity] duration-300 ease-in-out ${
+          : `transition-[max-height,opacity] duration-300 ease-[cubic-bezier(.2,.8,.2,1)] ${
               isExpanded ? "opacity-100" : "opacity-0"
             }`
       }`}
@@ -337,7 +336,11 @@ const SubMenuInline = memo(function SubMenuInline({
       aria-label={`${section} submenu`}
       onKeyDown={onKeyDown}
     >
-      <div className="space-y-1 py-1.5 pl-2.5">
+      <div
+        className={`relative ml-[21px] space-y-0.5 border-l py-1.5 pl-3 ${
+          isDarkMode ? "border-white/10" : "border-slate-200"
+        }`}
+      >
         {Object.keys(subcategories).map((subcategory) => {
           const isActive = activeSection === section && activeSubcategory === subcategory
 
@@ -346,28 +349,26 @@ const SubMenuInline = memo(function SubMenuInline({
               key={subcategory}
               ref={setBtnRef}
               onClick={() => handleSubcategoryClick(section, subcategory)}
-              className={`group relative flex w-full items-center rounded-xl px-3 py-2 text-[12.5px] ${
-                reducedMotion ? "" : "transition-all duration-200"
-              } focus:outline-none focus:ring-2 focus:ring-purple-500/50 ${
+              className={`group flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[12.5px] font-medium ${
+                reducedMotion ? "" : "transition-colors duration-150"
+              } focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 ${
                 isActive
                   ? isDarkMode
-                    ? "bg-white/[0.08] font-semibold text-white"
-                    : "bg-gray-900/[0.06] font-semibold text-gray-950"
+                    ? "bg-white/[0.08] text-white"
+                    : "bg-slate-100 text-slate-950"
                   : isDarkMode
-                    ? "text-gray-400 hover:bg-white/[0.06] hover:text-white"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-950"
+                    ? "text-slate-400 hover:bg-white/[0.05] hover:text-white"
+                    : "text-slate-500 hover:bg-slate-100/80 hover:text-slate-900"
               }`}
               aria-current={isActive ? "page" : undefined}
               type="button"
             >
-              <div className="relative flex w-full items-center gap-2">
-                <span
-                  className={`h-1.5 w-1.5 shrink-0 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 ${
-                    reducedMotion ? "" : "transition-all duration-200"
-                  } ${isActive ? "opacity-100 scale-100" : "opacity-35 scale-75"}`}
-                />
-                <span className="relative z-10 truncate">{subcategory}</span>
-              </div>
+              <span
+                className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                  isActive ? "bg-indigo-500" : isDarkMode ? "bg-slate-600" : "bg-slate-300"
+                }`}
+              />
+              <span className="truncate">{subcategory}</span>
             </button>
           )
         })}
@@ -382,58 +383,81 @@ const FlyoutSubmenu = memo(function FlyoutSubmenu({
   left,
   section,
   subcategories,
+  anchorElement,
   onSelect,
+  onOpenSection,
   onClose,
+  onPointerEnter,
+  onPointerLeave,
   isDarkMode,
   reducedMotion,
   activeSection,
   activeSubcategory,
 }) {
-  useEffect(() => {
-    if (!open) return
+  const panelRef = useRef(null)
 
-    const onKey = (e) => {
-      if (e.key === "Escape") onClose?.()
+  useEffect(() => {
+    if (!open) return undefined
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") onClose?.()
     }
 
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [open, onClose])
+    const onPointerDown = (event) => {
+      const target = event.target
+      const clickedPanel = panelRef.current?.contains(target)
+      const clickedAnchor = anchorElement?.contains?.(target)
 
+      if (!clickedPanel && !clickedAnchor) onClose?.()
+    }
+
+    window.addEventListener("keydown", onKeyDown)
+    document.addEventListener("pointerdown", onPointerDown, true)
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown)
+      document.removeEventListener("pointerdown", onPointerDown, true)
+    }
+  }, [open, onClose, anchorElement])
+
+  const items = Object.keys(subcategories || {})
   if (!open) return null
 
-  const keys = Object.keys(subcategories || {})
-  if (!keys.length) return null
-
   return (
-    <>
-      <button
-        type="button"
-        className="fixed inset-0 z-[99998] cursor-default"
-        onClick={onClose}
-        aria-label="Close submenu"
+    <motion.div
+      ref={panelRef}
+      initial={reducedMotion ? false : { opacity: 0, x: -5, scale: 0.99 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={reducedMotion ? undefined : { opacity: 0, x: -4, scale: 0.99 }}
+      transition={{ duration: 0.12, ease: [0.22, 1, 0.36, 1] }}
+      className={`fixed z-[99999] w-[248px] overflow-hidden rounded-xl border p-2 shadow-[0_20px_50px_-26px_rgba(15,23,42,.5)] ${
+        isDarkMode
+          ? "border-white/10 bg-slate-950 text-white"
+          : "border-slate-200 bg-white text-slate-950"
+      }`}
+      style={{ top: `${top}px`, left: `${left}px` }}
+      role="dialog"
+      aria-label={`${section} navigation options`}
+      onPointerEnter={onPointerEnter}
+      onPointerLeave={onPointerLeave}
+    >
+      <span
+        className={`pointer-events-none absolute -left-1.5 top-5 h-3 w-3 rotate-45 border-b border-l ${
+          isDarkMode ? "border-white/10 bg-slate-950" : "border-slate-200 bg-white"
+        }`}
+        aria-hidden="true"
       />
 
-      <div
-        className={`fixed z-[99999] w-[264px] overflow-hidden rounded-2xl border shadow-[0_24px_60px_-30px_rgba(15,23,42,0.45)] ${
-          isDarkMode
-            ? "border-white/10 bg-gray-900 text-white"
-            : "border-gray-200 bg-white text-gray-900"
-        } ${reducedMotion ? "" : "animate-[fadeIn_.12s_ease-out]"}`}
-        style={{ top: `${top}px`, left: `${left}px` }}
-        role="dialog"
-        aria-label={`${section} submenu`}
-        onMouseLeave={onClose}
-      >
-        <div className={`border-b px-4 py-3 ${isDarkMode ? "border-white/10" : "border-gray-100"}`}>
-          <div className="truncate text-sm font-bold">{section}</div>
-          <div className={`mt-0.5 text-xs ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
-            Choose an option
-          </div>
-        </div>
+      <div className="relative px-2.5 pb-2 pt-1.5">
+        <p className="truncate text-sm font-semibold">{section}</p>
+        <p className={`mt-0.5 text-xs ${isDarkMode ? "text-slate-500" : "text-slate-400"}`}>
+          {items.length ? `${items.length} option${items.length === 1 ? "" : "s"}` : "Open this page"}
+        </p>
+      </div>
 
-        <div className="max-h-[360px] overflow-y-auto p-2">
-          {keys.map((subcategory) => {
+      {items.length ? (
+        <div className="relative max-h-[360px] space-y-0.5 overflow-y-auto">
+          {items.map((subcategory) => {
             const isActive = activeSection === section && activeSubcategory === subcategory
 
             return (
@@ -441,32 +465,56 @@ const FlyoutSubmenu = memo(function FlyoutSubmenu({
                 key={subcategory}
                 type="button"
                 onClick={() => onSelect(section, subcategory)}
-                className={`w-full rounded-xl px-3 py-2.5 text-left text-sm ${
-                  reducedMotion ? "" : "transition-all duration-150"
-                } focus:outline-none focus:ring-2 focus:ring-purple-500/50 ${
+                className={`flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-medium ${
+                  reducedMotion ? "" : "transition-colors duration-100"
+                } focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 ${
                   isActive
                     ? isDarkMode
-                      ? "bg-white/[0.08] font-semibold text-white"
-                      : "bg-gray-900/[0.06] font-semibold text-gray-950"
+                      ? "bg-white/[0.09] text-white"
+                      : "bg-indigo-50 text-indigo-700"
                     : isDarkMode
-                      ? "text-gray-300 hover:bg-white/[0.06] hover:text-white"
-                      : "text-gray-700 hover:bg-gray-100 hover:text-gray-950"
+                      ? "text-slate-300 hover:bg-white/[0.06] hover:text-white"
+                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                 }`}
               >
-                {subcategory}
+                <span
+                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                    isActive ? "bg-indigo-500" : isDarkMode ? "bg-slate-600" : "bg-slate-300"
+                  }`}
+                />
+                <span className="truncate">{subcategory}</span>
               </button>
             )
           })}
         </div>
-      </div>
-
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(6px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
-    </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onOpenSection?.(section)}
+          className={`relative flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-medium ${
+            reducedMotion ? "" : "transition-colors duration-100"
+          } focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 ${
+            activeSection === section
+              ? isDarkMode
+                ? "bg-white/[0.09] text-white"
+                : "bg-indigo-50 text-indigo-700"
+              : isDarkMode
+                ? "text-slate-300 hover:bg-white/[0.06] hover:text-white"
+                : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+          }`}
+        >
+          <span>Open {section}</span>
+          <HugeiconsIcon
+            icon={ArrowLeftDoubleIcon}
+            size={14}
+            color="currentColor"
+            strokeWidth={1.9}
+            className="rotate-180"
+            aria-hidden="true"
+          />
+        </button>
+      )}
+    </motion.div>
   )
 })
 
@@ -518,8 +566,15 @@ export default function Sidebar({
 
   const [compact, setCompact] = useState(false)
 
-  const [flyout, setFlyout] = useState({ open: false, section: "", top: 0, left: 0 })
+  const [flyout, setFlyout] = useState({
+    open: false,
+    section: "",
+    top: 0,
+    left: 0,
+    anchorElement: null,
+  })
   const openTimerRef = useRef(null)
+  const closeTimerRef = useRef(null)
 
   const navigate = useNavigate()
   const dispatch = useDispatch()
@@ -554,7 +609,7 @@ export default function Sidebar({
     })
 
     setExpandedSection(null)
-    setFlyout({ open: false, section: "", top: 0, left: 0 })
+    setFlyout({ open: false, section: "", top: 0, left: 0, anchorElement: null })
   }, [])
 
   const toggleTheme = useCallback(() => {
@@ -831,27 +886,92 @@ export default function Sidebar({
     user.enabledModules.includes("crm")
   const initials = getInitials(user?.username)
 
-  const asideWidth = compact ? "w-[86px]" : "w-[292px]"
-  const headerPad = compact ? "p-3.5" : "p-4"
-  const navPad = compact ? "p-3" : "px-3.5"
+  const asideWidth = compact ? "w-[76px]" : "w-[260px]"
+  const navPad = compact ? "px-2.5" : "px-3"
+
+  const clearFlyoutTimers = useCallback(() => {
+    if (openTimerRef.current) {
+      clearTimeout(openTimerRef.current)
+      openTimerRef.current = null
+    }
+
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+  }, [])
 
   const closeFlyout = useCallback(() => {
-    if (openTimerRef.current) clearTimeout(openTimerRef.current)
-    setFlyout((p) => ({ ...p, open: false, section: "" }))
+    clearFlyoutTimers()
+    setFlyout({ open: false, section: "", top: 0, left: 0, anchorElement: null })
+  }, [clearFlyoutTimers])
+
+  const scheduleFlyoutClose = useCallback(() => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current)
+
+    closeTimerRef.current = setTimeout(() => {
+      setFlyout({ open: false, section: "", top: 0, left: 0, anchorElement: null })
+      closeTimerRef.current = null
+    }, 150)
   }, [])
 
-  const openFlyout = useCallback((section, anchorEl) => {
-    if (!anchorEl) return
-    if (openTimerRef.current) clearTimeout(openTimerRef.current)
-
-    const r = anchorEl.getBoundingClientRect()
-    const desiredTop = r.top - 8
-    const maxTop = window.innerHeight - 240
-    const top = clamp(desiredTop, 12, Math.max(12, maxTop))
-    const left = r.right + 10
-
-    setFlyout({ open: true, section, top, left })
+  const keepFlyoutOpen = useCallback(() => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
   }, [])
+
+  const openFlyout = useCallback(
+    (section, anchorEl, immediate = false) => {
+      if (!anchorEl) return
+
+      clearFlyoutTimers()
+
+      const show = () => {
+        const rect = anchorEl.getBoundingClientRect()
+        const desiredTop = rect.top - 8
+        const estimatedHeight = safeSections?.[section]?.subcategories ? 280 : 104
+        const maxTop = window.innerHeight - estimatedHeight - 12
+        const top = clamp(desiredTop, 12, Math.max(12, maxTop))
+        const left = rect.right + 10
+
+        setFlyout({
+          open: true,
+          section,
+          top,
+          left,
+          anchorElement: anchorEl,
+        })
+      }
+
+      if (immediate) {
+        show()
+        return
+      }
+
+      openTimerRef.current = setTimeout(() => {
+        show()
+        openTimerRef.current = null
+      }, 70)
+    },
+    [clearFlyoutTimers, safeSections]
+  )
+
+  useEffect(() => {
+    return () => clearFlyoutTimers()
+  }, [clearFlyoutTimers])
+
+  const openDirectSection = useCallback(
+    (section) => {
+      setActiveSection(section)
+      setActiveSubcategory("")
+      closeFlyout()
+
+      if (isMobile) toggleSidebar()
+    },
+    [setActiveSection, setActiveSubcategory, closeFlyout, isMobile, toggleSidebar]
+  )
 
   const handleSectionClick = useCallback(
     (section, anchorEl) => {
@@ -861,18 +981,14 @@ export default function Sidebar({
       const hasSubs = !!def.subcategories
 
       if (!isMobileViewport && compact && hasSubs) {
-        openFlyout(section, anchorEl)
+        openFlyout(section, anchorEl, true)
         return
       }
 
       if (hasSubs) {
         toggleSection(section)
       } else {
-        setActiveSection(section)
-        setActiveSubcategory("")
-        closeFlyout()
-
-        if (isMobile) toggleSidebar()
+        openDirectSection(section)
       }
     },
     [
@@ -881,11 +997,7 @@ export default function Sidebar({
       isMobileViewport,
       openFlyout,
       toggleSection,
-      setActiveSection,
-      setActiveSubcategory,
-      closeFlyout,
-      isMobile,
-      toggleSidebar,
+      openDirectSection,
     ]
   )
 
@@ -932,70 +1044,153 @@ export default function Sidebar({
     <>
       <style>{`
         @keyframes bellRing {
-          0%   { transform: rotate(0deg); }
-          10%  { transform: rotate(10deg); }
-          20%  { transform: rotate(-10deg); }
-          30%  { transform: rotate(12deg); }
-          40%  { transform: rotate(-12deg); }
-          50%  { transform: rotate(8deg); }
-          60%  { transform: rotate(-8deg); }
-          70%  { transform: rotate(4deg); }
-          80%  { transform: rotate(-4deg); }
-          90%  { transform: rotate(2deg); }
-          100% { transform: rotate(0deg); }
+          0%, 100% { transform: rotate(0deg); }
+          20% { transform: rotate(10deg); }
+          40% { transform: rotate(-10deg); }
+          60% { transform: rotate(7deg); }
+          80% { transform: rotate(-7deg); }
         }
 
         .bell-ring {
           transform-origin: 50% 10%;
-          animation: bellRing 1.2s ease-in-out infinite;
+          animation: bellRing 0.72s cubic-bezier(.22,.61,.36,1) 2;
+          will-change: transform;
+        }
+
+        .bh-icon-button {
+          transform: translate3d(0, 0, 0);
+          backface-visibility: hidden;
+          -webkit-font-smoothing: antialiased;
+          transition-property: transform, background-color, border-color, color;
+          transition-duration: 120ms;
+          transition-timing-function: cubic-bezier(.2,.8,.2,1);
+        }
+
+        .bh-icon-button:hover {
+          transform: translate3d(0, -1px, 0);
+        }
+
+        .bh-icon-button:active {
+          transform: translate3d(0, 0, 0) scale(.97);
+          transition-duration: 70ms;
+        }
+
+        .bh-icon-glyph {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          transform: translateZ(0);
+          backface-visibility: hidden;
+          transition: transform 120ms cubic-bezier(.2,.8,.2,1);
+        }
+
+        .bh-icon-button:hover .bh-icon-glyph {
+          transform: translateZ(0) scale(1.04);
+        }
+
+        .bh-action-button {
+          transform: translate3d(0, 0, 0);
+          backface-visibility: hidden;
+          transition-property: transform, background-color, border-color, color;
+          transition-duration: 140ms;
+          transition-timing-function: cubic-bezier(.2,.8,.2,1);
+        }
+
+        .bh-action-button:hover {
+          transform: translate3d(0, -1px, 0);
+        }
+
+        .bh-action-button:active {
+          transform: translate3d(0, 0, 0) scale(.985);
+          transition-duration: 80ms;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .bell-ring {
+            animation: none;
+            will-change: auto;
+          }
+
+          .bh-icon-button,
+          .bh-icon-glyph,
+          .bh-action-button {
+            transform: none !important;
+            transition: none !important;
+          }
+        }
+
+        .bh-sidebar-scrollbar {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(148, 163, 184, .35) transparent;
+        }
+
+        .bh-sidebar-scrollbar::-webkit-scrollbar {
+          width: 5px;
+        }
+
+        .bh-sidebar-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .bh-sidebar-scrollbar::-webkit-scrollbar-thumb {
+          border-radius: 999px;
+          background: rgba(148, 163, 184, .35);
         }
       `}</style>
 
-      {!isMobileViewport && showBellTip && notifCount7d > 0 ? (
-        <div
-          className="pointer-events-auto fixed z-[999999]"
-          style={{
-            top: `${tipPos.top}px`,
-            left: `${tipPos.left}px`,
-            transform: "translateY(-50%)",
-          }}
-          onClick={dismissBellTip}
-          role="status"
-          aria-live="polite"
-        >
-          <div
-            className={`relative w-[320px] rounded-2xl border px-4 py-3 shadow-[0_24px_60px_-30px_rgba(15,23,42,0.45)] ${
-              isDarkMode
-                ? "border-white/10 bg-gray-900 text-white"
-                : "border-gray-200 bg-white text-gray-900"
-            }`}
+      <AnimatePresence>
+        {!isMobileViewport && showBellTip && notifCount7d > 0 ? (
+          <motion.div
+            initial={reducedMotion ? false : { opacity: 0, x: -8, scale: 0.98 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: -4, scale: 0.98 }}
+            className="pointer-events-auto fixed z-[999999]"
+            style={{
+              top: `${tipPos.top}px`,
+              left: `${tipPos.left}px`,
+              transform: "translateY(-50%)",
+            }}
+            onClick={dismissBellTip}
+            role="status"
+            aria-live="polite"
           >
-            <p className="text-sm font-bold leading-snug">
-              {notifCount7d} notification{notifCount7d === 1 ? "" : "s"}
-            </p>
-
-            <p className={`mt-1 text-xs leading-relaxed ${isDarkMode ? "text-gray-300" : "text-gray-600"}`}>
-              Click the bell to review deadlines and inbox alerts.
-            </p>
-
             <div
-              className={`absolute left-[-7px] top-1/2 h-3.5 w-3.5 -translate-y-1/2 rotate-45 border-b border-l ${
-                isDarkMode ? "border-white/10 bg-gray-900" : "border-gray-200 bg-white"
+              className={`relative w-[290px] rounded-xl border px-4 py-3 shadow-[0_22px_55px_-28px_rgba(15,23,42,.45)] ${
+                isDarkMode
+                  ? "border-white/10 bg-slate-950 text-white"
+                  : "border-slate-200 bg-white text-slate-900"
               }`}
-              aria-hidden="true"
-            />
-          </div>
-        </div>
-      ) : null}
+            >
+              <p className="text-sm font-semibold">
+                {notifCount7d} notification{notifCount7d === 1 ? "" : "s"}
+              </p>
+              <p className={`mt-1 text-xs leading-5 ${isDarkMode ? "text-slate-400" : "text-slate-500"}`}>
+                Open notifications to review pending activity.
+              </p>
+              <span
+                className={`absolute left-[-6px] top-1/2 h-3 w-3 -translate-y-1/2 rotate-45 border-b border-l ${
+                  isDarkMode ? "border-white/10 bg-slate-950" : "border-slate-200 bg-white"
+                }`}
+                aria-hidden="true"
+              />
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
-      {isMobile && isOpen ? (
-        <button
-          type="button"
-          className="fixed inset-0 z-30 bg-black/40 backdrop-blur-[2px]"
-          onClick={toggleSidebar}
-          aria-label="Close sidebar"
-        />
-      ) : null}
+      <AnimatePresence>
+        {isMobile && isOpen ? (
+          <motion.button
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            type="button"
+            className="fixed inset-0 z-30 bg-slate-950/35 backdrop-blur-[2px]"
+            onClick={toggleSidebar}
+            aria-label="Close sidebar"
+          />
+        ) : null}
+      </AnimatePresence>
 
       <NotificationModal
         open={showNotifications}
@@ -1004,488 +1199,634 @@ export default function Sidebar({
         crmEnabled={crmNotificationsEnabled}
       />
 
-      <FlyoutSubmenu
-        open={!isMobileViewport && compact && flyout.open && !!safeSections?.[flyout.section]?.subcategories}
-        top={flyout.top}
-        left={flyout.left}
-        section={flyout.section}
-        subcategories={safeSections?.[flyout.section]?.subcategories || {}}
-        onSelect={handleSubcategoryClick}
-        onClose={closeFlyout}
-        isDarkMode={isDarkMode}
-        reducedMotion={reducedMotion}
-        activeSection={activeSection}
-        activeSubcategory={activeSubcategory}
-      />
+      <AnimatePresence>
+        {!isMobileViewport && compact && flyout.open ? (
+          <FlyoutSubmenu
+            open={flyout.open}
+            top={flyout.top}
+            left={flyout.left}
+            section={flyout.section}
+            subcategories={safeSections?.[flyout.section]?.subcategories || {}}
+            anchorElement={flyout.anchorElement}
+            onSelect={handleSubcategoryClick}
+            onOpenSection={openDirectSection}
+            onClose={closeFlyout}
+            onPointerEnter={keepFlyoutOpen}
+            onPointerLeave={scheduleFlyoutClose}
+            isDarkMode={isDarkMode}
+            reducedMotion={reducedMotion}
+            activeSection={activeSection}
+            activeSubcategory={activeSubcategory}
+          />
+        ) : null}
+      </AnimatePresence>
 
       <aside
         id={sidebarId}
-        className={`${asideWidth} flex h-screen min-w-0 flex-col ${
+        className={`${asideWidth} flex h-[100dvh] min-w-0 flex-col overflow-hidden border-r ${
           isDarkMode
-            ? "border-white/10 bg-gray-950 text-white shadow-2xl shadow-purple-500/10"
-            : "border-gray-200 bg-white text-gray-900 shadow-xl shadow-gray-200/70"
-        } ${isMobile ? "fixed left-0 top-0 z-40" : "sticky top-0"} ${
-          reducedMotion ? "" : "transition-all duration-300 ease-in-out"
-        } ${isMobile && !isOpen ? "-translate-x-full" : "translate-x-0"} border-r backdrop-blur-lg`}
-        aria-label="Sidebar Navigation"
+            ? "border-white/10 bg-slate-950 text-white"
+            : "border-slate-200/80 bg-[#fbfcfe] text-slate-900"
+        } ${isMobile ? "fixed left-0 top-0 z-40 shadow-2xl" : "sticky top-0"} ${
+          reducedMotion ? "" : "transition-[width,transform] duration-300 ease-[cubic-bezier(.2,.8,.2,1)]"
+        } ${isMobile && !isOpen ? "-translate-x-full" : "translate-x-0"}`}
+        aria-label="Sidebar navigation"
       >
-        <div className={`relative ${headerPad} border-b ${isDarkMode ? "border-white/10" : "border-gray-100"}`}>
-          <div className={`flex items-center ${compact ? "justify-center" : "justify-between"} gap-3`}>
-            <div className={`flex min-w-0 items-center ${compact ? "justify-center" : "gap-3"}`}>
-              <div className="relative shrink-0">
-                <div className="rounded-full bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-[2px] shadow-[0_12px_34px_-22px_rgba(99,102,241,0.95)]">
-                  <div className={`rounded-full p-[2px] ${isDarkMode ? "bg-gray-950" : "bg-white"}`}>
-                    <div className="relative flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-gray-100">
-                      {user?.avatarUrl ? (
-                        <img
-                          src={user.avatarUrl}
-                          alt="Profile"
-                          className="h-full w-full object-cover"
-                          onError={(e) => {
-                            e.currentTarget.style.display = "none"
-                          }}
-                        />
-                      ) : null}
-
-                      {!user?.avatarUrl ? (
-                        <span className="text-sm font-extrabold text-gray-800">{initials}</span>
-                      ) : null}
-
-                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/10 to-black/10" />
-                    </div>
-                  </div>
-                </div>
-
-                <span
-                  className={`absolute bottom-0 right-0 h-3 w-3 translate-x-[2px] translate-y-[2px] rounded-full bg-emerald-500 ring-[3px] ${
-                    isDarkMode ? "ring-gray-950" : "ring-white"
-                  } shadow-[0_6px_14px_-8px_rgba(16,185,129,0.95)]`}
-                  title="Active"
-                  aria-label="Active"
-                />
-              </div>
-
-              {!compact ? (
-                <div className="min-w-0 flex-1">
-                  <h2 className="truncate text-[15px] font-bold tracking-tight">
-                    {user?.username || "User"}
-                  </h2>
-                  <p className={`mt-0.5 truncate text-xs font-medium ${isDarkMode ? "text-gray-400" : "text-gray-500"}`}>
-                    {user?.prettyRole || user?.role || "—"}
-                  </p>
-                </div>
-              ) : null}
-            </div>
-
-            {!isMobileViewport ? (
+        {/* Brand and top actions */}
+        <div
+          className={`shrink-0 border-b ${
+            isDarkMode ? "border-white/10" : "border-slate-200/75"
+          } ${
+            compact
+              ? "flex h-[108px] flex-col items-center justify-center gap-2 px-2"
+              : "flex h-[68px] items-center justify-between gap-3 px-3"
+          }`}
+        >
+          {compact ? (
+            <>
               <button
+                type="button"
                 onClick={toggleCompact}
-                type="button"
-                className={`hidden h-9 w-9 items-center justify-center rounded-xl border md:flex ${
+                className={`bh-icon-button flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border shadow-sm ${
                   isDarkMode
-                    ? "border-white/10 bg-white/[0.06] text-gray-200 hover:bg-white/[0.1]"
-                    : "border-gray-200 bg-gray-50 text-gray-800 hover:bg-gray-100"
-                } ${
-                  reducedMotion ? "" : "transition-all duration-200"
-                } focus:outline-none focus:ring-2 focus:ring-purple-500/50`}
-                aria-label={compact ? "Expand sidebar" : "Collapse sidebar"}
-                title={compact ? "Expand" : "Collapse"}
+                    ? "border-white/10 bg-white text-slate-950"
+                    : "border-indigo-100 bg-white text-indigo-700"
+                } focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30`}
+                title="Expand BH SUITE sidebar"
+                aria-label="Expand BH SUITE sidebar"
               >
-                <HugeiconsIcon
-                  icon={ArrowLeftDoubleIcon}
-                  size={17}
-                  color="currentColor"
-                  strokeWidth={1.9}
-                  className={`${compact ? "rotate-180" : ""} ${
-                    reducedMotion ? "" : "transition-transform duration-200"
-                  }`}
+                <img
+                  src={suitelogo}
+                  alt="BH SUITE"
+                  className="h-8 w-8 object-contain"
+                  draggable={false}
                 />
               </button>
-            ) : null}
-          </div>
 
-          <div className={`mt-4 flex items-center ${compact ? "justify-center" : "justify-between"}`}>
-            {!compact ? (
-              <button
-                onClick={toggleTheme}
-                className={`flex h-10 w-10 items-center justify-center rounded-xl ${
-                  reducedMotion ? "" : "transition-all duration-200 hover:scale-[1.03]"
-                } ${
-                  isDarkMode
-                    ? "text-gray-300 hover:bg-white/[0.08] hover:text-white"
-                    : "text-gray-600 hover:bg-gray-100 hover:text-gray-950"
-                } focus:outline-none focus:ring-2 focus:ring-purple-500/50`}
-                aria-label="Toggle theme"
-                title="Toggle theme"
-                type="button"
-              >
-                <HugeiconsIcon
-                  icon={isDarkMode ? Moon02Icon : Sun03Icon}
-                  size={17}
-                  color="currentColor"
-                  strokeWidth={1.9}
-                />
-              </button>
-            ) : null}
-
-            <div className={`flex items-center ${compact ? "justify-center" : "gap-2"}`}>
               <button
                 ref={bellBtnRef}
+                type="button"
                 onClick={() => {
                   dismissBellTip()
                   setShowNotifications(true)
                 }}
-                className={`relative flex h-10 w-10 items-center justify-center rounded-xl ${
-                  isDarkMode ? "bg-white text-gray-950" : "bg-gray-950 text-white"
-                } ${
-                  reducedMotion ? "" : "transition-transform hover:scale-[1.03]"
-                } focus:outline-none focus:ring-2 focus:ring-purple-500/50`}
+                className={`bh-icon-button relative flex h-9 w-9 items-center justify-center rounded-xl border ${
+                  isDarkMode
+                    ? "border-white/10 bg-white/[0.06] text-slate-300 hover:bg-white/[0.1] hover:text-white"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                } focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30`}
                 aria-label="Open notifications"
                 title="Notifications"
-                type="button"
               >
-                <span className={shouldRingBell ? "bell-ring" : ""}>
-                  <HugeiconsIcon
-                    icon={BellIcon}
-                    size={17}
-                    color="currentColor"
-                    strokeWidth={1.9}
+                <span className="bh-icon-glyph">
+                  <span className={shouldRingBell ? "bell-ring" : ""}>
+                    <HugeiconsIcon icon={BellIcon} size={16} color="currentColor" strokeWidth={1.9} />
+                  </span>
+                </span>
+                {notifCount7d > 0 ? (
+                  <span
+                    className="absolute -right-1 -top-1 flex h-[17px] min-w-[17px] items-center justify-center rounded-full px-1 text-[8px] font-bold text-white shadow-sm"
+                    style={{ backgroundColor: NOTIF_BADGE_COLOR }}
+                  >
+                    {notifCount7d > 99 ? "99+" : notifCount7d}
+                  </span>
+                ) : null}
+                {notifLoading ? (
+                  <span className="absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full bg-indigo-400" />
+                ) : null}
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <span
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border shadow-sm ${
+                    isDarkMode
+                      ? "border-white/10 bg-white"
+                      : "border-indigo-100 bg-white"
+                  }`}
+                >
+                  <img
+                    src={suitelogo}
+                    alt="BH SUITE"
+                    className="h-8 w-8 object-contain"
+                    draggable={false}
                   />
                 </span>
 
-                {notifCount7d > 0 ? (
-                  <span className="absolute -right-1.5 -top-1.5">
+                <div className="min-w-0">
+                  <p className="truncate text-[15px] font-extrabold tracking-[-0.025em]">
+                    BH SUITE
+                  </p>
+                  <p
+                    className={`truncate text-[10px] font-medium ${
+                      isDarkMode ? "text-slate-500" : "text-slate-400"
+                    }`}
+                  >
+                    Business Hub ERP
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button
+                  ref={bellBtnRef}
+                  type="button"
+                  onClick={() => {
+                    dismissBellTip()
+                    setShowNotifications(true)
+                  }}
+                  className={`bh-icon-button relative flex h-9 w-9 items-center justify-center rounded-xl border ${
+                    isDarkMode
+                      ? "border-white/10 bg-white/[0.06] text-slate-300 hover:bg-white/[0.1] hover:text-white"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                  } focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30`}
+                  aria-label="Open notifications"
+                  title="Notifications"
+                >
+                  <span className="bh-icon-glyph">
+                    <span className={shouldRingBell ? "bell-ring" : ""}>
+                      <HugeiconsIcon icon={BellIcon} size={16} color="currentColor" strokeWidth={1.9} />
+                    </span>
+                  </span>
+                  {notifCount7d > 0 ? (
                     <span
-                      className="absolute inset-0 rounded-full opacity-90 blur-md"
+                      className="absolute -right-1.5 -top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[8px] font-bold text-white shadow-sm"
                       style={{ backgroundColor: NOTIF_BADGE_COLOR }}
-                    />
-                    <span
-                      className="relative flex h-[19px] min-w-[19px] items-center justify-center rounded-full border border-white/10 bg-white/10 px-1.5 text-[10px] font-bold text-white backdrop-blur-md"
-                      style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.08) inset" }}
                     >
                       {notifCount7d > 99 ? "99+" : notifCount7d}
                     </span>
-                  </span>
-                ) : null}
-
-                {notifLoading ? (
-                  <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-purple-400" />
-                ) : null}
-              </button>
-
-              {!compact ? (
-                <button
-                  onClick={() => setShowJetsky(true)}
-                  className={`flex h-10 w-10 items-center justify-center rounded-xl ${
-                    isDarkMode ? "bg-white text-gray-950" : "bg-gray-900/[0.05]"
-                  } ${
-                    reducedMotion ? "" : "transition-transform hover:scale-[1.03]"
-                  } focus:outline-none focus:ring-2 focus:ring-purple-500/50`}
-                  aria-label="Open Jetsky modal"
-                  title="Jetsky"
-                  type="button"
-                >
-                  <img
-                    src={(jetsky && (jetsky.src || jetsky)) || "/jetsky.svg"}
-                    alt="Jetsky"
-                    className="h-8 w-8 select-none"
-                    draggable={false}
-                  />
+                  ) : null}
+                  {notifLoading ? (
+                    <span className="absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full bg-indigo-400" />
+                  ) : null}
                 </button>
-              ) : null}
-            </div>
-          </div>
 
-          <div
-            className={`absolute inset-x-0 -bottom-px h-px ${
-              isDarkMode
-                ? "bg-gradient-to-r from-transparent via-purple-500/40 to-transparent"
-                : "bg-gradient-to-r from-transparent via-purple-500/25 to-transparent"
-            }`}
-            aria-hidden="true"
-          />
+                <button
+                  onClick={isMobileViewport ? toggleSidebar : toggleCompact}
+                  type="button"
+                  className={`bh-icon-button flex h-9 w-9 items-center justify-center rounded-xl border ${
+                    isDarkMode
+                      ? "border-white/10 text-slate-400 hover:bg-white/[0.06] hover:text-white"
+                      : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                  } focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30`}
+                  aria-label={isMobileViewport ? "Close sidebar" : "Collapse sidebar"}
+                  title={isMobileViewport ? "Close" : "Collapse"}
+                >
+                  <span className="bh-icon-glyph">
+                    <HugeiconsIcon
+                      icon={isMobileViewport ? Cancel01Icon : ArrowLeftDoubleIcon}
+                      size={15}
+                      color="currentColor"
+                      strokeWidth={1.9}
+                    />
+                  </span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
-        <div className={`${navPad} pb-2 pt-3`}>
-          <button
-            type="button"
-            onClick={onOpenModules}
-            className={`mb-2 flex h-10 w-full items-center rounded-xl border ${compact ? "justify-center px-2" : "gap-2.5 px-3"} ${
-              isDarkMode
-                ? "border-indigo-400/20 bg-indigo-500/10 text-indigo-200 hover:bg-indigo-500/20"
-                : "border-indigo-100 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
-            } ${reducedMotion ? "" : "transition-all duration-200"}`}
-            aria-label="Open module selection"
-            title="All Modules"
-          >
-            <HugeiconsIcon
-              icon={GridViewIcon}
-              size={17}
-              color="currentColor"
-              strokeWidth={1.9}
-              className="shrink-0"
-            />
-            {!compact ? <span className="min-w-0 truncate text-sm font-bold">{moduleLabel || "All Modules"}</span> : null}
-            {!compact ? <span className="ml-auto text-[10px] font-black uppercase opacity-60">Switch</span> : null}
-          </button>
-          <div className={`relative ${compact ? "flex justify-center" : ""}`}>
-            {!compact ? (
-              <div className="group relative w-full">
+        {/* Search and module switch */}
+        <div className={`${compact ? "px-2.5" : "px-3"} pb-2 pt-3`}>
+          {!compact ? (
+            <div className="space-y-2">
+              <div className="group relative">
                 <HugeiconsIcon
                   icon={Search01Icon}
-                  size={16}
+                  size={15}
                   color="currentColor"
                   strokeWidth={1.9}
-                  className={`absolute left-3 top-1/2 -translate-y-1/2 ${
-                    isDarkMode ? "text-gray-500" : "text-gray-400"
-                  } ${reducedMotion ? "" : "transition-colors duration-200"} group-focus-within:text-purple-500`}
-                  aria-hidden="true"
+                  className={`pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 ${
+                    isDarkMode ? "text-slate-600" : "text-slate-400"
+                  } group-focus-within:text-indigo-500`}
                 />
-
                 <input
-                  type="text"
-                  placeholder="Search menu..."
+                  type="search"
+                  placeholder="Search menu"
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className={`w-full rounded-xl border px-10 py-2.5 text-sm outline-none ${
-                    reducedMotion ? "" : "transition-all duration-200"
-                  } ${
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  className={`h-9 w-full rounded-lg border py-2 pl-9 pr-9 text-xs font-medium outline-none ${
                     isDarkMode
-                      ? "border-white/10 bg-white/[0.06] text-white placeholder-gray-500 focus:border-purple-500/50 focus:bg-white/[0.08]"
-                      : "border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:border-purple-500/40 focus:bg-white"
-                  } focus:ring-4 focus:ring-purple-500/10`}
+                      ? "border-white/10 bg-white/[0.04] text-white placeholder:text-slate-600 focus:border-indigo-400/40 focus:bg-white/[0.06]"
+                      : "border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:border-indigo-300"
+                  } ${reducedMotion ? "" : "transition-colors duration-150"} focus:ring-2 focus:ring-indigo-500/10`}
                   aria-label="Search sections"
                 />
-
                 {searchTerm ? (
                   <button
                     type="button"
                     onClick={() => setSearchTerm("")}
-                    className={`absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg ${
-                      isDarkMode
-                        ? "text-gray-300 hover:bg-white/[0.08]"
-                        : "text-gray-500 hover:bg-gray-200/70"
-                    } focus:outline-none focus:ring-2 focus:ring-purple-500/50`}
+                    className={`absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md ${
+                      isDarkMode ? "text-slate-500 hover:bg-white/[0.06] hover:text-white" : "text-slate-400 hover:bg-slate-100"
+                    }`}
                     aria-label="Clear search"
-                    title="Clear search"
                   >
-                    <HugeiconsIcon
-                      icon={Cancel01Icon}
-                      size={14}
-                      color="currentColor"
-                      strokeWidth={2}
-                    />
+                    <HugeiconsIcon icon={Cancel01Icon} size={13} color="currentColor" strokeWidth={2} />
                   </button>
                 ) : null}
               </div>
-            ) : (
+
+              <button
+                type="button"
+                onClick={onOpenModules}
+                className="bh-action-button group relative flex min-h-[56px] w-full items-center gap-3 overflow-hidden rounded-xl border border-violet-400/35 bg-violet-600 px-3 py-2.5 text-left text-white shadow-[0_14px_30px_-20px_rgba(109,40,217,.95)] hover:bg-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+                aria-label="Switch ERP module"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/15 ring-1 ring-white/15 transition-transform duration-200 group-hover:scale-105">
+                  <HugeiconsIcon icon={GridViewIcon} size={17} color="currentColor" strokeWidth={1.9} />
+                </span>
+
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[10px] font-semibold text-violet-100">Current module</span>
+                  <span className="mt-0.5 block truncate text-xs font-bold">
+                    {moduleLabel || "All modules"}
+                  </span>
+                </span>
+
+                <span className="rounded-lg bg-white/15 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.08em] text-white ring-1 ring-white/15">
+                  Switch
+                </span>
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
               <button
                 type="button"
                 onClick={() => {
                   setCompact(false)
-
                   try {
                     localStorage.setItem("sidebar_compact", "0")
                   } catch {}
-
-                  setTimeout(() => {
-                    const el = document.querySelector(
+                  window.setTimeout(() => {
+                    const input = document.querySelector(
                       `#${CSS.escape(sidebarId)} input[aria-label="Search sections"]`
                     )
-                    el?.focus?.()
+                    input?.focus?.()
                   }, 0)
                 }}
-                className={`flex h-10 w-10 items-center justify-center rounded-xl border ${
-                  isDarkMode
-                    ? "border-white/10 bg-white/[0.06] text-gray-200 hover:bg-white/[0.1]"
-                    : "border-gray-200 bg-gray-50 text-gray-800 hover:bg-gray-100"
-                } ${
-                  reducedMotion ? "" : "transition-all duration-200"
-                } focus:outline-none focus:ring-2 focus:ring-purple-500/50`}
-                aria-label="Search"
+                className={`bh-icon-button mx-auto flex h-9 w-9 items-center justify-center rounded-lg ${
+                  isDarkMode ? "text-slate-400 hover:bg-white/[0.06] hover:text-white" : "text-slate-500 hover:bg-slate-100"
+                }`}
+                aria-label="Search menu"
                 title="Search"
               >
-                <HugeiconsIcon
-                  icon={Search01Icon}
-                  size={16}
-                  color="currentColor"
-                  strokeWidth={1.9}
-                />
+                <span className="bh-icon-glyph">
+                  <HugeiconsIcon icon={Search01Icon} size={16} color="currentColor" strokeWidth={1.9} />
+                </span>
               </button>
-            )}
-          </div>
+              <button
+                type="button"
+                onClick={onOpenModules}
+                className="bh-icon-button mx-auto flex h-10 w-10 items-center justify-center rounded-xl border border-violet-400/35 bg-violet-600 text-white shadow-[0_12px_24px_-16px_rgba(109,40,217,.95)] hover:bg-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
+                aria-label="Switch ERP module"
+                title={`Switch module: ${moduleLabel || "All modules"}`}
+              >
+                <span className="bh-icon-glyph">
+                  <HugeiconsIcon icon={GridViewIcon} size={17} color="currentColor" strokeWidth={1.9} />
+                </span>
+              </button>
+            </div>
+          )}
         </div>
 
+        {/* Navigation */}
         <nav
           aria-label="Primary"
-          className={`flex-1 overflow-y-auto ${navPad} space-y-2.5 pt-1 scrollbar-thin ${
-            isDarkMode
-              ? "scrollbar-thumb-purple-500 scrollbar-track-transparent"
-              : "scrollbar-thumb-purple-400 scrollbar-track-gray-100"
-          }`}
+          className={`bh-sidebar-scrollbar flex-1 overflow-y-auto ${navPad} pb-3 pt-1`}
           onScroll={() => {
             if (compact && flyout.open) closeFlyout()
           }}
         >
-          {groupedSectionBlocks.map((group) => (
-            <div key={group.title} className={compact ? "space-y-1" : "space-y-1.5"}>
-              {!compact ? (
-                <div
-                  className={`px-3 pb-1 pt-2 text-[10px] font-black uppercase tracking-[0.16em] ${
-                    isDarkMode ? "text-gray-600" : "text-gray-400"
-                  }`}
+          <AnimatePresence initial={false}>
+            {groupedSectionBlocks.length ? (
+              groupedSectionBlocks.map((group, groupIndex) => (
+                <motion.div
+                  key={group.title}
+                  initial={reducedMotion ? false : { opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.18, delay: groupIndex * 0.025 }}
+                  className={compact ? "mb-2 space-y-1" : "mb-4 space-y-1"}
                 >
-                  {group.title}
-                </div>
-              ) : group.title !== "Others" ? (
-                <div
-                  className={`mx-auto my-2 h-px w-8 ${
-                    isDarkMode ? "bg-white/10" : "bg-gray-200"
-                  }`}
-                  aria-hidden="true"
-                />
-              ) : null}
-
-              {group.sections.map((section) => {
-                const def = safeSections[section]
-                if (!def) return null
-
-                const hasSubs = !!def.subcategories
-                const isActiveSection = activeSection === section && !activeSubcategory
-                const isExpanded = expandedSection === section
-                const controlsId = hasSubs ? `submenu-${section.replace(/\s+/g, "_")}` : undefined
-
-                return (
-                  <div key={section} className="select-none">
-                    <button
-                      onClick={(e) => handleSectionClick(section, e.currentTarget)}
-                      onMouseEnter={(e) => {
-                        if (!isMobileViewport && compact && hasSubs) {
-                          if (openTimerRef.current) clearTimeout(openTimerRef.current)
-                          openTimerRef.current = setTimeout(
-                            () => openFlyout(section, e.currentTarget),
-                            120
-                          )
-                        }
-                      }}
-                      onMouseLeave={() => {
-                        if (openTimerRef.current) clearTimeout(openTimerRef.current)
-                      }}
-                      onFocus={(e) => {
-                        if (!isMobileViewport && compact && hasSubs) {
-                          openFlyout(section, e.currentTarget)
-                        }
-                      }}
-                      onKeyDown={(e) => handleKeyToggle(e, section, e.currentTarget)}
-                      className={`group relative flex w-full items-center overflow-hidden rounded-xl border text-sm ${
-                        compact ? "justify-center px-2.5 py-2.5" : "justify-between px-3 py-2.5"
-                      } ${
-                        reducedMotion ? "" : "transition-all duration-200 ease-in-out"
-                      } ${
-                        activeSection === section
-                          ? isDarkMode
-                            ? "border-white/10 bg-white/[0.08] text-white shadow-[0_10px_26px_-22px_rgba(124,58,237,0.9)]"
-                            : "border-gray-200 bg-gray-950/[0.05] text-gray-950 shadow-sm"
-                          : isDarkMode
-                            ? "border-transparent text-gray-300 hover:bg-white/[0.06] hover:text-white"
-                            : "border-transparent text-gray-700 hover:bg-gray-100 hover:text-gray-950"
-                      } focus:outline-none focus:ring-2 focus:ring-purple-500/50`}
-                      aria-expanded={hasSubs && !compact ? isExpanded : undefined}
-                      aria-controls={hasSubs && !compact ? controlsId : undefined}
-                      aria-current={isActiveSection ? "page" : undefined}
-                      title={section}
-                      type="button"
+                  {!compact ? (
+                    <p
+                      className={`px-2.5 pb-1 pt-1 text-[9.5px] font-semibold uppercase tracking-[0.13em] ${
+                        isDarkMode ? "text-slate-600" : "text-slate-400"
+                      }`}
                     >
-                      {activeSection === section ? (
-                        <span
-                          className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-gradient-to-b from-indigo-500 via-purple-500 to-pink-500"
-                          aria-hidden="true"
-                        />
-                      ) : null}
+                      {group.title}
+                    </p>
+                  ) : groupIndex > 0 ? (
+                    <div className={`mx-auto my-2 h-px w-7 ${isDarkMode ? "bg-white/10" : "bg-slate-200"}`} />
+                  ) : null}
 
-                      <div
-                        className={`relative z-10 flex min-w-0 items-center ${
-                          compact ? "justify-center" : "gap-2.5"
-                        }`}
-                      >
-                        <span
-                          className={`shrink-0 text-[15px] ${
-                            reducedMotion ? "" : "transition-transform duration-200"
-                          } ${activeSection === section ? "scale-105" : "group-hover:scale-105"}`}
+                  {group.sections.map((section) => {
+                    const definition = safeSections[section]
+                    if (!definition) return null
+
+                    const hasSubcategories = Boolean(definition.subcategories)
+                    const isActive = activeSection === section
+                    const isExpanded = expandedSection === section
+                    const controlsId = hasSubcategories
+                      ? `submenu-${section.replace(/\s+/g, "_")}`
+                      : undefined
+
+                    return (
+                      <div key={section} className="select-none">
+                        <motion.button
+                          layout="position"
+                          whileTap={reducedMotion ? undefined : { scale: 0.985 }}
+                          onClick={(event) => handleSectionClick(section, event.currentTarget)}
+                          onPointerEnter={(event) => {
+                            if (!isMobileViewport && compact) {
+                              openFlyout(section, event.currentTarget)
+                            }
+                          }}
+                          onPointerLeave={() => {
+                            if (!isMobileViewport && compact) scheduleFlyoutClose()
+                          }}
+                          onFocus={(event) => {
+                            if (!isMobileViewport && compact) {
+                              openFlyout(section, event.currentTarget, true)
+                            }
+                          }}
+                          onBlur={(event) => {
+                            if (
+                              !isMobileViewport &&
+                              compact &&
+                              !flyout.anchorElement?.contains?.(event.relatedTarget)
+                            ) {
+                              scheduleFlyoutClose()
+                            }
+                          }}
+                          onKeyDown={(event) => handleKeyToggle(event, section, event.currentTarget)}
+                          className={`group relative flex h-9 w-full cursor-pointer items-center rounded-lg text-[13px] font-medium ${
+                            compact ? "justify-center px-2" : "gap-2.5 px-2.5"
+                          } ${
+                            isActive
+                              ? isDarkMode
+                                ? "bg-white/[0.08] text-white"
+                                : "bg-slate-100 text-slate-950"
+                              : isDarkMode
+                                ? "text-slate-400 hover:bg-white/[0.05] hover:text-white"
+                                : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-950"
+                          } ${reducedMotion ? "" : "transition-colors duration-150"} focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30`}
+                          aria-expanded={hasSubcategories && !compact ? isExpanded : undefined}
+                          aria-controls={hasSubcategories && !compact ? controlsId : undefined}
+                          aria-current={isActive ? "page" : undefined}
+                          title={compact ? undefined : section}
+                          type="button"
                         >
-                          {def.icon}
-                        </span>
+                          <span
+                            className={`flex h-5 w-5 shrink-0 items-center justify-center ${
+                              isActive ? (isDarkMode ? "text-white" : "text-slate-950") : ""
+                            }`}
+                          >
+                            {definition.icon}
+                          </span>
 
-                        {!compact ? (
-                          <span className="truncate font-semibold leading-none">{section}</span>
+                          {!compact ? <span className="min-w-0 flex-1 truncate text-left">{section}</span> : null}
+
+                          {compact && hasSubcategories ? (
+                            <span
+                              className={`absolute bottom-1.5 right-1.5 h-1.5 w-1.5 rounded-full ${
+                                isActive ? "bg-indigo-400" : isDarkMode ? "bg-slate-600" : "bg-slate-300"
+                              }`}
+                              aria-hidden="true"
+                            />
+                          ) : null}
+
+                          {hasSubcategories && !compact ? (
+                            <HugeiconsIcon
+                              icon={ChevronDownIcon}
+                              size={14}
+                              color="currentColor"
+                              strokeWidth={1.9}
+                              className={`${
+                                reducedMotion ? "" : "transition-transform duration-200"
+                              } ${isExpanded ? "rotate-180" : ""}`}
+                              aria-hidden="true"
+                            />
+                          ) : null}
+                        </motion.button>
+
+                        {hasSubcategories && !compact ? (
+                          <SubMenuInline
+                            subcategories={definition.subcategories}
+                            section={section}
+                            activeSection={activeSection}
+                            activeSubcategory={activeSubcategory}
+                            handleSubcategoryClick={handleSubcategoryClick}
+                            isExpanded={isExpanded}
+                            height={subMenuHeights[section]}
+                            isDarkMode={isDarkMode}
+                            subMenuRef={getSubmenuRef(section)}
+                            reducedMotion={reducedMotion}
+                          />
                         ) : null}
                       </div>
-
-                      {hasSubs && !compact ? (
-                        <HugeiconsIcon
-                          icon={ChevronDownIcon}
-                          size={15}
-                          color="currentColor"
-                          strokeWidth={2}
-                          className={`relative z-10 ${
-                            reducedMotion ? "" : "transition-transform duration-300"
-                          } ${isExpanded ? "rotate-180" : ""}`}
-                          aria-hidden="true"
-                        />
-                      ) : null}
-                    </button>
-
-                    {hasSubs && !compact ? (
-                      <SubMenuInline
-                        subcategories={def.subcategories}
-                        section={section}
-                        activeSection={activeSection}
-                        activeSubcategory={activeSubcategory}
-                        handleSubcategoryClick={handleSubcategoryClick}
-                        isExpanded={isExpanded}
-                        height={subMenuHeights[section]}
-                        isDarkMode={isDarkMode}
-                        subMenuRef={getSubmenuRef(section)}
-                        reducedMotion={reducedMotion}
-                      />
-                    ) : null}
-                  </div>
-                )
-              })}
-            </div>
-          ))}
+                    )
+                  })}
+                </motion.div>
+              ))
+            ) : (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className={`mx-1 rounded-lg border border-dashed p-3 text-center text-xs ${
+                  isDarkMode ? "border-white/10 text-slate-500" : "border-slate-200 text-slate-400"
+                }`}
+              >
+                {compact ? "—" : "No matching menu"}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </nav>
 
-        <button
-          onClick={handleLogout}
-          className={`group flex items-center ${
-            compact ? "justify-center px-3 py-3" : "justify-center gap-3 px-4 py-3.5"
-          } ${
-            reducedMotion ? "" : "transition-all duration-200"
-          } relative overflow-hidden border-t ${
-            isDarkMode
-              ? "border-white/10 text-gray-300 hover:bg-white/[0.06] hover:text-white"
-              : "border-gray-100 text-gray-700 hover:bg-gray-50 hover:text-gray-950"
-          } focus:outline-none focus:ring-2 focus:ring-purple-500/50`}
-          aria-label="Logout"
-          title="Logout"
-          type="button"
-        >
-          <HugeiconsIcon
-            icon={Logout03Icon}
-            size={18}
-            color="currentColor"
-            strokeWidth={1.9}
-            className={`relative z-10 ${
-              reducedMotion ? "" : "transition-transform duration-200 group-hover:-translate-x-1"
-            }`}
-          />
+        {/* Account and utility controls */}
+        <div className={`shrink-0 border-t p-3 ${isDarkMode ? "border-white/10" : "border-slate-200/75"}`}>
+          {!compact ? (
+            <div className="space-y-2">
+              <div
+                className={`flex items-center gap-2.5 rounded-xl border px-2.5 py-2 ${
+                  isDarkMode
+                    ? "border-white/10 bg-white/[0.04]"
+                    : "border-slate-200/80 bg-white"
+                }`}
+              >
+                <span
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl text-xs font-bold ${
+                    isDarkMode ? "bg-white text-slate-950" : "bg-indigo-600 text-white"
+                  }`}
+                >
+                  {user?.avatarUrl ? (
+                    <img
+                      src={user.avatarUrl}
+                      alt="Profile"
+                      className="h-full w-full object-cover"
+                      onError={(event) => {
+                        event.currentTarget.style.display = "none"
+                      }}
+                    />
+                  ) : (
+                    initials
+                  )}
+                </span>
 
-          {!compact ? <span className="relative z-10 text-sm font-semibold">Logout</span> : null}
-        </button>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-semibold">{user?.username || "User"}</p>
+                  <p className={`truncate text-[10px] ${isDarkMode ? "text-slate-500" : "text-slate-400"}`}>
+                    {user?.prettyRole || user?.role || "Account"}
+                  </p>
+                </div>
+
+                <span className="h-2 w-2 rounded-full bg-emerald-500" title="Online" />
+              </div>
+
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  className={`bh-icon-button flex h-9 items-center justify-center rounded-xl border ${
+                    isDarkMode
+                      ? "border-white/10 text-slate-400 hover:bg-white/[0.06] hover:text-white"
+                      : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                  }`}
+                  aria-label="Toggle theme"
+                  title="Toggle theme"
+                >
+                  <span className="bh-icon-glyph">
+                    <HugeiconsIcon
+                      icon={isDarkMode ? Sun03Icon : Moon02Icon}
+                      size={16}
+                      color="currentColor"
+                      strokeWidth={1.9}
+                    />
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowJetsky(true)}
+                  className={`bh-icon-button flex h-9 items-center justify-center rounded-xl border ${
+                    isDarkMode
+                      ? "border-white/10 hover:bg-white/[0.06]"
+                      : "border-slate-200 bg-white hover:bg-slate-50"
+                  }`}
+                  aria-label="Open Jetsky"
+                  title="Jetsky"
+                >
+                  <span className="bh-icon-glyph">
+                    <img
+                      src={(jetsky && (jetsky.src || jetsky)) || "/jetsky.svg"}
+                      alt="Jetsky"
+                      className="h-5 w-5 select-none"
+                      draggable={false}
+                    />
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className={`bh-icon-button flex h-9 items-center justify-center rounded-xl border ${
+                    isDarkMode
+                      ? "border-white/10 text-slate-400 hover:border-rose-500/20 hover:bg-rose-500/10 hover:text-rose-300"
+                      : "border-slate-200 bg-white text-slate-500 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                  }`}
+                  aria-label="Logout"
+                  title="Logout"
+                >
+                  <span className="bh-icon-glyph">
+                    <HugeiconsIcon icon={Logout03Icon} size={16} color="currentColor" strokeWidth={1.9} />
+                  </span>
+                </button>
+              </div>
+
+              <p className={`pt-0.5 text-center text-[9px] ${isDarkMode ? "text-slate-700" : "text-slate-400"}`}>
+                © {new Date().getFullYear()} BH SUITE
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-1.5">
+              <span
+                className={`flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl text-xs font-bold ${
+                  isDarkMode ? "bg-white text-slate-950" : "bg-indigo-600 text-white"
+                }`}
+                title={user?.username || "User"}
+              >
+                {user?.avatarUrl ? (
+                  <img src={user.avatarUrl} alt="Profile" className="h-full w-full object-cover" />
+                ) : (
+                  initials
+                )}
+              </span>
+
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className={`bh-icon-button flex h-9 w-9 items-center justify-center rounded-xl ${
+                  isDarkMode
+                    ? "text-slate-400 hover:bg-white/[0.06] hover:text-white"
+                    : "text-slate-500 hover:bg-slate-100"
+                }`}
+                aria-label="Toggle theme"
+                title="Toggle theme"
+              >
+                <span className="bh-icon-glyph">
+                  <HugeiconsIcon
+                    icon={isDarkMode ? Sun03Icon : Moon02Icon}
+                    size={16}
+                    color="currentColor"
+                    strokeWidth={1.9}
+                  />
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowJetsky(true)}
+                className={`bh-icon-button flex h-9 w-9 items-center justify-center rounded-xl ${
+                  isDarkMode ? "hover:bg-white/[0.06]" : "hover:bg-slate-100"
+                }`}
+                aria-label="Open Jetsky"
+                title="Jetsky"
+              >
+                <span className="bh-icon-glyph">
+                  <img
+                    src={(jetsky && (jetsky.src || jetsky)) || "/jetsky.svg"}
+                    alt="Jetsky"
+                    className="h-5 w-5 select-none"
+                    draggable={false}
+                  />
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleLogout}
+                className={`bh-icon-button flex h-9 w-9 items-center justify-center rounded-xl ${
+                  isDarkMode
+                    ? "text-slate-400 hover:bg-rose-500/10 hover:text-rose-300"
+                    : "text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+                }`}
+                aria-label="Logout"
+                title="Logout"
+              >
+                <span className="bh-icon-glyph">
+                  <HugeiconsIcon icon={Logout03Icon} size={16} color="currentColor" strokeWidth={1.9} />
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
       </aside>
 
-      <JetskyModal isOpen={showJetsky} onClose={() => setShowJetsky(false)} isDarkMode={isDarkMode} />
+      <JetskyModal
+        isOpen={showJetsky}
+        onClose={() => setShowJetsky(false)}
+        isDarkMode={isDarkMode}
+      />
     </>
   )
 }

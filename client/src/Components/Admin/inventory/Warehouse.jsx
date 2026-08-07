@@ -24,12 +24,6 @@ import { hasPermission, PERMISSIONS } from "../../Auth/permissions"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
-const BRANCH_OPTIONS_PATH =
-  import.meta.env.VITE_BRANCH_OPTIONS_PATH || ""
-
-const MANAGER_OPTIONS_PATH =
-  import.meta.env.VITE_WAREHOUSE_MANAGER_OPTIONS_PATH || ""
-
 const EMPTY_OPTIONS = Object.freeze([])
 
 const WAREHOUSE_MANAGE_PERMISSION =
@@ -62,6 +56,7 @@ const emptyWarehouseForm = {
   code: "",
   warehouseType: "store",
   branch: "",
+  managerRole: "",
   manager: "",
   description: "",
   address: {
@@ -795,6 +790,7 @@ export default function WarehouseSetup({
   const [warehouses, setWarehouses] = useState([])
   const [branches, setBranches] = useState(suppliedBranchOptions)
   const [managers, setManagers] = useState(suppliedManagerOptions)
+  const [managerRoles, setManagerRoles] = useState([])
 
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -890,38 +886,18 @@ export default function WarehouseSetup({
   }
 
   const loadOptionalOptions = async () => {
-    const tasks = []
-
-    if (!suppliedBranchOptions.length && BRANCH_OPTIONS_PATH) {
-      tasks.push(
-        api(BRANCH_OPTIONS_PATH)
-          .then((data) => {
-            setBranches(
-              extractCollection(data, ["branches", "options"])
-            )
-          })
-          .catch(() => undefined)
-      )
+    try {
+      const data = await api("/inventory/warehouses/form-options")
+      if (!suppliedBranchOptions.length) {
+        setBranches(extractCollection(data, ["branches"]))
+      }
+      if (!suppliedManagerOptions.length) {
+        setManagers(extractCollection(data, ["managers"]))
+      }
+      setManagerRoles(extractCollection(data, ["managerRoles"]))
+    } catch (error) {
+      toast.error(error.message || "Failed to load company branches and users")
     }
-
-    if (!suppliedManagerOptions.length && MANAGER_OPTIONS_PATH) {
-      tasks.push(
-        api(MANAGER_OPTIONS_PATH)
-          .then((data) => {
-            setManagers(
-              extractCollection(data, [
-                "users",
-                "employees",
-                "managers",
-                "options",
-              ])
-            )
-          })
-          .catch(() => undefined)
-      )
-    }
-
-    await Promise.all(tasks)
   }
 
   const loadWarehouses = async ({
@@ -1056,6 +1032,11 @@ export default function WarehouseSetup({
         code: item.code || "",
         warehouseType: item.warehouseType || "store",
         branch: normalizeId(item.branch),
+        managerRole:
+          item.manager?.role === "admin"
+            ? "system:admin"
+            : normalizeId(item.manager?.accessRole) ||
+              (item.manager ? "system:employee" : ""),
         manager: normalizeId(item.manager),
         description: item.description || "",
         address: {
@@ -1154,6 +1135,10 @@ export default function WarehouseSetup({
 
     if (!code) {
       return setFormError("Warehouse code is required.")
+    }
+
+    if (!form.branch) {
+      return setFormError("Select a company branch for this warehouse.")
     }
 
     if (
@@ -1447,6 +1432,7 @@ export default function WarehouseSetup({
         form={form}
         setForm={setForm}
         branches={branches}
+        managerRoles={managerRoles}
         managers={managers}
         error={formError}
         saving={saving}
@@ -2116,6 +2102,7 @@ function WarehouseFormModal({
   form,
   setForm,
   branches,
+  managerRoles,
   managers,
   error,
   saving,
@@ -2125,6 +2112,16 @@ function WarehouseFormModal({
   onStatusChange,
   onDefaultChange,
 }) {
+  const eligibleManagers = useMemo(
+    () =>
+      form.managerRole
+        ? managers.filter(
+            (manager) => manager?.managerRoleKey === form.managerRole
+          )
+        : [],
+    [form.managerRole, managers]
+  )
+
   return (
     <ModalShell
       open={open}
@@ -2245,14 +2242,7 @@ function WarehouseFormModal({
                 </select>
               </Field>
 
-              <Field
-                label="Branch"
-                hint={
-                  branches.length
-                    ? "Optional"
-                    : "Provide branchOptions or configure VITE_BRANCH_OPTIONS_PATH."
-                }
-              >
+              <Field label="Company Branch" hint="Active branches from your company" required>
                 <RelationSelect
                   value={form.branch}
                   onChange={(event) =>
@@ -2262,19 +2252,33 @@ function WarehouseFormModal({
                     }))
                   }
                   options={branches}
-                  emptyLabel="No branch"
+                  emptyLabel="Select company branch"
                   currentItem={item?.branch}
                 />
               </Field>
 
-              <Field
-                label="Manager"
-                hint={
-                  managers.length
-                    ? "Optional"
-                    : "Provide managerOptions or configure VITE_WAREHOUSE_MANAGER_OPTIONS_PATH."
-                }
-              >
+              <Field label="Manager Role" hint="Choose a role before selecting a manager">
+                <select
+                  className={input}
+                  value={form.managerRole}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      managerRole: event.target.value,
+                      manager: "",
+                    }))
+                  }
+                >
+                  <option value="">No manager</option>
+                  {managerRoles.map((role) => (
+                    <option key={role.value} value={role.value}>
+                      {role.label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Manager" hint={form.managerRole ? "Active users with the selected role" : "Select a role first"}>
                 <RelationSelect
                   value={form.manager}
                   onChange={(event) =>
@@ -2283,9 +2287,10 @@ function WarehouseFormModal({
                       manager: event.target.value,
                     }))
                   }
-                  options={managers}
-                  emptyLabel="No manager"
+                  options={eligibleManagers}
+                  emptyLabel={form.managerRole ? "Select manager" : "Select a role first"}
                   currentItem={item?.manager}
+                  disabled={!form.managerRole}
                 />
               </Field>
 

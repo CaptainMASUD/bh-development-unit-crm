@@ -21,6 +21,10 @@ const vendorBillSchema = new mongoose.Schema(
     billNo: { type: String, trim: true, default: "", index: true },
     vendorName: { type: String, required: true, trim: true, index: true },
     vendorNameLower: { type: String, trim: true, default: "", index: true },
+    supplier: { type: mongoose.Schema.Types.ObjectId, ref: "Supplier", default: null, index: true },
+    supplierInvoiceNo: { type: String, trim: true, uppercase: true, default: "", index: true },
+    purchaseOrder: { type: mongoose.Schema.Types.ObjectId, ref: "PurchaseOrder", default: null, index: true },
+    goodsReceipts: [{ type: mongoose.Schema.Types.ObjectId, ref: "GoodsReceipt" }],
     expense: { type: mongoose.Schema.Types.ObjectId, ref: "Expense", default: null, index: true },
     expenseAccount: { type: mongoose.Schema.Types.ObjectId, ref: "Account", required: true, index: true },
     payableAccount: { type: mongoose.Schema.Types.ObjectId, ref: "Account", required: true, index: true },
@@ -34,6 +38,14 @@ const vendorBillSchema = new mongoose.Schema(
     dueTotal: { type: Number, default: 0, min: 0, set: roundMoney, index: true },
     status: { type: String, enum: ["draft", "approved", "partially_paid", "paid", "void"], default: "draft", index: true },
     journalEntry: { type: mongoose.Schema.Types.ObjectId, ref: "JournalEntry", default: null },
+    matchStatus: { type: String, enum: ["unlinked", "pending", "matched", "exception"], default: "unlinked", index: true },
+    matchSummary: {
+      receivedAmount: { type: Number, min: 0, default: 0, set: roundMoney },
+      invoicedAmount: { type: Number, min: 0, default: 0, set: roundMoney },
+      amountVariance: { type: Number, default: 0, set: roundMoney },
+      toleranceAmount: { type: Number, min: 0, default: 0.01, set: roundMoney },
+      checkedAt: { type: Date, default: null },
+    },
     payments: { type: [vendorBillPaymentSchema], default: [] },
     memo: { type: String, trim: true, default: "" },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null, index: true },
@@ -50,6 +62,7 @@ vendorBillSchema.index({ billDate: -1, _id: -1 });
 vendorBillSchema.pre("validate", function (next) {
   this.vendorName = String(this.vendorName || "").trim();
   this.vendorNameLower = this.vendorName.toLowerCase();
+  this.supplierInvoiceNo = String(this.supplierInvoiceNo || "").trim().toUpperCase();
   this.subtotal = roundMoney(this.subtotal || this.total);
   this.taxAmount = roundMoney(this.taxAmount);
   this.total = roundMoney(this.total || Number(this.subtotal || 0) + Number(this.taxAmount || 0));

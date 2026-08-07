@@ -128,7 +128,12 @@ export const listSuppliers = async (req, res) => {
 export const listSupplierOptions = async (req, res) => {
   try {
     setReadCache(res, 60);
-    return res.json(await listSupplierOptionsService(req.query));
+    return res.json(
+      await listSupplierOptionsService({
+        ...req.query,
+        _verifiedTenantId: req.tenantId,
+      })
+    );
   } catch (error) {
     return sendError(
       res,

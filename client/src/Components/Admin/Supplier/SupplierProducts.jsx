@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { motion } from "framer-motion"
 import toast, { Toaster } from "react-hot-toast"
@@ -14,6 +14,7 @@ import {
   FilterIcon,
   FloppyDiskIcon,
   FolderLibraryIcon,
+  Image01Icon,
   RefreshIcon,
   RestoreBinIcon,
   Search01Icon,
@@ -24,44 +25,45 @@ import { hasPermission, PERMISSIONS } from "../../Auth/permissions"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
-const SUPPLIER_MANAGE_PERMISSION =
-  PERMISSIONS?.SUPPLIER_MANAGE || "supplier:manage"
-const SUPPLIER_DELETE_PERMISSION =
-  PERMISSIONS?.SUPPLIER_DELETE || "supplier:delete"
+const PRODUCT_MANAGE_PERMISSION =
+  PERMISSIONS?.INVENTORY_PRODUCT_MANAGE || "inventory-product:manage"
 
-const FALLBACK_META = {
-  supplierProductStatuses: ["active", "inactive", "archived"],
-  taxTypes: ["none", "inclusive", "exclusive"],
-}
+const PRODUCT_DELETE_PERMISSION =
+  PERMISSIONS?.INVENTORY_PRODUCT_DELETE || "inventory-product:delete"
 
-const CURRENT_STATUSES = ["active", "inactive"]
+const SUPPLIER_OPTIONS_PATH =
+  import.meta.env.VITE_SUPPLIER_OPTIONS_PATH ||
+  "/suppliers/options?limit=200&includeUnavailable=true"
 
-const emptyStats = {
-  productLinkCount: 0,
-  activeProductLinkCount: 0,
-  inactiveProductLinkCount: 0,
-  archivedProductLinkCount: 0,
-  preferredProductLinkCount: 0,
-  defaultProductCount: 0,
-}
+const PRODUCT_TYPES = [
+  ["inventory", "Inventory Product"],
+  ["non_inventory", "Non-Inventory Product"],
+  ["service", "Service"],
+]
 
-const emptyForm = {
-  product: "",
-  purchaseUnit: "",
-  supplierSku: "",
-  unitPrice: "0",
-  currency: "BDT",
-  minimumOrderQuantity: "0",
-  packSize: "1",
-  leadTimeDays: "0",
-  taxType: "none",
-  taxRate: "0",
-  isPreferred: false,
-  validFrom: "",
-  validTo: "",
-  notes: "",
-  status: "active",
-}
+const PRODUCT_STATUSES = [
+  ["active", "Active"],
+  ["inactive", "Inactive"],
+  ["discontinued", "Discontinued"],
+]
+
+const TRACKING_TYPES = [
+  ["none", "No Batch / Serial Tracking"],
+  ["batch", "Batch Tracking"],
+  ["serial", "Serial Number Tracking"],
+]
+
+const COSTING_METHODS = [
+  ["weighted_average", "Weighted Average"],
+  ["fifo", "FIFO"],
+  ["standard", "Standard Cost"],
+]
+
+const TAX_TYPES = [
+  ["none", "No Tax"],
+  ["exclusive", "Tax Exclusive"],
+  ["inclusive", "Tax Inclusive"],
+]
 
 const shell = "min-h-screen bg-gray-50"
 
@@ -86,6 +88,34 @@ const input =
 const chip =
   "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-semibold ring-1"
 
+const emptyProductForm = {
+  name: "",
+  sku: "",
+  barcode: "",
+  productType: "inventory",
+  category: "",
+  brand: "",
+  baseUnit: "",
+  defaultSupplier: "",
+  description: "",
+  imageUrl: "",
+  purchasePrice: "0",
+  sellingPrice: "0",
+  wholesalePrice: "0",
+  minimumSellingPrice: "0",
+  currency: "BDT",
+  taxType: "none",
+  taxRate: "0",
+  trackInventory: true,
+  trackingType: "none",
+  costingMethod: "weighted_average",
+  allowNegativeStock: false,
+  reorderLevel: "0",
+  minimumStock: "0",
+  maximumStock: "0",
+  status: "active",
+}
+
 function cn(...classes) {
   return classes.filter(Boolean).join(" ")
 }
@@ -100,79 +130,92 @@ function pretty(value) {
     .replace(/\b\w/g, (character) => character.toUpperCase())
 }
 
-function normalizeId(value) {
-  return value?._id || value || ""
-}
-
 function formatDate(value) {
   if (!value) return "-"
 
   const date = new Date(value)
+
   if (Number.isNaN(date.getTime())) return "-"
 
-  return date.toLocaleDateString("en-US", {
+  return date.toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
     day: "numeric",
   })
 }
 
-function toDateInput(value) {
-  if (!value) return ""
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ""
-  return date.toISOString().slice(0, 10)
-}
-
-function formatNumber(value, maximumFractionDigits = 6) {
-  return Number(value || 0).toLocaleString("en-US", {
-    maximumFractionDigits,
-  })
-}
-
 function formatMoney(value, currency = "BDT") {
-  return `${clean(currency || "BDT")} ${Number(value || 0).toLocaleString(
+  const amount = Number(value || 0)
+
+  return `${clean(currency || "BDT").toUpperCase()} ${amount.toLocaleString(
     "en-US",
     {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 4,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
     }
   )}`
 }
 
-function relationLabel(item, fallback = "Unnamed") {
-  if (!item) return fallback
-
-  const name = item.businessName || item.name || item.label || fallback
-  const code = item.code || item.sku || item.symbol || ""
-
-  return `${name}${code ? ` (${code})` : ""}`
+function normalizeId(value) {
+  return value?._id || value || ""
 }
 
-function isPriceActive(link) {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+function optionLabel(item, type) {
+  if (!item) return ""
 
-  const from = link.validFrom ? new Date(link.validFrom) : null
-  const to = link.validTo ? new Date(link.validTo) : null
+  if (type === "category") {
+    return `${item.name || "Unnamed category"}${
+      item.code ? ` (${item.code})` : ""
+    }`
+  }
 
-  if (from) from.setHours(0, 0, 0, 0)
-  if (to) to.setHours(23, 59, 59, 999)
+  if (type === "brand") {
+    return `${item.name || "Unnamed brand"}${
+      item.code ? ` (${item.code})` : ""
+    }`
+  }
 
-  return (!from || from <= today) && (!to || to >= today)
+  if (type === "unit") {
+    const name = item.name || item.unitName || item.label || "Unnamed unit"
+    const code = item.symbol || item.code || item.shortName || ""
+
+    return `${name}${code ? ` (${code})` : ""}`
+  }
+
+  if (type === "supplier") {
+    const name =
+      item.name ||
+      item.supplierName ||
+      item.companyName ||
+      item.businessName ||
+      "Unnamed supplier"
+
+    const code = item.code || item.supplierCode || ""
+
+    return `${name}${code ? ` (${code})` : ""}`
+  }
+
+  return item.name || item.label || item.code || "Unnamed option"
 }
 
-function priceValidityLabel(link) {
-  if (link.status === "archived") return "Archived"
-  if (!link.validFrom && !link.validTo) return "No expiry"
+function buildOptionMap(items = []) {
+  return new Map(
+    items
+      .filter((item) => item?._id)
+      .map((item) => [String(item._id), item])
+  )
+}
 
-  const now = new Date()
-  const from = link.validFrom ? new Date(link.validFrom) : null
-  const to = link.validTo ? new Date(link.validTo) : null
+function resolveRelationLabel(value, map, type, fallback) {
+  if (!value) return fallback
 
-  if (from && from > now) return "Upcoming"
-  if (to && to < now) return "Expired"
-  return "Valid"
+  if (typeof value === "object" && value !== null) {
+    return optionLabel(value, type)
+  }
+
+  const item = map.get(String(value))
+
+  return item ? optionLabel(item, type) : fallback
 }
 
 function Icon({
@@ -191,6 +234,91 @@ function Icon({
   )
 }
 
+function Spinner({ className = "h-4 w-4" }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "inline-block shrink-0 animate-spin rounded-full border-2 border-current border-r-transparent",
+        className
+      )}
+    />
+  )
+}
+
+function SkeletonBlock({ className = "h-4 w-full" }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={cn(
+        "animate-pulse rounded-md bg-gray-200/80",
+        className
+      )}
+    />
+  )
+}
+
+function ProductTableSkeleton({ rows = 8 }) {
+  return Array.from({ length: rows }).map((_, index) => (
+    <tr key={`product-skeleton-${index}`}>
+      <td className="border-b border-gray-100 px-5 py-3">
+        <div className="flex min-w-[250px] items-center gap-3">
+          <SkeletonBlock className="h-12 w-12 shrink-0 rounded-2xl" />
+          <div className="space-y-2">
+            <SkeletonBlock className="h-4 w-40" />
+            <SkeletonBlock className="h-3 w-24" />
+            <SkeletonBlock className="h-3 w-32" />
+          </div>
+        </div>
+      </td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-7 w-24 rounded-full" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><div className="space-y-2"><SkeletonBlock className="h-4 w-32" /><SkeletonBlock className="h-3 w-24" /></div></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-24" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-32" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-24" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-24" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-7 w-24 rounded-full" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-20" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-7 w-24 rounded-full" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-24" /></td>
+      <td className="sticky right-0 border-b border-gray-100 bg-white px-5 py-2">
+        <div className="flex justify-end gap-2">
+          <SkeletonBlock className="h-10 w-20 rounded-xl" />
+          <SkeletonBlock className="h-10 w-10 rounded-xl" />
+        </div>
+      </td>
+    </tr>
+  ))
+}
+
+function ProductMobileSkeleton({ rows = 5 }) {
+  return Array.from({ length: rows }).map((_, index) => (
+    <div key={`product-mobile-skeleton-${index}`} className="p-4">
+      <div className="flex items-start gap-3">
+        <SkeletonBlock className="h-12 w-12 shrink-0 rounded-2xl" />
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-2">
+              <SkeletonBlock className="h-4 w-40 max-w-full" />
+              <SkeletonBlock className="h-3 w-24" />
+            </div>
+            <SkeletonBlock className="h-7 w-20 rounded-full" />
+          </div>
+          <div className="flex gap-2">
+            <SkeletonBlock className="h-7 w-24 rounded-full" />
+            <SkeletonBlock className="h-7 w-20 rounded-full" />
+          </div>
+          <SkeletonBlock className="h-28 w-full rounded-xl" />
+          <div className="flex justify-end gap-2 border-t border-gray-100 pt-3">
+            <SkeletonBlock className="h-10 w-20 rounded-xl" />
+            <SkeletonBlock className="h-10 w-10 rounded-xl" />
+          </div>
+        </div>
+      </div>
+    </div>
+  ))
+}
+
 function RequiredMark() {
   return <span className="ml-1 text-rose-500">*</span>
 }
@@ -205,28 +333,8 @@ function Field({ label, children, hint, required = false }) {
 
       {children}
 
-      {hint ? (
-        <p className="mt-1 text-xs font-medium text-gray-500">{hint}</p>
-      ) : null}
+      {hint ? <p className="mt-1 text-xs text-gray-500">{hint}</p> : null}
     </div>
-  )
-}
-
-function SectionCard({ title, description, children }) {
-  return (
-    <section className="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 sm:p-5">
-      <div className="mb-4">
-        <h3 className="text-sm font-black text-gray-900">{title}</h3>
-
-        {description ? (
-          <p className="mt-1 text-xs font-semibold leading-5 text-gray-500">
-            {description}
-          </p>
-        ) : null}
-      </div>
-
-      {children}
-    </section>
   )
 }
 
@@ -304,14 +412,17 @@ function Toggle({ checked, onChange, disabled = false, label }) {
 
 function StatusBadge({ value }) {
   const status = String(value || "").toLowerCase()
+
   const style =
     status === "active"
       ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
       : status === "inactive"
         ? "bg-gray-100 text-gray-700 ring-gray-200"
-        : status === "archived"
-          ? "bg-amber-50 text-amber-700 ring-amber-100"
-          : "bg-slate-100 text-slate-700 ring-slate-200"
+        : status === "discontinued"
+          ? "bg-rose-50 text-rose-700 ring-rose-100"
+          : status === "archived"
+            ? "bg-amber-50 text-amber-700 ring-amber-100"
+            : "bg-slate-100 text-slate-700 ring-slate-200"
 
   return (
     <span
@@ -327,28 +438,28 @@ function StatusBadge({ value }) {
             ? "bg-emerald-500"
             : status === "inactive"
               ? "bg-gray-400"
-              : status === "archived"
-                ? "bg-amber-500"
-                : "bg-slate-400"
+              : status === "discontinued"
+                ? "bg-rose-500"
+                : status === "archived"
+                  ? "bg-amber-500"
+                  : "bg-slate-400"
         )}
       />
+
       {pretty(value)}
     </span>
   )
 }
 
-function SupplierStatusBadge({ value }) {
-  const status = String(value || "").toLowerCase()
+function TypeBadge({ value }) {
+  const type = String(value || "").toLowerCase()
+
   const style =
-    status === "active"
-      ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
-      : status === "pending_approval"
+    type === "inventory"
+      ? "bg-indigo-50 text-indigo-700 ring-indigo-100"
+      : type === "non_inventory"
         ? "bg-sky-50 text-sky-700 ring-sky-100"
-        : status === "on_hold"
-          ? "bg-amber-50 text-amber-700 ring-amber-100"
-          : status === "draft"
-            ? "bg-indigo-50 text-indigo-700 ring-indigo-100"
-            : "bg-gray-100 text-gray-700 ring-gray-200"
+        : "bg-violet-50 text-violet-700 ring-violet-100"
 
   return (
     <span
@@ -358,41 +469,6 @@ function SupplierStatusBadge({ value }) {
       )}
     >
       {pretty(value)}
-    </span>
-  )
-}
-
-function PreferredBadge({ value }) {
-  return value ? (
-    <span className="inline-flex rounded-full bg-indigo-50 px-3 py-1 text-xs font-black text-indigo-700 ring-1 ring-indigo-100">
-      Preferred
-    </span>
-  ) : (
-    <span className="inline-flex rounded-full bg-gray-100 px-3 py-1 text-xs font-black text-gray-500 ring-1 ring-gray-200">
-      Standard
-    </span>
-  )
-}
-
-function ValidityBadge({ link }) {
-  const label = priceValidityLabel(link)
-  const style =
-    label === "Valid" || label === "No expiry"
-      ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
-      : label === "Upcoming"
-        ? "bg-sky-50 text-sky-700 ring-sky-100"
-        : label === "Expired"
-          ? "bg-rose-50 text-rose-700 ring-rose-100"
-          : "bg-amber-50 text-amber-700 ring-amber-100"
-
-  return (
-    <span
-      className={cn(
-        "inline-flex rounded-full px-3 py-1 text-xs font-black ring-1",
-        style
-      )}
-    >
-      {label}
     </span>
   )
 }
@@ -444,6 +520,7 @@ function ModalShell({
     }
 
     window.addEventListener("keydown", handleKeyDown)
+
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [open, onClose])
 
@@ -517,6 +594,24 @@ function ModalShell({
   )
 }
 
+function SectionCard({ title, description, children }) {
+  return (
+    <section className="rounded-2xl border border-gray-100 bg-gray-50/60 p-4 sm:p-5">
+      <div className="mb-4">
+        <h3 className="text-sm font-black text-gray-900">{title}</h3>
+
+        {description ? (
+          <p className="mt-1 text-xs font-semibold leading-5 text-gray-500">
+            {description}
+          </p>
+        ) : null}
+      </div>
+
+      {children}
+    </section>
+  )
+}
+
 function headers() {
   const token = localStorage.getItem("token")
 
@@ -539,964 +634,10 @@ async function api(path, options = {}) {
   const data = await response.json().catch(() => ({}))
 
   if (!response.ok) {
-    const error = new Error(data?.message || data?.error || "Request failed")
-    error.status = response.status
-    error.data = data
-    throw error
+    throw new Error(data?.message || data?.error || "Request failed")
   }
 
   return data
-}
-
-function SummaryCards({ supplier, stats, onSelectTab }) {
-  const items = [
-    {
-      label: "Linked Products",
-      value: formatNumber(stats.productLinkCount, 0),
-      note: "All lifecycle states",
-      tab: "all",
-    },
-    {
-      label: "Active Links",
-      value: formatNumber(stats.activeProductLinkCount, 0),
-      note: "Available for purchasing",
-      tab: "active",
-    },
-    {
-      label: "Inactive Links",
-      value: formatNumber(stats.inactiveProductLinkCount, 0),
-      note: "Temporarily unavailable",
-      tab: "inactive",
-    },
-    {
-      label: "Archived Links",
-      value: formatNumber(stats.archivedProductLinkCount, 0),
-      note: "Preserved history",
-      tab: "archived",
-    },
-    {
-      label: "Preferred Products",
-      value: formatNumber(stats.preferredProductLinkCount, 0),
-      note: "Default purchasing source",
-      tab: "preferred",
-    },
-    {
-      label: "Supplier Status",
-      value: pretty(supplier?.status || "not selected"),
-      note:
-        supplier?.status === "active"
-          ? "Active links can be created"
-          : "Activate supplier for active links",
-      tab: "all",
-    },
-  ]
-
-  return (
-    <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-      {items.map((item) => (
-        <button
-          key={item.label}
-          type="button"
-          onClick={() => onSelectTab(item.tab)}
-          disabled={!supplier}
-          className={cn(
-            card,
-            "p-4 text-left transition hover:border-indigo-100 hover:bg-indigo-50/20 disabled:cursor-default disabled:opacity-70"
-          )}
-        >
-          <p className="text-xs font-black uppercase tracking-wide text-gray-400">
-            {item.label}
-          </p>
-          <p className="mt-2 truncate text-xl font-black text-gray-900">
-            {item.value}
-          </p>
-          <p className="mt-1 truncate text-xs font-semibold text-gray-500">
-            {item.note}
-          </p>
-        </button>
-      ))}
-    </div>
-  )
-}
-
-export default function SupplierProducts({ initialSupplierId = "" }) {
-  const currentUser = useMemo(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem("user") || "null")
-      return stored?.user || stored
-    } catch {
-      return null
-    }
-  }, [])
-
-  const canManage = hasPermission(currentUser, SUPPLIER_MANAGE_PERMISSION)
-  const canDelete = hasPermission(currentUser, SUPPLIER_DELETE_PERMISSION)
-
-  const [meta, setMeta] = useState(FALLBACK_META)
-  const [suppliers, setSuppliers] = useState([])
-  const [selectedSupplierId, setSelectedSupplierId] = useState(
-    initialSupplierId || ""
-  )
-  const [selectedSupplier, setSelectedSupplier] = useState(null)
-  const [stats, setStats] = useState(emptyStats)
-  const [products, setProducts] = useState([])
-  const [units, setUnits] = useState([])
-  const [links, setLinks] = useState([])
-
-  const [activeTab, setActiveTab] = useState("all")
-  const [loading, setLoading] = useState(false)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [loadingSupplier, setLoadingSupplier] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [filterOpen, setFilterOpen] = useState(false)
-  const [nextCursor, setNextCursor] = useState(null)
-  const [hasMore, setHasMore] = useState(false)
-  const [openingId, setOpeningId] = useState("")
-  const [loadingDetailsId, setLoadingDetailsId] = useState("")
-
-  const [formModal, setFormModal] = useState({
-    open: false,
-    item: null,
-  })
-  const [form, setForm] = useState(emptyForm)
-  const [formError, setFormError] = useState("")
-
-  const [detailsModal, setDetailsModal] = useState({
-    open: false,
-    link: null,
-  })
-
-  const [filters, setFilters] = useState({
-    q: "",
-    product: "all",
-    currency: "all",
-    activeOn: "",
-  })
-
-  const productMap = useMemo(
-    () =>
-      new Map(
-        products
-          .filter((item) => item?._id)
-          .map((item) => [String(item._id), item])
-      ),
-    [products]
-  )
-
-  const unitMap = useMemo(
-    () =>
-      new Map(
-        units
-          .filter((item) => item?._id)
-          .map((item) => [String(item._id), item])
-      ),
-    [units]
-  )
-
-  const supplierMap = useMemo(
-    () =>
-      new Map(
-        suppliers
-          .filter((item) => item?._id)
-          .map((item) => [String(item._id), item])
-      ),
-    [suppliers]
-  )
-
-  const selectedProductName = useMemo(() => {
-    if (filters.product === "all") return ""
-    return relationLabel(
-      productMap.get(String(filters.product)),
-      "Selected product"
-    )
-  }, [filters.product, productMap])
-
-  const currencyOptions = useMemo(() => {
-    const values = new Set(["BDT", "USD", "EUR", "GBP"])
-
-    for (const link of links) {
-      if (clean(link.currency)) values.add(clean(link.currency).toUpperCase())
-    }
-
-    if (selectedSupplier?.procurement?.currency) {
-      values.add(selectedSupplier.procurement.currency)
-    }
-
-    return [...values]
-  }, [links, selectedSupplier])
-
-  const locallyFilteredLinks = useMemo(() => {
-    const q = clean(filters.q).toLowerCase()
-    if (!q) return links
-
-    return links.filter((link) =>
-      [
-        link.supplierSku,
-        link.product?.name,
-        link.product?.sku,
-        link.product?.barcode,
-        link.purchaseUnit?.name,
-        link.purchaseUnit?.code,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(q))
-    )
-  }, [links, filters.q])
-
-  const activeFilterCount = useMemo(() => {
-    let count = 0
-
-    if (activeTab !== "all") count += 1
-    if (clean(filters.q)) count += 1
-    if (filters.product !== "all") count += 1
-    if (filters.currency !== "all") count += 1
-    if (filters.activeOn) count += 1
-
-    return count
-  }, [activeTab, filters])
-
-  const updateFilter = (key, value) => {
-    setFilters((previous) => ({
-      ...previous,
-      [key]: value,
-    }))
-  }
-
-  const resetFilters = () => {
-    setActiveTab("all")
-    setFilters({
-      q: "",
-      product: "all",
-      currency: "all",
-      activeOn: "",
-    })
-  }
-
-  const loadReferenceData = async () => {
-    try {
-      const [metaData, supplierData, productData, unitData] = await Promise.all([
-        api("/suppliers/meta"),
-        api("/suppliers?limit=100"),
-        api("/inventory/products?status=active&limit=100"),
-        api("/inventory/units/options?limit=200"),
-      ])
-
-      setMeta({
-        ...FALLBACK_META,
-        ...(metaData || {}),
-      })
-      setSuppliers(supplierData.suppliers || [])
-      setProducts(productData.products || [])
-      setUnits(unitData.units || [])
-
-      if (!selectedSupplierId) {
-        const initial =
-          supplierData.suppliers?.find(
-            (supplier) => supplier.status === "active"
-          ) || supplierData.suppliers?.[0]
-
-        if (initial?._id) {
-          setSelectedSupplierId(initial._id)
-        }
-      }
-    } catch (error) {
-      toast.error(error.message || "Failed to load supplier-product options")
-    }
-  }
-
-  const loadSupplier = async (supplierId, { signal } = {}) => {
-    if (!supplierId) {
-      setSelectedSupplier(null)
-      setStats(emptyStats)
-      return
-    }
-
-    setLoadingSupplier(true)
-
-    try {
-      const data = await api(`/suppliers/${supplierId}`, { signal })
-      setSelectedSupplier(data.supplier || null)
-      setStats({
-        ...emptyStats,
-        ...(data.stats || {}),
-      })
-    } catch (error) {
-      if (error?.name !== "AbortError") {
-        toast.error(error.message || "Failed to load selected supplier")
-      }
-    } finally {
-      setLoadingSupplier(false)
-    }
-  }
-
-  const buildListParams = ({ append = false } = {}) => {
-    const params = new URLSearchParams({
-      limit: "50",
-    })
-
-    if (["active", "inactive", "archived"].includes(activeTab)) {
-      params.set("status", activeTab)
-    }
-
-    if (activeTab === "preferred") {
-      params.set("isPreferred", "true")
-    }
-
-    if (filters.product !== "all") {
-      params.set("product", filters.product)
-    }
-
-    if (filters.currency !== "all") {
-      params.set("currency", filters.currency)
-    }
-
-    if (filters.activeOn) {
-      params.set("activeOn", filters.activeOn)
-    }
-
-    if (append && nextCursor) {
-      params.set("cursor", nextCursor)
-    }
-
-    return params
-  }
-
-  const loadLinks = async ({
-    append = false,
-    showLoader = true,
-    signal,
-  } = {}) => {
-    if (!selectedSupplierId) {
-      setLinks([])
-      setHasMore(false)
-      setNextCursor(null)
-      return
-    }
-
-    if (append) setLoadingMore(true)
-    else if (showLoader) setLoading(true)
-
-    try {
-      const data = await api(
-        `/suppliers/${selectedSupplierId}/products?${buildListParams({
-          append,
-        }).toString()}`,
-        { signal }
-      )
-
-      const incoming = data.supplierProducts || []
-      setLinks((previous) =>
-        append ? [...previous, ...incoming] : incoming
-      )
-      setHasMore(Boolean(data.hasMore))
-      setNextCursor(data.nextCursor || null)
-    } catch (error) {
-      if (error?.name !== "AbortError") {
-        toast.error(error.message || "Failed to load supplier products")
-      }
-    } finally {
-      if (append) setLoadingMore(false)
-      else if (showLoader) setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    loadReferenceData()
-  }, [])
-
-  useEffect(() => {
-    if (!selectedSupplierId) return undefined
-
-    const controller = new AbortController()
-
-    Promise.all([
-      loadSupplier(selectedSupplierId, {
-        signal: controller.signal,
-      }),
-      loadLinks({ signal: controller.signal }),
-    ])
-
-    return () => controller.abort()
-  }, [
-    selectedSupplierId,
-    activeTab,
-    filters.product,
-    filters.currency,
-    filters.activeOn,
-  ])
-
-  const refresh = async () => {
-    if (!selectedSupplierId) {
-      await loadReferenceData()
-      return
-    }
-
-    await Promise.all([
-      loadReferenceData(),
-      loadSupplier(selectedSupplierId),
-      loadLinks(),
-    ])
-  }
-
-  const selectSupplier = (supplierId) => {
-    setSelectedSupplierId(supplierId)
-    setLinks([])
-    setActiveTab("all")
-    setHasMore(false)
-    setNextCursor(null)
-    setFilters({
-      q: "",
-      product: "all",
-      currency: "all",
-      activeOn: "",
-    })
-  }
-
-  const switchTab = (tab) => {
-    setActiveTab(tab)
-    setFilterOpen(false)
-    setHasMore(false)
-    setNextCursor(null)
-  }
-
-  const openCreateModal = () => {
-    if (!selectedSupplier) {
-      toast.error("Select a supplier first.")
-      return
-    }
-
-    setFormError("")
-    setForm({
-      ...emptyForm,
-      currency: selectedSupplier.procurement?.currency || "BDT",
-      status: selectedSupplier.status === "active" ? "active" : "inactive",
-    })
-    setFormModal({
-      open: true,
-      item: null,
-    })
-  }
-
-  const openEditModal = async (link) => {
-    if (link.status === "archived") {
-      toast.error("Restore the archived product link before editing it.")
-      return
-    }
-
-    setOpeningId(link._id)
-    setFormError("")
-
-    try {
-      const data = await api(
-        `/suppliers/${selectedSupplierId}/products/${link._id}`
-      )
-      const item = data.supplierProduct
-
-      setForm({
-        product: normalizeId(item.product),
-        purchaseUnit: normalizeId(item.purchaseUnit),
-        supplierSku: item.supplierSku || "",
-        unitPrice: String(item.unitPrice ?? 0),
-        currency: item.currency || "BDT",
-        minimumOrderQuantity: String(item.minimumOrderQuantity ?? 0),
-        packSize: String(item.packSize ?? 1),
-        leadTimeDays: String(item.leadTimeDays ?? 0),
-        taxType: item.taxType || "none",
-        taxRate: String(item.taxRate ?? 0),
-        isPreferred: Boolean(item.isPreferred),
-        validFrom: toDateInput(item.validFrom),
-        validTo: toDateInput(item.validTo),
-        notes: item.notes || "",
-        status: item.status || "active",
-      })
-
-      setFormModal({
-        open: true,
-        item,
-      })
-    } catch (error) {
-      toast.error(error.message || "Failed to load supplier-product link")
-    } finally {
-      setOpeningId("")
-    }
-  }
-
-  const closeFormModal = () => {
-    if (saving) return
-
-    setFormModal({
-      open: false,
-      item: null,
-    })
-    setForm(emptyForm)
-    setFormError("")
-  }
-
-  const updateTaxType = (taxType) => {
-    setForm((previous) => ({
-      ...previous,
-      taxType,
-      taxRate: taxType === "none" ? "0" : previous.taxRate,
-    }))
-  }
-
-  const updatePreferred = (isPreferred) => {
-    setForm((previous) => ({
-      ...previous,
-      isPreferred,
-      status: isPreferred ? "active" : previous.status,
-    }))
-  }
-
-  const updateStatus = (status) => {
-    setForm((previous) => ({
-      ...previous,
-      status,
-      isPreferred: status === "active" ? previous.isPreferred : false,
-    }))
-  }
-
-  const validateForm = () => {
-    if (!form.product) return "Product is required."
-
-    for (const [label, value] of [
-      ["Unit price", form.unitPrice],
-      ["Minimum order quantity", form.minimumOrderQuantity],
-      ["Lead time days", form.leadTimeDays],
-      ["Tax rate", form.taxRate],
-    ]) {
-      if (!Number.isFinite(Number(value)) || Number(value) < 0) {
-        return `${label} must be a valid non-negative number.`
-      }
-    }
-
-    if (!Number.isFinite(Number(form.packSize)) || Number(form.packSize) <= 0) {
-      return "Pack size must be greater than zero."
-    }
-
-    if (
-      !Number.isInteger(Number(form.leadTimeDays)) ||
-      Number(form.leadTimeDays) > 3650
-    ) {
-      return "Lead time days must be a whole number between 0 and 3650."
-    }
-
-    if (Number(form.taxRate) > 100) {
-      return "Tax rate cannot be greater than 100."
-    }
-
-    if (
-      form.validFrom &&
-      form.validTo &&
-      new Date(form.validTo) < new Date(form.validFrom)
-    ) {
-      return "Price validity end date cannot be before the start date."
-    }
-
-    if (
-      (form.status === "active" || form.isPreferred) &&
-      selectedSupplier?.status !== "active"
-    ) {
-      return "Activate the supplier before creating an active or preferred product link."
-    }
-
-    return ""
-  }
-
-  const buildPayload = () => ({
-    product: form.product,
-    purchaseUnit: form.purchaseUnit || null,
-    supplierSku: clean(form.supplierSku).toUpperCase(),
-    unitPrice: Number(form.unitPrice || 0),
-    currency: clean(form.currency || "BDT").toUpperCase(),
-    minimumOrderQuantity: Number(form.minimumOrderQuantity || 0),
-    packSize: Number(form.packSize || 1),
-    leadTimeDays: Number(form.leadTimeDays || 0),
-    taxType: form.taxType,
-    taxRate: form.taxType === "none" ? 0 : Number(form.taxRate || 0),
-    isPreferred: Boolean(form.isPreferred),
-    validFrom: form.validFrom || null,
-    validTo: form.validTo || null,
-    notes: clean(form.notes),
-    status: form.status,
-  })
-
-  const saveLink = async (event) => {
-    event.preventDefault()
-    setFormError("")
-
-    const validationError = validateForm()
-    if (validationError) {
-      setFormError(validationError)
-      return
-    }
-
-    setSaving(true)
-
-    try {
-      const path = formModal.item?._id
-        ? `/suppliers/${selectedSupplierId}/products/${formModal.item._id}`
-        : `/suppliers/${selectedSupplierId}/products`
-
-      const data = await api(path, {
-        method: formModal.item?._id ? "PATCH" : "POST",
-        body: JSON.stringify(buildPayload()),
-      })
-
-      toast.success(
-        data.message ||
-          (formModal.item
-            ? "Supplier product updated"
-            : "Supplier product linked")
-      )
-
-      setFormModal({
-        open: false,
-        item: null,
-      })
-      setForm(emptyForm)
-      setFormError("")
-
-      await Promise.all([
-        loadLinks(),
-        loadSupplier(selectedSupplierId),
-      ])
-    } catch (error) {
-      setFormError(error.message || "Failed to save supplier product.")
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const openDetailsModal = async (link) => {
-    setLoadingDetailsId(link._id)
-
-    try {
-      const data = await api(
-        `/suppliers/${selectedSupplierId}/products/${link._id}`
-      )
-
-      setDetailsModal({
-        open: true,
-        link: data.supplierProduct,
-      })
-    } catch (error) {
-      toast.error(error.message || "Failed to load link details")
-    } finally {
-      setLoadingDetailsId("")
-    }
-  }
-
-  const updateLinkStatus = async (link, status) => {
-    if (status === link.status) return
-
-    if (status === "active" && selectedSupplier?.status !== "active") {
-      toast.error("Activate the supplier before activating its product link.")
-      return
-    }
-
-    try {
-      const data = await api(
-        `/suppliers/${selectedSupplierId}/products/${link._id}/status`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({ status }),
-        }
-      )
-
-      toast.success(data.message || `Link marked ${status}`)
-      await Promise.all([
-        loadLinks(),
-        loadSupplier(selectedSupplierId),
-      ])
-    } catch (error) {
-      toast.error(error.message || "Failed to update link status")
-    }
-  }
-
-  const archiveLink = async (link) => {
-    const confirmed = window.confirm(
-      `Archive the supplier-product link for "${link.product?.name || "this product"}"? Historical purchasing references will remain safe.`
-    )
-
-    if (!confirmed) return
-
-    try {
-      const data = await api(
-        `/suppliers/${selectedSupplierId}/products/${link._id}`,
-        {
-          method: "DELETE",
-        }
-      )
-
-      toast.success(data.message || "Supplier-product link archived")
-      await Promise.all([
-        loadLinks(),
-        loadSupplier(selectedSupplierId),
-      ])
-    } catch (error) {
-      toast.error(error.message || "Failed to archive product link")
-    }
-  }
-
-  const restoreLink = async (link) => {
-    try {
-      const data = await api(
-        `/suppliers/${selectedSupplierId}/products/${link._id}/restore`,
-        {
-          method: "PATCH",
-        }
-      )
-
-      toast.success(data.message || "Product link restored as inactive")
-      await Promise.all([
-        loadLinks(),
-        loadSupplier(selectedSupplierId),
-      ])
-    } catch (error) {
-      toast.error(error.message || "Failed to restore product link")
-    }
-  }
-
-  return (
-    <div className={`${shell} p-4 sm:p-6 lg:p-8`}>
-      <Toaster position="top-right" />
-
-      <section className={cn(card, "mb-6 p-4 sm:p-5")}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
-              <Icon
-                icon={FolderLibraryIcon}
-                className="h-5 w-5"
-                strokeWidth={1.9}
-              />
-            </div>
-
-            <div className="min-w-0">
-              <h1 className="truncate text-2xl font-extrabold tracking-tight text-gray-900">
-                Supplier Products
-              </h1>
-
-              <p className="mt-0.5 text-sm text-gray-500">
-                Connect products with supplier SKUs, purchase units, prices,
-                order limits, lead times, tax, and preferred sourcing.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              className={cn(button, ghostButton)}
-              onClick={refresh}
-              disabled={loading || loadingSupplier}
-              type="button"
-            >
-              <Icon
-                icon={RefreshIcon}
-                className={cn(
-                  "h-4 w-4",
-                  loading || loadingSupplier ? "animate-spin" : ""
-                )}
-              />
-              Refresh
-            </button>
-
-            {canManage ? (
-              <button
-                className={cn(button, primaryButton)}
-                onClick={openCreateModal}
-                disabled={!selectedSupplier}
-                type="button"
-              >
-                <Icon icon={Add01Icon} className="h-4 w-4" />
-                Link Product
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(280px,380px)_1fr] xl:items-start">
-          <Field label="Supplier" required>
-            <select
-              className={input}
-              value={selectedSupplierId}
-              onChange={(event) => selectSupplier(event.target.value)}
-            >
-              <option value="">Select supplier</option>
-
-              {selectedSupplierId &&
-              !suppliers.some(
-                (supplier) =>
-                  String(supplier._id) === String(selectedSupplierId)
-              ) ? (
-                <option value={selectedSupplierId}>
-                  {relationLabel(selectedSupplier, "Current supplier")}
-                </option>
-              ) : null}
-
-              {suppliers.map((supplier) => (
-                <option key={supplier._id} value={supplier._id}>
-                  {relationLabel(supplier)} — {pretty(supplier.status)}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <HeaderSearchFilters
-            activeTab={activeTab}
-            filters={filters}
-            updateFilter={updateFilter}
-            resetFilters={resetFilters}
-            activeFilterCount={activeFilterCount}
-            selectedProductName={selectedProductName}
-            onOpenFilters={() => setFilterOpen(true)}
-            onClearTab={() => setActiveTab("all")}
-          />
-        </div>
-
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            {selectedSupplier ? (
-              <>
-                <span className="text-sm font-black text-gray-900">
-                  {selectedSupplier.businessName}
-                </span>
-                <span className="text-xs font-black text-indigo-700">
-                  {selectedSupplier.code}
-                </span>
-                <SupplierStatusBadge value={selectedSupplier.status} />
-              </>
-            ) : (
-              <span className="text-sm font-semibold text-gray-500">
-                Select a supplier to manage its product links.
-              </span>
-            )}
-          </div>
-
-          <p className="text-sm font-bold text-gray-500">
-            Showing{" "}
-            <span className="text-gray-900">
-              {locallyFilteredLinks.length}
-            </span>{" "}
-            product links
-            {hasMore ? "+" : ""}
-          </p>
-        </div>
-      </section>
-
-      <SummaryCards
-        supplier={selectedSupplier}
-        stats={stats}
-        onSelectTab={switchTab}
-      />
-
-      {selectedSupplier && selectedSupplier.status !== "active" ? (
-        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-          This supplier is {pretty(selectedSupplier.status).toLowerCase()}.
-          New links are saved as inactive, and active or preferred links require
-          an active supplier.
-        </div>
-      ) : null}
-
-      {!canManage ? (
-        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-          You have view-only supplier-product access. Link, edit, status,
-          archive, and restore controls depend on supplier permissions.
-        </div>
-      ) : null}
-
-      <div className={`${card} mb-6 p-2`}>
-        <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
-          {[
-            ["all", "Current"],
-            ["active", "Active"],
-            ["inactive", "Inactive"],
-            ["preferred", "Preferred"],
-            ["archived", "Archived"],
-          ].map(([key, label]) => (
-            <button
-              key={key}
-              className={cn(
-                "inline-flex items-center justify-center rounded-xl px-3 py-3 text-xs font-extrabold transition sm:px-5 sm:text-sm",
-                activeTab === key
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-gray-700 hover:bg-gray-50"
-              )}
-              onClick={() => switchTab(key)}
-              disabled={!selectedSupplier}
-              type="button"
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <SupplierProductList
-        links={locallyFilteredLinks}
-        loading={loading}
-        loadingMore={loadingMore}
-        hasMore={hasMore}
-        hasSupplier={Boolean(selectedSupplier)}
-        supplier={selectedSupplier}
-        openingId={openingId}
-        loadingDetailsId={loadingDetailsId}
-        canManage={canManage}
-        canDelete={canDelete}
-        onView={openDetailsModal}
-        onEdit={openEditModal}
-        onStatusChange={updateLinkStatus}
-        onArchive={archiveLink}
-        onRestore={restoreLink}
-        onLoadMore={() => loadLinks({ append: true })}
-      />
-
-      <FilterModal
-        open={filterOpen}
-        onClose={() => setFilterOpen(false)}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        filters={filters}
-        updateFilter={updateFilter}
-        resetFilters={resetFilters}
-        activeFilterCount={activeFilterCount}
-        products={products}
-        currencies={currencyOptions}
-        selectedProductName={selectedProductName}
-      />
-
-      <SupplierProductFormModal
-        state={formModal}
-        supplier={selectedSupplier}
-        form={form}
-        setForm={setForm}
-        products={products}
-        units={units}
-        productMap={productMap}
-        unitMap={unitMap}
-        meta={meta}
-        error={formError}
-        saving={saving}
-        onClose={closeFormModal}
-        onSubmit={saveLink}
-        onTaxTypeChange={updateTaxType}
-        onPreferredChange={updatePreferred}
-        onStatusChange={updateStatus}
-      />
-
-      <SupplierProductDetailsModal
-        state={detailsModal}
-        supplier={selectedSupplier}
-        onClose={() =>
-          setDetailsModal({
-            open: false,
-            link: null,
-          })
-        }
-      />
-    </div>
-  )
 }
 
 function HeaderSearchFilters({
@@ -1505,49 +646,99 @@ function HeaderSearchFilters({
   updateFilter,
   resetFilters,
   activeFilterCount,
-  selectedProductName,
+  categoryName,
+  brandName,
   onOpenFilters,
-  onClearTab,
 }) {
+  const chipCount = [
+    activeTab === "current" && filters.status !== "all",
+    filters.productType !== "all",
+    filters.trackingType !== "all",
+    clean(filters.currency),
+    filters.category !== "all",
+    filters.brand !== "all",
+    filters.trackInventory !== "all",
+  ].filter(Boolean).length
+
+  const hasAnySearchOrFilter = Boolean(clean(filters.q) || chipCount)
+
   return (
-    <div className="w-full">
-      <div className="flex min-h-[44px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
-        <Icon
-          icon={Search01Icon}
-          className="h-4 w-4 shrink-0 text-gray-400"
-        />
+    <div
+      className={cn(
+        "w-full transition-[max-width,flex-basis] duration-200 ease-out",
+        chipCount === 0
+          ? "xl:max-w-[50%] xl:flex-[0_1_50%]"
+          : chipCount <= 2
+            ? "xl:max-w-[64%] xl:flex-[0_1_64%]"
+            : "xl:min-w-[560px] xl:max-w-[78%] xl:flex-[0_1_78%]"
+      )}
+    >
+      <div className="flex min-h-[40px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
+        <Icon icon={Search01Icon} className="h-4 w-4 shrink-0 text-gray-400" />
 
-        {activeTab !== "all" ? (
+        {activeTab === "current" && filters.status !== "all" ? (
           <FilterChip
-            label="View"
-            value={pretty(activeTab)}
-            onClear={onClearTab}
+            label="Status"
+            value={pretty(filters.status)}
+            onClear={() => updateFilter("status", "all")}
           />
         ) : null}
 
-        {filters.product !== "all" ? (
+        {filters.productType !== "all" ? (
           <FilterChip
-            label="Product"
-            value={selectedProductName || "Selected product"}
-            onClear={() => updateFilter("product", "all")}
+            label="Type"
+            value={pretty(filters.productType)}
+            onClear={() => updateFilter("productType", "all")}
           />
         ) : null}
 
-        {filters.currency !== "all" ? (
+        {filters.trackingType !== "all" ? (
+          <FilterChip
+            label="Tracking"
+            value={pretty(filters.trackingType)}
+            onClear={() => updateFilter("trackingType", "all")}
+          />
+        ) : null}
+
+        {filters.category !== "all" ? (
+          <FilterChip
+            label="Category"
+            value={categoryName || "Selected category"}
+            onClear={() => updateFilter("category", "all")}
+          />
+        ) : null}
+
+        {filters.brand !== "all" ? (
+          <FilterChip
+            label="Brand"
+            value={brandName || "Selected brand"}
+            onClear={() => updateFilter("brand", "all")}
+          />
+        ) : null}
+
+        {clean(filters.currency) ? (
           <FilterChip
             label="Currency"
-            value={filters.currency}
-            onClear={() => updateFilter("currency", "all")}
+            value={clean(filters.currency).toUpperCase()}
+            onClear={() => updateFilter("currency", "")}
+          />
+        ) : null}
+
+        {filters.trackInventory !== "all" ? (
+          <FilterChip
+            label="Stock"
+            value={filters.trackInventory === "true" ? "Tracked" : "Not tracked"}
+            onClear={() => updateFilter("trackInventory", "all")}
           />
         ) : null}
 
         <FocusPlaceholderInput
-          className="min-w-[120px] flex-1 border-0 bg-transparent px-1 py-1 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:outline-none focus:ring-0"
+          className="h-8 min-w-[140px] basis-[180px] flex-[1_1_180px] border-0 bg-transparent px-1 py-0 text-sm font-medium text-gray-900 outline-none ring-0 shadow-none placeholder:text-gray-400 focus:border-0 focus:outline-none focus:ring-0 focus:shadow-none focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none"
           value={filters.q}
           onChange={(event) => updateFilter("q", event.target.value)}
-          placeholder="Search loaded product links..."
+          placeholder="Search product name, SKU or barcode..."
           type="text"
-          aria-label="Search supplier products"
+          aria-label="Search products"
         />
 
         <button
@@ -1569,7 +760,7 @@ function HeaderSearchFilters({
           ) : null}
         </button>
 
-        {activeFilterCount ? (
+        {hasAnySearchOrFilter ? (
           <button
             type="button"
             onClick={resetFilters}
@@ -1585,27 +776,1056 @@ function HeaderSearchFilters({
   )
 }
 
+export default function ProductSetup() {
+  const currentUser = useMemo(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("user") || "null")
+      return stored?.user || stored
+    } catch {
+      return null
+    }
+  }, [])
+
+  const canManage = hasPermission(currentUser, PRODUCT_MANAGE_PERMISSION)
+  const canDelete = hasPermission(currentUser, PRODUCT_DELETE_PERMISSION)
+
+  const [activeTab, setActiveTab] = useState("current")
+  const [products, setProducts] = useState([])
+
+  const [categoryOptions, setCategoryOptions] = useState([])
+  const [brandOptions, setBrandOptions] = useState([])
+  const [unitOptions, setUnitOptions] = useState([])
+  const [supplierOptions, setSupplierOptions] = useState([])
+  const [supplierOptionsAvailable, setSupplierOptionsAvailable] =
+    useState(true)
+  const [supplierOptionsLoading, setSupplierOptionsLoading] =
+    useState(false)
+
+  const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [openingProductId, setOpeningProductId] = useState("")
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [nextCursor, setNextCursor] = useState(null)
+  const [hasMore, setHasMore] = useState(false)
+
+  const [modal, setModal] = useState({
+    open: false,
+    item: null,
+  })
+
+  const [form, setForm] = useState(emptyProductForm)
+  const [formError, setFormError] = useState("")
+
+
+  const [loadingDetailsId, setLoadingDetailsId] = useState("")
+  const [detailsModal, setDetailsModal] = useState({
+    open: false,
+    product: null,
+  })
+  const [actionState, setActionState] = useState({ id: "", type: "" })
+  const [actionModal, setActionModal] = useState({
+    open: false,
+    product: null,
+    type: "",
+    targetStatus: "",
+    title: "",
+    message: "",
+    danger: false,
+    loading: false,
+    error: "",
+  })
+  const [deleteModal, setDeleteModal] = useState({
+    open: false,
+    product: null,
+    password: "",
+    loading: false,
+    error: "",
+  })
+
+  const [filters, setFilters] = useState({
+    q: "",
+    status: "all",
+    productType: "all",
+    trackingType: "all",
+    currency: "",
+    category: "all",
+    brand: "all",
+    trackInventory: "all",
+  })
+
+  const categoryMap = useMemo(
+    () => buildOptionMap(categoryOptions),
+    [categoryOptions]
+  )
+
+  const brandMap = useMemo(
+    () => buildOptionMap(brandOptions),
+    [brandOptions]
+  )
+
+  const unitMap = useMemo(
+    () => buildOptionMap(unitOptions),
+    [unitOptions]
+  )
+
+  const supplierMap = useMemo(
+    () => buildOptionMap(supplierOptions),
+    [supplierOptions]
+  )
+
+  const selectedCategoryName = useMemo(() => {
+    if (filters.category === "all") return ""
+
+    return resolveRelationLabel(
+      filters.category,
+      categoryMap,
+      "category",
+      "Selected category"
+    )
+  }, [filters.category, categoryMap])
+
+  const selectedBrandName = useMemo(() => {
+    if (filters.brand === "all") return ""
+
+    return resolveRelationLabel(
+      filters.brand,
+      brandMap,
+      "brand",
+      "Selected brand"
+    )
+  }, [filters.brand, brandMap])
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0
+
+    if (activeTab === "current" && filters.status !== "all") {
+      count += 1
+    }
+
+    if (filters.productType !== "all") count += 1
+    if (filters.trackingType !== "all") count += 1
+    if (clean(filters.currency)) count += 1
+    if (filters.category !== "all") count += 1
+    if (filters.brand !== "all") count += 1
+    if (filters.trackInventory !== "all") count += 1
+
+    return count
+  }, [activeTab, filters])
+
+  const updateFilter = (key, value) => {
+    setFilters((previous) => ({
+      ...previous,
+      [key]: value,
+    }))
+  }
+
+  const resetFilters = () => {
+    setFilters({
+      q: "",
+      status: "all",
+      productType: "all",
+      trackingType: "all",
+      currency: "",
+      category: "all",
+      brand: "all",
+      trackInventory: "all",
+    })
+  }
+
+  const loadRequiredOptions = async () => {
+    const [categoryResult, brandResult, unitResult] =
+      await Promise.allSettled([
+        api("/inventory/categories/options?limit=200"),
+        api("/inventory/brands/options?limit=200"),
+        api("/inventory/units/options?limit=200"),
+      ])
+
+    if (categoryResult.status === "fulfilled") {
+      setCategoryOptions(categoryResult.value.categories || [])
+    } else {
+      toast.error("Failed to load category options")
+    }
+
+    if (brandResult.status === "fulfilled") {
+      setBrandOptions(brandResult.value.brands || [])
+    } else {
+      toast.error("Failed to load brand options")
+    }
+
+    if (unitResult.status === "fulfilled") {
+      setUnitOptions(
+        unitResult.value.units ||
+          unitResult.value.inventoryUnits ||
+          unitResult.value.data ||
+          []
+      )
+    } else {
+      toast.error("Failed to load inventory unit options")
+    }
+  }
+
+  const loadSupplierOptions = async ({ showError = false } = {}) => {
+    if (!SUPPLIER_OPTIONS_PATH) {
+      setSupplierOptions([])
+      setSupplierOptionsAvailable(false)
+      return []
+    }
+
+    setSupplierOptionsLoading(true)
+
+    try {
+      const data = await api(SUPPLIER_OPTIONS_PATH)
+      const options =
+        data.suppliers || data.options || data.data || []
+
+      setSupplierOptions(options)
+      setSupplierOptionsAvailable(true)
+      return options
+    } catch (error) {
+      setSupplierOptions([])
+      setSupplierOptionsAvailable(false)
+      if (showError) {
+        toast.error(
+          error.message ||
+            "Failed to load active suppliers. Please try again."
+        )
+      }
+      return []
+    } finally {
+      setSupplierOptionsLoading(false)
+    }
+  }
+
+  const loadProducts = async ({
+    append = false,
+    showLoader = true,
+    signal,
+  } = {}) => {
+    if (append) setLoadingMore(true)
+    else if (showLoader) setLoading(true)
+
+    try {
+      const params = new URLSearchParams({
+        limit: "40",
+      })
+
+      if (clean(filters.q)) {
+        params.set("q", clean(filters.q))
+      }
+
+      if (activeTab === "archived") {
+        params.set("status", "archived")
+      } else if (filters.status !== "all") {
+        params.set("status", filters.status)
+      }
+
+      if (filters.productType !== "all") {
+        params.set("productType", filters.productType)
+      }
+
+      if (filters.trackingType !== "all") {
+        params.set("trackingType", filters.trackingType)
+      }
+
+      if (clean(filters.currency)) {
+        params.set("currency", clean(filters.currency).toUpperCase())
+      }
+
+      if (filters.category !== "all") {
+        params.set("category", filters.category)
+      }
+
+      if (filters.brand !== "all") {
+        params.set("brand", filters.brand)
+      }
+
+      if (filters.trackInventory !== "all") {
+        params.set("trackInventory", filters.trackInventory)
+      }
+
+      if (append && nextCursor) {
+        params.set("cursor", nextCursor)
+      }
+
+      const data = await api(
+        `/inventory/products?${params.toString()}`,
+        { signal }
+      )
+
+      const incomingProducts = data.products || []
+
+      setProducts((previous) =>
+        append ? [...previous, ...incomingProducts] : incomingProducts
+      )
+
+      setHasMore(Boolean(data.hasMore))
+      setNextCursor(data.nextCursor || null)
+    } catch (error) {
+      if (error?.name !== "AbortError") {
+        toast.error(error.message || "Failed to load products")
+      }
+    } finally {
+      if (append) setLoadingMore(false)
+      else if (showLoader) setLoading(false)
+    }
+  }
+
+  const refresh = async () => {
+    await Promise.all([
+      loadProducts(),
+      loadRequiredOptions(),
+      loadSupplierOptions({ showError: true }),
+    ])
+  }
+
+  useEffect(() => {
+    loadRequiredOptions()
+    loadSupplierOptions()
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const timer = window.setTimeout(() => {
+      loadProducts({ signal: controller.signal })
+    }, 250)
+
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [
+    activeTab,
+    filters.q,
+    filters.status,
+    filters.productType,
+    filters.trackingType,
+    filters.currency,
+    filters.category,
+    filters.brand,
+    filters.trackInventory,
+  ])
+
+  const switchTab = (tab) => {
+    setActiveTab(tab)
+    setFilterOpen(false)
+    setNextCursor(null)
+    setHasMore(false)
+
+    setFilters((previous) => ({
+      ...previous,
+      status: "all",
+    }))
+  }
+
+  const openCreateModal = () => {
+    setFormError("")
+    setForm(emptyProductForm)
+    setModal({ open: true, item: null })
+    loadSupplierOptions({ showError: true })
+  }
+
+  const openEditModal = async (product) => {
+    if (product.status === "archived") {
+      toast.error("Restore the archived product before editing it.")
+      return
+    }
+
+    setOpeningProductId(product._id)
+    setFormError("")
+
+    try {
+      const [data] = await Promise.all([
+        api(`/inventory/products/${product._id}`),
+        loadSupplierOptions({ showError: true }),
+      ])
+      const item = data.product
+
+      setForm({
+        name: item.name || "",
+        sku: item.sku || "",
+        barcode: item.barcode || "",
+        productType: item.productType || "inventory",
+        category: normalizeId(item.category),
+        brand: normalizeId(item.brand),
+        baseUnit: normalizeId(item.baseUnit),
+        defaultSupplier: normalizeId(item.defaultSupplier),
+        description: item.description || "",
+        imageUrl: item.imageUrl || "",
+        purchasePrice: String(item.purchasePrice ?? 0),
+        sellingPrice: String(item.sellingPrice ?? 0),
+        wholesalePrice: String(item.wholesalePrice ?? 0),
+        minimumSellingPrice: String(
+          item.minimumSellingPrice ?? 0
+        ),
+        currency: item.currency || "BDT",
+        taxType: item.taxType || "none",
+        taxRate: String(item.taxRate ?? 0),
+        trackInventory:
+          item.productType === "inventory"
+            ? item.trackInventory !== false
+            : false,
+        trackingType:
+          item.productType === "inventory" &&
+          item.trackInventory !== false
+            ? item.trackingType || "none"
+            : "none",
+        costingMethod:
+          item.costingMethod || "weighted_average",
+        allowNegativeStock:
+          item.productType === "inventory" &&
+          item.trackInventory !== false
+            ? Boolean(item.allowNegativeStock)
+            : false,
+        reorderLevel: String(item.reorderLevel ?? 0),
+        minimumStock: String(item.minimumStock ?? 0),
+        maximumStock: String(item.maximumStock ?? 0),
+        status:
+          item.status === "archived"
+            ? "inactive"
+            : item.status || "active",
+      })
+
+      setModal({ open: true, item })
+    } catch (error) {
+      toast.error(error.message || "Failed to load product details")
+    } finally {
+      setOpeningProductId("")
+    }
+  }
+
+  const closeModal = () => {
+    if (saving) return
+
+    setFormError("")
+    setModal({ open: false, item: null })
+    setForm(emptyProductForm)
+  }
+
+  const updateProductType = (productType) => {
+    setForm((previous) => {
+      if (productType === "inventory") {
+        return {
+          ...previous,
+          productType,
+          trackInventory: true,
+        }
+      }
+
+      return {
+        ...previous,
+        productType,
+        trackInventory: false,
+        trackingType: "none",
+        allowNegativeStock: false,
+        reorderLevel: "0",
+        minimumStock: "0",
+        maximumStock: "0",
+      }
+    })
+  }
+
+  const updateTrackInventory = (trackInventory) => {
+    setForm((previous) => ({
+      ...previous,
+      trackInventory,
+      trackingType: trackInventory
+        ? previous.trackingType
+        : "none",
+      allowNegativeStock: trackInventory
+        ? previous.allowNegativeStock
+        : false,
+      reorderLevel: trackInventory
+        ? previous.reorderLevel
+        : "0",
+      minimumStock: trackInventory
+        ? previous.minimumStock
+        : "0",
+      maximumStock: trackInventory
+        ? previous.maximumStock
+        : "0",
+    }))
+  }
+
+  const updateTaxType = (taxType) => {
+    setForm((previous) => ({
+      ...previous,
+      taxType,
+      taxRate: taxType === "none" ? "0" : previous.taxRate,
+    }))
+  }
+
+  const saveProduct = async (event) => {
+    event.preventDefault()
+    setFormError("")
+
+    const numericFields = {
+      purchasePrice: Number(form.purchasePrice || 0),
+      sellingPrice: Number(form.sellingPrice || 0),
+      wholesalePrice: Number(form.wholesalePrice || 0),
+      minimumSellingPrice: Number(form.minimumSellingPrice || 0),
+      taxRate: Number(form.taxRate || 0),
+      reorderLevel: Number(form.reorderLevel || 0),
+      minimumStock: Number(form.minimumStock || 0),
+      maximumStock: Number(form.maximumStock || 0),
+    }
+
+    if (!clean(form.name)) {
+      return setFormError("Product name is required.")
+    }
+
+    if (!clean(form.sku)) {
+      return setFormError("SKU is required.")
+    }
+
+    for (const [field, value] of Object.entries(numericFields)) {
+      if (!Number.isFinite(value) || value < 0) {
+        return setFormError(
+          `${pretty(field)} must be a valid non-negative number.`
+        )
+      }
+    }
+
+    if (numericFields.taxRate > 100) {
+      return setFormError("Tax rate cannot be greater than 100.")
+    }
+
+    if (
+      numericFields.minimumSellingPrice > 0 &&
+      numericFields.sellingPrice > 0 &&
+      numericFields.minimumSellingPrice >
+        numericFields.sellingPrice
+    ) {
+      return setFormError(
+        "Minimum selling price cannot be greater than selling price."
+      )
+    }
+
+    if (
+      numericFields.maximumStock > 0 &&
+      numericFields.minimumStock > numericFields.maximumStock
+    ) {
+      return setFormError(
+        "Maximum stock must be greater than or equal to minimum stock."
+      )
+    }
+
+    if (
+      numericFields.maximumStock > 0 &&
+      numericFields.reorderLevel > numericFields.maximumStock
+    ) {
+      return setFormError(
+        "Reorder level cannot be greater than maximum stock."
+      )
+    }
+
+    const isInventoryProduct = form.productType === "inventory"
+    const trackInventory =
+      isInventoryProduct && Boolean(form.trackInventory)
+
+    const payload = {
+      name: clean(form.name),
+      sku: clean(form.sku).toUpperCase(),
+      barcode: clean(form.barcode).toUpperCase(),
+      productType: form.productType,
+      category: form.category || null,
+      brand: form.brand || null,
+      baseUnit: form.baseUnit || null,
+      defaultSupplier: form.defaultSupplier || null,
+      description: clean(form.description),
+      imageUrl: clean(form.imageUrl),
+      purchasePrice: numericFields.purchasePrice,
+      sellingPrice: numericFields.sellingPrice,
+      wholesalePrice: numericFields.wholesalePrice,
+      minimumSellingPrice:
+        numericFields.minimumSellingPrice,
+      currency: clean(form.currency || "BDT").toUpperCase(),
+      taxType: form.taxType,
+      taxRate:
+        form.taxType === "none" ? 0 : numericFields.taxRate,
+      trackInventory,
+      trackingType: trackInventory
+        ? form.trackingType
+        : "none",
+      costingMethod: form.costingMethod,
+      allowNegativeStock: trackInventory
+        ? Boolean(form.allowNegativeStock)
+        : false,
+      reorderLevel: trackInventory
+        ? numericFields.reorderLevel
+        : 0,
+      minimumStock: trackInventory
+        ? numericFields.minimumStock
+        : 0,
+      maximumStock: trackInventory
+        ? numericFields.maximumStock
+        : 0,
+      status: form.status,
+    }
+
+    setSaving(true)
+
+    try {
+      await api(
+        modal.item?._id
+          ? `/inventory/products/${modal.item._id}`
+          : "/inventory/products",
+        {
+          method: modal.item?._id ? "PATCH" : "POST",
+          body: JSON.stringify(payload),
+        }
+      )
+
+      toast.success(
+        modal.item ? "Product updated" : "Product created"
+      )
+
+      setModal({ open: false, item: null })
+      setForm(emptyProductForm)
+      setFormError("")
+      await loadProducts({ showLoader: false })
+    } catch (error) {
+      setFormError(error.message || "Failed to save product.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const openDetailsModal = async (product) => {
+    setLoadingDetailsId(product._id)
+
+    try {
+      const data = await api(`/inventory/products/${product._id}`)
+      setDetailsModal({
+        open: true,
+        product: data.product || product,
+      })
+    } catch (error) {
+      toast.error(error.message || "Failed to load product details")
+    } finally {
+      setLoadingDetailsId("")
+    }
+  }
+
+  const closeDetailsModal = () => {
+    setDetailsModal({ open: false, product: null })
+  }
+
+  const openProductAction = (type, product, targetStatus = "") => {
+    const config =
+      type === "status"
+        ? {
+            title: `Mark as ${pretty(targetStatus)}`,
+            message: `Update “${product.name}” to ${pretty(targetStatus).toLowerCase()}?`,
+            danger: targetStatus === "discontinued",
+          }
+        : type === "archive"
+          ? {
+              title: "Archive product",
+              message: `Archive “${product.name}”? Historical inventory, purchase, sales, and accounting references will remain available.`,
+              danger: true,
+            }
+          : {
+              title: "Restore product",
+              message: `Restore “${product.name}” as an inactive product?`,
+              danger: false,
+            }
+
+    setActionModal({
+      open: true,
+      product,
+      type,
+      targetStatus,
+      title: config.title,
+      message: config.message,
+      danger: config.danger,
+      loading: false,
+      error: "",
+    })
+  }
+
+  const closeProductAction = () => {
+    if (actionModal.loading) return
+    setActionModal({
+      open: false,
+      product: null,
+      type: "",
+      targetStatus: "",
+      title: "",
+      message: "",
+      danger: false,
+      loading: false,
+      error: "",
+    })
+  }
+
+  const confirmProductAction = async () => {
+    const product = actionModal.product
+    if (!product?._id || !actionModal.type) return
+
+    const actionKey =
+      actionModal.type === "status"
+        ? `status-${actionModal.targetStatus}`
+        : actionModal.type
+
+    setActionState({ id: product._id, type: actionKey })
+    setActionModal((previous) => ({ ...previous, loading: true, error: "" }))
+
+    try {
+      if (actionModal.type === "status") {
+        await api(`/inventory/products/${product._id}/status`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: actionModal.targetStatus }),
+        })
+        toast.success(`Product marked as ${pretty(actionModal.targetStatus).toLowerCase()}`)
+      } else if (actionModal.type === "archive") {
+        await api(`/inventory/products/${product._id}`, {
+          method: "DELETE",
+        })
+        toast.success("Product archived")
+      } else if (actionModal.type === "restore") {
+        await api(`/inventory/products/${product._id}/restore`, {
+          method: "PATCH",
+        })
+        toast.success("Product restored as inactive")
+      }
+
+      setActionModal({
+        open: false,
+        product: null,
+        type: "",
+        targetStatus: "",
+        title: "",
+        message: "",
+        danger: false,
+        loading: false,
+        error: "",
+      })
+      await loadProducts({ showLoader: false })
+    } catch (error) {
+      setActionModal((previous) => ({
+        ...previous,
+        loading: false,
+        error: error.message || "Failed to update product",
+      }))
+    } finally {
+      setActionState({ id: "", type: "" })
+    }
+  }
+
+  const openDeleteProduct = (product) => {
+    setDeleteModal({
+      open: true,
+      product,
+      password: "",
+      loading: false,
+      error: "",
+    })
+  }
+
+  const closeDeleteProduct = () => {
+    if (deleteModal.loading) return
+    setDeleteModal({
+      open: false,
+      product: null,
+      password: "",
+      loading: false,
+      error: "",
+    })
+  }
+
+  const deleteProductPermanently = async (event) => {
+    event.preventDefault()
+    const product = deleteModal.product
+    const password = clean(deleteModal.password)
+
+    if (!product?._id) return
+    if (!password) {
+      setDeleteModal((previous) => ({
+        ...previous,
+        error: "Password is required.",
+      }))
+      return
+    }
+
+    setDeleteModal((previous) => ({ ...previous, loading: true, error: "" }))
+    setActionState({ id: product._id, type: "delete" })
+
+    try {
+      const data = await api(`/inventory/products/${product._id}/permanent`, {
+        method: "DELETE",
+        body: JSON.stringify({ password }),
+      })
+
+      toast.success(data.message || "Product deleted permanently")
+      setDeleteModal({
+        open: false,
+        product: null,
+        password: "",
+        loading: false,
+        error: "",
+      })
+      setDetailsModal((previous) =>
+        String(previous.product?._id) === String(product._id)
+          ? { open: false, product: null }
+          : previous
+      )
+      await loadProducts({ showLoader: false })
+    } catch (error) {
+      setDeleteModal((previous) => ({
+        ...previous,
+        loading: false,
+        error: error.message || "Failed to delete product permanently.",
+      }))
+    } finally {
+      setActionState({ id: "", type: "" })
+    }
+  }
+
+  const getCategoryName = (product) =>
+    resolveRelationLabel(
+      product.category,
+      categoryMap,
+      "category",
+      "Uncategorized"
+    )
+
+  const getBrandName = (product) =>
+    resolveRelationLabel(
+      product.brand,
+      brandMap,
+      "brand",
+      "No brand"
+    )
+
+  const getUnitName = (product) =>
+    resolveRelationLabel(
+      product.baseUnit,
+      unitMap,
+      "unit",
+      "No unit"
+    )
+
+  const getSupplierName = (product) =>
+    resolveRelationLabel(
+      product.defaultSupplier,
+      supplierMap,
+      "supplier",
+      "No supplier"
+    )
+
+  return (
+    <div className={`${shell} p-4 sm:p-6 lg:p-8`}>
+      <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: 14, fontWeight: 700 } }} />
+
+      <section className={cn(card, "mb-6 p-4 sm:p-5")}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
+              <Icon
+                icon={FolderLibraryIcon}
+                className="h-5 w-5"
+                strokeWidth={1.9}
+              />
+            </div>
+
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-extrabold tracking-tight text-gray-900">
+                Products
+              </h1>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              className={cn(button, ghostButton)}
+              onClick={refresh}
+              disabled={loading}
+              type="button"
+            >
+              <Icon
+                icon={RefreshIcon}
+                className={cn(
+                  "h-4 w-4",
+                  loading ? "animate-spin" : ""
+                )}
+              />
+              Refresh
+            </button>
+
+            {canManage && activeTab === "current" ? (
+              <button
+                className={cn(button, primaryButton)}
+                onClick={openCreateModal}
+                type="button"
+              >
+                <Icon icon={Add01Icon} className="h-4 w-4" />
+                Add Product
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <HeaderSearchFilters
+            activeTab={activeTab}
+            filters={filters}
+            updateFilter={updateFilter}
+            resetFilters={resetFilters}
+            activeFilterCount={activeFilterCount}
+            categoryName={selectedCategoryName}
+            brandName={selectedBrandName}
+            onOpenFilters={() => setFilterOpen(true)}
+          />
+
+          {loading ? (
+            <SkeletonBlock className="h-4 w-28" />
+          ) : (
+            <p className="shrink-0 text-sm font-bold text-gray-500">
+              Showing <span className="text-gray-900">{products.length}</span>{" "}
+              {activeTab === "archived" ? "archived products" : "products"}
+              {hasMore ? "+" : ""}
+            </p>
+          )}
+        </div>
+      </section>
+
+      {!canManage ? (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+          You have view-only product access. Product creation,
+          editing, status changes, archiving, and restoration controls
+          are hidden.
+        </div>
+      ) : null}
+
+      <div className={`${card} mb-4 p-1.5`}>
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+          {[
+            ["current", "Current"],
+            ["archived", "Archived"],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              className={cn(
+                "rounded-xl px-3 py-2.5 text-xs font-extrabold transition sm:px-4 sm:text-sm",
+                activeTab === key
+                  ? "bg-indigo-600 text-white shadow-sm"
+                  : "text-gray-700 hover:bg-gray-50"
+              )}
+              onClick={() => switchTab(key)}
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <ProductList
+        products={products}
+        loading={loading}
+        loadingMore={loadingMore}
+        hasMore={hasMore}
+        openingProductId={openingProductId}
+        getCategoryName={getCategoryName}
+        getBrandName={getBrandName}
+        getUnitName={getUnitName}
+        getSupplierName={getSupplierName}
+        loadingDetailsId={loadingDetailsId}
+        actionState={actionState}
+        onView={openDetailsModal}
+        onEdit={openEditModal}
+        onAction={openProductAction}
+        onDelete={openDeleteProduct}
+        onLoadMore={() => loadProducts({ append: true })}
+        canManage={canManage}
+        canDelete={canDelete}
+      />
+
+      <FilterModal
+        open={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        activeTab={activeTab}
+        filters={filters}
+        updateFilter={updateFilter}
+        resetFilters={resetFilters}
+        activeFilterCount={activeFilterCount}
+        categoryOptions={categoryOptions}
+        brandOptions={brandOptions}
+      />
+
+      <ProductDetailsModal
+        state={detailsModal}
+        getCategoryName={getCategoryName}
+        getBrandName={getBrandName}
+        getUnitName={getUnitName}
+        getSupplierName={getSupplierName}
+        onClose={closeDetailsModal}
+        onEdit={openEditModal}
+        onDelete={openDeleteProduct}
+        canManage={canManage}
+        canDelete={canDelete}
+      />
+
+      <ConfirmProductActionModal
+        state={actionModal}
+        onClose={closeProductAction}
+        onConfirm={confirmProductAction}
+      />
+
+      <DeleteProductModal
+        state={deleteModal}
+        setState={setDeleteModal}
+        onClose={closeDeleteProduct}
+        onSubmit={deleteProductPermanently}
+      />
+
+      <ProductFormModal
+        open={modal.open}
+        item={modal.item}
+        form={form}
+        setForm={setForm}
+        categoryOptions={categoryOptions}
+        brandOptions={brandOptions}
+        unitOptions={unitOptions}
+        supplierOptions={supplierOptions}
+        supplierOptionsAvailable={supplierOptionsAvailable}
+        supplierOptionsLoading={supplierOptionsLoading}
+        categoryMap={categoryMap}
+        brandMap={brandMap}
+        unitMap={unitMap}
+        supplierMap={supplierMap}
+        error={formError}
+        saving={saving}
+        onClose={closeModal}
+        onSubmit={saveProduct}
+        onProductTypeChange={updateProductType}
+        onTrackInventoryChange={updateTrackInventory}
+        onTaxTypeChange={updateTaxType}
+      />
+    </div>
+  )
+}
+
 function FilterModal({
   open,
   onClose,
   activeTab,
-  setActiveTab,
   filters,
   updateFilter,
   resetFilters,
   activeFilterCount,
-  products,
-  currencies,
-  selectedProductName,
+  categoryOptions,
+  brandOptions,
 }) {
   return (
     <ModalShell
       open={open}
       onClose={onClose}
-      title="Supplier-product filters"
-      subtitle="Filter the selected supplier's product prices and purchasing terms."
+      title="Product filters"
       icon={<Icon icon={FilterIcon} className="h-5 w-5" />}
-      maxWidthClass="max-w-5xl"
+      maxWidthClass="max-w-4xl"
       footer={
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <span
@@ -1616,8 +1836,7 @@ function FilterModal({
                 : "bg-gray-100 text-gray-600 ring-gray-600/10"
             )}
           >
-            {activeFilterCount} active filter
-            {activeFilterCount === 1 ? "" : "s"}
+            {activeFilterCount} active filter{activeFilterCount === 1 ? "" : "s"}
           </span>
 
           <div className="flex justify-end gap-2">
@@ -1628,7 +1847,6 @@ function FilterModal({
             >
               Reset
             </button>
-
             <button
               className={cn(button, primaryButton)}
               onClick={onClose}
@@ -1642,76 +1860,96 @@ function FilterModal({
       }
     >
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Link Status">
+        {activeTab === "current" ? (
+          <Field label="Status">
+            <select
+              className={input}
+              value={filters.status}
+              onChange={(event) => updateFilter("status", event.target.value)}
+            >
+              <option value="all">All current statuses</option>
+              {PRODUCT_STATUSES.map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
+
+        <Field label="Product Type">
           <select
             className={input}
-            value={activeTab}
-            onChange={(event) => setActiveTab(event.target.value)}
+            value={filters.productType}
+            onChange={(event) => updateFilter("productType", event.target.value)}
           >
-            <option value="all">Active + Inactive</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="preferred">Preferred only</option>
-            <option value="archived">Archived</option>
+            <option value="all">All product types</option>
+            {PRODUCT_TYPES.map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
           </select>
         </Field>
 
-        <Field label="Product">
+        <Field label="Tracking Type">
           <select
             className={input}
-            value={filters.product}
-            onChange={(event) =>
-              updateFilter("product", event.target.value)
-            }
+            value={filters.trackingType}
+            onChange={(event) => updateFilter("trackingType", event.target.value)}
           >
-            <option value="all">All products</option>
+            <option value="all">All tracking types</option>
+            {TRACKING_TYPES.map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </Field>
 
-            {filters.product !== "all" &&
-            !products.some(
-              (product) =>
-                String(product._id) === String(filters.product)
-            ) ? (
-              <option value={filters.product}>
-                {selectedProductName || "Selected product"}
-              </option>
-            ) : null}
-
-            {products.map((product) => (
-              <option key={product._id} value={product._id}>
-                {relationLabel(product)}
+        <Field label="Category">
+          <select
+            className={input}
+            value={filters.category}
+            onChange={(event) => updateFilter("category", event.target.value)}
+          >
+            <option value="all">All categories</option>
+            {categoryOptions.map((category) => (
+              <option key={category._id} value={category._id}>
+                {optionLabel(category, "category")}
               </option>
             ))}
+          </select>
+        </Field>
+
+        <Field label="Brand">
+          <select
+            className={input}
+            value={filters.brand}
+            onChange={(event) => updateFilter("brand", event.target.value)}
+          >
+            <option value="all">All brands</option>
+            {brandOptions.map((brand) => (
+              <option key={brand._id} value={brand._id}>
+                {optionLabel(brand, "brand")}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Inventory Tracking">
+          <select
+            className={input}
+            value={filters.trackInventory}
+            onChange={(event) => updateFilter("trackInventory", event.target.value)}
+          >
+            <option value="all">Tracked + Not tracked</option>
+            <option value="true">Tracked products only</option>
+            <option value="false">Not tracked only</option>
           </select>
         </Field>
 
         <Field label="Currency">
-          <select
+          <FocusPlaceholderInput
             className={input}
             value={filters.currency}
-            onChange={(event) =>
-              updateFilter("currency", event.target.value)
-            }
-          >
-            <option value="all">All currencies</option>
-            {currencies.map((currency) => (
-              <option key={currency} value={currency}>
-                {currency}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <Field
-          label="Price Active On"
-          hint="Show links whose validity range includes this date."
-        >
-          <input
-            className={input}
-            type="date"
-            value={filters.activeOn}
-            onChange={(event) =>
-              updateFilter("activeOn", event.target.value)
-            }
+            onChange={(event) => updateFilter("currency", event.target.value.toUpperCase())}
+            placeholder="Example: BDT"
+            maxLength={12}
           />
         </Field>
       </div>
@@ -1719,280 +1957,247 @@ function FilterModal({
   )
 }
 
-function SupplierProductList({
-  links,
+function ProductList({
+  products,
   loading,
   loadingMore,
   hasMore,
-  hasSupplier,
-  supplier,
-  openingId,
+  openingProductId,
   loadingDetailsId,
-  canManage,
-  canDelete,
+  actionState,
+  getCategoryName,
+  getBrandName,
+  getUnitName,
+  getSupplierName,
   onView,
   onEdit,
-  onStatusChange,
-  onArchive,
-  onRestore,
+  onAction,
+  onDelete,
   onLoadMore,
+  canManage,
+  canDelete,
 }) {
   return (
-    <div>
-      <div className={cn(card, "overflow-hidden")}>
-        <div className="hidden max-h-[680px] overflow-auto xl:block">
-          <table className="min-w-[1550px] w-full text-left">
-            <thead className="sticky top-0 z-10 bg-gray-50 text-xs font-black uppercase text-gray-500">
-              <tr>
-                <th className="px-5 py-3">Product</th>
-                <th className="px-5 py-3">Supplier SKU</th>
-                <th className="px-5 py-3">Purchase Unit</th>
-                <th className="px-5 py-3">Unit Price</th>
-                <th className="px-5 py-3">MOQ</th>
-                <th className="px-5 py-3">Pack Size</th>
-                <th className="px-5 py-3">Lead Time</th>
-                <th className="px-5 py-3">Tax</th>
-                <th className="px-5 py-3">Preferred</th>
-                <th className="px-5 py-3">Price Validity</th>
-                <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3">Updated</th>
-                <th className="sticky right-0 bg-gray-50 px-5 py-3 text-right">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-gray-100">
-              {links.map((link) => (
-                <tr
-                  key={link._id}
-                  className="group bg-white transition hover:bg-gray-50/70"
+    <div className={cn(card, "overflow-hidden rounded-3xl border-gray-200")}>
+      <div className="hidden h-[560px] overflow-auto [scrollbar-gutter:stable] xl:block 2xl:h-[650px]">
+        <table className="w-full min-w-[1450px] border-separate border-spacing-0 text-left">
+          <thead className="sticky top-0 z-20">
+            <tr>
+              {[
+                "Product",
+                "Type",
+                "Category / Brand",
+                "Unit",
+                "Supplier",
+                "Purchase",
+                "Selling",
+                "Inventory",
+                "Tracking",
+                "Status",
+                "Updated",
+              ].map((label) => (
+                <th
+                  key={label}
+                  className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-black uppercase tracking-[0.06em] text-gray-600"
                 >
-                  <td className="px-5 py-4">
-                    <div className="min-w-[235px]">
-                      <p className="truncate text-sm font-black text-gray-900">
-                        {link.product?.name || "Unknown product"}
-                      </p>
-                      <p className="mt-0.5 text-xs font-black text-indigo-700">
-                        {link.product?.sku || "-"}
-                      </p>
-                      <p className="mt-0.5 truncate text-xs font-semibold text-gray-500">
-                        {link.product?.barcode || "No barcode"}
-                      </p>
+                  {label}
+                </th>
+              ))}
+              <th className="sticky right-0 z-30 border-b border-gray-200 bg-gray-50 px-5 py-4 text-right text-xs font-black uppercase tracking-[0.06em] text-gray-600 shadow-[-12px_0_20px_-20px_rgba(15,23,42,0.35)]">
+                Actions
+              </th>
+            </tr>
+          </thead>
+
+          <tbody className="bg-white">
+            {loading ? (
+              <ProductTableSkeleton rows={8} />
+            ) : products.length ? (
+              products.map((product) => (
+                <tr key={product._id} className="group">
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 transition group-hover:bg-indigo-50/40">
+                    <div className="flex min-w-[250px] items-center gap-3">
+                      <ProductImage product={product} />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-black text-gray-950">{product.name}</p>
+                        <p className="mt-0.5 text-xs font-black text-indigo-700">{product.sku}</p>
+                        <p className="mt-0.5 max-w-[280px] truncate text-xs font-medium text-gray-500">
+                          {product.barcode || "No barcode"}
+                        </p>
+                      </div>
                     </div>
                   </td>
 
-                  <td className="px-5 py-4 text-sm font-black text-gray-700">
-                    {link.supplierSku || "-"}
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 transition group-hover:bg-indigo-50/40"><TypeBadge value={product.productType} /></td>
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 transition group-hover:bg-indigo-50/40">
+                    <p className="max-w-[190px] truncate text-sm font-semibold text-gray-800">{getCategoryName(product)}</p>
+                    <p className="mt-0.5 max-w-[190px] truncate text-xs font-medium text-gray-500">{getBrandName(product)}</p>
                   </td>
-
-                  <td className="px-5 py-4">
-                    <p className="min-w-[145px] text-sm font-black text-gray-800">
-                      {link.purchaseUnit?.name || "Base unit"}
-                    </p>
-                    <p className="mt-0.5 text-xs font-semibold text-gray-500">
-                      {link.purchaseUnit?.symbol ||
-                        link.purchaseUnit?.code ||
-                        "Product base unit"}
-                    </p>
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 text-sm font-medium text-gray-700 transition group-hover:bg-indigo-50/40">{getUnitName(product)}</td>
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 text-sm font-medium text-gray-700 transition group-hover:bg-indigo-50/40"><p className="max-w-[190px] truncate">{getSupplierName(product)}</p></td>
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 text-sm font-semibold text-gray-800 transition group-hover:bg-indigo-50/40">{formatMoney(product.purchasePrice, product.currency)}</td>
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 transition group-hover:bg-indigo-50/40">
+                    <p className="text-sm font-semibold text-indigo-700">{formatMoney(product.sellingPrice, product.currency)}</p>
+                    {Number(product.wholesalePrice || 0) > 0 ? (
+                      <p className="mt-0.5 text-xs font-medium text-gray-500">Wholesale {formatMoney(product.wholesalePrice, product.currency)}</p>
+                    ) : null}
                   </td>
-
-                  <td className="px-5 py-4 text-sm font-black text-gray-900">
-                    {formatMoney(link.unitPrice, link.currency)}
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 transition group-hover:bg-indigo-50/40">
+                    <span className={cn(
+                      "inline-flex rounded-full px-3 py-1 text-xs font-black ring-1",
+                      product.trackInventory
+                        ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
+                        : "bg-gray-100 text-gray-600 ring-gray-200"
+                    )}>
+                      {product.trackInventory ? "Tracked" : "Not tracked"}
+                    </span>
+                    {product.trackInventory ? <p className="mt-1 text-xs font-medium text-gray-500">Reorder {product.reorderLevel ?? 0}</p> : null}
                   </td>
-
-                  <td className="px-5 py-4 text-sm font-black text-gray-700">
-                    {formatNumber(link.minimumOrderQuantity)}
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-black text-gray-700">
-                    {formatNumber(link.packSize)}
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-black text-gray-700">
-                    {formatNumber(link.leadTimeDays, 0)} days
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <p className="text-sm font-black text-gray-700">
-                      {pretty(link.taxType)}
-                    </p>
-                    <p className="mt-0.5 text-xs font-semibold text-gray-500">
-                      {formatNumber(link.taxRate, 2)}%
-                    </p>
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <PreferredBadge value={link.isPreferred} />
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <div className="min-w-[165px]">
-                      <ValidityBadge link={link} />
-                      <p className="mt-1 text-xs font-semibold text-gray-500">
-                        {formatDate(link.validFrom)} — {formatDate(link.validTo)}
-                      </p>
-                    </div>
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <StatusBadge value={link.status} />
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-semibold text-gray-600">
-                    {formatDate(link.updatedAt)}
-                  </td>
-
-                  <td className="sticky right-0 bg-white px-5 py-4 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-gray-50/70">
-                    <SupplierProductActions
-                      link={link}
-                      supplier={supplier}
-                      opening={String(openingId) === String(link._id)}
-                      loadingDetails={
-                        String(loadingDetailsId) === String(link._id)
-                      }
-                      canManage={canManage}
-                      canDelete={canDelete}
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 text-sm font-medium text-gray-700 transition group-hover:bg-indigo-50/40">{pretty(product.trackingType)}</td>
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 transition group-hover:bg-indigo-50/40"><StatusBadge value={product.status} /></td>
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 text-sm font-medium text-gray-600 transition group-hover:bg-indigo-50/40">{formatDate(product.updatedAt)}</td>
+                  <td className="sticky right-0 z-10 border-b border-gray-100 bg-white px-5 py-2 text-right transition shadow-[-14px_0_24px_-22px_rgba(15,23,42,0.45)] group-hover:bg-indigo-50/40">
+                    <ProductActions
+                      product={product}
+                      opening={String(openingProductId) === String(product._id)}
+                      loadingDetails={String(loadingDetailsId) === String(product._id)}
+                      actionState={actionState}
                       onView={onView}
                       onEdit={onEdit}
-                      onStatusChange={onStatusChange}
-                      onArchive={onArchive}
-                      onRestore={onRestore}
+                      onAction={onAction}
+                      onDelete={onDelete}
+                      canManage={canManage}
+                      canDelete={canDelete}
                     />
                   </td>
                 </tr>
-              ))}
-
-              {!links.length ? (
-                <tr>
-                  <td
-                    colSpan={13}
-                    className="px-5 py-14 text-center text-sm font-bold text-gray-500"
-                  >
-                    {!hasSupplier
-                      ? "Select a supplier to view linked products."
-                      : loading
-                        ? "Loading supplier products..."
-                        : "No supplier-product links found."}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="divide-y divide-gray-100 xl:hidden">
-          {links.map((link) => (
-            <SupplierProductMobileCard
-              key={link._id}
-              link={link}
-              supplier={supplier}
-              opening={String(openingId) === String(link._id)}
-              loadingDetails={
-                String(loadingDetailsId) === String(link._id)
-              }
-              canManage={canManage}
-              canDelete={canDelete}
-              onView={onView}
-              onEdit={onEdit}
-              onStatusChange={onStatusChange}
-              onArchive={onArchive}
-              onRestore={onRestore}
-            />
-          ))}
-
-          {!links.length ? (
-            <div className="px-5 py-14 text-center text-sm font-bold text-gray-500">
-              {!hasSupplier
-                ? "Select a supplier to view linked products."
-                : loading
-                  ? "Loading supplier products..."
-                  : "No supplier-product links found."}
-            </div>
-          ) : null}
-        </div>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={12} className="bg-white p-10 text-center">
+                  <div className="mx-auto flex max-w-sm flex-col items-center rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-8">
+                    <Icon icon={FolderLibraryIcon} className="h-6 w-6 text-gray-400" />
+                    <p className="mt-3 text-sm font-black text-gray-900">No products found</p>
+                  </div>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
-      {hasMore ? (
-        <div className="mt-4 flex justify-center">
+      <div className="divide-y divide-gray-100 xl:hidden">
+        {loading ? (
+          <ProductMobileSkeleton rows={5} />
+        ) : products.length ? (
+          products.map((product) => (
+            <ProductMobileCard
+              key={product._id}
+              product={product}
+              categoryName={getCategoryName(product)}
+              brandName={getBrandName(product)}
+              unitName={getUnitName(product)}
+              supplierName={getSupplierName(product)}
+              opening={String(openingProductId) === String(product._id)}
+              loadingDetails={String(loadingDetailsId) === String(product._id)}
+              actionState={actionState}
+              onView={onView}
+              onEdit={onEdit}
+              onAction={onAction}
+              onDelete={onDelete}
+              canManage={canManage}
+              canDelete={canDelete}
+            />
+          ))
+        ) : (
+          <div className="p-8 text-center text-sm font-bold text-gray-500">No products found</div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-3 border-t border-gray-100 bg-gray-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <p className="text-xs font-semibold text-gray-500">
+          {loading ? "Loading products…" : `${products.length} product${products.length === 1 ? "" : "s"} loaded`}
+        </p>
+        {hasMore ? (
           <button
-            className={cn(button, ghostButton, "min-w-[150px]")}
+            className={cn(button, ghostButton, "min-w-[140px] py-2")}
             onClick={onLoadMore}
             disabled={loadingMore}
             type="button"
           >
-            <Icon
-              icon={RefreshIcon}
-              className={cn(
-                "h-4 w-4",
-                loadingMore ? "animate-spin" : ""
-              )}
-            />
+            {loadingMore ? <Spinner /> : <Icon icon={RefreshIcon} className="h-4 w-4" />}
             {loadingMore ? "Loading..." : "Load more"}
           </button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   )
 }
 
-function SupplierProductMobileCard(props) {
-  const { link } = props
-
+function ProductMobileCard({
+  product,
+  categoryName,
+  brandName,
+  unitName,
+  supplierName,
+  opening,
+  loadingDetails,
+  actionState,
+  onView,
+  onEdit,
+  onAction,
+  onDelete,
+  canManage,
+  canDelete,
+}) {
   return (
     <article className="p-4">
       <div className="flex items-start gap-3">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-indigo-100 bg-indigo-50 px-2 text-center text-xs font-black text-indigo-700">
-          {(link.product?.sku || "P").slice(0, 4)}
-        </div>
-
+        <ProductImage product={product} />
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="truncate text-sm font-black text-gray-900">
-                {link.product?.name || "Unknown product"}
-              </h3>
-              <p className="mt-0.5 text-xs font-black text-indigo-700">
-                {link.product?.sku || "-"}
-              </p>
+              <h3 className="truncate text-sm font-black text-gray-950">{product.name}</h3>
+              <p className="mt-0.5 text-xs font-black text-indigo-700">{product.sku}</p>
             </div>
-            <StatusBadge value={link.status} />
+            <StatusBadge value={product.status} />
           </div>
 
           <div className="mt-2 flex flex-wrap gap-2">
-            <PreferredBadge value={link.isPreferred} />
-            <ValidityBadge link={link} />
+            <TypeBadge value={product.productType} />
+            <span className={cn(
+              "inline-flex rounded-full px-3 py-1 text-xs font-black ring-1",
+              product.trackInventory
+                ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
+                : "bg-gray-100 text-gray-600 ring-gray-200"
+            )}>
+              {product.trackInventory ? "Tracked" : "Not tracked"}
+            </span>
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-3 rounded-xl bg-gray-50 p-3 text-xs">
-            <MiniMetric
-              label="Supplier SKU"
-              value={link.supplierSku || "-"}
-            />
-            <MiniMetric
-              label="Purchase Unit"
-              value={relationLabel(link.purchaseUnit, "Base unit")}
-            />
-            <MiniMetric
-              label="Unit Price"
-              value={formatMoney(link.unitPrice, link.currency)}
-            />
-            <MiniMetric
-              label="MOQ"
-              value={formatNumber(link.minimumOrderQuantity)}
-            />
-            <MiniMetric
-              label="Pack Size"
-              value={formatNumber(link.packSize)}
-            />
-            <MiniMetric
-              label="Lead Time"
-              value={`${formatNumber(link.leadTimeDays, 0)} days`}
-            />
+            <MiniMetric label="Category" value={categoryName} />
+            <MiniMetric label="Brand" value={brandName} />
+            <MiniMetric label="Selling" value={formatMoney(product.sellingPrice, product.currency)} />
+            <MiniMetric label="Base Unit" value={unitName} />
+            <div className="col-span-2"><MiniMetric label="Supplier" value={supplierName} /></div>
+            <div className="col-span-2"><MiniMetric label="Tracking" value={`${pretty(product.trackingType)}${product.trackInventory ? ` · Reorder ${product.reorderLevel ?? 0}` : ""}`} /></div>
           </div>
 
           <div className="mt-3 border-t border-gray-100 pt-3">
-            <SupplierProductActions {...props} mobile />
+            <ProductActions
+              product={product}
+              opening={opening}
+              loadingDetails={loadingDetails}
+              actionState={actionState}
+              onView={onView}
+              onEdit={onEdit}
+              onAction={onAction}
+              onDelete={onDelete}
+              canManage={canManage}
+              canDelete={canDelete}
+              mobile
+            />
           </div>
         </div>
       </div>
@@ -2003,240 +2208,494 @@ function SupplierProductMobileCard(props) {
 function MiniMetric({ label, value }) {
   return (
     <div>
-      <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">
-        {label}
-      </p>
-      <p className="mt-1 truncate text-sm font-black text-gray-800">
-        {value}
-      </p>
+      <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-gray-800">{value}</p>
     </div>
   )
 }
 
-function SupplierProductActions({
-  link,
-  supplier,
-  opening,
-  loadingDetails,
-  canManage,
-  canDelete,
-  onView,
-  onEdit,
-  onStatusChange,
-  onArchive,
-  onRestore,
-  mobile = false,
-}) {
-  const actionClass = mobile ? "px-3 py-2" : "px-3"
+function ProductImage({ product, size = "h-12 w-12" }) {
+  const [failed, setFailed] = useState(false)
+  const showImage = clean(product.imageUrl) && !failed
+  const initials = clean(product.name).slice(0, 2).toUpperCase() || "PR"
 
-  if (link.status === "archived") {
-    return (
-      <div
-        className={cn(
-          "flex gap-2",
-          mobile ? "flex-wrap" : "justify-end"
-        )}
-      >
-        <button
-          className={cn(button, ghostButton, actionClass)}
-          onClick={() => onView(link)}
-          disabled={loadingDetails}
-          type="button"
-          title="View product link"
-        >
-          <Icon
-            icon={loadingDetails ? RefreshIcon : ViewIcon}
-            className={cn(
-              "h-4 w-4",
-              loadingDetails ? "animate-spin" : ""
-            )}
-          />
-          {mobile ? "View" : null}
-        </button>
-
-        {canDelete ? (
-          <button
-            className={cn(button, ghostButton, actionClass)}
-            onClick={() => onRestore(link)}
-            type="button"
-            title="Restore product link"
-          >
-            <Icon icon={RestoreBinIcon} className="h-4 w-4" />
-            {mobile ? "Restore" : null}
-          </button>
-        ) : null}
-      </div>
-    )
-  }
+  useEffect(() => {
+    setFailed(false)
+  }, [product.imageUrl])
 
   return (
-    <div
-      className={cn(
-        "flex items-center gap-2",
-        mobile ? "flex-wrap" : "justify-end"
-      )}
-    >
-      <button
-        className={cn(button, ghostButton, actionClass)}
-        onClick={() => onView(link)}
-        disabled={loadingDetails}
-        type="button"
-        title="View product link"
-      >
-        <Icon
-          icon={loadingDetails ? RefreshIcon : ViewIcon}
-          className={cn(
-            "h-4 w-4",
-            loadingDetails ? "animate-spin" : ""
-          )}
+    <div className={cn(
+      "flex shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-indigo-100 bg-indigo-50 text-indigo-700",
+      size
+    )}>
+      {showImage ? (
+        <img
+          src={product.imageUrl}
+          alt=""
+          className="h-full w-full object-cover"
+          onError={() => setFailed(true)}
         />
-        {mobile ? "View" : null}
-      </button>
-
-      {canManage ? (
-        <>
-          <select
-            className={cn(
-              "rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-black text-gray-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20",
-              mobile ? "min-w-[126px]" : "w-[112px]"
-            )}
-            value={link.status}
-            onChange={(event) =>
-              onStatusChange(link, event.target.value)
-            }
-            aria-label={`Update ${link.product?.name || "product"} link status`}
-          >
-            {CURRENT_STATUSES.map((status) => (
-              <option
-                key={status}
-                value={status}
-                disabled={
-                  status === "active" && supplier?.status !== "active"
-                }
-              >
-                {pretty(status)}
-              </option>
-            ))}
-          </select>
-
-          <button
-            className={cn(button, ghostButton, actionClass)}
-            onClick={() => onEdit(link)}
-            disabled={opening}
-            type="button"
-            title="Edit product link"
-          >
-            <Icon
-              icon={opening ? RefreshIcon : Edit02Icon}
-              className={cn(
-                "h-4 w-4",
-                opening ? "animate-spin" : ""
-              )}
-            />
-            {mobile ? (opening ? "Loading" : "Edit") : null}
-          </button>
-        </>
-      ) : null}
-
-      {canDelete ? (
-        <button
-          className={cn(button, dangerButton, actionClass)}
-          onClick={() => onArchive(link)}
-          type="button"
-          title="Archive product link"
-        >
-          <Icon icon={Archive02Icon} className="h-4 w-4" />
-          {mobile ? "Archive" : null}
-        </button>
-      ) : null}
+      ) : (
+        <span className="text-xs font-black tracking-wide">{initials}</span>
+      )}
     </div>
   )
 }
 
-function SupplierProductFormModal({
-  state,
-  supplier,
-  form,
-  setForm,
-  products,
-  units,
-  productMap,
-  unitMap,
-  meta,
-  error,
-  saving,
-  onClose,
-  onSubmit,
-  onTaxTypeChange,
-  onPreferredChange,
-  onStatusChange,
+function ProductActions({
+  product,
+  opening,
+  loadingDetails,
+  actionState,
+  onView,
+  onEdit,
+  onAction,
+  onDelete,
+  canManage,
+  canDelete,
+  mobile = false,
 }) {
-  const product = productMap.get(String(form.product)) || state.item?.product
-  const purchaseUnit =
-    unitMap.get(String(form.purchaseUnit)) || state.item?.purchaseUnit
-  const effectiveUnit = purchaseUnit || product?.baseUnit
-  const orderValue =
-    Number(form.unitPrice || 0) * Number(form.minimumOrderQuantity || 0)
+  const [open, setOpen] = useState(false)
+  const [menuStyle, setMenuStyle] = useState({ top: 0, left: 0, transformOrigin: "top right" })
+  const rootRef = useRef(null)
+  const buttonRef = useRef(null)
+  const menuRef = useRef(null)
+  const busy = String(actionState.id) === String(product._id)
+
+  const updateMenuPosition = useCallback(() => {
+    if (typeof window === "undefined" || !buttonRef.current) return
+    const rect = buttonRef.current.getBoundingClientRect()
+    const menuWidth = 250
+    const gap = 8
+    const estimatedHeight = 360
+    const shouldOpenUp = window.innerHeight - rect.bottom < 280
+    const top = shouldOpenUp
+      ? Math.max(12, rect.top - Math.min(estimatedHeight, window.innerHeight - 24) - gap)
+      : Math.min(rect.bottom + gap, window.innerHeight - 12)
+    const left = Math.min(
+      Math.max(12, rect.right - menuWidth),
+      Math.max(12, window.innerWidth - menuWidth - 12)
+    )
+    setMenuStyle({ top, left, transformOrigin: shouldOpenUp ? "bottom right" : "top right" })
+  }, [])
+
+  useEffect(() => {
+    if (!open) return undefined
+    updateMenuPosition()
+    const closeOutside = (event) => {
+      if (rootRef.current?.contains(event.target) || menuRef.current?.contains(event.target)) return
+      setOpen(false)
+    }
+    const reposition = () => updateMenuPosition()
+    document.addEventListener("mousedown", closeOutside)
+    window.addEventListener("resize", reposition)
+    window.addEventListener("scroll", reposition, true)
+    return () => {
+      document.removeEventListener("mousedown", closeOutside)
+      window.removeEventListener("resize", reposition)
+      window.removeEventListener("scroll", reposition, true)
+    }
+  }, [open, updateMenuPosition])
+
+  const items = []
+
+  if (product.status !== "archived") {
+    if (canManage) {
+      items.push(["edit", "Edit product", Edit02Icon])
+      PRODUCT_STATUSES.forEach(([status, label]) => {
+        if (status !== product.status) {
+          items.push([
+            `status-${status}`,
+            `Mark ${label.toLowerCase()}`,
+            status === "discontinued" ? Alert02Icon : Tick02Icon,
+            status === "discontinued" ? "warning" : undefined,
+          ])
+        }
+      })
+    }
+    if (canDelete) items.push(["archive", "Archive product", Archive02Icon, "warning"])
+  } else if (canDelete) {
+    items.push(["restore", "Restore product", RestoreBinIcon])
+  }
+
+  if (canDelete) items.push(["delete", "Delete product", Cancel01Icon, "danger"])
+
+  const handleItem = (key) => {
+    setOpen(false)
+    if (key === "edit") return onEdit(product)
+    if (key.startsWith("status-")) return onAction("status", product, key.replace("status-", ""))
+    if (key === "archive") return onAction("archive", product)
+    if (key === "restore") return onAction("restore", product)
+    if (key === "delete") return onDelete(product)
+  }
+
+  const menu = open && typeof document !== "undefined"
+    ? createPortal(
+        <motion.div
+          ref={menuRef}
+          initial={{ opacity: 0, y: 8, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.14 }}
+          style={{ top: menuStyle.top, left: menuStyle.left, transformOrigin: menuStyle.transformOrigin }}
+          className="fixed z-[9999] w-[250px] overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_24px_60px_-20px_rgba(15,23,42,0.45)]"
+        >
+          <div className="max-h-[min(70vh,420px)] overflow-y-auto p-2">
+            {items.length ? items.map(([key, text, icon, tone]) => {
+              const itemBusy = busy && actionState.type === key
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => handleItem(key)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50",
+                    tone === "danger"
+                      ? "text-rose-700 hover:bg-rose-50"
+                      : tone === "warning"
+                        ? "text-amber-800 hover:bg-amber-50"
+                        : "text-gray-800 hover:bg-gray-50"
+                  )}
+                >
+                  {itemBusy ? <Spinner /> : <Icon icon={icon} className="h-4 w-4 shrink-0" />}
+                  <span>{text}</span>
+                </button>
+              )
+            }) : (
+              <p className="px-3 py-2 text-sm font-semibold text-gray-400">No additional actions</p>
+            )}
+          </div>
+        </motion.div>,
+        document.body
+      )
+    : null
+
+  return (
+    <div ref={rootRef} className="relative flex items-center justify-end gap-2">
+      <button
+        type="button"
+        onClick={() => onView(product)}
+        disabled={loadingDetails}
+        className={cn(button, primaryButton, mobile ? "h-10 px-3" : "h-10 px-4")}
+      >
+        {loadingDetails ? <Spinner /> : <Icon icon={ViewIcon} className="h-4 w-4" />}
+        View
+      </button>
+
+      {items.length ? (
+        <button
+          ref={buttonRef}
+          type="button"
+          aria-label="More product actions"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => {
+            if (!open) updateMenuPosition()
+            setOpen((previous) => !previous)
+          }}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+        >
+          <span className="-mt-1 text-xl font-black leading-none">⋮</span>
+        </button>
+      ) : null}
+      {menu}
+    </div>
+  )
+}
+
+function RelationSelect({
+  value,
+  onChange,
+  options,
+  map,
+  type,
+  emptyLabel,
+  currentLabel,
+  disabled = false,
+}) {
+  const currentId = clean(value)
+  const currentExists = currentId && map.has(currentId)
+
+  return (
+    <select
+      className={input}
+      value={value}
+      onChange={onChange}
+      disabled={disabled}
+    >
+      <option value="">{emptyLabel}</option>
+
+      {currentId && !currentExists ? (
+        <option value={currentId}>
+          {currentLabel || "Current assigned record"}
+        </option>
+      ) : null}
+
+      {options.map((item) => (
+        <option
+          key={item._id}
+          value={item._id}
+          disabled={item.isSelectable === false}
+        >
+          {optionLabel(item, type)}
+          {item.isSelectable === false ? ` — ${pretty(item.status)}` : ""}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+function ProductDetailsModal({
+  state,
+  getCategoryName,
+  getBrandName,
+  getUnitName,
+  getSupplierName,
+  onClose,
+  onEdit,
+  onDelete,
+  canManage,
+  canDelete,
+}) {
+  const product = state.product
+  if (!product) return null
 
   return (
     <ModalShell
       open={state.open}
       onClose={onClose}
-      title={state.item ? "Update supplier product" : "Link supplier product"}
+      title="Product details"
+      subtitle={product.sku || ""}
+      icon={<Icon icon={ViewIcon} className="h-5 w-5" />}
+      maxWidthClass="max-w-4xl"
+      footer={
+        <div className="flex flex-wrap justify-end gap-2">
+          <button className={cn(button, ghostButton)} type="button" onClick={onClose}>Close</button>
+          {canManage && product.status !== "archived" ? (
+            <button className={cn(button, primaryButton)} type="button" onClick={() => { onClose(); onEdit(product) }}>
+              <Icon icon={Edit02Icon} className="h-4 w-4" />
+              Edit
+            </button>
+          ) : null}
+          {canDelete ? (
+            <button className={cn(button, dangerButton)} type="button" onClick={() => onDelete(product)}>
+              <Icon icon={Cancel01Icon} className="h-4 w-4" />
+              Delete
+            </button>
+          ) : null}
+        </div>
+      }
+    >
+      <div className="space-y-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <ProductImage product={product} size="h-16 w-16" />
+          <div className="min-w-0">
+            <h3 className="truncate text-xl font-black text-gray-950">{product.name}</h3>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <StatusBadge value={product.status} />
+              <TypeBadge value={product.productType} />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <DetailItem label="SKU" value={product.sku || "—"} />
+          <DetailItem label="Barcode" value={product.barcode || "—"} />
+          <DetailItem label="Category" value={getCategoryName(product)} />
+          <DetailItem label="Brand" value={getBrandName(product)} />
+          <DetailItem label="Base Unit" value={getUnitName(product)} />
+          <DetailItem label="Default Supplier" value={getSupplierName(product)} />
+          <DetailItem label="Purchase Price" value={formatMoney(product.purchasePrice, product.currency)} />
+          <DetailItem label="Selling Price" value={formatMoney(product.sellingPrice, product.currency)} />
+          <DetailItem label="Wholesale Price" value={formatMoney(product.wholesalePrice, product.currency)} />
+          <DetailItem label="Tracking" value={pretty(product.trackingType)} />
+          <DetailItem label="Costing Method" value={pretty(product.costingMethod)} />
+          <DetailItem label="Reorder Level" value={String(product.reorderLevel ?? 0)} />
+        </div>
+
+        {clean(product.description) ? (
+          <div className="rounded-2xl border border-gray-100 bg-gray-50/70 p-4">
+            <p className="text-xs font-black uppercase tracking-wide text-gray-400">Description</p>
+            <p className="mt-2 whitespace-pre-wrap text-sm font-medium leading-6 text-gray-700">{product.description}</p>
+          </div>
+        ) : null}
+      </div>
+    </ModalShell>
+  )
+}
+
+function DetailItem({ label, value }) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3">
+      <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="mt-1 break-words text-sm font-semibold text-gray-800">{value}</p>
+    </div>
+  )
+}
+
+function ConfirmProductActionModal({ state, onClose, onConfirm }) {
+  return (
+    <ModalShell
+      open={state.open}
+      onClose={onClose}
+      title={state.title}
+      subtitle={state.product?.name || ""}
+      icon={<Icon icon={state.danger ? Alert02Icon : Tick02Icon} className="h-5 w-5" />}
+      maxWidthClass="max-w-lg"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button className={cn(button, ghostButton)} type="button" onClick={onClose} disabled={state.loading}>Cancel</button>
+          <button
+            className={cn(button, state.danger ? dangerButton : primaryButton)}
+            type="button"
+            onClick={onConfirm}
+            disabled={state.loading}
+          >
+            {state.loading ? <Spinner /> : <Icon icon={Tick02Icon} className="h-4 w-4" />}
+            {state.loading ? "Processing..." : "Confirm"}
+          </button>
+        </div>
+      }
+    >
+      {state.error ? (
+        <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{state.error}</div>
+      ) : null}
+      <p className="text-sm font-semibold leading-6 text-gray-700">{state.message}</p>
+    </ModalShell>
+  )
+}
+
+function DeleteProductModal({ state, setState, onClose, onSubmit }) {
+  return (
+    <ModalShell
+      open={state.open}
+      onClose={onClose}
+      title="Delete product"
+      subtitle={state.product?.name || ""}
+      icon={<Icon icon={Cancel01Icon} className="h-5 w-5" />}
+      maxWidthClass="max-w-lg"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button className={cn(button, ghostButton)} type="button" onClick={onClose} disabled={state.loading}>Cancel</button>
+          <button
+            className={cn(button, dangerButton)}
+            type="submit"
+            form="product-delete-form"
+            disabled={state.loading}
+          >
+            {state.loading ? <Spinner /> : <Icon icon={Cancel01Icon} className="h-4 w-4" />}
+            {state.loading ? "Deleting..." : "Delete permanently"}
+          </button>
+        </div>
+      }
+    >
+      {state.error ? (
+        <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{state.error}</div>
+      ) : null}
+
+      <form id="product-delete-form" onSubmit={onSubmit} className="space-y-4">
+        <div className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800">
+          Permanent delete cannot be undone. Products referenced by transactions should normally be archived instead.
+        </div>
+        <Field label="Your Password" required>
+          <input
+            className={input}
+            type="password"
+            autoComplete="current-password"
+            value={state.password}
+            onChange={(event) => setState((previous) => ({ ...previous, password: event.target.value, error: "" }))}
+            placeholder="Enter password"
+            required
+            autoFocus
+          />
+        </Field>
+      </form>
+    </ModalShell>
+  )
+}
+
+function ProductFormModal({
+  open,
+  item,
+  form,
+  setForm,
+  categoryOptions,
+  brandOptions,
+  unitOptions,
+  supplierOptions,
+  supplierOptionsAvailable,
+  supplierOptionsLoading,
+  categoryMap,
+  brandMap,
+  unitMap,
+  supplierMap,
+  error,
+  saving,
+  onClose,
+  onSubmit,
+  onProductTypeChange,
+  onTrackInventoryChange,
+  onTaxTypeChange,
+}) {
+  const imageUrl = clean(form.imageUrl)
+  const [imageFailed, setImageFailed] = useState(false)
+
+  const isInventoryProduct = form.productType === "inventory"
+  const inventoryControlsEnabled =
+    isInventoryProduct && Boolean(form.trackInventory)
+
+  useEffect(() => {
+    setImageFailed(false)
+  }, [imageUrl, open])
+
+  return (
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      title={item ? "Update product" : "Add product"}
       subtitle={
-        supplier
-          ? `${supplier.businessName} · ${supplier.code}`
-          : "Supplier product"
+        item
+          ? form.name || "Edit product information."
+          : "Create an inventory item, non-inventory item, or service."
       }
       icon={
         <Icon
-          icon={state.item ? Edit02Icon : Add01Icon}
+          icon={item ? Edit02Icon : Add01Icon}
           className="h-5 w-5"
         />
       }
       maxWidthClass="max-w-6xl"
       footer={
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap gap-2">
-            <span className="rounded-full bg-indigo-50 px-3 py-2 text-xs font-black text-indigo-700">
-              {formatMoney(form.unitPrice, form.currency)} per{" "}
-              {effectiveUnit?.symbol || effectiveUnit?.code || "unit"}
-            </span>
-            <span className="rounded-full bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">
-              MOQ value {formatMoney(orderValue, form.currency)}
-            </span>
-          </div>
+        <div className="flex flex-col justify-end gap-2 sm:flex-row">
+          <button
+            className={cn(button, ghostButton)}
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+          >
+            Cancel
+          </button>
 
-          <div className="flex justify-end gap-2">
-            <button
-              className={cn(button, ghostButton)}
-              type="button"
-              onClick={onClose}
-              disabled={saving}
-            >
-              Cancel
-            </button>
+          <button
+            className={cn(button, primaryButton)}
+            type="submit"
+            form="product-form"
+            disabled={saving}
+          >
+            <Icon
+              icon={saving ? RefreshIcon : FloppyDiskIcon}
+              className={cn(
+                "h-4 w-4",
+                saving ? "animate-spin" : ""
+              )}
+            />
 
-            <button
-              className={cn(button, primaryButton)}
-              type="submit"
-              form="supplier-product-form"
-              disabled={saving}
-            >
-              <Icon
-                icon={saving ? RefreshIcon : FloppyDiskIcon}
-                className={cn(
-                  "h-4 w-4",
-                  saving ? "animate-spin" : ""
-                )}
-              />
-              {saving
-                ? "Saving..."
-                : state.item
-                  ? "Update Product Link"
-                  : "Link Product"}
-            </button>
-          </div>
+            {saving
+              ? "Saving..."
+              : item
+                ? "Update product"
+                : "Save product"}
+          </button>
         </div>
       }
     >
@@ -2250,125 +2709,307 @@ function SupplierProductFormModal({
         </div>
       ) : null}
 
-      <form id="supplier-product-form" onSubmit={onSubmit}>
+      <form id="product-form" onSubmit={onSubmit}>
         <div className="space-y-4">
           <SectionCard
-            title="Product and purchase unit"
-            description="The product cannot be changed after this supplier link is created."
+            title="Product identity"
+            description="Core identifiers and reusable product assignments."
           >
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              <Field label="Product" required>
-                <select
-                  className={input}
-                  value={form.product}
-                  onChange={(event) => {
-                    const selected = productMap.get(event.target.value)
-                    setForm((previous) => ({
-                      ...previous,
-                      product: event.target.value,
-                      purchaseUnit:
-                        normalizeId(selected?.baseUnit) || previous.purchaseUnit,
-                      unitPrice:
-                        Number(previous.unitPrice || 0) > 0
-                          ? previous.unitPrice
-                          : String(selected?.purchasePrice ?? 0),
-                      currency:
-                        selected?.currency || previous.currency || "BDT",
-                    }))
-                  }}
-                  disabled={Boolean(state.item)}
-                  required
-                >
-                  <option value="">Select product</option>
-
-                  {form.product &&
-                  !products.some(
-                    (item) => String(item._id) === String(form.product)
-                  ) ? (
-                    <option value={form.product}>
-                      {relationLabel(product, "Current product")}
-                    </option>
-                  ) : null}
-
-                  {products.map((item) => (
-                    <option key={item._id} value={item._id}>
-                      {relationLabel(item)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field
-                label="Purchase Unit"
-                hint="Leave empty to use the product base unit."
-              >
-                <select
-                  className={input}
-                  value={form.purchaseUnit}
-                  onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      purchaseUnit: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="">Use product base unit</option>
-
-                  {form.purchaseUnit &&
-                  !units.some(
-                    (item) =>
-                      String(item._id) === String(form.purchaseUnit)
-                  ) ? (
-                    <option value={form.purchaseUnit}>
-                      {relationLabel(purchaseUnit, "Current unit")}
-                    </option>
-                  ) : null}
-
-                  {units.map((item) => (
-                    <option key={item._id} value={item._id}>
-                      {relationLabel(item)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field label="Supplier SKU" hint="Optional">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <Field label="Product Name" required>
                 <FocusPlaceholderInput
                   className={input}
-                  value={form.supplierSku}
+                  value={form.name}
                   onChange={(event) =>
                     setForm((previous) => ({
                       ...previous,
-                      supplierSku: event.target.value.toUpperCase(),
+                      name: event.target.value,
                     }))
                   }
-                  placeholder="Example: SUP-RICE-25KG"
+                  placeholder="Example: Premium Cotton T-Shirt"
+                  maxLength={160}
+                  required
+                />
+              </Field>
+
+              <Field label="SKU" required>
+                <FocusPlaceholderInput
+                  className={input}
+                  value={form.sku}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      sku: event.target.value.toUpperCase(),
+                    }))
+                  }
+                  placeholder="Example: TSHIRT-BLK-M"
+                  maxLength={80}
+                  required
+                />
+              </Field>
+
+              <Field label="Barcode" hint="Optional">
+                <FocusPlaceholderInput
+                  className={input}
+                  value={form.barcode}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      barcode: event.target.value.toUpperCase(),
+                    }))
+                  }
+                  placeholder="Scan or enter barcode"
                   maxLength={120}
                 />
               </Field>
+
+              <Field label="Product Type" required>
+                <select
+                  className={input}
+                  value={form.productType}
+                  onChange={(event) =>
+                    onProductTypeChange(event.target.value)
+                  }
+                  required
+                >
+                  {PRODUCT_TYPES.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Category" hint="Optional">
+                <RelationSelect
+                  value={form.category}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      category: event.target.value,
+                    }))
+                  }
+                  options={categoryOptions}
+                  map={categoryMap}
+                  type="category"
+                  emptyLabel="No category"
+                  currentLabel="Current category"
+                />
+              </Field>
+
+              <Field label="Brand" hint="Optional">
+                <RelationSelect
+                  value={form.brand}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      brand: event.target.value,
+                    }))
+                  }
+                  options={brandOptions}
+                  map={brandMap}
+                  type="brand"
+                  emptyLabel="No brand"
+                  currentLabel="Current brand"
+                />
+              </Field>
+
+              <Field label="Base Unit" hint="Optional">
+                <RelationSelect
+                  value={form.baseUnit}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      baseUnit: event.target.value,
+                    }))
+                  }
+                  options={unitOptions}
+                  map={unitMap}
+                  type="unit"
+                  emptyLabel="No base unit"
+                  currentLabel="Current base unit"
+                />
+              </Field>
+
+              <Field
+                label="Default Supplier"
+                hint={
+                  supplierOptionsAvailable
+                    ? supplierOptionsLoading
+                      ? "Loading active suppliers..."
+                      : "All suppliers are shown; only approved active suppliers can be selected as the default."
+                    : "Supplier options are currently unavailable."
+                }
+              >
+                <RelationSelect
+                  value={form.defaultSupplier}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      defaultSupplier: event.target.value,
+                    }))
+                  }
+                  options={supplierOptions}
+                  map={supplierMap}
+                  type="supplier"
+                  emptyLabel="No default supplier"
+                  currentLabel="Current supplier"
+                  disabled={
+                    supplierOptionsLoading ||
+                    (!supplierOptionsAvailable &&
+                      !form.defaultSupplier)
+                  }
+                />
+              </Field>
+
+              <Field label="Status" required>
+                <select
+                  className={input}
+                  value={form.status}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      status: event.target.value,
+                    }))
+                  }
+                  required
+                >
+                  {PRODUCT_STATUSES.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <div className="md:col-span-2">
+                <Field label="Image URL" hint="Optional">
+                  <FocusPlaceholderInput
+                    className={input}
+                    value={form.imageUrl}
+                    onChange={(event) =>
+                      setForm((previous) => ({
+                        ...previous,
+                        imageUrl: event.target.value,
+                      }))
+                    }
+                    placeholder="https://example.com/product-image.jpg"
+                    maxLength={1000}
+                    type="url"
+                  />
+                </Field>
+              </div>
+
+              <div className="flex items-end">
+                <div className="flex h-[84px] w-full items-center justify-center overflow-hidden rounded-2xl border border-dashed border-gray-200 bg-white">
+                  {imageUrl && !imageFailed ? (
+                    <img
+                      src={imageUrl}
+                      alt="Product preview"
+                      className="h-full w-full object-cover"
+                      onError={() => setImageFailed(true)}
+                    />
+                  ) : (
+                    <div className="flex items-center gap-2 text-sm font-bold text-gray-400">
+                      <Icon icon={Image01Icon} className="h-5 w-5" />
+                      Image preview
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="md:col-span-2 lg:col-span-3">
+                <Field label="Description" hint="Optional">
+                  <FocusPlaceholderTextarea
+                    className={cn(input, "min-h-[110px] resize-none")}
+                    value={form.description}
+                    onChange={(event) =>
+                      setForm((previous) => ({
+                        ...previous,
+                        description: event.target.value,
+                      }))
+                    }
+                    placeholder="Write a clear product description..."
+                    maxLength={3000}
+                  />
+                </Field>
+              </div>
             </div>
           </SectionCard>
 
           <SectionCard
-            title="Pricing and purchasing terms"
-            description="Define the price source used by RFQs and purchase documents."
+            title="Pricing and tax"
+            description="Purchase, retail, wholesale, minimum sale price, currency, and tax treatment."
           >
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <Field label="Unit Price" required>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <Field label="Purchase Price">
                 <FocusPlaceholderInput
                   className={input}
                   type="number"
                   min="0"
-                  step="0.0001"
-                  value={form.unitPrice}
+                  step="0.01"
+                  value={form.purchasePrice}
                   onChange={(event) =>
                     setForm((previous) => ({
                       ...previous,
-                      unitPrice: event.target.value,
+                      purchasePrice: event.target.value,
                     }))
                   }
-                  placeholder="Example: 20"
-                  required
+                  placeholder="Example: 500"
+                />
+              </Field>
+
+              <Field label="Selling Price">
+                <FocusPlaceholderInput
+                  className={input}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.sellingPrice}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      sellingPrice: event.target.value,
+                    }))
+                  }
+                  placeholder="Example: 750"
+                />
+              </Field>
+
+              <Field label="Wholesale Price">
+                <FocusPlaceholderInput
+                  className={input}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.wholesalePrice}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      wholesalePrice: event.target.value,
+                    }))
+                  }
+                  placeholder="Example: 650"
+                />
+              </Field>
+
+              <Field
+                label="Minimum Selling Price"
+                hint="Cannot exceed the selling price."
+              >
+                <FocusPlaceholderInput
+                  className={input}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.minimumSellingPrice}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      minimumSellingPrice: event.target.value,
+                    }))
+                  }
+                  placeholder="Example: 600"
                 />
               </Field>
 
@@ -2388,80 +3029,31 @@ function SupplierProductFormModal({
                 />
               </Field>
 
-              <Field label="Minimum Order Quantity">
-                <FocusPlaceholderInput
-                  className={input}
-                  type="number"
-                  min="0"
-                  step="0.000001"
-                  value={form.minimumOrderQuantity}
-                  onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      minimumOrderQuantity: event.target.value,
-                    }))
-                  }
-                  placeholder="Example: 50"
-                />
-              </Field>
-
-              <Field
-                label="Pack Size"
-                hint="Number of purchase units in one supplier pack."
-                required
-              >
-                <FocusPlaceholderInput
-                  className={input}
-                  type="number"
-                  min="0.000001"
-                  step="0.000001"
-                  value={form.packSize}
-                  onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      packSize: event.target.value,
-                    }))
-                  }
-                  placeholder="Example: 25"
-                  required
-                />
-              </Field>
-
-              <Field label="Lead Time (Days)">
-                <FocusPlaceholderInput
-                  className={input}
-                  type="number"
-                  min="0"
-                  max="3650"
-                  step="1"
-                  value={form.leadTimeDays}
-                  onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      leadTimeDays: event.target.value,
-                    }))
-                  }
-                  placeholder="Example: 3"
-                />
-              </Field>
-
-              <Field label="Tax Type">
+              <Field label="Tax Type" required>
                 <select
                   className={input}
                   value={form.taxType}
                   onChange={(event) =>
                     onTaxTypeChange(event.target.value)
                   }
+                  required
                 >
-                  {(meta.taxTypes || FALLBACK_META.taxTypes).map((value) => (
+                  {TAX_TYPES.map(([value, label]) => (
                     <option key={value} value={value}>
-                      {pretty(value)}
+                      {label}
                     </option>
                   ))}
                 </select>
               </Field>
 
-              <Field label="Tax Rate (%)">
+              <Field
+                label="Tax Rate (%)"
+                hint={
+                  form.taxType === "none"
+                    ? "Tax rate is disabled when tax type is none."
+                    : "Use a value from 0 to 100."
+                }
+              >
                 <FocusPlaceholderInput
                   className={input}
                   type="number"
@@ -2475,261 +3067,171 @@ function SupplierProductFormModal({
                       taxRate: event.target.value,
                     }))
                   }
-                  placeholder="Example: 5"
+                  placeholder="Example: 15"
                   disabled={form.taxType === "none"}
                 />
-              </Field>
-
-              <Field label="Status">
-                <select
-                  className={input}
-                  value={form.status}
-                  onChange={(event) => onStatusChange(event.target.value)}
-                >
-                  {CURRENT_STATUSES.map((status) => (
-                    <option
-                      key={status}
-                      value={status}
-                      disabled={
-                        status === "active" && supplier?.status !== "active"
-                      }
-                    >
-                      {pretty(status)}
-                    </option>
-                  ))}
-                </select>
               </Field>
             </div>
           </SectionCard>
 
           <SectionCard
-            title="Validity and sourcing preference"
-            description="A preferred active link becomes the product's default supplier and replaces the previous preferred supplier."
+            title="Inventory controls"
+            description="Stock tracking is available only for inventory products."
           >
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              <Field label="Valid From">
-                <input
-                  className={input}
-                  type="date"
-                  value={form.validFrom}
-                  onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      validFrom: event.target.value,
-                    }))
-                  }
-                />
-              </Field>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <div className="rounded-2xl border border-gray-200 bg-white p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-black text-gray-900">
+                      Track Inventory
+                    </p>
 
-              <Field label="Valid To">
-                <input
-                  className={input}
-                  type="date"
-                  value={form.validTo}
-                  onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      validTo: event.target.value,
-                    }))
-                  }
-                />
-              </Field>
+                    <p className="mt-1 text-xs font-semibold leading-5 text-gray-500">
+                      Maintain stock quantities for this product.
+                    </p>
+                  </div>
+
+                  <Toggle
+                    checked={Boolean(form.trackInventory)}
+                    onChange={onTrackInventoryChange}
+                    disabled={!isInventoryProduct}
+                    label="Track product inventory"
+                  />
+                </div>
+              </div>
 
               <div className="rounded-2xl border border-gray-200 bg-white p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm font-black text-gray-900">
-                      Preferred Supplier
+                      Allow Negative Stock
                     </p>
+
                     <p className="mt-1 text-xs font-semibold leading-5 text-gray-500">
-                      Use this supplier as the product's primary purchasing
-                      source.
+                      Permit transactions below available quantity.
                     </p>
                   </div>
 
                   <Toggle
-                    checked={Boolean(form.isPreferred)}
-                    onChange={onPreferredChange}
-                    disabled={supplier?.status !== "active"}
-                    label="Set as preferred supplier"
+                    checked={Boolean(form.allowNegativeStock)}
+                    onChange={(value) =>
+                      setForm((previous) => ({
+                        ...previous,
+                        allowNegativeStock: value,
+                      }))
+                    }
+                    disabled={!inventoryControlsEnabled}
+                    label="Allow negative stock"
                   />
                 </div>
               </div>
 
-              <div className="md:col-span-2 lg:col-span-3">
-                <Field label="Notes" hint="Optional">
-                  <FocusPlaceholderTextarea
-                    className={cn(input, "min-h-[110px] resize-none")}
-                    value={form.notes}
-                    onChange={(event) =>
-                      setForm((previous) => ({
-                        ...previous,
-                        notes: event.target.value,
-                      }))
-                    }
-                    placeholder="Add purchasing, packaging, quotation, or delivery notes..."
-                    maxLength={1500}
-                  />
-                </Field>
-              </div>
+              {!isInventoryProduct ? (
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 text-sm font-semibold text-indigo-800">
+                  Non-inventory products and services do not maintain
+                  stock, batch, serial, or reorder values.
+                </div>
+              ) : null}
+
+              <Field label="Tracking Type">
+                <select
+                  className={input}
+                  value={form.trackingType}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      trackingType: event.target.value,
+                    }))
+                  }
+                  disabled={!inventoryControlsEnabled}
+                >
+                  {TRACKING_TYPES.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Costing Method">
+                <select
+                  className={input}
+                  value={form.costingMethod}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      costingMethod: event.target.value,
+                    }))
+                  }
+                >
+                  {COSTING_METHODS.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Reorder Level">
+                <FocusPlaceholderInput
+                  className={input}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.reorderLevel}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      reorderLevel: event.target.value,
+                    }))
+                  }
+                  placeholder="Example: 10"
+                  disabled={!inventoryControlsEnabled}
+                />
+              </Field>
+
+              <Field label="Minimum Stock">
+                <FocusPlaceholderInput
+                  className={input}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.minimumStock}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      minimumStock: event.target.value,
+                    }))
+                  }
+                  placeholder="Example: 5"
+                  disabled={!inventoryControlsEnabled}
+                />
+              </Field>
+
+              <Field
+                label="Maximum Stock"
+                hint="Use 0 when no maximum limit is required."
+              >
+                <FocusPlaceholderInput
+                  className={input}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.maximumStock}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      maximumStock: event.target.value,
+                    }))
+                  }
+                  placeholder="Example: 100"
+                  disabled={!inventoryControlsEnabled}
+                />
+              </Field>
             </div>
           </SectionCard>
         </div>
       </form>
     </ModalShell>
-  )
-}
-
-function SupplierProductDetailsModal({ state, supplier, onClose }) {
-  const link = state.link
-
-  return (
-    <ModalShell
-      open={state.open}
-      onClose={onClose}
-      title={link?.product?.name || "Supplier-product details"}
-      subtitle={
-        link
-          ? `${link.product?.sku || "-"} · ${supplier?.businessName || "Supplier"}`
-          : ""
-      }
-      icon={<Icon icon={ViewIcon} className="h-5 w-5" />}
-      maxWidthClass="max-w-5xl"
-      footer={
-        <div className="flex justify-end">
-          <button
-            className={cn(button, ghostButton)}
-            onClick={onClose}
-            type="button"
-          >
-            Close
-          </button>
-        </div>
-      }
-    >
-      {link ? (
-        <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <SummaryValue
-              label="Unit Price"
-              value={formatMoney(link.unitPrice, link.currency)}
-            />
-            <SummaryValue
-              label="MOQ"
-              value={formatNumber(link.minimumOrderQuantity)}
-            />
-            <SummaryValue
-              label="Lead Time"
-              value={`${formatNumber(link.leadTimeDays, 0)} days`}
-            />
-            <SummaryValue
-              label="Status"
-              value={<StatusBadge value={link.status} />}
-            />
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <SectionCard title="Product and supplier">
-              <div className="space-y-3 text-sm">
-                <DetailRow
-                  label="Supplier"
-                  value={relationLabel(supplier, "Unknown supplier")}
-                />
-                <DetailRow
-                  label="Product"
-                  value={relationLabel(link.product, "Unknown product")}
-                />
-                <DetailRow
-                  label="Supplier SKU"
-                  value={link.supplierSku || "-"}
-                />
-                <DetailRow
-                  label="Purchase unit"
-                  value={relationLabel(link.purchaseUnit, "Product base unit")}
-                />
-                <DetailRow
-                  label="Pack size"
-                  value={formatNumber(link.packSize)}
-                />
-                <DetailRow
-                  label="Preferred"
-                  value={<PreferredBadge value={link.isPreferred} />}
-                />
-              </div>
-            </SectionCard>
-
-            <SectionCard title="Commercial terms">
-              <div className="space-y-3 text-sm">
-                <DetailRow
-                  label="Currency"
-                  value={link.currency || "BDT"}
-                />
-                <DetailRow
-                  label="Tax"
-                  value={`${pretty(link.taxType)} · ${formatNumber(
-                    link.taxRate,
-                    2
-                  )}%`}
-                />
-                <DetailRow
-                  label="Valid from"
-                  value={formatDate(link.validFrom)}
-                />
-                <DetailRow
-                  label="Valid to"
-                  value={formatDate(link.validTo)}
-                />
-                <DetailRow
-                  label="Price state"
-                  value={<ValidityBadge link={link} />}
-                />
-                <DetailRow
-                  label="Updated"
-                  value={formatDate(link.updatedAt)}
-                />
-              </div>
-            </SectionCard>
-          </div>
-
-          {link.notes ? (
-            <SectionCard title="Notes">
-              <p className="text-sm font-semibold leading-6 text-gray-600">
-                {link.notes}
-              </p>
-            </SectionCard>
-          ) : null}
-
-          <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-700">
-            {link.isPreferred && link.status === "active"
-              ? "This active link is the product's preferred supplier source."
-              : isPriceActive(link)
-                ? "This supplier price is currently inside its validity range."
-                : "This supplier price is outside its current validity range."}
-          </div>
-        </div>
-      ) : null}
-    </ModalShell>
-  )
-}
-
-function SummaryValue({ label, value }) {
-  return (
-    <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-      <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">
-        {label}
-      </p>
-      <div className="mt-2 text-lg font-black text-gray-900">{value}</div>
-    </div>
-  )
-}
-
-function DetailRow({ label, value }) {
-  return (
-    <div className="flex items-start justify-between gap-4 border-b border-gray-100 pb-3 last:border-b-0 last:pb-0">
-      <span className="shrink-0 font-semibold text-gray-500">{label}</span>
-      <span className="min-w-0 text-right font-black text-gray-800">
-        {value}
-      </span>
-    </div>
   )
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { motion } from "framer-motion"
 import toast, { Toaster } from "react-hot-toast"
@@ -93,19 +93,8 @@ const PAYMENT_DAYS = {
   net_90: 90,
 }
 
-const emptySummary = {
-  supplierCount: 0,
-  draftCount: 0,
-  pendingApprovalCount: 0,
-  activeCount: 0,
-  onHoldCount: 0,
-  inactiveCount: 0,
-  archivedCount: 0,
-  preferredCount: 0,
-  totalCreditLimit: 0,
-}
 
-const shell = "min-h-screen bg-gray-50"
+const shell = "min-h-screen bg-gradient-to-b from-gray-50 to-white"
 const card =
   "rounded-2xl border border-gray-100 bg-white shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]"
 const button =
@@ -121,7 +110,7 @@ const warningButton =
 const successButton =
   "border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50"
 const input =
-  "w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-300 focus:border-transparent focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
+  "w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-transparent focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
 const chip =
   "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-semibold ring-1"
 
@@ -386,6 +375,123 @@ function Icon({
   )
 }
 
+function Spinner({ className = "h-4 w-4" }) {
+  return <Icon icon={RefreshIcon} className={cn(className, "animate-spin")} />
+}
+
+function SkeletonBlock({ className = "h-4 w-full" }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={cn(
+        "animate-pulse rounded-lg bg-gray-200/80",
+        className
+      )}
+    />
+  )
+}
+
+function SupplierTableSkeleton({ rows = 8 }) {
+  return (
+    <>
+      {Array.from({ length: rows }).map((_, index) => (
+        <tr key={`supplier-skeleton-${index}`} className="bg-white" aria-hidden="true">
+          <td className="border-b border-gray-100 px-5 py-4 text-center">
+            <SkeletonBlock className="mx-auto h-4 w-4 rounded" />
+          </td>
+          <td className="border-b border-gray-100 px-5 py-4">
+            <div className="min-w-[230px] space-y-2">
+              <SkeletonBlock className="h-4 w-36" />
+              <SkeletonBlock className="h-3 w-20" />
+            </div>
+          </td>
+          <td className="border-b border-gray-100 px-5 py-4"><SkeletonBlock className="h-7 w-24 rounded-full" /></td>
+          <td className="border-b border-gray-100 px-5 py-4"><SkeletonBlock className="h-7 w-20 rounded-full" /></td>
+          <td className="border-b border-gray-100 px-5 py-4">
+            <div className="min-w-[180px] space-y-2">
+              <SkeletonBlock className="h-4 w-36" />
+              <SkeletonBlock className="h-3 w-24" />
+            </div>
+          </td>
+          <td className="border-b border-gray-100 px-5 py-4"><SkeletonBlock className="h-4 w-24" /></td>
+          <td className="border-b border-gray-100 px-5 py-4">
+            <div className="min-w-[140px] space-y-2">
+              <SkeletonBlock className="h-4 w-28" />
+              <SkeletonBlock className="h-3 w-16" />
+            </div>
+          </td>
+          <td className="border-b border-gray-100 px-5 py-4"><SkeletonBlock className="h-4 w-28" /></td>
+          <td className="border-b border-gray-100 px-5 py-4"><SkeletonBlock className="h-4 w-16" /></td>
+          <td className="border-b border-gray-100 px-5 py-4"><SkeletonBlock className="h-7 w-24 rounded-full" /></td>
+          <td className="border-b border-gray-100 px-5 py-4"><SkeletonBlock className="h-7 w-24 rounded-full" /></td>
+          <td className="border-b border-gray-100 px-5 py-4"><SkeletonBlock className="h-4 w-28" /></td>
+          <td className="sticky right-0 z-10 border-b border-gray-100 bg-white px-5 py-3 text-right shadow-[-14px_0_24px_-22px_rgba(15,23,42,0.45)]">
+            <div className="flex justify-end gap-2">
+              <SkeletonBlock className="h-10 w-20 rounded-xl" />
+              <SkeletonBlock className="h-10 w-10 rounded-xl" />
+            </div>
+          </td>
+        </tr>
+      ))}
+    </>
+  )
+}
+
+function SupplierMobileSkeleton({ rows = 5 }) {
+  return (
+    <div className="divide-y divide-gray-100" aria-hidden="true">
+      {Array.from({ length: rows }).map((_, index) => (
+        <div key={`mobile-supplier-skeleton-${index}`} className="p-4 sm:p-5">
+          <div className="flex items-start gap-3">
+            <SkeletonBlock className="mt-1 h-4 w-4 shrink-0 rounded" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <SkeletonBlock className="h-5 w-40 max-w-full" />
+                  <SkeletonBlock className="h-3 w-24" />
+                </div>
+                <SkeletonBlock className="h-10 w-10 shrink-0 rounded-xl" />
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <SkeletonBlock className="h-7 w-24 rounded-full" />
+                <SkeletonBlock className="h-7 w-20 rounded-full" />
+                <SkeletonBlock className="h-7 w-24 rounded-full" />
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <SkeletonBlock className="h-12 w-full rounded-xl" />
+                <SkeletonBlock className="h-12 w-full rounded-xl" />
+              </div>
+              <div className="mt-4 flex gap-2">
+                <SkeletonBlock className="h-10 flex-1 rounded-xl" />
+                <SkeletonBlock className="h-10 w-12 rounded-xl" />
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SelectionCheckbox({ checked, indeterminate = false, onChange, label }) {
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = Boolean(indeterminate)
+  }, [indeterminate])
+
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={Boolean(checked)}
+      onChange={(event) => onChange?.(event.target.checked)}
+      aria-label={label}
+      className="h-4 w-4 cursor-pointer rounded border-gray-300 text-indigo-600 accent-indigo-600 focus:ring-2 focus:ring-indigo-500/20"
+    />
+  )
+}
+
 function RequiredMark() {
   return <span className="ml-1 text-rose-500">*</span>
 }
@@ -625,11 +731,11 @@ function ModalShell({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ type: "spring", stiffness: 260, damping: 24 }}
             className={cn(
-              "relative w-full overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-[0_30px_70px_-30px_rgba(0,0,0,0.65)]",
+              "relative w-full overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_30px_70px_-30px_rgba(0,0,0,0.65)]",
               maxWidthClass
             )}
           >
-            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-100 bg-gray-50/90 p-4 backdrop-blur sm:p-5">
+            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-100 bg-white p-4 sm:p-5">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
                   {icon}
@@ -703,45 +809,6 @@ async function api(path, options = {}) {
   return data
 }
 
-function SummaryCards({ summary, onSelectTab }) {
-  const items = [
-    ["Suppliers", summary.supplierCount, "all"],
-    ["Drafts", summary.draftCount, "draft"],
-    ["Pending", summary.pendingApprovalCount, "pending_approval"],
-    ["Active", summary.activeCount, "active"],
-    ["On Hold", summary.onHoldCount, "on_hold"],
-    ["Preferred", summary.preferredCount, "all"],
-  ]
-
-  return (
-    <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-      {items.map(([label, value, tab]) => (
-        <button
-          key={label}
-          type="button"
-          onClick={() => onSelectTab(tab)}
-          className={cn(
-            card,
-            "p-4 text-left transition hover:border-indigo-100 hover:bg-indigo-50/20"
-          )}
-        >
-          <p className="text-xs font-black uppercase tracking-wide text-gray-400">
-            {label}
-          </p>
-          <p className="mt-2 text-xl font-black text-gray-900">
-            {formatNumber(value, 0)}
-          </p>
-          <p className="mt-1 text-xs font-semibold text-gray-500">
-            {label === "Preferred"
-              ? `Credit limits ${formatMoney(summary.totalCreditLimit)}`
-              : "Matching current filters"}
-          </p>
-        </button>
-      ))}
-    </div>
-  )
-}
-
 export default function SupplierSetup() {
   const currentUser = useMemo(() => {
     try {
@@ -759,7 +826,6 @@ export default function SupplierSetup() {
   const [meta, setMeta] = useState(FALLBACK_META)
   const [activeTab, setActiveTab] = useState("all")
   const [suppliers, setSuppliers] = useState([])
-  const [summary, setSummary] = useState(emptySummary)
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -794,6 +860,31 @@ export default function SupplierSetup() {
   })
 
   const [actionState, setActionState] = useState({ id: "", type: "" })
+  const [selectedIds, setSelectedIds] = useState([])
+  const [confirmModal, setConfirmModal] = useState({
+    open: false,
+    type: "",
+    supplier: null,
+    title: "",
+    message: "",
+    danger: false,
+    loading: false,
+    error: "",
+  })
+  const [deleteModal, setDeleteModal] = useState({
+    open: false,
+    suppliers: [],
+    password: "",
+    loading: false,
+    error: "",
+  })
+  const [bulkModal, setBulkModal] = useState({
+    open: false,
+    type: "",
+    reason: "",
+    loading: false,
+    error: "",
+  })
 
   const [filters, setFilters] = useState({
     q: "",
@@ -818,6 +909,42 @@ export default function SupplierSetup() {
     if (filters.updatedTo) count += 1
     return count
   }, [activeTab, filters])
+
+  const selectedSuppliers = useMemo(
+    () => suppliers.filter((supplier) => selectedIds.includes(String(supplier._id))),
+    [suppliers, selectedIds]
+  )
+  const allLoadedSelected =
+    suppliers.length > 0 &&
+    suppliers.every((supplier) => selectedIds.includes(String(supplier._id)))
+  const someLoadedSelected =
+    !allLoadedSelected &&
+    suppliers.some((supplier) => selectedIds.includes(String(supplier._id)))
+
+  const toggleSupplierSelection = (supplierId, checked) => {
+    const id = String(supplierId)
+    setSelectedIds((previous) =>
+      checked
+        ? Array.from(new Set([...previous, id]))
+        : previous.filter((item) => item !== id)
+    )
+  }
+
+  const toggleAllLoadedSuppliers = (checked) => {
+    const loadedIds = suppliers.map((supplier) => String(supplier._id))
+    setSelectedIds((previous) => {
+      if (checked) return Array.from(new Set([...previous, ...loadedIds]))
+      const loadedSet = new Set(loadedIds)
+      return previous.filter((id) => !loadedSet.has(id))
+    })
+  }
+
+  const clearSelection = () => setSelectedIds([])
+
+  useEffect(() => {
+    const visibleIds = new Set(suppliers.map((supplier) => String(supplier._id)))
+    setSelectedIds((previous) => previous.filter((id) => visibleIds.has(id)))
+  }, [suppliers])
 
   const updateFilter = (key, value) => {
     setFilters((previous) => ({ ...previous, [key]: value }))
@@ -905,22 +1032,6 @@ export default function SupplierSetup() {
     }
   }
 
-  const loadSummary = async ({ signal } = {}) => {
-    try {
-      const data = await api(
-        `/suppliers/summary?${buildParams({
-          includeStatus: false,
-        }).toString()}`,
-        { signal }
-      )
-      setSummary({ ...emptySummary, ...(data.summary || {}) })
-    } catch (error) {
-      if (error?.name !== "AbortError") {
-        toast.error(error.message || "Failed to load supplier summary")
-      }
-    }
-  }
-
   useEffect(() => {
     loadMeta()
   }, [])
@@ -928,10 +1039,7 @@ export default function SupplierSetup() {
   useEffect(() => {
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      Promise.all([
-        loadSuppliers({ signal: controller.signal }),
-        loadSummary({ signal: controller.signal }),
-      ])
+      loadSuppliers({ signal: controller.signal })
     }, 250)
 
     return () => {
@@ -951,7 +1059,7 @@ export default function SupplierSetup() {
   ])
 
   const refresh = async () => {
-    await Promise.all([loadMeta(), loadSuppliers(), loadSummary()])
+    await Promise.all([loadMeta(), loadSuppliers()])
   }
 
   const switchTab = (tab) => {
@@ -1243,7 +1351,7 @@ export default function SupplierSetup() {
       setFormModal({ open: false, item: null })
       setForm(emptySupplierForm())
       setFormError("")
-      await Promise.all([loadSuppliers(), loadSummary()])
+      await loadSuppliers()
     } catch (error) {
       setFormError(error.message || "Failed to save supplier.")
     } finally {
@@ -1301,9 +1409,7 @@ export default function SupplierSetup() {
   }
 
   const runAction = async (supplier, type, endpoint, options = {}) => {
-    const { method = "POST", body = {}, confirmMessage } = options
-    if (confirmMessage && !window.confirm(confirmMessage)) return
-
+    const { method = "POST", body = {} } = options
     setActionState({ id: supplier._id, type })
     try {
       const data = await api(`/suppliers/${supplier._id}/${endpoint}`, {
@@ -1311,7 +1417,7 @@ export default function SupplierSetup() {
         body: JSON.stringify(body),
       })
       toast.success(data.message || `Supplier ${type} completed`)
-      await Promise.all([loadSuppliers(), loadSummary()])
+      await loadSuppliers()
     } catch (error) {
       toast.error(error.message || `Failed to ${type} supplier`)
     } finally {
@@ -1319,38 +1425,233 @@ export default function SupplierSetup() {
     }
   }
 
-  const submitSupplier = (supplier) =>
-    runAction(supplier, "submit", "submit", {
-      confirmMessage: `Submit "${supplier.businessName}" for approval? A primary contact and primary address are required.`,
+  const openConfirmModal = (type, supplier) => {
+    const config = {
+      submit: {
+        title: "Submit supplier",
+        message: "Send this supplier for approval?",
+        danger: false,
+      },
+      approve: {
+        title: "Approve supplier",
+        message: "Approve and activate this supplier?",
+        danger: false,
+      },
+      archive: {
+        title: "Archive supplier",
+        message: "Archive this supplier and its supplier-product links?",
+        danger: true,
+      },
+    }[type]
+
+    if (!config) return
+    setConfirmModal({
+      open: true,
+      type,
+      supplier,
+      ...config,
+      loading: false,
+      error: "",
     })
+  }
 
-  const approveSupplier = (supplier) =>
-    runAction(supplier, "approve", "approve", {
-      confirmMessage: `Approve and activate "${supplier.businessName}"?`,
+  const closeConfirmModal = () => {
+    if (confirmModal.loading) return
+    setConfirmModal({
+      open: false,
+      type: "",
+      supplier: null,
+      title: "",
+      message: "",
+      danger: false,
+      loading: false,
+      error: "",
     })
+  }
 
-  const archiveSupplier = async (supplier) => {
-    const confirmed = window.confirm(
-      `Archive "${supplier.businessName}"? Its product links will also be archived. Remove it from all products where it is the default supplier first.`
-    )
-    if (!confirmed) return
+  const submitConfirmAction = async () => {
+    const supplier = confirmModal.supplier
+    if (!supplier?._id) return
 
-    setActionState({ id: supplier._id, type: "archive" })
+    setConfirmModal((previous) => ({ ...previous, loading: true, error: "" }))
+    setActionState({ id: supplier._id, type: confirmModal.type })
+
     try {
-      const data = await api(`/suppliers/${supplier._id}`, {
-        method: "DELETE",
-      })
-      toast.success(data.message || "Supplier archived")
-      await Promise.all([loadSuppliers(), loadSummary()])
+      let data
+      if (confirmModal.type === "submit") {
+        data = await api(`/suppliers/${supplier._id}/submit`, { method: "POST" })
+      } else if (confirmModal.type === "approve") {
+        data = await api(`/suppliers/${supplier._id}/approve`, { method: "POST" })
+      } else if (confirmModal.type === "archive") {
+        data = await api(`/suppliers/${supplier._id}`, { method: "DELETE" })
+      }
+
+      toast.success(data?.message || "Supplier updated")
+      setConfirmModal((previous) => ({ ...previous, open: false, loading: false }))
+      setSelectedIds((previous) =>
+        previous.filter((id) => id !== String(supplier._id))
+      )
+      await loadSuppliers()
     } catch (error) {
-      toast.error(error.message || "Failed to archive supplier")
+      setConfirmModal((previous) => ({
+        ...previous,
+        loading: false,
+        error: error.message || "Action failed.",
+      }))
     } finally {
       setActionState({ id: "", type: "" })
     }
   }
 
+  const submitSupplier = (supplier) => openConfirmModal("submit", supplier)
+  const approveSupplier = (supplier) => openConfirmModal("approve", supplier)
+  const archiveSupplier = (supplier) => openConfirmModal("archive", supplier)
+
   const restoreSupplier = (supplier) =>
     runAction(supplier, "restore", "restore", { method: "PATCH" })
+
+  const openDeleteModal = (items) => {
+    const list = (Array.isArray(items) ? items : [items]).filter(Boolean)
+    if (!list.length) return
+    setDeleteModal({
+      open: true,
+      suppliers: list,
+      password: "",
+      loading: false,
+      error: "",
+    })
+  }
+
+  const closeDeleteModal = () => {
+    if (deleteModal.loading) return
+    setDeleteModal({
+      open: false,
+      suppliers: [],
+      password: "",
+      loading: false,
+      error: "",
+    })
+  }
+
+  const submitDelete = async (event) => {
+    event.preventDefault()
+    const password = clean(deleteModal.password)
+    if (!password) {
+      return setDeleteModal((previous) => ({
+        ...previous,
+        error: "Password is required.",
+      }))
+    }
+
+    setDeleteModal((previous) => ({ ...previous, loading: true, error: "" }))
+    const deletedIds = []
+
+    try {
+      for (const supplier of deleteModal.suppliers) {
+        // Backend contract for permanent deletion:
+        // DELETE /api/suppliers/:id/permanent  body: { password }
+        await api(`/suppliers/${supplier._id}/permanent`, {
+          method: "DELETE",
+          body: JSON.stringify({ password }),
+        })
+        deletedIds.push(String(supplier._id))
+      }
+
+      toast.success(
+        deleteModal.suppliers.length > 1
+          ? `${deleteModal.suppliers.length} suppliers deleted.`
+          : "Supplier deleted."
+      )
+      setSelectedIds((previous) =>
+        previous.filter((id) => !deletedIds.includes(id))
+      )
+      setDeleteModal({
+        open: false,
+        suppliers: [],
+        password: "",
+        loading: false,
+        error: "",
+      })
+      await loadSuppliers()
+    } catch (error) {
+      setDeleteModal((previous) => ({
+        ...previous,
+        loading: false,
+        error: error.message || "Failed to delete supplier.",
+      }))
+    }
+  }
+
+  const openBulkModal = (type) => {
+    if (!selectedSuppliers.length) return
+    setBulkModal({
+      open: true,
+      type,
+      reason: "",
+      loading: false,
+      error: "",
+    })
+  }
+
+  const closeBulkModal = () => {
+    if (bulkModal.loading) return
+    setBulkModal({
+      open: false,
+      type: "",
+      reason: "",
+      loading: false,
+      error: "",
+    })
+  }
+
+  const submitBulkAction = async (event) => {
+    event.preventDefault()
+    const reason = clean(bulkModal.reason)
+    const items = [...selectedSuppliers]
+
+    if (!items.length) return closeBulkModal()
+    if (bulkModal.type === "on_hold" && !reason) {
+      return setBulkModal((previous) => ({
+        ...previous,
+        error: "Hold reason is required.",
+      }))
+    }
+
+    setBulkModal((previous) => ({ ...previous, loading: true, error: "" }))
+
+    const results = await Promise.allSettled(
+      items.map((supplier) => {
+        if (bulkModal.type === "archive") {
+          return api(`/suppliers/${supplier._id}`, { method: "DELETE" })
+        }
+        return api(`/suppliers/${supplier._id}/status`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: bulkModal.type, reason }),
+        })
+      })
+    )
+
+    const failed = results.filter((result) => result.status === "rejected")
+    const succeeded = results.length - failed.length
+
+    if (succeeded) {
+      toast.success(`${succeeded} supplier${succeeded === 1 ? "" : "s"} updated.`)
+    }
+
+    await loadSuppliers()
+
+    if (failed.length) {
+      const firstError = failed[0]?.reason?.message
+      return setBulkModal((previous) => ({
+        ...previous,
+        loading: false,
+        error: `${failed.length} update${failed.length === 1 ? "" : "s"} failed${firstError ? `: ${firstError}` : "."}`,
+      }))
+    }
+
+    clearSelection()
+    closeBulkModal()
+  }
 
   const openReasonModal = (type, supplier, targetStatus = "") => {
     setReasonModal({
@@ -1411,7 +1712,7 @@ export default function SupplierSetup() {
       })
       toast.success(data.message || "Supplier workflow updated")
       closeReasonModal()
-      await Promise.all([loadSuppliers(), loadSummary()])
+      await loadSuppliers()
     } catch (error) {
       setReasonModal((previous) => ({
         ...previous,
@@ -1436,10 +1737,6 @@ export default function SupplierSetup() {
               <h1 className="truncate text-2xl font-extrabold tracking-tight text-gray-900">
                 Suppliers
               </h1>
-              <p className="mt-0.5 text-sm text-gray-500">
-                Manage supplier identity, approval, procurement terms,
-                compliance, contacts, and lifecycle.
-              </p>
             </div>
           </div>
 
@@ -1495,7 +1792,7 @@ export default function SupplierSetup() {
                 />
               ) : null}
               <FocusPlaceholderInput
-                className="min-w-[150px] flex-1 border-0 bg-transparent px-1 py-1 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400"
+                className="min-w-[180px] flex-1 border-0 bg-transparent px-1 py-2 text-sm font-medium text-gray-900 outline-none placeholder:text-gray-400"
                 value={filters.q}
                 onChange={(event) => updateFilter("q", event.target.value)}
                 placeholder="Search name, code, phone, email, TIN, BIN..."
@@ -1530,16 +1827,18 @@ export default function SupplierSetup() {
             </div>
           </div>
 
-          <p className="text-sm font-bold text-gray-500">
-            Showing <span className="text-gray-900">{suppliers.length}</span>{" "}
-            suppliers{hasMore ? "+" : ""}
-          </p>
+          {loading ? (
+            <SkeletonBlock className="h-4 w-28" />
+          ) : (
+            <p className="text-sm font-bold text-gray-500">
+              Showing <span className="text-gray-900">{suppliers.length}</span>{" "}
+              suppliers{hasMore ? "+" : ""}
+            </p>
+          )}
         </div>
       </section>
 
-      <SummaryCards summary={summary} onSelectTab={switchTab} />
-
-      <div className={`${card} mb-6 p-2`}>
+      <div className={`${card} mb-4 p-1.5`}>
         <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
           {[
             ["all", "All"],
@@ -1553,7 +1852,7 @@ export default function SupplierSetup() {
             <button
               key={key}
               className={cn(
-                "rounded-xl px-3 py-3 text-xs font-extrabold transition sm:px-5 sm:text-sm",
+                "rounded-xl px-3 py-2.5 text-xs font-extrabold transition sm:px-4 sm:text-sm",
                 activeTab === key
                   ? "bg-indigo-600 text-white shadow-sm"
                   : "text-gray-700 hover:bg-gray-50"
@@ -1567,6 +1866,15 @@ export default function SupplierSetup() {
         </div>
       </div>
 
+      <BulkActionBar
+        count={selectedSuppliers.length}
+        canManage={canManage}
+        canDelete={canDelete}
+        onClear={clearSelection}
+        onStatus={(type) => openBulkModal(type)}
+        onDelete={() => openDeleteModal(selectedSuppliers)}
+      />
+
       <SupplierList
         suppliers={suppliers}
         loading={loading}
@@ -1575,6 +1883,9 @@ export default function SupplierSetup() {
         openingId={openingId}
         loadingDetailsId={loadingDetailsId}
         actionState={actionState}
+        selectedIds={selectedIds}
+        allSelected={allLoadedSelected}
+        someSelected={someLoadedSelected}
         canManage={canManage}
         canApprove={canApprove}
         canDelete={canDelete}
@@ -1588,6 +1899,9 @@ export default function SupplierSetup() {
         }
         onArchive={archiveSupplier}
         onRestore={restoreSupplier}
+        onDelete={(supplier) => openDeleteModal([supplier])}
+        onToggleSelected={toggleSupplierSelection}
+        onToggleAll={toggleAllLoadedSuppliers}
         onLoadMore={() => loadSuppliers({ append: true })}
       />
 
@@ -1642,6 +1956,27 @@ export default function SupplierSetup() {
         saving={saving}
         onClose={closeReasonModal}
         onSubmit={submitReasonAction}
+      />
+
+      <ConfirmActionModal
+        state={confirmModal}
+        onClose={closeConfirmModal}
+        onConfirm={submitConfirmAction}
+      />
+
+      <BulkActionModal
+        state={bulkModal}
+        count={selectedSuppliers.length}
+        setState={setBulkModal}
+        onClose={closeBulkModal}
+        onSubmit={submitBulkAction}
+      />
+
+      <DeleteSupplierModal
+        state={deleteModal}
+        setState={setDeleteModal}
+        onClose={closeDeleteModal}
+        onSubmit={submitDelete}
       />
     </div>
   )
@@ -1828,6 +2163,46 @@ function FilterModal({
   )
 }
 
+function BulkActionBar({ count, canManage, canDelete, onClear, onStatus, onDelete }) {
+  if (!count) return null
+
+  return (
+    <div className="mb-4 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-3 shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 min-w-9 items-center justify-center rounded-xl bg-indigo-600 px-2 text-sm font-black text-white">
+            {count}
+          </span>
+          <p className="text-sm font-black text-gray-900">Selected</p>
+          <button
+            type="button"
+            onClick={onClear}
+            className="text-xs font-bold text-gray-500 transition hover:text-gray-900"
+          >
+            Clear
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {canManage ? (
+            <>
+              <button className={cn(button, ghostButton, "px-3 py-2")} type="button" onClick={() => onStatus("active")}>Active</button>
+              <button className={cn(button, ghostButton, "px-3 py-2")} type="button" onClick={() => onStatus("inactive")}>Inactive</button>
+              <button className={cn(button, warningButton, "px-3 py-2")} type="button" onClick={() => onStatus("on_hold")}>On Hold</button>
+            </>
+          ) : null}
+          {canDelete ? (
+            <>
+              <button className={cn(button, ghostButton, "px-3 py-2")} type="button" onClick={() => onStatus("archive")}>Archive</button>
+              <button className={cn(button, dangerButton, "px-3 py-2")} type="button" onClick={onDelete}>Delete</button>
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SupplierList({
   suppliers,
   loading,
@@ -1836,6 +2211,9 @@ function SupplierList({
   openingId,
   loadingDetailsId,
   actionState,
+  selectedIds,
+  allSelected,
+  someSelected,
   canManage,
   canApprove,
   canDelete,
@@ -1847,112 +2225,82 @@ function SupplierList({
   onStatus,
   onArchive,
   onRestore,
+  onDelete,
+  onToggleSelected,
+  onToggleAll,
   onLoadMore,
 }) {
   return (
-    <div>
-      <div className={cn(card, "overflow-hidden")}>
-        <div className="hidden max-h-[680px] overflow-auto xl:block">
-          <table className="min-w-[1500px] w-full text-left">
-            <thead className="sticky top-0 z-10 bg-gray-50 text-xs font-black uppercase text-gray-500">
-              <tr>
-                <th className="px-5 py-3">Supplier</th>
-                <th className="px-5 py-3">Type</th>
-                <th className="px-5 py-3">Scope</th>
-                <th className="px-5 py-3">Primary Contact</th>
-                <th className="px-5 py-3">Location</th>
-                <th className="px-5 py-3">Payment Terms</th>
-                <th className="px-5 py-3">Credit Limit</th>
-                <th className="px-5 py-3">Lead Time</th>
-                <th className="px-5 py-3">Preference</th>
-                <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3">Updated</th>
-                <th className="sticky right-0 bg-gray-50 px-5 py-3 text-right">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {suppliers.map((supplier) => {
-                const address = supplier.addresses?.find(
-                  (item) => item.isPrimary
-                )
+    <div className={cn(card, "overflow-hidden rounded-3xl border-gray-200")}>
+      <div className="hidden h-[560px] overflow-auto [scrollbar-gutter:stable] xl:block 2xl:h-[650px]">
+        <table className="w-full min-w-[1560px] border-separate border-spacing-0 text-left">
+          <thead className="sticky top-0 z-20">
+            <tr>
+              <th className="w-14 border-b border-gray-200 bg-gray-50 px-5 py-4 text-center">
+                <SelectionCheckbox
+                  checked={allSelected}
+                  indeterminate={someSelected}
+                  onChange={onToggleAll}
+                  label="Select all loaded suppliers"
+                />
+              </th>
+              <th className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-black uppercase tracking-[0.06em] text-gray-600">Supplier</th>
+              <th className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-black uppercase tracking-[0.06em] text-gray-600">Type</th>
+              <th className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-black uppercase tracking-[0.06em] text-gray-600">Scope</th>
+              <th className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-black uppercase tracking-[0.06em] text-gray-600">Primary Contact</th>
+              <th className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-black uppercase tracking-[0.06em] text-gray-600">Location</th>
+              <th className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-black uppercase tracking-[0.06em] text-gray-600">Payment Terms</th>
+              <th className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-black uppercase tracking-[0.06em] text-gray-600">Credit Limit</th>
+              <th className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-black uppercase tracking-[0.06em] text-gray-600">Lead Time</th>
+              <th className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-black uppercase tracking-[0.06em] text-gray-600">Preference</th>
+              <th className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-black uppercase tracking-[0.06em] text-gray-600">Status</th>
+              <th className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-black uppercase tracking-[0.06em] text-gray-600">Updated</th>
+              <th className="sticky right-0 z-30 border-b border-gray-200 bg-gray-50 px-5 py-4 text-right text-xs font-black uppercase tracking-[0.06em] text-gray-600 shadow-[-12px_0_20px_-20px_rgba(15,23,42,0.35)]">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="bg-white">
+            {loading ? (
+              <SupplierTableSkeleton rows={8} />
+            ) : suppliers.length ? (
+              suppliers.map((supplier) => {
+                const address = supplier.addresses?.find((item) => item.isPrimary)
+                const selected = selectedIds.includes(String(supplier._id))
                 return (
-                  <tr
-                    key={supplier._id}
-                    className="group bg-white transition hover:bg-gray-50/70"
-                  >
-                    <td className="px-5 py-4">
-                      <div className="min-w-[250px]">
-                        <p className="truncate text-sm font-black text-gray-900">
-                          {supplier.businessName}
-                        </p>
-                        <p className="mt-0.5 text-xs font-black text-indigo-700">
-                          {supplier.code}
-                        </p>
-                        <p className="mt-0.5 truncate text-xs font-semibold text-gray-500">
-                          {supplier.legalName || "No legal name"}
-                        </p>
+                  <tr key={supplier._id} className="group">
+                    <td className={cn("border-b border-gray-100 px-5 py-3 text-center transition", selected ? "bg-indigo-50/80" : "bg-white group-hover:bg-indigo-50/40")}>
+                      <SelectionCheckbox
+                        checked={selected}
+                        onChange={(checked) => onToggleSelected(supplier._id, checked)}
+                        label={`Select ${supplier.businessName}`}
+                      />
+                    </td>
+                    <td className={cn("border-b border-gray-100 px-5 py-3 transition", selected ? "bg-indigo-50/80" : "bg-white group-hover:bg-indigo-50/40")}>
+                      <div className="min-w-[230px]">
+                        <p className="truncate text-sm font-black text-gray-950">{supplier.businessName}</p>
+                        <p className="mt-0.5 text-xs font-black text-indigo-700">{supplier.code}</p>
                       </div>
                     </td>
-                    <td className="px-5 py-4">
-                      <TypeBadge value={supplier.supplierType} />
+                    <td className={cn("border-b border-gray-100 px-5 py-3 transition", selected ? "bg-indigo-50/80" : "bg-white group-hover:bg-indigo-50/40")}><TypeBadge value={supplier.supplierType} /></td>
+                    <td className={cn("border-b border-gray-100 px-5 py-3 transition", selected ? "bg-indigo-50/80" : "bg-white group-hover:bg-indigo-50/40")}><ScopeBadge value={supplier.supplierScope} /></td>
+                    <td className={cn("border-b border-gray-100 px-5 py-3 transition", selected ? "bg-indigo-50/80" : "bg-white group-hover:bg-indigo-50/40")}>
+                      <p className="min-w-[180px] truncate text-sm font-semibold text-gray-800">{supplier.primaryEmail || "—"}</p>
+                      <p className="mt-0.5 truncate text-xs font-medium text-gray-500">{supplier.primaryPhone || "—"}</p>
                     </td>
-                    <td className="px-5 py-4">
-                      <ScopeBadge value={supplier.supplierScope} />
+                    <td className={cn("border-b border-gray-100 px-5 py-3 text-sm font-medium text-gray-700 transition", selected ? "bg-indigo-50/80" : "bg-white group-hover:bg-indigo-50/40")}>{address?.city || address?.country || "—"}</td>
+                    <td className={cn("border-b border-gray-100 px-5 py-3 transition", selected ? "bg-indigo-50/80" : "bg-white group-hover:bg-indigo-50/40")}>
+                      <p className="min-w-[140px] text-sm font-semibold text-gray-800">{pretty(supplier.procurement?.paymentTermType || "immediate")}</p>
+                      <p className="mt-0.5 text-xs font-medium text-gray-500">{supplier.procurement?.paymentTermDays || 0} days</p>
                     </td>
-                    <td className="px-5 py-4">
-                      <p className="min-w-[190px] truncate text-sm font-black text-gray-700">
-                        {supplier.primaryEmail || "No email"}
-                      </p>
-                      <p className="mt-0.5 truncate text-xs font-semibold text-gray-500">
-                        {supplier.primaryPhone || "No phone"}
-                      </p>
-                    </td>
-                    <td className="px-5 py-4">
-                      <p className="max-w-[220px] truncate text-sm font-semibold text-gray-700">
-                        {address?.city || address?.country || "No address"}
-                      </p>
-                    </td>
-                    <td className="px-5 py-4">
-                      <p className="min-w-[150px] text-sm font-black text-gray-700">
-                        {pretty(
-                          supplier.procurement?.paymentTermType ||
-                            "immediate"
-                        )}
-                      </p>
-                      <p className="mt-0.5 text-xs font-semibold text-gray-500">
-                        {supplier.procurement?.paymentTermDays || 0} days
-                      </p>
-                    </td>
-                    <td className="px-5 py-4 text-sm font-black text-gray-800">
-                      {formatMoney(
-                        supplier.procurement?.creditLimit,
-                        supplier.procurement?.currency
-                      )}
-                    </td>
-                    <td className="px-5 py-4 text-sm font-black text-gray-700">
-                      {supplier.procurement?.leadTimeDays || 0} days
-                    </td>
-                    <td className="px-5 py-4">
-                      <PreferredBadge value={supplier.isPreferred} />
-                    </td>
-                    <td className="px-5 py-4">
-                      <StatusBadge value={supplier.status} />
-                    </td>
-                    <td className="px-5 py-4 text-sm font-semibold text-gray-600">
-                      {formatDate(supplier.updatedAt, true)}
-                    </td>
-                    <td className="sticky right-0 bg-white px-5 py-4 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-gray-50/70">
+                    <td className={cn("border-b border-gray-100 px-5 py-3 text-sm font-semibold text-gray-800 transition", selected ? "bg-indigo-50/80" : "bg-white group-hover:bg-indigo-50/40")}>{formatMoney(supplier.procurement?.creditLimit, supplier.procurement?.currency)}</td>
+                    <td className={cn("border-b border-gray-100 px-5 py-3 text-sm font-semibold text-gray-700 transition", selected ? "bg-indigo-50/80" : "bg-white group-hover:bg-indigo-50/40")}>{supplier.procurement?.leadTimeDays || 0} days</td>
+                    <td className={cn("border-b border-gray-100 px-5 py-3 transition", selected ? "bg-indigo-50/80" : "bg-white group-hover:bg-indigo-50/40")}><PreferredBadge value={supplier.isPreferred} /></td>
+                    <td className={cn("border-b border-gray-100 px-5 py-3 transition", selected ? "bg-indigo-50/80" : "bg-white group-hover:bg-indigo-50/40")}><StatusBadge value={supplier.status} /></td>
+                    <td className={cn("border-b border-gray-100 px-5 py-3 text-sm font-medium text-gray-600 transition", selected ? "bg-indigo-50/80" : "bg-white group-hover:bg-indigo-50/40")}>{formatDate(supplier.updatedAt, true)}</td>
+                    <td className={cn("sticky right-0 z-10 border-b border-gray-100 px-5 py-2 text-right transition shadow-[-14px_0_24px_-22px_rgba(15,23,42,0.45)]", selected ? "bg-indigo-50" : "bg-white group-hover:bg-indigo-50/40")}>
                       <SupplierActions
                         supplier={supplier}
-                        opening={
-                          String(openingId) === String(supplier._id)
-                        }
-                        loadingDetails={
-                          String(loadingDetailsId) ===
-                          String(supplier._id)
-                        }
+                        opening={String(openingId) === String(supplier._id)}
+                        loadingDetails={String(loadingDetailsId) === String(supplier._id)}
                         actionState={actionState}
                         canManage={canManage}
                         canApprove={canApprove}
@@ -1965,35 +2313,38 @@ function SupplierList({
                         onStatus={onStatus}
                         onArchive={onArchive}
                         onRestore={onRestore}
+                        onDelete={onDelete}
                       />
                     </td>
                   </tr>
                 )
-              })}
+              })
+            ) : (
+              <tr>
+                <td colSpan={13} className="bg-white p-10 text-center">
+                  <div className="mx-auto flex max-w-sm flex-col items-center rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-8">
+                    <Icon icon={FolderLibraryIcon} className="h-6 w-6 text-gray-400" />
+                    <p className="mt-3 text-sm font-black text-gray-900">No suppliers found</p>
+                  </div>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
 
-              {!suppliers.length ? (
-                <tr>
-                  <td
-                    colSpan={12}
-                    className="px-5 py-14 text-center text-sm font-bold text-gray-500"
-                  >
-                    {loading ? "Loading suppliers..." : "No suppliers found."}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="divide-y divide-gray-100 xl:hidden">
-          {suppliers.map((supplier) => (
+      <div className="divide-y divide-gray-100 xl:hidden">
+        {loading ? (
+          <SupplierMobileSkeleton rows={5} />
+        ) : suppliers.length ? (
+          suppliers.map((supplier) => (
             <SupplierMobileCard
               key={supplier._id}
               supplier={supplier}
+              selected={selectedIds.includes(String(supplier._id))}
+              onToggleSelected={onToggleSelected}
               opening={String(openingId) === String(supplier._id)}
-              loadingDetails={
-                String(loadingDetailsId) === String(supplier._id)
-              }
+              loadingDetails={String(loadingDetailsId) === String(supplier._id)}
               actionState={actionState}
               canManage={canManage}
               canApprove={canApprove}
@@ -2006,90 +2357,71 @@ function SupplierList({
               onStatus={onStatus}
               onArchive={onArchive}
               onRestore={onRestore}
+              onDelete={onDelete}
             />
-          ))}
-          {!suppliers.length ? (
-            <div className="px-5 py-14 text-center text-sm font-bold text-gray-500">
-              {loading ? "Loading suppliers..." : "No suppliers found."}
-            </div>
-          ) : null}
-        </div>
+          ))
+        ) : (
+          <div className="p-8 text-center text-sm font-bold text-gray-500">No suppliers found</div>
+        )}
       </div>
 
-      {hasMore ? (
-        <div className="mt-4 flex justify-center">
-          <button
-            className={cn(button, ghostButton, "min-w-[150px]")}
-            onClick={onLoadMore}
-            disabled={loadingMore}
-            type="button"
-          >
-            <Icon
-              icon={RefreshIcon}
-              className={cn(
-                "h-4 w-4",
-                loadingMore ? "animate-spin" : ""
-              )}
-            />
-            {loadingMore ? "Loading..." : "Load more"}
-          </button>
+      <div className="flex flex-col gap-3 border-t border-gray-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          {loading ? (
+            <SkeletonBlock className="h-4 w-32" />
+          ) : (
+            <p className="text-sm font-bold text-gray-800">{suppliers.length} supplier{suppliers.length === 1 ? "" : "s"} loaded</p>
+          )}
         </div>
-      ) : null}
+        <button
+          type="button"
+          className={cn(
+            button,
+            hasMore ? primaryButton : "cursor-not-allowed border border-gray-200 bg-gray-100 text-gray-400",
+            "min-w-[150px]"
+          )}
+          disabled={!hasMore || loadingMore || loading}
+          onClick={() => hasMore && onLoadMore?.()}
+        >
+          {loadingMore ? <Spinner /> : null}
+          {loadingMore ? "Loading..." : hasMore ? "Load more" : "All loaded"}
+        </button>
+      </div>
     </div>
   )
 }
 
 function SupplierMobileCard(props) {
-  const { supplier } = props
+  const { supplier, selected, onToggleSelected } = props
   const address = supplier.addresses?.find((item) => item.isPrimary)
 
   return (
-    <article className="p-4">
+    <article className={cn("p-4 transition", selected ? "bg-indigo-50/60" : "bg-white")}>
       <div className="flex items-start gap-3">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-indigo-100 bg-indigo-50 text-xs font-black text-indigo-700">
+        <div className="pt-1">
+          <SelectionCheckbox
+            checked={selected}
+            onChange={(checked) => onToggleSelected(supplier._id, checked)}
+            label={`Select ${supplier.businessName}`}
+          />
+        </div>
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-indigo-100 bg-indigo-50 text-xs font-black text-indigo-700">
           {supplier.code?.slice(0, 3)}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
-              <h3 className="truncate text-sm font-black text-gray-900">
-                {supplier.businessName}
-              </h3>
-              <p className="mt-0.5 text-xs font-black text-indigo-700">
-                {supplier.code}
-              </p>
+              <h3 className="truncate text-sm font-black text-gray-950">{supplier.businessName}</h3>
+              <p className="mt-0.5 text-xs font-black text-indigo-700">{supplier.code}</p>
             </div>
             <StatusBadge value={supplier.status} />
           </div>
 
-          <div className="mt-2 flex flex-wrap gap-2">
-            <TypeBadge value={supplier.supplierType} />
-            <ScopeBadge value={supplier.supplierScope} />
-            {supplier.isPreferred ? <PreferredBadge value /> : null}
-          </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-3 rounded-xl bg-gray-50 p-3 text-xs">
-            <MiniValue
-              label="Contact"
-              value={supplier.primaryPhone || supplier.primaryEmail || "-"}
-            />
-            <MiniValue
-              label="Location"
-              value={address?.city || address?.country || "-"}
-            />
-            <MiniValue
-              label="Payment Terms"
-              value={`${pretty(
-                supplier.procurement?.paymentTermType || "immediate"
-              )} · ${supplier.procurement?.paymentTermDays || 0} days`}
-            />
-            <MiniValue
-              label="Credit Limit"
-              value={formatMoney(
-                supplier.procurement?.creditLimit,
-                supplier.procurement?.currency
-              )}
-            />
+          <div className="mt-3 grid grid-cols-2 gap-3 rounded-xl bg-white/80 p-3 text-xs ring-1 ring-gray-100">
+            <MiniValue label="Contact" value={supplier.primaryPhone || supplier.primaryEmail || "—"} />
+            <MiniValue label="Location" value={address?.city || address?.country || "—"} />
+            <MiniValue label="Terms" value={`${pretty(supplier.procurement?.paymentTermType || "immediate")} · ${supplier.procurement?.paymentTermDays || 0}d`} />
+            <MiniValue label="Credit" value={formatMoney(supplier.procurement?.creditLimit, supplier.procurement?.currency)} />
           </div>
 
           <div className="mt-3 border-t border-gray-100 pt-3">
@@ -2126,154 +2458,150 @@ function SupplierActions({
   onStatus,
   onArchive,
   onRestore,
+  onDelete,
   mobile = false,
 }) {
+  const [open, setOpen] = useState(false)
+  const [menuStyle, setMenuStyle] = useState({ top: 0, left: 0, transformOrigin: "top right" })
+  const rootRef = useRef(null)
+  const buttonRef = useRef(null)
+  const menuRef = useRef(null)
   const busy = String(actionState.id) === String(supplier._id)
-  const compact = mobile ? "px-3 py-2" : "px-3"
-  const canEdit =
-    canManage &&
-    ["draft", "active", "on_hold", "inactive"].includes(
-      supplier.status
-    )
+  const canEdit = canManage && ["draft", "active", "on_hold", "inactive"].includes(supplier.status)
 
-  if (supplier.status === "archived") {
-    return (
-      <div className={cn("flex gap-2", mobile ? "flex-wrap" : "justify-end")}>
-        <button
-          className={cn(button, ghostButton, compact)}
-          onClick={() => onView(supplier)}
-          disabled={loadingDetails}
-          type="button"
-        >
-          <Icon
-            icon={loadingDetails ? RefreshIcon : ViewIcon}
-            className={cn(
-              "h-4 w-4",
-              loadingDetails ? "animate-spin" : ""
-            )}
-          />
-          {mobile ? "View" : null}
-        </button>
-        {canDelete ? (
-          <button
-            className={cn(button, ghostButton, compact)}
-            onClick={() => onRestore(supplier)}
-            disabled={busy}
-            type="button"
-          >
-            <Icon icon={RestoreBinIcon} className="h-4 w-4" />
-            {mobile ? "Restore" : null}
-          </button>
-        ) : null}
-      </div>
+  const updateMenuPosition = useCallback(() => {
+    if (typeof window === "undefined" || !buttonRef.current) return
+    const rect = buttonRef.current.getBoundingClientRect()
+    const menuWidth = 250
+    const gap = 8
+    const estimatedHeight = 420
+    const shouldOpenUp = window.innerHeight - rect.bottom < 300
+    const top = shouldOpenUp
+      ? Math.max(12, rect.top - Math.min(estimatedHeight, window.innerHeight - 24) - gap)
+      : Math.min(rect.bottom + gap, window.innerHeight - 12)
+    const left = Math.min(
+      Math.max(12, rect.right - menuWidth),
+      Math.max(12, window.innerWidth - menuWidth - 12)
     )
+    setMenuStyle({ top, left, transformOrigin: shouldOpenUp ? "bottom right" : "top right" })
+  }, [])
+
+  useEffect(() => {
+    if (!open) return undefined
+    updateMenuPosition()
+    const closeOutside = (event) => {
+      if (rootRef.current?.contains(event.target) || menuRef.current?.contains(event.target)) return
+      setOpen(false)
+    }
+    const reposition = () => updateMenuPosition()
+    document.addEventListener("mousedown", closeOutside)
+    window.addEventListener("resize", reposition)
+    window.addEventListener("scroll", reposition, true)
+    return () => {
+      document.removeEventListener("mousedown", closeOutside)
+      window.removeEventListener("resize", reposition)
+      window.removeEventListener("scroll", reposition, true)
+    }
+  }, [open, updateMenuPosition])
+
+  const items = []
+  if (canEdit) items.push(["edit", "Edit supplier", Edit02Icon])
+  if (canManage && supplier.status === "draft") items.push(["submit", "Submit for approval", Tick02Icon])
+  if (canApprove && supplier.status === "pending_approval") {
+    items.push(["approve", "Approve supplier", Tick02Icon])
+    items.push(["reject", "Reject supplier", Cancel01Icon, "danger"])
+  }
+  if (canManage && supplier.approvedAt && supplier.status !== "archived") {
+    if (supplier.status !== "active") items.push(["status-active", "Mark active", Tick02Icon])
+    if (supplier.status !== "on_hold") items.push(["status-on_hold", "Put on hold", Alert02Icon, "warning"])
+    if (supplier.status !== "inactive") items.push(["status-inactive", "Mark inactive", Archive02Icon])
+  }
+  if (supplier.status === "archived") {
+    if (canDelete) items.push(["restore", "Restore supplier", RestoreBinIcon])
+  } else if (canDelete) {
+    items.push(["archive", "Archive supplier", Archive02Icon, "warning"])
+  }
+  if (canDelete) items.push(["delete", "Delete supplier", Cancel01Icon, "danger"])
+
+  const handleItem = (key) => {
+    setOpen(false)
+    if (key === "edit") return onEdit(supplier)
+    if (key === "submit") return onSubmit(supplier)
+    if (key === "approve") return onApprove(supplier)
+    if (key === "reject") return onReject(supplier)
+    if (key === "status-active") return onStatus(supplier, "active")
+    if (key === "status-on_hold") return onStatus(supplier, "on_hold")
+    if (key === "status-inactive") return onStatus(supplier, "inactive")
+    if (key === "archive") return onArchive(supplier)
+    if (key === "restore") return onRestore(supplier)
+    if (key === "delete") return onDelete(supplier)
   }
 
+  const menu = open && typeof document !== "undefined"
+    ? createPortal(
+        <motion.div
+          ref={menuRef}
+          initial={{ opacity: 0, y: 8, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.14 }}
+          style={{ top: menuStyle.top, left: menuStyle.left, transformOrigin: menuStyle.transformOrigin }}
+          className="fixed z-[9999] w-[250px] overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_24px_60px_-20px_rgba(15,23,42,0.45)]"
+        >
+          <div className="max-h-[min(70vh,480px)] overflow-y-auto p-2">
+            {items.map(([key, text, icon, tone]) => {
+              const itemBusy = busy && actionState.type === key.replace("status-", "")
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => handleItem(key)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50",
+                    tone === "danger"
+                      ? "text-rose-700 hover:bg-rose-50"
+                      : tone === "warning"
+                        ? "text-amber-800 hover:bg-amber-50"
+                        : "text-gray-800 hover:bg-gray-50"
+                  )}
+                >
+                  {itemBusy ? <Spinner className="h-4 w-4" /> : <Icon icon={icon} className="h-4 w-4 shrink-0" />}
+                  <span>{text}</span>
+                </button>
+              )
+            })}
+          </div>
+        </motion.div>,
+        document.body
+      )
+    : null
+
   return (
-    <div
-      className={cn(
-        "flex items-center gap-2",
-        mobile ? "flex-wrap" : "justify-end"
-      )}
-    >
+    <div ref={rootRef} className={cn("relative flex items-center gap-2", mobile ? "justify-end" : "justify-end")}>
       <button
-        className={cn(button, ghostButton, compact)}
+        type="button"
         onClick={() => onView(supplier)}
         disabled={loadingDetails}
-        type="button"
-        title="View supplier"
+        className={cn(button, primaryButton, mobile ? "h-10 px-3" : "h-10 px-4")}
       >
-        <Icon
-          icon={loadingDetails ? RefreshIcon : ViewIcon}
-          className={cn(
-            "h-4 w-4",
-            loadingDetails ? "animate-spin" : ""
-          )}
-        />
-        {mobile ? "View" : null}
+        {loadingDetails ? <Spinner /> : <Icon icon={ViewIcon} className="h-4 w-4" />}
+        View
       </button>
-
-      {canEdit ? (
-        <button
-          className={cn(button, ghostButton, compact)}
-          onClick={() => onEdit(supplier)}
-          disabled={opening}
-          type="button"
-          title="Edit supplier"
-        >
-          <Icon
-            icon={opening ? RefreshIcon : Edit02Icon}
-            className={cn("h-4 w-4", opening ? "animate-spin" : "")}
-          />
-          {mobile ? "Edit" : null}
-        </button>
-      ) : null}
-
-      {canManage && supplier.status === "draft" ? (
-        <button
-          className={cn(button, primaryButton, compact)}
-          onClick={() => onSubmit(supplier)}
-          disabled={busy}
-          type="button"
-          title="Submit supplier"
-        >
-          <Icon icon={Tick02Icon} className="h-4 w-4" />
-          {mobile ? "Submit" : null}
-        </button>
-      ) : null}
-
-      {canApprove && supplier.status === "pending_approval" ? (
-        <>
-          <button
-            className={cn(button, successButton, compact)}
-            onClick={() => onApprove(supplier)}
-            disabled={busy}
-            type="button"
-            title="Approve supplier"
-          >
-            <Icon icon={Tick02Icon} className="h-4 w-4" />
-            {mobile ? "Approve" : null}
-          </button>
-          <button
-            className={cn(button, dangerButton, compact)}
-            onClick={() => onReject(supplier)}
-            type="button"
-            title="Reject supplier"
-          >
-            <Icon icon={Cancel01Icon} className="h-4 w-4" />
-            {mobile ? "Reject" : null}
-          </button>
-        </>
-      ) : null}
-
-      {canManage && supplier.approvedAt ? (
-        <select
-          className="rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-black text-gray-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20"
-          value={supplier.status}
-          onChange={(event) => {
-            if (event.target.value !== supplier.status) {
-              onStatus(supplier, event.target.value)
-            }
-          }}
-        >
-          <option value="active">Active</option>
-          <option value="on_hold">On Hold</option>
-          <option value="inactive">Inactive</option>
-        </select>
-      ) : null}
-
-      {canDelete ? (
-        <button
-          className={cn(button, dangerButton, compact)}
-          onClick={() => onArchive(supplier)}
-          disabled={busy}
-          type="button"
-          title="Archive supplier"
-        >
-          <Icon icon={Archive02Icon} className="h-4 w-4" />
-          {mobile ? "Archive" : null}
-        </button>
-      ) : null}
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label="More supplier actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => {
+          if (!open) updateMenuPosition()
+          setOpen((previous) => !previous)
+        }}
+        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+      >
+        <span className="-mt-1 text-xl font-black leading-none">⋮</span>
+      </button>
+      {menu}
     </div>
   )
 }
@@ -2301,7 +2629,7 @@ function SupplierFormModal({
       subtitle={
         state.item
           ? `${state.item.code} · ${state.item.businessName}`
-          : "Create a supplier draft with business, procurement, and compliance information."
+          : ""
       }
       icon={
         <Icon
@@ -2350,7 +2678,6 @@ function SupplierFormModal({
         <div className="space-y-4">
           <SectionCard
             title="Supplier identity"
-            description="Core business identity and supplier classification."
           >
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
               <Field label="Supplier Code" required>
@@ -2506,7 +2833,6 @@ function SupplierFormModal({
 
           <SectionCard
             title="Contact persons"
-            description="A primary contact with an email, phone, or mobile number is required before approval."
             action={
               <button
                 type="button"
@@ -2551,7 +2877,6 @@ function SupplierFormModal({
 
           <SectionCard
             title="Addresses"
-            description="A primary address with address line 1, city, and country is required before approval."
             action={
               <button
                 type="button"
@@ -2594,7 +2919,6 @@ function SupplierFormModal({
           <div className="grid gap-4 xl:grid-cols-2">
             <SectionCard
               title="Procurement terms"
-              description="Default purchase currency, credit terms, order limit, and delivery lead time."
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Currency">
@@ -2751,7 +3075,6 @@ function SupplierFormModal({
 
             <SectionCard
               title="Tax and registration"
-              description="Supplier tax treatment and statutory registration information."
             >
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Tax Treatment">
@@ -2849,7 +3172,6 @@ function SupplierFormModal({
 
           <SectionCard
             title="Bank accounts"
-            description="Sensitive bank details are loaded only in the supplier detail and edit endpoints."
             action={
               <button
                 type="button"
@@ -2894,7 +3216,6 @@ function SupplierFormModal({
 
           <SectionCard
             title="Compliance documents"
-            description="Store document metadata and secure document URLs."
             action={
               <button
                 type="button"
@@ -3739,6 +4060,144 @@ function SupplierAudit({ audits, loading, hasMore, onLoadMore }) {
   )
 }
 
+function ConfirmActionModal({ state, onClose, onConfirm }) {
+  return (
+    <ModalShell
+      open={state.open}
+      onClose={onClose}
+      title={state.title}
+      subtitle={state.supplier?.businessName || ""}
+      icon={<Icon icon={state.danger ? Archive02Icon : Tick02Icon} className="h-5 w-5" />}
+      maxWidthClass="max-w-lg"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button className={cn(button, ghostButton)} type="button" onClick={onClose} disabled={state.loading}>Cancel</button>
+          <button
+            className={cn(button, state.danger ? dangerButton : primaryButton)}
+            type="button"
+            onClick={onConfirm}
+            disabled={state.loading}
+          >
+            {state.loading ? <Spinner /> : <Icon icon={Tick02Icon} className="h-4 w-4" />}
+            {state.loading ? "Processing..." : "Confirm"}
+          </button>
+        </div>
+      }
+    >
+      {state.error ? (
+        <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{state.error}</div>
+      ) : null}
+      <p className="text-sm font-semibold leading-6 text-gray-700">{state.message}</p>
+    </ModalShell>
+  )
+}
+
+function BulkActionModal({ state, count, setState, onClose, onSubmit }) {
+  const labels = {
+    active: "Activate suppliers",
+    inactive: "Deactivate suppliers",
+    on_hold: "Put suppliers on hold",
+    archive: "Archive suppliers",
+  }
+  const needsReason = state.type === "on_hold"
+
+  return (
+    <ModalShell
+      open={state.open}
+      onClose={onClose}
+      title={labels[state.type] || "Bulk update"}
+      subtitle={`${count} selected`}
+      icon={<Icon icon={Edit02Icon} className="h-5 w-5" />}
+      maxWidthClass="max-w-lg"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button className={cn(button, ghostButton)} type="button" onClick={onClose} disabled={state.loading}>Cancel</button>
+          <button
+            className={cn(button, state.type === "archive" ? dangerButton : primaryButton)}
+            type="submit"
+            form="supplier-bulk-action-form"
+            disabled={state.loading}
+          >
+            {state.loading ? <Spinner /> : <Icon icon={Tick02Icon} className="h-4 w-4" />}
+            {state.loading ? "Updating..." : "Apply"}
+          </button>
+        </div>
+      }
+    >
+      {state.error ? (
+        <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{state.error}</div>
+      ) : null}
+      <form id="supplier-bulk-action-form" onSubmit={onSubmit} className="space-y-4">
+        <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700">
+          This action will update {count} selected supplier{count === 1 ? "" : "s"}.
+        </div>
+        {state.type !== "archive" ? (
+          <Field label="Reason" required={needsReason}>
+            <textarea
+              className={cn(input, "min-h-[110px] resize-none")}
+              value={state.reason}
+              onChange={(event) => setState((previous) => ({ ...previous, reason: event.target.value, error: "" }))}
+              placeholder={needsReason ? "Enter hold reason" : "Optional note"}
+              required={needsReason}
+            />
+          </Field>
+        ) : null}
+      </form>
+    </ModalShell>
+  )
+}
+
+function DeleteSupplierModal({ state, setState, onClose, onSubmit }) {
+  const count = state.suppliers?.length || 0
+  const name = count === 1 ? state.suppliers?.[0]?.businessName : ""
+
+  return (
+    <ModalShell
+      open={state.open}
+      onClose={onClose}
+      title={count > 1 ? `Delete ${count} suppliers` : "Delete supplier"}
+      subtitle={name}
+      icon={<Icon icon={Cancel01Icon} className="h-5 w-5" />}
+      maxWidthClass="max-w-lg"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button className={cn(button, ghostButton)} type="button" onClick={onClose} disabled={state.loading}>Cancel</button>
+          <button
+            className={cn(button, dangerButton)}
+            type="submit"
+            form="supplier-delete-form"
+            disabled={state.loading}
+          >
+            {state.loading ? <Spinner /> : <Icon icon={Cancel01Icon} className="h-4 w-4" />}
+            {state.loading ? "Deleting..." : "Delete"}
+          </button>
+        </div>
+      }
+    >
+      {state.error ? (
+        <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{state.error}</div>
+      ) : null}
+      <form id="supplier-delete-form" onSubmit={onSubmit} className="space-y-4">
+        <div className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800">
+          Permanent delete cannot be undone.
+        </div>
+        <Field label="Your Password" required>
+          <input
+            className={input}
+            type="password"
+            autoComplete="current-password"
+            value={state.password}
+            onChange={(event) => setState((previous) => ({ ...previous, password: event.target.value, error: "" }))}
+            placeholder="Enter password"
+            required
+            autoFocus
+          />
+        </Field>
+      </form>
+    </ModalShell>
+  )
+}
+
 function ReasonModal({ state, setState, saving, onClose, onSubmit }) {
   const isReject = state.type === "reject"
   const target = state.targetStatus
@@ -3794,11 +4253,6 @@ function ReasonModal({ state, setState, saving, onClose, onSubmit }) {
         <Field
           label={isReject ? "Rejection Reason" : "Status Reason"}
           required={reasonRequired}
-          hint={
-            target === "on_hold"
-              ? "A hold reason is mandatory."
-              : "Optional note for the supplier audit history."
-          }
         >
           <FocusPlaceholderTextarea
             className={cn(input, "min-h-[130px] resize-none")}

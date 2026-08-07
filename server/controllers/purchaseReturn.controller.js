@@ -18,6 +18,10 @@ import PurchaseReturn, {
   roundQuantity,
 } from "../models/purchaseReturn.model.js";
 import StockMovement from "../models/inventory/stockMovement.model.js";
+import {
+  postPurchaseReturnAccounting,
+  reverseProcurementAccounting,
+} from "../services/procurementAccounting.service.js";
 
 const LIST_FIELDS = [
   "returnNo",
@@ -38,16 +42,31 @@ const LIST_FIELDS = [
   "postedAt",
   "movement",
   "reversalMovement",
+  "journalEntry",
+  "reversalJournalEntry",
   "createdBy",
   "updatedAt",
 ].join(" ");
 
 const clean = (value) => String(value ?? "").trim();
-const runTransaction = (session, work) =>
-  session.withTransaction(work, {
+let transactionSupport;
+const supportsTransactions = async () => {
+  if (transactionSupport !== undefined) return transactionSupport;
+  try {
+    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
+    transactionSupport = Boolean(hello?.setName || hello?.msg === "isdbgrid");
+  } catch {
+    transactionSupport = false;
+  }
+  return transactionSupport;
+};
+const runTransaction = async (session, work) => {
+  if (!(await supportsTransactions())) return work();
+  return session.withTransaction(work, {
     readConcern: { level: "snapshot" },
     writeConcern: { w: "majority" },
   });
+};
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -874,6 +893,7 @@ export const postPurchaseReturn = async (req, res) => {
     const actorId = req.user?._id || null;
     let purchaseReturn;
     let movement;
+    let journalEntry;
 
     await runTransaction(session, async () => {
       purchaseReturn = await PurchaseReturn.findById(req.params.id).session(session);
@@ -933,8 +953,15 @@ export const postPurchaseReturn = async (req, res) => {
         session,
       });
 
+      journalEntry = await postPurchaseReturnAccounting({
+        document: purchaseReturn,
+        userId: actorId,
+        session,
+      });
+
       purchaseReturn.status = "posted";
       purchaseReturn.movement = movement._id;
+      purchaseReturn.journalEntry = journalEntry?._id || null;
       purchaseReturn.postedAt = new Date();
       purchaseReturn.postedBy = actorId;
       purchaseReturn.updatedBy = actorId;
@@ -948,6 +975,7 @@ export const postPurchaseReturn = async (req, res) => {
       message: "Purchase return posted and inventory reduced.",
       purchaseReturn: populated,
       movement,
+      journalEntry,
     });
   } catch (error) {
     return sendError(res, error, "Failed to post purchase return.");
@@ -965,6 +993,7 @@ export const reversePurchaseReturn = async (req, res) => {
     const actorId = req.user?._id || null;
     let purchaseReturn;
     let reversal;
+    let reversalJournalEntry;
 
     await runTransaction(session, async () => {
       purchaseReturn = await PurchaseReturn.findById(req.params.id).session(session);
@@ -1006,8 +1035,18 @@ export const reversePurchaseReturn = async (req, res) => {
         userId: actorId,
         session,
       });
+      reversalJournalEntry = await reverseProcurementAccounting({
+        sourceType: "purchase_return",
+        sourceId: purchaseReturn._id,
+        date: new Date(),
+        reference: `REV-${purchaseReturn.returnNo}`,
+        reason,
+        userId: actorId,
+        session,
+      });
       purchaseReturn.status = "reversed";
       purchaseReturn.reversalMovement = reversal._id;
+      purchaseReturn.reversalJournalEntry = reversalJournalEntry?._id || null;
       purchaseReturn.reversedAt = new Date();
       purchaseReturn.reversedBy = actorId;
       purchaseReturn.reversalReason = reason;
@@ -1022,6 +1061,7 @@ export const reversePurchaseReturn = async (req, res) => {
       message: "Purchase return reversed with a compensating stock movement.",
       purchaseReturn: populated,
       reversalMovement: reversal,
+      reversalJournalEntry,
     });
   } catch (error) {
     return sendError(res, error, "Failed to reverse purchase return.");

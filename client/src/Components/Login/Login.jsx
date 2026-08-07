@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Cancel01Icon,
@@ -15,8 +15,6 @@ import {
 import { AnimatePresence, motion } from "framer-motion"
 import { useDispatch, useSelector } from "react-redux"
 import {
-  signInError,
-  signInStart,
   signInSuccess,
   signOut,
 } from "../../Redux/UserSlice/UserSlice"
@@ -29,17 +27,23 @@ import {
 
 import suitelogo from "../../assets/logo/suite.png"
 
+const ERROR_AUTO_DISMISS_MS = 5000
+
 export default function LoginForm() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [showSupportModal, setShowSupportModal] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [errorMessage, setErrorMessage] = useState("")
+
+  const requestControllerRef = useRef(null)
 
   const dispatch = useDispatch()
   const navigate = useNavigate()
 
-  const { currentUser, error, loading } = useSelector(
-    (state) => state.user,
+  const currentUser = useSelector(
+    (state) => state.user.currentUser,
   )
 
   useEffect(() => {
@@ -72,6 +76,24 @@ export default function LoginForm() {
   }, [currentUser, dispatch, navigate])
 
   useEffect(() => {
+    return () => {
+      requestControllerRef.current?.abort()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!errorMessage) return undefined
+
+    const timeoutId = window.setTimeout(() => {
+      setErrorMessage("")
+    }, ERROR_AUTO_DISMISS_MS)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [errorMessage])
+
+  useEffect(() => {
     if (!showSupportModal) return undefined
 
     const previousOverflow = document.body.style.overflow
@@ -96,73 +118,167 @@ export default function LoginForm() {
     }
   }, [showSupportModal])
 
+  const clearError = () => {
+    if (errorMessage) {
+      setErrorMessage("")
+    }
+  }
+
+  const handleEmailChange = (event) => {
+    setEmail(event.target.value)
+    clearError()
+  }
+
+  const handlePasswordChange = (event) => {
+    setPassword(event.target.value)
+    clearError()
+  }
+
+  const getLoginErrorMessage = (error) => {
+    if (!axios.isAxiosError(error)) {
+      return (
+        error?.message ||
+        "Login failed. Please try again."
+      )
+    }
+
+    if (error.code === "ECONNABORTED") {
+      return "The login request timed out. Please check your connection and try again."
+    }
+
+    if (error.code === "ERR_CANCELED") {
+      return "The login request was cancelled. Please try again."
+    }
+
+    const status = error.response?.status
+    const serverMessage = error.response?.data?.message
+
+    if (status === 401) {
+      return serverMessage || "Invalid email or password."
+    }
+
+    if (status === 403) {
+      return (
+        serverMessage ||
+        "Your account does not have permission to sign in."
+      )
+    }
+
+    if (status === 429) {
+      return "Too many login attempts. Please wait a moment and try again."
+    }
+
+    if (!error.response) {
+      return "Unable to reach the server. Please check your internet connection and try again."
+    }
+
+    return (
+      serverMessage ||
+      "Login failed. Please try again."
+    )
+  }
+
   const handleLogin = async (event) => {
     event.preventDefault()
 
-    dispatch(signInStart())
+    if (isSubmitting) return
+
+    const normalizedEmail = email.trim().toLowerCase()
+
+    if (!normalizedEmail || !password) {
+      setErrorMessage(
+        "Please enter both your email and password.",
+      )
+      return
+    }
+
+    const apiBaseUrl = import.meta.env.VITE_API_URL?.replace(
+      /\/+$/,
+      "",
+    )
+
+    if (!apiBaseUrl) {
+      setErrorMessage(
+        "Login service is not configured. Please contact support.",
+      )
+      return
+    }
+
+    requestControllerRef.current?.abort()
+
+    const controller = new AbortController()
+    requestControllerRef.current = controller
+
+    setErrorMessage("")
+    setIsSubmitting(true)
 
     try {
       const response = await axios.post(
-        `${import.meta.env.VITE_API_URL}/api/users/login`,
+        `${apiBaseUrl}/api/users/login`,
         {
-          email,
+          email: normalizedEmail,
           password,
+        },
+        {
+          signal: controller.signal,
+          timeout: 15000,
+          headers: {
+            "Content-Type": "application/json",
+          },
         },
       )
 
-      if (
-        response.status === 200 &&
-        response.data?.user?.role
-      ) {
-        const user = response.data.user
-        const token = response.data.token
+      const user = response.data?.user
+      const token = response.data?.token
 
-        if (!user.isActive) {
-          throw new Error(
-            "User account is inactive. Please contact admin.",
-          )
-        }
-
-        dispatch(signInSuccess(user))
-
-        localStorage.setItem(
-          "user",
-          JSON.stringify(user),
+      if (response.status !== 200 || !user?.role || !token) {
+        throw new Error(
+          "The server returned an invalid login response.",
         )
-
-        if (token) {
-          localStorage.setItem("token", token)
-        }
-
-        const dashboardPath = getDashboardPathForRole(
-          user.role,
-        )
-
-        if (!dashboardPath) {
-          throw new Error(
-            "Invalid role received from server.",
-          )
-        }
-
-        navigate(dashboardPath, {
-          replace: true,
-        })
-
-        return
       }
 
-      throw new Error(
-        "Unexpected response from server.",
-      )
-    } catch (err) {
-      const errorMessage =
-        err.response?.data?.message ||
-        err.message ||
-        "Login failed. Please try again."
+      if (!user.isActive) {
+        throw new Error(
+          "User account is inactive. Please contact admin.",
+        )
+      }
 
-      dispatch(signInError(errorMessage))
+      const dashboardPath = getDashboardPathForRole(
+        user.role,
+      )
+
+      if (!dashboardPath) {
+        throw new Error(
+          "Invalid role received from server.",
+        )
+      }
+
+      localStorage.setItem("token", token)
+      localStorage.setItem("user", JSON.stringify(user))
+
+      dispatch(signInSuccess(user))
+
+      navigate(dashboardPath, {
+        replace: true,
+      })
+    } catch (error) {
+      if (controller.signal.aborted) return
+
+      localStorage.removeItem("token")
+      localStorage.removeItem("user")
+
+      setErrorMessage(getLoginErrorMessage(error))
+    } finally {
+      if (requestControllerRef.current === controller) {
+        requestControllerRef.current = null
+      }
+
+      if (!controller.signal.aborted) {
+        setIsSubmitting(false)
+      }
     }
   }
+
 
   return (
     <main className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-gradient-to-br from-gray-950 via-gray-900 to-gray-800 px-4 py-20 sm:p-6">
@@ -395,11 +511,11 @@ export default function LoginForm() {
 
         <div className="relative overflow-hidden rounded-2xl border border-gray-700/50 bg-gray-900/80 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
           {/* Login header */}
-          <div className="mb-8 flex flex-col items-center">
+          <div className="mb-7 flex flex-col items-center">
             <img
               src={suitelogo}
               alt="Business Hub Suite"
-              className="mb-3 h-auto w-[108px] object-contain sm:w-[120px]"
+              className="mb-3 h-auto w-[76px] object-contain sm:w-[84px]"
             />
 
             <p className="mt-1 text-center text-gray-400">
@@ -408,22 +524,49 @@ export default function LoginForm() {
           </div>
 
           {/* Error message */}
-          {error && (
-            <motion.div
-              initial={{
-                opacity: 0,
-                y: -6,
-              }}
-              animate={{
-                opacity: 1,
-                y: 0,
-              }}
-              role="alert"
-              className="mb-6 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400"
-            >
-              {error}
-            </motion.div>
-          )}
+          <AnimatePresence mode="wait">
+            {errorMessage && (
+              <motion.div
+                key={errorMessage}
+                initial={{
+                  opacity: 0,
+                  y: -6,
+                }}
+                animate={{
+                  opacity: 1,
+                  y: 0,
+                }}
+                exit={{
+                  opacity: 0,
+                  y: -6,
+                }}
+                transition={{
+                  duration: 0.2,
+                  ease: "easeOut",
+                }}
+                role="alert"
+                aria-live="assertive"
+                className="mb-6 flex items-start gap-3 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+              >
+                <span className="min-w-0 flex-1">
+                  {errorMessage}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={clearError}
+                  aria-label="Dismiss login error"
+                  className="-mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-red-300/80 transition-colors hover:bg-red-500/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+                >
+                  <HugeiconsIcon
+                    icon={Cancel01Icon}
+                    size={16}
+                    strokeWidth={2}
+                  />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Login form */}
           <form
@@ -453,9 +596,7 @@ export default function LoginForm() {
                   id="email"
                   type="email"
                   value={email}
-                  onChange={(event) =>
-                    setEmail(event.target.value)
-                  }
+                  onChange={handleEmailChange}
                   autoComplete="email"
                   inputMode="email"
                   className="w-full rounded-lg border border-gray-700 bg-gray-800/50 py-3 pl-10 pr-4 text-white placeholder-gray-500 transition-all duration-300 hover:border-gray-600 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -492,9 +633,7 @@ export default function LoginForm() {
                       : "password"
                   }
                   value={password}
-                  onChange={(event) =>
-                    setPassword(event.target.value)
-                  }
+                  onChange={handlePasswordChange}
                   autoComplete="current-password"
                   className="w-full rounded-lg border border-gray-700 bg-gray-800/50 py-3 pl-10 pr-11 text-white placeholder-gray-500 transition-all duration-300 hover:border-gray-600 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-purple-500"
                   placeholder="Enter your password"
@@ -533,17 +672,20 @@ export default function LoginForm() {
             {/* Sign-in button */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={isSubmitting}
               className="flex w-full cursor-pointer items-center justify-center rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 px-4 py-3 text-sm font-medium text-white shadow-lg shadow-purple-600/20 transition-all duration-300 hover:-translate-y-0.5 hover:from-purple-700 hover:to-blue-700 hover:shadow-purple-600/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
             >
-              {loading ? (
+              {isSubmitting ? (
                 <span
-                  aria-label="Signing in"
+                  aria-hidden="true"
                   className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"
                 />
               ) : (
                 "Sign In"
               )}
+              <span className="sr-only" aria-live="polite">
+                {isSubmitting ? "Signing in" : ""}
+              </span>
             </button>
           </form>
 

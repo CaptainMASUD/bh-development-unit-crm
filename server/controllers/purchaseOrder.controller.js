@@ -44,11 +44,34 @@ const LIST_FIELDS = [
 ].join(" ");
 
 const clean = (value) => String(value ?? "").trim();
-const runTransaction = (session, work) =>
-  session.withTransaction(work, {
-    readConcern: { level: "snapshot" },
-    writeConcern: { w: "majority" },
-  });
+let transactionSupport;
+const supportsTransactions = async () => {
+  if (transactionSupport !== undefined) return transactionSupport;
+  try {
+    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
+    transactionSupport = Boolean(hello?.setName || hello?.msg === "isdbgrid");
+  } catch {
+    transactionSupport = false;
+  }
+  return transactionSupport;
+};
+const runTransaction = async (work) => {
+  if (!(await supportsTransactions())) return work(null);
+  const session = await mongoose.startSession();
+  try {
+    let result;
+    await session.withTransaction(async () => {
+      result = await work(session);
+    }, {
+      readConcern: { level: "snapshot" },
+      writeConcern: { w: "majority" },
+    });
+    return result;
+  } finally {
+    await session.endSession();
+  }
+};
+const sessionOptions = (session) => (session ? { session } : {});
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -115,7 +138,7 @@ const nextDocumentNumber = async ({ prefix, date, session }) => {
         $setOnInsert: { prefix, year, createdAt: new Date() },
         $set: { updatedAt: new Date() },
       },
-      { upsert: true, returnDocument: "after", session }
+      { upsert: true, returnDocument: "after", ...sessionOptions(session) }
     );
 
   const sequence = result?.sequence ?? result?.value?.sequence;
@@ -731,7 +754,6 @@ export const getPurchaseOrder = async (req, res) => {
 };
 
 export const createPurchaseOrder = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     const actorId = req.user?._id || null;
     const payload = buildPayload(req.body);
@@ -746,15 +768,15 @@ export const createPurchaseOrder = async (req, res) => {
     const errors = validatePayload(payload);
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
-    let order;
-    await runTransaction(session, async () => {
+    const order = await runTransaction(async (session) => {
       if (payload.idempotencyKey) {
-        const existing = await PurchaseOrder.findOne({
+        const existingQuery = PurchaseOrder.findOne({
           idempotencyKey: payload.idempotencyKey,
-        }).session(session);
+        });
+        if (session) existingQuery.session(session);
+        const existing = await existingQuery;
         if (existing) {
-          order = existing;
-          return;
+          return existing;
         }
       }
 
@@ -764,14 +786,15 @@ export const createPurchaseOrder = async (req, res) => {
         date: enriched.orderDate,
         session,
       });
-      order = new PurchaseOrder({
+      const created = new PurchaseOrder({
         ...enriched,
         orderNo,
         status: "draft",
         createdBy: actorId,
         updatedBy: actorId,
       });
-      await order.save({ session });
+      await created.save(sessionOptions(session));
+      return created;
     });
 
     const populated = await populateOrder(PurchaseOrder.findById(order._id)).lean();
@@ -781,13 +804,10 @@ export const createPurchaseOrder = async (req, res) => {
     });
   } catch (error) {
     return sendError(res, error, "Failed to create purchase order.");
-  } finally {
-    await session.endSession();
   }
 };
 
 export const updatePurchaseOrder = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) {
       return res.status(400).json({ message: "Invalid purchase-order ID." });
@@ -801,9 +821,10 @@ export const updatePurchaseOrder = async (req, res) => {
     const errors = validatePayload(payload, { partial: true });
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
-    let order;
-    await runTransaction(session, async () => {
-      const current = await PurchaseOrder.findById(req.params.id).session(session);
+    const order = await runTransaction(async (session) => {
+      const currentQuery = PurchaseOrder.findById(req.params.id);
+      if (session) currentQuery.session(session);
+      const current = await currentQuery;
       if (!current) throw Object.assign(new Error("Purchase order not found."), { statusCode: 404 });
       if (!PURCHASE_ORDER_EDITABLE_STATUSES.includes(current.status)) {
         throw Object.assign(new Error("Only a draft or rejected purchase order can be edited."), {
@@ -845,16 +866,14 @@ export const updatePurchaseOrder = async (req, res) => {
       current.rejectedBy = null;
       current.revision += 1;
       current.updatedBy = actorId;
-      await current.save({ session });
-      order = current;
+      await current.save(sessionOptions(session));
+      return current;
     });
 
     const populated = await populateOrder(PurchaseOrder.findById(order._id)).lean();
     return res.json({ message: "Purchase-order draft updated.", purchaseOrder: populated });
   } catch (error) {
     return sendError(res, error, "Failed to update purchase order.");
-  } finally {
-    await session.endSession();
   }
 };
 

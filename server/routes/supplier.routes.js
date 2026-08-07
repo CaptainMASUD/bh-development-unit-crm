@@ -57,6 +57,14 @@ router.get(
   requireAnyPermission([
     SUPPLIER_PERMISSIONS.VIEW,
     "inventory-product:manage",
+    "purchase-order:view",
+    "purchase-order:manage",
+    "goods-receipt:view",
+    "goods-receipt:manage",
+    "purchase-return:view",
+    "purchase-return:manage",
+    "finance:view",
+    "finance:manage",
   ]),
   listSupplierOptions
 );
@@ -87,7 +95,12 @@ router.get(
 
 router.get(
   "/:id/products",
-  requirePermission(SUPPLIER_PERMISSIONS.VIEW),
+  requireAnyPermission([
+    SUPPLIER_PERMISSIONS.VIEW,
+    "inventory-product:manage",
+    "purchase-order:view",
+    "purchase-order:manage",
+  ]),
   listSupplierProducts
 );
 

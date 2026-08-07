@@ -49,18 +49,7 @@ const FALLBACK_META = {
   stockBuckets: ["available", "quarantine"],
 }
 
-const EMPTY_SUMMARY = {
-  returnCount: 0,
-  draftCount: 0,
-  submittedCount: 0,
-  approvedCount: 0,
-  postedCount: 0,
-  reversedCount: 0,
-  totalReturnQuantity: 0,
-  totalReturnValue: 0,
-}
-
-const shell = "min-h-screen bg-gray-50"
+const shell = "min-h-screen bg-gradient-to-b from-gray-50 to-white"
 const card =
   "rounded-2xl border border-gray-100 bg-white shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]"
 const button =
@@ -404,64 +393,86 @@ function ModalShell({
   useEffect(() => {
     if (!open) return undefined
 
-    const onKeyDown = (event) => event.key === "Escape" && onClose()
-    document.addEventListener("keydown", onKeyDown)
-    const previous = document.body.style.overflow
+    const previousOverflow = document.body.style.overflow
     document.body.style.overflow = "hidden"
 
     return () => {
-      document.removeEventListener("keydown", onKeyDown)
-      document.body.style.overflow = previous
+      document.body.style.overflow = previousOverflow
     }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return undefined
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") onClose?.()
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
   }, [open, onClose])
 
   if (!open || typeof document === "undefined") return null
 
   return createPortal(
-    <div className="fixed inset-0 z-[120] overflow-y-auto bg-gray-950/45 p-3 backdrop-blur-[2px] sm:p-5">
-      <div className="flex min-h-full items-center justify-center">
-        <motion.div
-          initial={{ opacity: 0, y: 14, scale: 0.985 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          className={cn(
-            "w-full overflow-hidden rounded-3xl bg-white shadow-2xl",
-            maxWidthClass
-          )}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-gray-100 bg-white px-4 py-4 sm:px-5">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700">
-                {icon}
-              </div>
-              <div className="min-w-0">
-                <h2 className="truncate text-lg font-black text-gray-950">{title}</h2>
-                {subtitle ? (
-                  <p className="truncate text-xs font-semibold text-gray-500">{subtitle}</p>
-                ) : null}
-              </div>
-            </div>
-            <button
-              type="button"
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:bg-gray-50 hover:text-gray-900"
-              onClick={onClose}
-              aria-label="Close modal"
-            >
-              <Icon icon={Cancel01Icon} className="h-5 w-5" />
-            </button>
-          </div>
+    <div className="fixed inset-0 z-[120]" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 overflow-y-auto">
+        <div className="flex min-h-full items-start justify-center p-4 sm:items-center sm:p-6">
+          <motion.button
+            type="button"
+            aria-label="Close modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="fixed inset-0 cursor-default bg-black/40 backdrop-blur-md"
+            onClick={onClose}
+          />
 
-          <div className="max-h-[calc(100vh-175px)] overflow-y-auto p-4 sm:p-5">
-            {children}
-          </div>
+          <motion.div
+            initial={{ opacity: 0, y: 14, scale: 0.99 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ type: "spring", stiffness: 260, damping: 24 }}
+            className={cn(
+              "relative w-full overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-[0_30px_70px_-30px_rgba(0,0,0,0.65)]",
+              maxWidthClass
+            )}
+          >
+            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-100 bg-gray-50/90 p-4 backdrop-blur sm:p-5">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
+                  {icon}
+                </div>
 
-          {footer ? (
-            <div className="sticky bottom-0 z-20 border-t border-gray-100 bg-white p-4 sm:p-5">
-              {footer}
+                <div className="min-w-0">
+                  <h2 className="truncate text-base font-bold text-gray-900 sm:text-lg">
+                    {title}
+                  </h2>
+                  {subtitle ? (
+                    <p className="truncate text-sm text-gray-600">{subtitle}</p>
+                  ) : null}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-xl p-2 text-gray-700 transition hover:bg-gray-100"
+                aria-label="Close modal"
+              >
+                <Icon icon={Cancel01Icon} className="h-5 w-5" />
+              </button>
             </div>
-          ) : null}
-        </motion.div>
+
+            <div className="max-h-[calc(100vh-14rem)] overflow-y-auto bg-white p-4 sm:p-5">
+              {children}
+            </div>
+
+            {footer ? (
+              <div className="sticky bottom-0 z-20 border-t border-gray-100 bg-white p-4 sm:p-5">
+                {footer}
+              </div>
+            ) : null}
+          </motion.div>
+        </div>
       </div>
     </div>,
     document.body
@@ -498,38 +509,470 @@ async function api(path, options = {}) {
   return data
 }
 
-function SummaryCards({ summary, onSelect }) {
-  const items = [
-    ["All Returns", summary.returnCount, "all", formatMoney(summary.totalReturnValue)],
-    ["Drafts", summary.draftCount, "draft", "Being prepared"],
-    ["Submitted", summary.submittedCount, "submitted", "Waiting for approval"],
-    ["Approved", summary.approvedCount, "approved", "Ready to post"],
-    ["Posted", summary.postedCount, "posted", `${formatNumber(summary.totalReturnQuantity)} returned`],
-    ["Reversed", summary.reversedCount, "reversed", "Compensating movement created"],
-  ]
+function FilterChip({ label, value, onClear }) {
+  return (
+    <button
+      type="button"
+      onClick={onClear}
+      className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+      title={`Remove ${label} filter`}
+      aria-label={`Remove ${label} filter`}
+    >
+      <span className="text-indigo-400">{label}:</span>
+      <span className="max-w-[180px] truncate sm:max-w-[220px]">{value}</span>
+      <Icon icon={Cancel01Icon} className="h-3.5 w-3.5 shrink-0" />
+    </button>
+  )
+}
+
+function Skeleton({ className = "" }) {
+  return <div className={cn("animate-pulse rounded-lg bg-gray-200/80", className)} />
+}
+
+function HeaderSearchFilters({
+  activeTab,
+  filters,
+  updateFilter,
+  resetFilters,
+  filterChipCount,
+  selectedSupplierName,
+  selectedPurchaseOrderName,
+  selectedGoodsReceiptName,
+  selectedWarehouseName,
+  selectedProductName,
+  onClearStatus,
+  onOpenFilters,
+}) {
+  const hasAnything = Boolean(clean(filters.q)) || filterChipCount > 0
 
   return (
-    <div className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-      {items.map(([label, value, tab, note]) => (
+    <div
+      className={cn(
+        "w-full transition-[max-width,flex-basis] duration-200",
+        filterChipCount === 0
+          ? "lg:max-w-[50%] lg:flex-[0_1_50%]"
+          : filterChipCount <= 2
+            ? "lg:max-w-[64%] lg:flex-[0_1_64%]"
+            : "lg:max-w-[78%] lg:flex-[0_1_78%]"
+      )}
+    >
+      <div className="flex min-h-[40px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
+        <Icon icon={Search01Icon} className="h-4 w-4 shrink-0 text-gray-400" />
+
+        {activeTab !== "all" ? (
+          <FilterChip label="Status" value={pretty(activeTab)} onClear={onClearStatus} />
+        ) : null}
+
+        {filters.supplier !== "all" ? (
+          <FilterChip
+            label="Supplier"
+            value={selectedSupplierName || "Selected supplier"}
+            onClear={() => updateFilter("supplier", "all")}
+          />
+        ) : null}
+
+        {filters.purchaseOrder !== "all" ? (
+          <FilterChip
+            label="Order"
+            value={selectedPurchaseOrderName || "Selected order"}
+            onClear={() => updateFilter("purchaseOrder", "all")}
+          />
+        ) : null}
+
+        {filters.goodsReceipt !== "all" ? (
+          <FilterChip
+            label="Receipt"
+            value={selectedGoodsReceiptName || "Selected receipt"}
+            onClear={() => updateFilter("goodsReceipt", "all")}
+          />
+        ) : null}
+
+        {filters.warehouse !== "all" ? (
+          <FilterChip
+            label="Warehouse"
+            value={selectedWarehouseName || "Selected warehouse"}
+            onClear={() => updateFilter("warehouse", "all")}
+          />
+        ) : null}
+
+        {filters.product !== "all" ? (
+          <FilterChip
+            label="Product"
+            value={selectedProductName || "Selected product"}
+            onClear={() => updateFilter("product", "all")}
+          />
+        ) : null}
+
+        {filters.dateFrom ? (
+          <FilterChip
+            label="From"
+            value={formatDate(filters.dateFrom)}
+            onClear={() => updateFilter("dateFrom", "")}
+          />
+        ) : null}
+
+        {filters.dateTo ? (
+          <FilterChip
+            label="To"
+            value={formatDate(filters.dateTo)}
+            onClear={() => updateFilter("dateTo", "")}
+          />
+        ) : null}
+
+        <FocusPlaceholderInput
+          className="h-8 min-w-[150px] basis-[180px] flex-1 border-0 bg-transparent px-1 py-0 text-sm font-medium text-gray-800 outline-none ring-0 shadow-none placeholder:text-gray-400 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
+          style={{ outline: "none", boxShadow: "none" }}
+          value={filters.q}
+          onChange={(event) => updateFilter("q", event.target.value)}
+          placeholder="Search return number..."
+          type="search"
+          aria-label="Search purchase returns"
+        />
+
         <button
-          key={label}
           type="button"
-          onClick={() => onSelect(tab)}
+          onClick={onOpenFilters}
           className={cn(
-            card,
-            "p-4 text-left transition hover:border-indigo-100 hover:bg-indigo-50/20"
+            "inline-flex h-8 shrink-0 items-center gap-2 rounded-xl px-2.5 text-xs font-black transition",
+            filterChipCount
+              ? "bg-indigo-600 text-white hover:bg-indigo-700"
+              : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
           )}
         >
-          <p className="text-xs font-black uppercase tracking-wide text-gray-400">
-            {label}
-          </p>
-          <p className="mt-2 text-xl font-black text-gray-950">
-            {formatNumber(value, 0)}
-          </p>
-          <p className="mt-1 truncate text-xs font-semibold text-gray-500">{note}</p>
+          <Icon icon={FilterIcon} className="h-3.5 w-3.5" />
+          Filters
+          {filterChipCount ? (
+            <span className="rounded-full bg-white/20 px-1.5 text-[10px]">
+              {filterChipCount}
+            </span>
+          ) : null}
         </button>
-      ))}
+
+        {hasAnything ? (
+          <button
+            type="button"
+            onClick={() => resetFilters(false)}
+            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+            title="Clear search and filters"
+            aria-label="Clear search and filters"
+          >
+            <Icon icon={Cancel01Icon} className="h-4 w-4" />
+          </button>
+        ) : null}
+      </div>
     </div>
+  )
+}
+
+function PurchaseReturnTableSkeleton({ rows = 8 }) {
+  return Array.from({ length: rows }).map((_, index) => (
+    <tr key={`return-skeleton-${index}`}>
+      <td className="px-5 py-4">
+        <Skeleton className="h-4 w-28" />
+        <Skeleton className="mt-2 h-3 w-20" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="mt-2 h-3 w-32" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-4 w-32" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-4 w-20" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-4 w-24" />
+      </td>
+      <td className="px-5 py-4">
+        <Skeleton className="h-7 w-20 rounded-full" />
+      </td>
+      <td className="sticky right-0 bg-white px-5 py-4">
+        <div className="flex justify-end gap-2">
+          <Skeleton className="h-10 w-20 rounded-xl" />
+          <Skeleton className="h-10 w-10 rounded-xl" />
+        </div>
+      </td>
+    </tr>
+  ))
+}
+
+function PurchaseReturnMobileSkeleton({ rows = 5 }) {
+  return Array.from({ length: rows }).map((_, index) => (
+    <article key={`mobile-return-skeleton-${index}`} className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="mt-2 h-3 w-28" />
+        </div>
+        <Skeleton className="h-7 w-20 rounded-full" />
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-gray-50 p-3">
+        {Array.from({ length: 4 }).map((__, metricIndex) => (
+          <div key={metricIndex}>
+            <Skeleton className="h-3 w-14" />
+            <Skeleton className="mt-2 h-4 w-24" />
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 flex gap-2">
+        <Skeleton className="h-10 flex-1 rounded-xl" />
+        <Skeleton className="h-10 w-10 rounded-xl" />
+      </div>
+    </article>
+  ))
+}
+
+function PurchaseReturnActions({
+  item,
+  busy,
+  canManage,
+  canApprove,
+  canPost,
+  canReverse,
+  canDelete,
+  onView,
+  onEdit,
+  onSubmit,
+  onApprove,
+  onPost,
+  onReverse,
+  onCancel,
+  onDelete,
+  mobile = false,
+}) {
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const working = String(busy.id) === String(item._id)
+
+  useEffect(() => {
+    if (!open) return undefined
+
+    const close = () => setOpen(false)
+    const onPointer = (event) => {
+      if (!event.target.closest?.("[data-pr-actions-menu]")) close()
+    }
+
+    window.addEventListener("resize", close)
+    window.addEventListener("scroll", close, true)
+    document.addEventListener("mousedown", onPointer)
+
+    return () => {
+      window.removeEventListener("resize", close)
+      window.removeEventListener("scroll", close, true)
+      document.removeEventListener("mousedown", onPointer)
+    }
+  }, [open])
+
+  const openMenu = (event) => {
+    event.stopPropagation()
+    const rect = event.currentTarget.getBoundingClientRect()
+    const menuWidth = 250
+    const estimatedHeight = 320
+    const gutter = 8
+    const left = Math.min(
+      window.innerWidth - menuWidth - gutter,
+      Math.max(gutter, rect.right - menuWidth)
+    )
+    const fitsBelow =
+      window.innerHeight - rect.bottom >= Math.min(estimatedHeight, 280)
+    const top = fitsBelow
+      ? rect.bottom + gutter
+      : Math.max(gutter, rect.top - estimatedHeight - gutter)
+
+    setPosition({ top, left })
+    setOpen((previous) => !previous)
+  }
+
+  const menuItems = []
+
+  if (canManage && item.status === "draft") {
+    menuItems.push(
+      {
+        key: "edit",
+        label: "Edit return",
+        icon: Edit02Icon,
+        onClick: () => onEdit(item),
+      },
+      {
+        key: "submit",
+        label: "Submit for approval",
+        icon: Tick02Icon,
+        onClick: () => onSubmit(item),
+      }
+    )
+  }
+
+  if (canApprove && item.status === "submitted") {
+    menuItems.push({
+      key: "approve",
+      label: "Approve return",
+      icon: Tick02Icon,
+      onClick: () => onApprove(item),
+    })
+  }
+
+  if (canPost && item.status === "approved") {
+    menuItems.push({
+      key: "post",
+      label: "Post inventory return",
+      icon: FloppyDiskIcon,
+      onClick: () => onPost(item),
+    })
+  }
+
+  if (canReverse && item.status === "posted") {
+    menuItems.push({
+      key: "reverse",
+      label: "Reverse return",
+      icon: RefreshIcon,
+      danger: true,
+      onClick: () => onReverse(item),
+    })
+  }
+
+  if (canManage && ["draft", "submitted", "approved"].includes(item.status)) {
+    menuItems.push({
+      key: "cancel",
+      label: "Cancel return",
+      icon: Cancel01Icon,
+      danger: true,
+      onClick: () => onCancel(item),
+    })
+  }
+
+  if (canDelete && ["draft", "cancelled"].includes(item.status)) {
+    menuItems.push({
+      key: "delete",
+      label: "Delete return",
+      icon: Archive02Icon,
+      danger: true,
+      separator: true,
+      onClick: () => onDelete(item),
+    })
+  }
+
+  const activeBusyType = working ? busy.type : ""
+
+  return (
+    <div
+      className={cn("flex items-center gap-2", mobile ? "w-full" : "justify-end")}
+      data-pr-actions-menu
+    >
+      <button
+        type="button"
+        className={cn(
+          button,
+          ghostButton,
+          mobile ? "h-10 flex-1 px-3" : "h-10 px-3"
+        )}
+        onClick={() => onView(item)}
+        disabled={working}
+      >
+        <Icon
+          icon={activeBusyType === "view" ? RefreshIcon : ViewIcon}
+          className={cn("h-4 w-4", activeBusyType === "view" ? "animate-spin" : "")}
+        />
+        View
+      </button>
+
+      {menuItems.length ? (
+        <button
+          type="button"
+          onClick={openMenu}
+          disabled={working}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-xl font-bold leading-none text-gray-600 transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+          aria-label={`More actions for ${item.returnNo}`}
+          title="More actions"
+        >
+          {working && activeBusyType !== "view" ? (
+            <Icon icon={RefreshIcon} className="h-4 w-4 animate-spin" />
+          ) : (
+            <span aria-hidden="true">⋮</span>
+          )}
+        </button>
+      ) : null}
+
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              data-pr-actions-menu
+              className="fixed z-[150] w-[250px] overflow-hidden rounded-2xl border border-gray-100 bg-white p-1.5 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.45)]"
+              style={{ top: position.top, left: position.left }}
+            >
+              {menuItems.map((menuItem) => (
+                <div key={menuItem.key}>
+                  {menuItem.separator ? (
+                    <div className="my-1 border-t border-gray-100" />
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false)
+                      menuItem.onClick()
+                    }}
+                    disabled={working}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition",
+                      menuItem.danger
+                        ? "text-rose-700 hover:bg-rose-50"
+                        : "text-gray-700 hover:bg-gray-50"
+                    )}
+                  >
+                    <Icon icon={menuItem.icon} className="h-4 w-4 shrink-0" />
+                    <span>{menuItem.label}</span>
+                  </button>
+                </div>
+              ))}
+            </div>,
+            document.body
+          )
+        : null}
+    </div>
+  )
+}
+
+function ConfirmActionModal({ state, working, onClose, onConfirm }) {
+  return (
+    <ModalShell
+      open={state.open}
+      onClose={onClose}
+      title={state.title || "Confirm action"}
+      subtitle={state.item?.returnNo || "Purchase return"}
+      icon={<Icon icon={Alert02Icon} className="h-5 w-5" />}
+      maxWidthClass="max-w-lg"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            className={cn(button, ghostButton)}
+            onClick={onClose}
+            disabled={working}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={cn(button, state.danger ? dangerButton : primaryButton)}
+            onClick={onConfirm}
+            disabled={working}
+          >
+            <Icon
+              icon={working ? RefreshIcon : Tick02Icon}
+              className={cn("h-4 w-4", working ? "animate-spin" : "")}
+            />
+            {working ? "Working..." : state.actionLabel || "Continue"}
+          </button>
+        </div>
+      }
+    >
+      <p className="text-sm font-medium leading-6 text-gray-600">{state.message}</p>
+      {state.danger ? (
+        <div className="mt-4 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+          This action is destructive and cannot be undone.
+        </div>
+      ) : null}
+    </ModalShell>
   )
 }
 
@@ -562,7 +1005,7 @@ function ReasonModal({ state, saving, onClose, onSubmit, setReason }) {
               icon={saving ? RefreshIcon : Tick02Icon}
               className={cn("h-4 w-4", saving ? "animate-spin" : "")}
             />
-            {saving ? "Saving" : state.actionLabel || "Continue"}
+            {saving ? "Saving..." : state.actionLabel || "Continue"}
           </button>
         </div>
       }
@@ -602,16 +1045,24 @@ function FilterModal({
     <ModalShell
       open={open}
       onClose={onClose}
-      title="Filter purchase returns"
-      subtitle="Narrow the list without adding permanent sidebar options."
+      title="Purchase-return filters"
+      subtitle="Filter return history"
       icon={<Icon icon={FilterIcon} className="h-5 w-5" />}
       maxWidthClass="max-w-3xl"
       footer={
-        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
-          <button type="button" className={cn(button, ghostButton)} onClick={resetFilters}>
-            Clear Filters
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            className={cn(button, ghostButton)}
+            onClick={() => resetFilters(true)}
+          >
+            Reset
           </button>
-          <button type="button" className={cn(button, primaryButton)} onClick={onClose}>
+          <button
+            type="button"
+            className={cn(button, primaryButton)}
+            onClick={onClose}
+          >
             <Icon icon={Tick02Icon} className="h-4 w-4" />
             Apply Filters
           </button>
@@ -734,7 +1185,6 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
   const canDelete = hasPermission(currentUser, DELETE_PERMISSION)
 
   const [meta, setMeta] = useState(FALLBACK_META)
-  const [summary, setSummary] = useState(EMPTY_SUMMARY)
   const [returns, setReturns] = useState([])
   const [goodsReceipts, setGoodsReceipts] = useState([])
   const [suppliers, setSuppliers] = useState([])
@@ -778,7 +1228,28 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
     reason: "",
     error: "",
   })
+  const [confirmState, setConfirmState] = useState({
+    open: false,
+    item: null,
+    type: "",
+    title: "",
+    message: "",
+    actionLabel: "",
+    danger: false,
+  })
 
+  const supplierMap = useMemo(
+    () => new Map(suppliers.map((item) => [String(item._id), item])),
+    [suppliers]
+  )
+  const purchaseOrderMap = useMemo(
+    () => new Map(purchaseOrders.map((item) => [String(item._id), item])),
+    [purchaseOrders]
+  )
+  const warehouseMap = useMemo(
+    () => new Map(warehouses.map((item) => [String(item._id), item])),
+    [warehouses]
+  )
   const productMap = useMemo(
     () => new Map(products.map((item) => [String(item._id), item])),
     [products]
@@ -835,7 +1306,7 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
     })
   }, [form.lines, lineSearch, productMap])
 
-  const activeFilterCount = useMemo(
+  const filterChipCount = useMemo(
     () =>
       Object.entries(filters).filter(
         ([key, value]) => key !== "q" && value && value !== "all"
@@ -866,27 +1337,29 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
   }
 
   const loadReferenceData = async () => {
-    try {
-      const [metaData, receiptData, supplierData, orderData, warehouseData, productData, unitData] =
-        await Promise.all([
-          api("/purchase/purchase-returns/meta"),
-          api("/purchase/goods-receipts/options?limit=100"),
-          api("/suppliers/options?limit=100"),
-          api("/purchase/purchase-orders/options?limit=100"),
-          api("/inventory/warehouses/options?limit=100"),
-          api("/inventory/products?status=active&limit=100"),
-          api("/inventory/units/options?limit=200"),
-        ])
+    const results = await Promise.allSettled([
+      api("/purchase/purchase-returns/meta"),
+      api("/purchase/goods-receipts/options?limit=100"),
+      api("/suppliers/options?limit=200&includeUnavailable=true"),
+      api("/purchase/purchase-orders/options?limit=100"),
+      api("/inventory/warehouses/options?limit=100"),
+      api("/inventory/products?status=active&limit=100"),
+      api("/inventory/units/options?limit=200"),
+    ])
+    const value = (index, fallback = {}) =>
+      results[index].status === "fulfilled" ? results[index].value : fallback
 
-      setMeta({ ...FALLBACK_META, ...(metaData || {}) })
-      setGoodsReceipts(receiptData.goodsReceipts || [])
-      setSuppliers(supplierData.suppliers || [])
-      setPurchaseOrders(orderData.purchaseOrders || [])
-      setWarehouses(warehouseData.warehouses || [])
-      setProducts(productData.products || [])
-      setUnits(unitData.units || [])
-    } catch (error) {
-      toast.error(error.message || "Failed to load purchase-return options")
+    setMeta({ ...FALLBACK_META, ...value(0) })
+    setGoodsReceipts(value(1).goodsReceipts || [])
+    setSuppliers(value(2).suppliers || [])
+    setPurchaseOrders(value(3).purchaseOrders || [])
+    setWarehouses(value(4).warehouses || [])
+    setProducts(value(5).products || [])
+    setUnits(value(6).units || [])
+
+    const firstFailure = results.find((result) => result.status === "rejected")
+    if (firstFailure) {
+      toast.error(firstFailure.reason?.message || "Some purchase-return options could not be loaded")
     }
   }
 
@@ -905,13 +1378,19 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
     return params
   }
 
-  const loadReturns = async ({ append = false, signal } = {}) => {
-    append ? setLoadingMore(true) : setLoading(true)
+  const loadReturns = async ({
+    append = false,
+    showLoader = true,
+    signal,
+  } = {}) => {
+    if (append) setLoadingMore(true)
+    else if (showLoader) setLoading(true)
 
     try {
-      const data = await api(`/purchase/purchase-returns?${buildParams({ append })}`, {
-        signal,
-      })
+      const data = await api(
+        `/purchase/purchase-returns?${buildParams({ append })}`,
+        { signal }
+      )
       const incoming = data.purchaseReturns || []
       setReturns((previous) => (append ? [...previous, ...incoming] : incoming))
       setHasMore(Boolean(data.hasMore))
@@ -921,20 +1400,8 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
         toast.error(error.message || "Failed to load purchase returns")
       }
     } finally {
-      append ? setLoadingMore(false) : setLoading(false)
-    }
-  }
-
-  const loadSummary = async ({ signal } = {}) => {
-    try {
-      const data = await api(`/purchase/purchase-returns/summary?${buildParams()}`, {
-        signal,
-      })
-      setSummary({ ...EMPTY_SUMMARY, ...(data.summary || {}) })
-    } catch (error) {
-      if (error.name !== "AbortError") {
-        toast.error(error.message || "Failed to load purchase-return summary")
-      }
+      if (append) setLoadingMore(false)
+      else if (showLoader) setLoading(false)
     }
   }
 
@@ -945,10 +1412,7 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
   useEffect(() => {
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      Promise.all([
-        loadReturns({ signal: controller.signal }),
-        loadSummary({ signal: controller.signal }),
-      ])
+      loadReturns({ signal: controller.signal })
     }, 250)
 
     return () => {
@@ -972,7 +1436,7 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
   }, [initialGoodsReceiptId])
 
   const refresh = async () =>
-    Promise.all([loadReferenceData(), loadReturns(), loadSummary()])
+    Promise.all([loadReferenceData(), loadReturns()])
 
   const updateFilter = (key, value) => {
     setFilters((previous) => ({ ...previous, [key]: value }))
@@ -980,7 +1444,7 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
     setHasMore(false)
   }
 
-  const resetFilters = () => {
+  const resetFilters = (closeFilter = false) => {
     setActiveTab("all")
     setFilters({
       q: "",
@@ -992,7 +1456,9 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
       dateFrom: "",
       dateTo: "",
     })
-    setFilterOpen(false)
+    setNextCursor(null)
+    setHasMore(false)
+    if (closeFilter) setFilterOpen(false)
   }
 
   const switchTab = (tab) => {
@@ -1263,7 +1729,7 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
       )
       toast.success(editing ? "Purchase return updated" : "Purchase-return draft created")
       closeForm(true)
-      await Promise.all([loadReturns(), loadSummary(), loadReferenceData()])
+      await Promise.all([loadReturns({ showLoader: false }), loadReferenceData()])
     } catch (error) {
       setFormError(error.message || "Failed to save purchase return")
     } finally {
@@ -1317,7 +1783,9 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
           : "Purchase return cancelled"
       )
       setReasonState((previous) => ({ ...previous, open: false, reason: "", error: "" }))
-      await Promise.all([loadReturns(), loadSummary(), loadReferenceData()])
+      setConfirmState((previous) => ({ ...previous, open: false }))
+      await Promise.all([loadReturns({ showLoader: false }), loadReferenceData()])
+      return true
     } catch (error) {
       if (reasonState.open) {
         setReasonState((previous) => ({
@@ -1327,161 +1795,135 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
       } else {
         toast.error(error.message || "Action failed")
       }
+      return false
     } finally {
       setBusy({ id: "", type: "" })
     }
   }
 
-  const deleteReturn = async (item) => {
-    if (!window.confirm(`Delete purchase return "${item.returnNo}"?`)) return
-
+  const performDelete = async (item) => {
     setBusy({ id: item._id, type: "delete" })
     try {
       await api(`/purchase/purchase-returns/${item._id}`, { method: "DELETE" })
       toast.success("Purchase return deleted")
-      await Promise.all([loadReturns(), loadSummary(), loadReferenceData()])
+      setConfirmState((previous) => ({ ...previous, open: false }))
+      if (detailsModal.item?._id === item._id) {
+        setDetailsModal({ open: false, item: null })
+      }
+      await Promise.all([
+        loadReturns({ showLoader: false }),
+        loadReferenceData(),
+      ])
+      return true
     } catch (error) {
       toast.error(error.message || "Failed to delete purchase return")
+      return false
     } finally {
       setBusy({ id: "", type: "" })
     }
   }
 
-  const renderActions = (item, mobile = false) => {
-    const actionClass = mobile ? "flex-1 px-3 py-2" : "h-9 w-9 p-0"
-    const isBusy = busy.id === item._id
+  const requestConfirm = (item, type) => {
+    const config = {
+      submit: {
+        title: "Submit purchase return",
+        message: `Submit ${item.returnNo} for approval?`,
+        actionLabel: "Submit",
+        danger: false,
+      },
+      approve: {
+        title: "Approve purchase return",
+        message: `Approve ${item.returnNo}? It will become ready for inventory posting.`,
+        actionLabel: "Approve",
+        danger: false,
+      },
+      post: {
+        title: "Post purchase return",
+        message: `Post ${item.returnNo} to inventory? Stock will be reduced from the selected source buckets.`,
+        actionLabel: "Post Return",
+        danger: false,
+      },
+      delete: {
+        title: "Delete purchase return",
+        message: `Delete ${item.returnNo}? Only eligible draft or cancelled returns should be removed.`,
+        actionLabel: "Delete Return",
+        danger: true,
+      },
+    }[type]
 
-    return (
-      <div className={cn("flex flex-wrap items-center gap-2", mobile ? "mt-4" : "justify-end") }>
-        <button
-          type="button"
-          className={cn(button, ghostButton, actionClass)}
-          onClick={() => openDetails(item)}
-          disabled={isBusy}
-          title="View purchase return"
-        >
-          <Icon
-            icon={isBusy && busy.type === "view" ? RefreshIcon : ViewIcon}
-            className={cn("h-4 w-4", isBusy && busy.type === "view" ? "animate-spin" : "")}
-          />
-          {mobile ? "View" : null}
-        </button>
+    if (!config) return
 
-        {canManage && item.status === "draft" ? (
-          <button
-            type="button"
-            className={cn(button, ghostButton, actionClass)}
-            onClick={() => openEdit(item)}
-            disabled={isBusy}
-            title="Edit purchase return"
-          >
-            <Icon
-              icon={isBusy && busy.type === "edit" ? RefreshIcon : Edit02Icon}
-              className={cn("h-4 w-4", isBusy && busy.type === "edit" ? "animate-spin" : "")}
-            />
-            {mobile ? "Edit" : null}
-          </button>
-        ) : null}
-
-        {canManage && item.status === "draft" ? (
-          <button
-            type="button"
-            className={cn(button, primaryButton, actionClass)}
-            onClick={() => runAction(item, "submit")}
-            disabled={isBusy}
-            title="Submit for approval"
-          >
-            <Icon icon={Tick02Icon} className="h-4 w-4" />
-            {mobile ? "Submit" : null}
-          </button>
-        ) : null}
-
-        {canApprove && item.status === "submitted" ? (
-          <button
-            type="button"
-            className={cn(button, primaryButton, actionClass)}
-            onClick={() => runAction(item, "approve")}
-            disabled={isBusy}
-            title="Approve purchase return"
-          >
-            <Icon icon={Tick02Icon} className="h-4 w-4" />
-            {mobile ? "Approve" : null}
-          </button>
-        ) : null}
-
-        {canPost && item.status === "approved" ? (
-          <button
-            type="button"
-            className={cn(button, primaryButton, actionClass)}
-            onClick={() => runAction(item, "post")}
-            disabled={isBusy}
-            title="Post inventory return"
-          >
-            <Icon icon={FloppyDiskIcon} className="h-4 w-4" />
-            {mobile ? "Post" : null}
-          </button>
-        ) : null}
-
-        {canReverse && item.status === "posted" ? (
-          <button
-            type="button"
-            className={cn(button, dangerButton, actionClass)}
-            onClick={() => requestReason(item, "reverse")}
-            disabled={isBusy}
-            title="Reverse purchase return"
-          >
-            <Icon icon={RefreshIcon} className="h-4 w-4" />
-            {mobile ? "Reverse" : null}
-          </button>
-        ) : null}
-
-        {canManage && ["draft", "submitted", "approved"].includes(item.status) ? (
-          <button
-            type="button"
-            className={cn(button, dangerButton, actionClass)}
-            onClick={() => requestReason(item, "cancel")}
-            disabled={isBusy}
-            title="Cancel purchase return"
-          >
-            <Icon icon={Cancel01Icon} className="h-4 w-4" />
-            {mobile ? "Cancel" : null}
-          </button>
-        ) : null}
-
-        {canDelete && ["draft", "cancelled"].includes(item.status) ? (
-          <button
-            type="button"
-            className={cn(button, dangerButton, actionClass)}
-            onClick={() => deleteReturn(item)}
-            disabled={isBusy}
-            title="Delete purchase return"
-          >
-            <Icon icon={Archive02Icon} className="h-4 w-4" />
-            {mobile ? "Delete" : null}
-          </button>
-        ) : null}
-      </div>
-    )
+    setConfirmState({
+      open: true,
+      item,
+      type,
+      ...config,
+    })
   }
 
-  return (
-    <div className={shell}>
-      <Toaster position="top-right" toastOptions={{ duration: 3500 }} />
+  const confirmAction = async () => {
+    const item = confirmState.item
+    if (!item) return
 
-      <div className="mx-auto w-full max-w-[1600px] px-4 py-5 sm:px-6 lg:px-8">
-        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-black text-indigo-700 ring-1 ring-indigo-100">
-              <Icon icon={FolderLibraryIcon} className="h-4 w-4" />
-              Purchase Management
+    if (confirmState.type === "delete") {
+      await performDelete(item)
+      return
+    }
+
+    await runAction(item, confirmState.type)
+  }
+
+  const selectedSupplierName =
+    filters.supplier === "all"
+      ? ""
+      : relationLabel(
+          supplierMap.get(String(filters.supplier)),
+          "Selected supplier"
+        )
+  const selectedPurchaseOrderName =
+    filters.purchaseOrder === "all"
+      ? ""
+      : purchaseOrderMap.get(String(filters.purchaseOrder))?.orderNo ||
+        "Selected order"
+  const selectedGoodsReceiptName =
+    filters.goodsReceipt === "all"
+      ? ""
+      : receiptMap.get(String(filters.goodsReceipt))?.receiptNo ||
+        "Selected receipt"
+  const selectedWarehouseName =
+    filters.warehouse === "all"
+      ? ""
+      : relationLabel(
+          warehouseMap.get(String(filters.warehouse)),
+          "Selected warehouse"
+        )
+  const selectedProductName =
+    filters.product === "all"
+      ? ""
+      : relationLabel(
+          productMap.get(String(filters.product)),
+          "Selected product"
+        )
+
+
+  return (
+    <div className={`${shell} p-4 sm:p-6 lg:p-8`}>
+      <Toaster
+        position="top-right"
+        toastOptions={{ duration: 3000, style: { borderRadius: "14px", fontWeight: 700 } }}
+      />
+
+      <section className={cn(card, "mb-5 p-4 sm:p-5")}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
+              <Icon icon={FolderLibraryIcon} className="h-5 w-5" />
             </div>
-            <h1 className="text-2xl font-black tracking-tight text-gray-950 sm:text-3xl">
-              Purchase Returns
-            </h1>
-            <p className="mt-1 max-w-3xl text-sm font-semibold leading-6 text-gray-500">
-              Return available or quarantined stock against posted goods receipts with approval,
-              posting, reversal, and quantity controls.
-            </p>
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-extrabold tracking-tight text-gray-900">
+                Purchase Returns
+              </h1>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -1491,7 +1933,10 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
               onClick={refresh}
               disabled={loading}
             >
-              <Icon icon={RefreshIcon} className={cn("h-4 w-4", loading ? "animate-spin" : "")} />
+              <Icon
+                icon={RefreshIcon}
+                className={cn("h-4 w-4", loading ? "animate-spin" : "")}
+              />
               Refresh
             </button>
             {canManage ? (
@@ -1507,201 +1952,258 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
           </div>
         </div>
 
-        {!canManage ? (
-          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-            You have view-only purchase-return access. Workflow actions depend on your assigned
-            permissions.
-          </div>
-        ) : null}
+        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <HeaderSearchFilters
+            activeTab={activeTab}
+            filters={filters}
+            updateFilter={updateFilter}
+            resetFilters={resetFilters}
+            filterChipCount={filterChipCount}
+            selectedSupplierName={selectedSupplierName}
+            selectedPurchaseOrderName={selectedPurchaseOrderName}
+            selectedGoodsReceiptName={selectedGoodsReceiptName}
+            selectedWarehouseName={selectedWarehouseName}
+            selectedProductName={selectedProductName}
+            onClearStatus={() => switchTab("all")}
+            onOpenFilters={() => setFilterOpen(true)}
+          />
 
-        <SummaryCards summary={summary} onSelect={switchTab} />
+          <p className="shrink-0 text-sm font-semibold text-gray-500">
+            <span className="text-gray-900">{returns.length}</span> returns
+            {hasMore ? "+" : ""}
+          </p>
+        </div>
+      </section>
 
-        <div className={cn(card, "mb-6 p-3 sm:p-4")}>
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <div className="flex min-h-[44px] flex-1 items-center gap-2 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-3 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
-              <Icon icon={Search01Icon} className="h-4 w-4 shrink-0 text-gray-400" />
-              <FocusPlaceholderInput
-                className="min-w-0 flex-1 border-0 bg-transparent py-2 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:ring-0"
-                value={filters.q}
-                onChange={(event) => updateFilter("q", event.target.value)}
-                placeholder="Search by return number..."
-                aria-label="Search purchase returns"
-              />
-            </div>
+      {!canManage ? (
+        <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+          You have view-only purchase-return access.
+        </div>
+      ) : null}
 
+      <div className={cn(card, "mb-5 p-2")}>
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+          {["all", ...meta.statuses].map((status) => (
             <button
+              key={status}
               type="button"
-              className={cn(button, ghostButton, "relative")}
-              onClick={() => setFilterOpen(true)}
+              onClick={() => switchTab(status)}
+              className={cn(
+                "whitespace-nowrap rounded-xl px-3 py-2 text-xs font-bold transition sm:px-4 sm:text-sm",
+                activeTab === status
+                  ? "bg-indigo-600 text-white shadow-sm"
+                  : "text-gray-700 hover:bg-gray-50"
+              )}
             >
-              <Icon icon={FilterIcon} className="h-4 w-4" />
-              Filters
-              {activeFilterCount ? (
-                <span className="ml-1 rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-black text-white">
-                  {activeFilterCount}
-                </span>
-              ) : null}
+              {status === "all" ? "All" : pretty(status)}
             </button>
-          </div>
+          ))}
+        </div>
+      </div>
 
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-            {["all", ...meta.statuses].map((status) => (
-              <button
-                key={status}
-                type="button"
-                onClick={() => switchTab(status)}
-                className={cn(
-                  "whitespace-nowrap rounded-xl px-4 py-2 text-xs font-black transition",
-                  activeTab === status
-                    ? "bg-indigo-600 text-white"
-                    : "bg-gray-50 text-gray-600 hover:bg-gray-100"
-                )}
-              >
-                {status === "all" ? "All Returns" : pretty(status)}
-              </button>
-            ))}
-          </div>
+      <div className={cn(card, "overflow-hidden rounded-3xl")}>
+        <div className="hidden max-h-[650px] overflow-auto lg:block">
+          <table className="min-w-[1120px] w-full text-left">
+            <thead className="sticky top-0 z-20 bg-gray-50">
+              <tr className="text-[11px] font-black uppercase tracking-[0.08em] text-gray-400">
+                <th className="px-5 py-3.5">Return</th>
+                <th className="px-5 py-3.5">Supplier / Receipt</th>
+                <th className="px-5 py-3.5">Warehouse</th>
+                <th className="px-5 py-3.5">Quantity</th>
+                <th className="px-5 py-3.5">Value</th>
+                <th className="px-5 py-3.5">Status</th>
+                <th className="sticky right-0 bg-gray-50 px-5 py-3.5 text-right">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+
+            <tbody className="divide-y divide-gray-100">
+              {loading ? (
+                <PurchaseReturnTableSkeleton />
+              ) : returns.length ? (
+                returns.map((item) => (
+                  <tr
+                    key={item._id}
+                    className="group bg-white transition hover:bg-gray-50/70"
+                  >
+                    <td className="px-5 py-4">
+                      <p className="text-sm font-semibold text-gray-900">
+                        {item.returnNo}
+                      </p>
+                      <p className="mt-1 text-xs font-medium text-gray-500">
+                        {formatDate(item.returnDate)}
+                      </p>
+                    </td>
+                    <td className="px-5 py-4">
+                      <p className="max-w-[250px] truncate text-sm font-semibold text-gray-900">
+                        {relationLabel(
+                          item.supplier,
+                          item.supplierSnapshot?.name || "Supplier"
+                        )}
+                      </p>
+                      <p className="mt-1 max-w-[250px] truncate text-xs font-medium text-gray-500">
+                        {item.goodsReceipt?.receiptNo || "-"} ·{" "}
+                        {item.purchaseOrder?.orderNo || "-"}
+                      </p>
+                    </td>
+                    <td className="px-5 py-4 text-sm font-medium text-gray-700">
+                      {relationLabel(item.warehouse, "-")}
+                    </td>
+                    <td className="px-5 py-4 text-sm font-semibold text-gray-900">
+                      {formatNumber(item.totalReturnQuantity)}
+                    </td>
+                    <td className="px-5 py-4 text-sm font-semibold text-gray-900">
+                      {formatMoney(item.totalReturnValue, item.currency)}
+                    </td>
+                    <td className="px-5 py-4">
+                      <StatusBadge value={item.status} />
+                    </td>
+                    <td className="sticky right-0 bg-white px-5 py-4 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-gray-50/70">
+                      <PurchaseReturnActions
+                        item={item}
+                        busy={busy}
+                        canManage={canManage}
+                        canApprove={canApprove}
+                        canPost={canPost}
+                        canReverse={canReverse}
+                        canDelete={canDelete}
+                        onView={openDetails}
+                        onEdit={openEdit}
+                        onSubmit={(row) => requestConfirm(row, "submit")}
+                        onApprove={(row) => requestConfirm(row, "approve")}
+                        onPost={(row) => requestConfirm(row, "post")}
+                        onReverse={(row) => requestReason(row, "reverse")}
+                        onCancel={(row) => requestReason(row, "cancel")}
+                        onDelete={(row) => requestConfirm(row, "delete")}
+                      />
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="7" className="px-5 py-14 text-center">
+                    <Icon
+                      icon={FolderLibraryIcon}
+                      className="mx-auto h-8 w-8 text-gray-300"
+                    />
+                    <p className="mt-3 text-sm font-bold text-gray-900">
+                      No purchase returns found
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-gray-500">
+                      Create a return from a posted goods receipt or adjust the filters.
+                    </p>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
 
-        <div className={cn(card, "overflow-hidden")}>
-          <div className="hidden overflow-x-auto lg:block">
-            <table className="min-w-[1120px] w-full">
-              <thead className="border-b border-gray-100 bg-gray-50/80">
-                <tr className="text-left text-[11px] font-black uppercase tracking-wide text-gray-400">
-                  <th className="px-5 py-4">Return</th>
-                  <th className="px-5 py-4">Supplier / Receipt</th>
-                  <th className="px-5 py-4">Warehouse</th>
-                  <th className="px-5 py-4">Quantity</th>
-                  <th className="px-5 py-4">Value</th>
-                  <th className="px-5 py-4">Status</th>
-                  <th className="px-5 py-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {loading ? (
-                  <tr>
-                    <td colSpan="7" className="px-5 py-16 text-center">
-                      <Icon icon={RefreshIcon} className="mx-auto h-6 w-6 animate-spin text-indigo-600" />
-                      <p className="mt-3 text-sm font-semibold text-gray-500">Loading purchase returns...</p>
-                    </td>
-                  </tr>
-                ) : returns.length ? (
-                  returns.map((item) => (
-                    <tr key={item._id} className="transition hover:bg-gray-50/60">
-                      <td className="px-5 py-4">
-                        <p className="font-black text-gray-950">{item.returnNo}</p>
-                        <p className="mt-1 text-xs font-semibold text-gray-500">
-                          {formatDate(item.returnDate)}
-                        </p>
-                      </td>
-                      <td className="px-5 py-4">
-                        <p className="font-bold text-gray-900">
-                          {relationLabel(item.supplier, item.supplierSnapshot?.name || "Supplier")}
-                        </p>
-                        <p className="mt-1 text-xs font-semibold text-gray-500">
-                          {item.goodsReceipt?.receiptNo || "-"} · {item.purchaseOrder?.orderNo || "-"}
-                        </p>
-                      </td>
-                      <td className="px-5 py-4 font-semibold text-gray-700">
-                        {relationLabel(item.warehouse, "-")}
-                      </td>
-                      <td className="px-5 py-4 font-black text-gray-900">
-                        {formatNumber(item.totalReturnQuantity)}
-                      </td>
-                      <td className="px-5 py-4 font-black text-gray-900">
-                        {formatMoney(item.totalReturnValue, item.currency)}
-                      </td>
-                      <td className="px-5 py-4">
-                        <StatusBadge value={item.status} />
-                      </td>
-                      <td className="px-5 py-4">{renderActions(item)}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan="7" className="px-5 py-16 text-center">
-                      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 text-gray-400">
-                        <Icon icon={FolderLibraryIcon} className="h-6 w-6" />
-                      </div>
-                      <p className="mt-3 font-black text-gray-900">No purchase returns found</p>
-                      <p className="mt-1 text-sm font-semibold text-gray-500">
-                        Change the filters or create a return from a posted goods receipt.
-                      </p>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="divide-y divide-gray-100 lg:hidden">
-            {loading ? (
-              <div className="p-10 text-center">
-                <Icon icon={RefreshIcon} className="mx-auto h-6 w-6 animate-spin text-indigo-600" />
-              </div>
-            ) : returns.length ? (
-              returns.map((item) => (
-                <div key={item._id} className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-black text-gray-950">{item.returnNo}</p>
-                      <p className="mt-1 text-xs font-semibold text-gray-500">
-                        {formatDate(item.returnDate)} · {item.goodsReceipt?.receiptNo || "-"}
-                      </p>
-                    </div>
-                    <StatusBadge value={item.status} />
+        <div className="divide-y divide-gray-100 lg:hidden">
+          {loading ? (
+            <PurchaseReturnMobileSkeleton />
+          ) : returns.length ? (
+            returns.map((item) => (
+              <article key={item._id} className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {item.returnNo}
+                    </p>
+                    <p className="mt-1 text-xs font-medium text-gray-500">
+                      {formatDate(item.returnDate)} · {item.goodsReceipt?.receiptNo || "-"}
+                    </p>
                   </div>
-                  <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-gray-50 p-3">
-                    <div>
-                      <p className="text-[10px] font-black uppercase text-gray-400">Supplier</p>
-                      <p className="mt-1 truncate text-sm font-bold text-gray-800">
-                        {item.supplier?.businessName || item.supplierSnapshot?.name || "-"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase text-gray-400">Warehouse</p>
-                      <p className="mt-1 truncate text-sm font-bold text-gray-800">
-                        {item.warehouse?.name || "-"}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase text-gray-400">Quantity</p>
-                      <p className="mt-1 text-sm font-black text-gray-900">
-                        {formatNumber(item.totalReturnQuantity)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase text-gray-400">Value</p>
-                      <p className="mt-1 text-sm font-black text-gray-900">
-                        {formatMoney(item.totalReturnValue, item.currency)}
-                      </p>
-                    </div>
-                  </div>
-                  {renderActions(item, true)}
+                  <StatusBadge value={item.status} />
                 </div>
-              ))
-            ) : (
-              <div className="p-10 text-center">
-                <p className="font-black text-gray-900">No purchase returns found</p>
-              </div>
-            )}
-          </div>
 
-          {hasMore ? (
-            <div className="border-t border-gray-100 p-4 text-center">
-              <button
-                type="button"
-                className={cn(button, ghostButton)}
-                onClick={() => loadReturns({ append: true })}
-                disabled={loadingMore}
-              >
-                <Icon
-                  icon={RefreshIcon}
-                  className={cn("h-4 w-4", loadingMore ? "animate-spin" : "")}
-                />
-                {loadingMore ? "Loading" : "Load More"}
-              </button>
+                <div className="mt-4 grid grid-cols-2 gap-3 rounded-2xl bg-gray-50 p-3">
+                  <div>
+                    <p className="text-xs font-bold text-gray-400">Supplier</p>
+                    <p className="mt-1 truncate text-sm font-semibold text-gray-900">
+                      {relationLabel(
+                        item.supplier,
+                        item.supplierSnapshot?.name || "Supplier"
+                      )}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-gray-400">Warehouse</p>
+                    <p className="mt-1 truncate text-sm font-semibold text-gray-900">
+                      {relationLabel(item.warehouse, "-")}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-gray-400">Quantity</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">
+                      {formatNumber(item.totalReturnQuantity)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-gray-400">Value</p>
+                    <p className="mt-1 text-sm font-semibold text-gray-900">
+                      {formatMoney(item.totalReturnValue, item.currency)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <PurchaseReturnActions
+                    item={item}
+                    busy={busy}
+                    canManage={canManage}
+                    canApprove={canApprove}
+                    canPost={canPost}
+                    canReverse={canReverse}
+                    canDelete={canDelete}
+                    onView={openDetails}
+                    onEdit={openEdit}
+                    onSubmit={(row) => requestConfirm(row, "submit")}
+                    onApprove={(row) => requestConfirm(row, "approve")}
+                    onPost={(row) => requestConfirm(row, "post")}
+                    onReverse={(row) => requestReason(row, "reverse")}
+                    onCancel={(row) => requestReason(row, "cancel")}
+                    onDelete={(row) => requestConfirm(row, "delete")}
+                    mobile
+                  />
+                </div>
+              </article>
+            ))
+          ) : (
+            <div className="p-12 text-center">
+              <Icon
+                icon={FolderLibraryIcon}
+                className="mx-auto h-8 w-8 text-gray-300"
+              />
+              <p className="mt-3 text-sm font-bold text-gray-900">
+                No purchase returns found
+              </p>
             </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-3 border-t border-gray-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs font-semibold text-gray-500">
+            {returns.length} return{returns.length === 1 ? "" : "s"} loaded
+          </p>
+          {hasMore ? (
+            <button
+              type="button"
+              className={cn(button, ghostButton, "min-w-[140px]")}
+              onClick={() => loadReturns({ append: true })}
+              disabled={loadingMore}
+            >
+              <Icon
+                icon={RefreshIcon}
+                className={cn("h-4 w-4", loadingMore ? "animate-spin" : "")}
+              />
+              {loadingMore ? "Loading..." : "Load More"}
+            </button>
+          ) : returns.length ? (
+            <span className="text-xs font-semibold text-gray-400">
+              All returns loaded
+            </span>
           ) : null}
         </div>
       </div>
@@ -2247,6 +2749,19 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
           </div>
         ) : null}
       </ModalShell>
+
+      <ConfirmActionModal
+        state={confirmState}
+        working={
+          Boolean(confirmState.item) &&
+          String(busy.id) === String(confirmState.item?._id) &&
+          busy.type === confirmState.type
+        }
+        onClose={() =>
+          setConfirmState((previous) => ({ ...previous, open: false }))
+        }
+        onConfirm={confirmAction}
+      />
 
       <ReasonModal
         state={reasonState}

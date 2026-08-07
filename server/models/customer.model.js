@@ -279,6 +279,9 @@ const customerSchema = new mongoose.Schema(
       default: "prospect",
       index: true,
     },
+    creditLimit: { type: Number, min: 0, default: 0 },
+    creditHold: { type: Boolean, default: false, index: true },
+    paymentTermsDays: { type: Number, min: 0, max: 3650, default: 0 },
 
     billingAddress: { type: addressSchema, default: () => ({}) },
     shippingAddress: { type: addressSchema, default: () => ({}) },

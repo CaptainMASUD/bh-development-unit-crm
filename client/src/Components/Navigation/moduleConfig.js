@@ -95,6 +95,14 @@ export const MODULES = {
     adminSections: ["Dashboard", "Purchase Orders", "Goods Receipts", "Purchase Returns"],
     employeeSections: ["Dashboard", "Purchase Orders", "Goods Receipts", "Purchase Returns"],
   },
+  sales: {
+    id: "sales",
+    name: "Sales",
+    description: "Quotations, customer orders, deliveries, invoices, receipts, returns, and sales reporting.",
+    permissions: ["sales-quotation:view", "sales-order:view", "sales-delivery:view", "sales-invoice:view", "sales-return:view", "sales-report:view"],
+    adminSections: ["Dashboard", "Sales Quotations", "Sales Orders", "Deliveries", "Sales Invoices", "Sales Returns", "Sales Reports"],
+    employeeSections: ["Dashboard", "Sales Quotations", "Sales Orders", "Deliveries", "Sales Invoices", "Sales Returns", "Sales Reports"],
+  },
   payroll: {
     id: "payroll",
     name: "HR Payroll",

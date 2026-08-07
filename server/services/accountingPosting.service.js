@@ -20,7 +20,8 @@ export const voucherTypeForSource = (sourceType = "manual", requested = "") => {
   return ({
     opening_balance: "opening", fiscal_closing: "closing", invoice: "sales", customer_payment: "receipt",
     vendor_bill: "purchase", vendor_payment: "payment", expense: "payment", bank_transfer: "contra",
-    payroll: "payroll", tax: "tax", manual: "journal",
+    payroll: "payroll", tax: "tax", goods_receipt: "purchase", purchase_return: "purchase",
+    inventory_adjustment: "adjustment", manual: "journal",
   })[clean(sourceType).toLowerCase()] || "adjustment";
 };
 
@@ -74,17 +75,25 @@ export const assertPostableLedgerAccounts = async (lines = [], session = null) =
   return new Map(accounts.map((account) => [String(account._id), account]));
 };
 
-export const resolveAccountingAccount = async (settingsField, fallbackCode) => {
-  const settings = await AccountingSettings.findOne({ key: "company" }).select(settingsField).lean();
+export const resolveAccountingAccount = async (settingsField, fallbackCode, session = null) => {
+  const settingsQuery = AccountingSettings.findOne({ key: "company" }).select(settingsField);
+  if (session) settingsQuery.session(session);
+  const settings = await settingsQuery.lean();
   const configured = settings?.[settingsField];
   if (configured) {
-    const account = await Account.findOne({ _id: configured, isActive: true, isGroup: { $ne: true } }).lean();
+    const accountQuery = Account.findOne({ _id: configured, isActive: true, isGroup: { $ne: true } });
+    if (session) accountQuery.session(session);
+    const account = await accountQuery.lean();
     if (account) return account;
   }
-  let account = await Account.findOne({ code: String(fallbackCode), isActive: true, isGroup: { $ne: true } }).lean();
+  let accountQuery = Account.findOne({ code: String(fallbackCode), isActive: true, isGroup: { $ne: true } });
+  if (session) accountQuery.session(session);
+  let account = await accountQuery.lean();
   if (!account) {
     await provisionSystemAccounts();
-    account = await Account.findOne({ code: String(fallbackCode), isActive: true, isGroup: { $ne: true } }).lean();
+    accountQuery = Account.findOne({ code: String(fallbackCode), isActive: true, isGroup: { $ne: true } });
+    if (session) accountQuery.session(session);
+    account = await accountQuery.lean();
   }
   if (!account) throw Object.assign(new Error(`Missing accounting account ${fallbackCode}. Configure Accounting Settings or bootstrap the Chart of Accounts.`), { statusCode: 409 });
   return account;

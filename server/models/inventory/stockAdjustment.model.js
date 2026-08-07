@@ -200,6 +200,8 @@ const stockAdjustmentSchema = new mongoose.Schema(
       ref: "StockMovement",
       default: null,
     },
+    journalEntry: { type: mongoose.Schema.Types.ObjectId, ref: "JournalEntry", default: null, index: true },
+    reversalJournalEntry: { type: mongoose.Schema.Types.ObjectId, ref: "JournalEntry", default: null },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null, index: true },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },
