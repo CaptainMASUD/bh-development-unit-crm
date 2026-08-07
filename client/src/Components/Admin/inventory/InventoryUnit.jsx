@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { motion } from "framer-motion"
 import toast, { Toaster } from "react-hot-toast"
@@ -18,6 +18,7 @@ import {
   RestoreBinIcon,
   Search01Icon,
   Tick02Icon,
+  ViewIcon,
 } from "@hugeicons/core-free-icons"
 import { hasPermission, PERMISSIONS } from "../../Auth/permissions"
 
@@ -121,6 +122,83 @@ function Icon({
       {...props}
     />
   )
+}
+
+
+function Spinner({ className = "h-4 w-4" }) {
+  return (
+    <span
+      className={cn(
+        "inline-block rounded-full border-2 border-current border-r-transparent animate-spin",
+        className
+      )}
+      aria-hidden="true"
+    />
+  )
+}
+
+function SkeletonBlock({ className = "" }) {
+  return (
+    <div
+      className={cn(
+        "animate-pulse rounded-lg bg-gray-200/80",
+        className
+      )}
+      aria-hidden="true"
+    />
+  )
+}
+
+function UnitTableSkeleton({ rows = 7 }) {
+  return Array.from({ length: rows }).map((_, index) => (
+    <tr key={`unit-skeleton-${index}`}>
+      <td className="border-b border-gray-100 px-5 py-3">
+        <div className="space-y-2">
+          <SkeletonBlock className="h-4 w-36" />
+          <SkeletonBlock className="h-3 w-52" />
+        </div>
+      </td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-20" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-8 w-14 rounded-xl" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-7 w-20 rounded-full" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-7 w-28 rounded-full" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-16" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-10" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-7 w-20 rounded-full" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-24" /></td>
+      <td className="sticky right-0 border-b border-gray-100 bg-white px-5 py-2">
+        <div className="flex justify-end gap-2">
+          <SkeletonBlock className="h-10 w-20 rounded-xl" />
+          <SkeletonBlock className="h-10 w-10 rounded-xl" />
+        </div>
+      </td>
+    </tr>
+  ))
+}
+
+function UnitMobileSkeleton({ rows = 5 }) {
+  return Array.from({ length: rows }).map((_, index) => (
+    <div key={`unit-mobile-skeleton-${index}`} className="p-4">
+      <div className="flex items-start gap-3">
+        <SkeletonBlock className="h-12 w-12 shrink-0 rounded-2xl" />
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-2">
+              <SkeletonBlock className="h-4 w-36" />
+              <SkeletonBlock className="h-3 w-20" />
+            </div>
+            <SkeletonBlock className="h-7 w-20 rounded-full" />
+          </div>
+          <SkeletonBlock className="h-7 w-24 rounded-full" />
+          <SkeletonBlock className="h-28 w-full rounded-xl" />
+          <div className="flex justify-end gap-2 border-t border-gray-100 pt-3">
+            <SkeletonBlock className="h-10 w-20 rounded-xl" />
+            <SkeletonBlock className="h-10 w-10 rounded-xl" />
+          </div>
+        </div>
+      </div>
+    </div>
+  ))
 }
 
 function RequiredMark() {
@@ -430,70 +508,6 @@ async function api(path, options = {}) {
   return data
 }
 
-function ActiveFilterChips({
-  activeTab,
-  filters,
-  updateFilter,
-  resetFilters,
-}) {
-  const hasFilters =
-    clean(filters.q) ||
-    (activeTab === "current" && filters.status !== "all") ||
-    filters.unitType !== "all" ||
-    filters.allowDecimal !== "all"
-
-  return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      {clean(filters.q) ? (
-        <FilterChip
-          label="Search"
-          value={clean(filters.q)}
-          onClear={() => updateFilter("q", "")}
-        />
-      ) : null}
-
-      {activeTab === "current" && filters.status !== "all" ? (
-        <FilterChip
-          label="Status"
-          value={pretty(filters.status)}
-          onClear={() => updateFilter("status", "all")}
-        />
-      ) : null}
-
-      {filters.unitType !== "all" ? (
-        <FilterChip
-          label="Type"
-          value={pretty(filters.unitType)}
-          onClear={() => updateFilter("unitType", "all")}
-        />
-      ) : null}
-
-      {filters.allowDecimal !== "all" ? (
-        <FilterChip
-          label="Quantity"
-          value={
-            filters.allowDecimal === "true"
-              ? "Decimal allowed"
-              : "Whole numbers only"
-          }
-          onClear={() => updateFilter("allowDecimal", "all")}
-        />
-      ) : null}
-
-      {hasFilters ? (
-        <button
-          type="button"
-          onClick={resetFilters}
-          className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-black text-gray-500 transition hover:bg-gray-100 hover:text-gray-800"
-        >
-          <Icon icon={Cancel01Icon} className="h-3.5 w-3.5" />
-          Clear all
-        </button>
-      ) : null}
-    </div>
-  )
-}
-
 function HeaderSearchFilters({
   activeTab,
   filters,
@@ -502,28 +516,27 @@ function HeaderSearchFilters({
   activeFilterCount,
   onOpenFilters,
 }) {
+  const chipCount = [
+    activeTab === "current" && filters.status !== "all",
+    filters.unitType !== "all",
+    filters.allowDecimal !== "all",
+  ].filter(Boolean).length
+
+  const hasAnySearchOrFilter = Boolean(clean(filters.q) || chipCount)
+
   return (
     <div
       className={cn(
-        "w-full transition-all duration-200",
-        activeFilterCount
-          ? "lg:min-w-[540px] lg:max-w-[74%] lg:flex-[0_1_74%]"
-          : "lg:max-w-[50%] lg:flex-[0_1_50%]"
+        "w-full transition-[max-width,flex-basis] duration-200 ease-out",
+        chipCount === 0
+          ? "xl:max-w-[50%] xl:flex-[0_1_50%]"
+          : chipCount <= 2
+            ? "xl:max-w-[64%] xl:flex-[0_1_64%]"
+            : "xl:min-w-[540px] xl:max-w-[78%] xl:flex-[0_1_78%]"
       )}
     >
-      <div className="flex min-h-[44px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
-        <Icon
-          icon={Search01Icon}
-          className="h-4 w-4 shrink-0 text-gray-400"
-        />
-
-        {clean(filters.q) ? (
-          <FilterChip
-            label="Search"
-            value={clean(filters.q)}
-            onClear={() => updateFilter("q", "")}
-          />
-        ) : null}
+      <div className="flex min-h-[40px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
+        <Icon icon={Search01Icon} className="h-4 w-4 shrink-0 text-gray-400" />
 
         {activeTab === "current" && filters.status !== "all" ? (
           <FilterChip
@@ -544,17 +557,14 @@ function HeaderSearchFilters({
         {filters.allowDecimal !== "all" ? (
           <FilterChip
             label="Quantity"
-            value={
-              filters.allowDecimal === "true"
-                ? "Decimal"
-                : "Whole only"
-            }
+            value={filters.allowDecimal === "true" ? "Decimal allowed" : "Whole numbers"}
             onClear={() => updateFilter("allowDecimal", "all")}
           />
         ) : null}
 
         <FocusPlaceholderInput
-          className="min-w-[120px] flex-1 border-0 bg-transparent px-1 py-1 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:outline-none focus:ring-0"
+          className="h-8 min-w-[120px] flex-[1_1_170px] border-0 bg-transparent px-1 py-0 text-sm font-medium text-gray-800 shadow-none outline-none placeholder:text-gray-400 focus:border-0 focus:outline-none focus:ring-0 focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0"
+          style={{ boxShadow: "none" }}
           value={filters.q}
           onChange={(event) => updateFilter("q", event.target.value)}
           placeholder="Search unit name, code or symbol..."
@@ -566,7 +576,7 @@ function HeaderSearchFilters({
           type="button"
           onClick={onOpenFilters}
           className={cn(
-            "inline-flex h-8 shrink-0 items-center gap-2 rounded-xl px-2.5 text-xs font-black transition",
+            "inline-flex h-8 shrink-0 items-center gap-2 rounded-xl px-2.5 text-xs font-bold transition",
             activeFilterCount
               ? "bg-indigo-600 text-white hover:bg-indigo-700"
               : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
@@ -574,7 +584,6 @@ function HeaderSearchFilters({
         >
           <Icon icon={FilterIcon} className="h-3.5 w-3.5" />
           Filters
-
           {activeFilterCount ? (
             <span className="rounded-full bg-white/20 px-1.5 text-[10px]">
               {activeFilterCount}
@@ -582,7 +591,7 @@ function HeaderSearchFilters({
           ) : null}
         </button>
 
-        {activeFilterCount ? (
+        {hasAnySearchOrFilter ? (
           <button
             type="button"
             onClick={resetFilters}
@@ -627,6 +636,28 @@ export default function InventoryUnitSetup() {
 
   const [form, setForm] = useState(emptyUnitForm)
   const [formError, setFormError] = useState("")
+
+  const [detailsModal, setDetailsModal] = useState({
+    open: false,
+    item: null,
+  })
+
+  const [actionState, setActionState] = useState({
+    open: false,
+    item: null,
+    type: "",
+    value: "",
+    title: "",
+    message: "",
+    danger: false,
+    loading: false,
+    error: "",
+  })
+
+  const [actionBusy, setActionBusy] = useState({
+    id: "",
+    type: "",
+  })
 
   const [filters, setFilters] = useState({
     q: "",
@@ -904,62 +935,112 @@ export default function InventoryUnitSetup() {
     }
   }
 
-  const updateUnitStatus = async (item, status) => {
-    if (status === item.status) return
-
-    try {
-      await api(`/inventory/units/${item._id}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      })
-
-      toast.success(
-        `Unit marked as ${pretty(status).toLowerCase()}`
-      )
-
-      await loadUnits()
-    } catch (error) {
-      toast.error(
-        error.message || "Failed to update inventory unit status"
-      )
-    }
+  const openUnitDetails = (item) => {
+    setDetailsModal({ open: true, item })
   }
 
-  const archiveUnit = async (item) => {
-    const confirmed = window.confirm(
-      `Archive "${item.name}"? Assigned products must use a different base unit before this action can succeed.`
-    )
+  const openUnitAction = (type, item, value = "") => {
+    const config =
+      type === "status"
+        ? {
+            title: `Mark unit ${pretty(value).toLowerCase()}`,
+            message: `Update "${item.name}" from ${pretty(item.status)} to ${pretty(value)}.`,
+            danger: value === "inactive",
+          }
+        : type === "archive"
+          ? {
+              title: "Archive inventory unit",
+              message:
+                `Archive "${item.name}"? The unit can be restored later. ` +
+                "Products already assigned to this unit may prevent the action until they are reassigned.",
+              danger: true,
+            }
+          : {
+              title: "Restore inventory unit",
+              message: `Restore "${item.name}" as inactive so it can be reviewed before activation.`,
+              danger: false,
+            }
 
-    if (!confirmed) return
-
-    try {
-      await api(`/inventory/units/${item._id}`, {
-        method: "DELETE",
-      })
-
-      toast.success("Inventory unit archived")
-      await loadUnits()
-    } catch (error) {
-      toast.error(error.message || "Failed to archive inventory unit")
-    }
+    setActionState({
+      open: true,
+      item,
+      type,
+      value,
+      title: config.title,
+      message: config.message,
+      danger: config.danger,
+      loading: false,
+      error: "",
+    })
   }
 
-  const restoreUnit = async (item) => {
-    try {
-      await api(`/inventory/units/${item._id}/restore`, {
-        method: "PATCH",
-      })
+  const closeUnitAction = () => {
+    if (actionState.loading) return
+    setActionState({
+      open: false,
+      item: null,
+      type: "",
+      value: "",
+      title: "",
+      message: "",
+      danger: false,
+      loading: false,
+      error: "",
+    })
+  }
 
-      toast.success("Inventory unit restored as inactive")
-      await loadUnits()
+  const confirmUnitAction = async () => {
+    const item = actionState.item
+    if (!item?._id) return
+
+    setActionState((previous) => ({
+      ...previous,
+      loading: true,
+      error: "",
+    }))
+    setActionBusy({ id: item._id, type: actionState.type })
+
+    try {
+      if (actionState.type === "status") {
+        await api(`/inventory/units/${item._id}/status`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: actionState.value }),
+        })
+        toast.success(`Unit marked as ${pretty(actionState.value).toLowerCase()}`)
+      } else if (actionState.type === "archive") {
+        await api(`/inventory/units/${item._id}`, { method: "DELETE" })
+        toast.success("Inventory unit archived")
+      } else if (actionState.type === "restore") {
+        await api(`/inventory/units/${item._id}/restore`, { method: "PATCH" })
+        toast.success("Inventory unit restored as inactive")
+      }
+
+      setActionState({
+        open: false,
+        item: null,
+        type: "",
+        value: "",
+        title: "",
+        message: "",
+        danger: false,
+        loading: false,
+        error: "",
+      })
+      await loadUnits({ showLoader: false })
     } catch (error) {
-      toast.error(error.message || "Failed to restore inventory unit")
+      setActionState((previous) => ({
+        ...previous,
+        loading: false,
+        error: error.message || "Action failed",
+      }))
+    } finally {
+      setActionBusy({ id: "", type: "" })
     }
   }
 
   return (
     <div className={`${shell} p-4 sm:p-6 lg:p-8`}>
-      <Toaster position="top-right" />
+      <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: "14px", fontWeight: 700 } }} />
 
       <section className={cn(card, "mb-6 p-4 sm:p-5")}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -976,11 +1057,6 @@ export default function InventoryUnitSetup() {
               <h1 className="truncate text-2xl font-extrabold tracking-tight text-gray-900">
                 Units
               </h1>
-
-              <p className="mt-0.5 text-sm text-gray-500">
-                Configure product quantity units, symbols, decimal
-                precision, and display order.
-              </p>
             </div>
           </div>
 
@@ -1058,7 +1134,7 @@ export default function InventoryUnitSetup() {
             <button
               key={tab.key}
               className={cn(
-                "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-extrabold transition sm:px-5",
+                "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-bold transition sm:px-4 sm:text-sm",
                 activeTab === tab.key
                   ? "bg-indigo-600 text-white shadow-sm"
                   : "text-gray-700 hover:bg-gray-50"
@@ -1078,10 +1154,10 @@ export default function InventoryUnitSetup() {
         loading={loading}
         loadingMore={loadingMore}
         hasMore={hasMore}
+        onView={openUnitDetails}
         onEdit={openEditModal}
-        onStatusChange={updateUnitStatus}
-        onArchive={archiveUnit}
-        onRestore={restoreUnit}
+        onAction={openUnitAction}
+        actionBusy={actionBusy}
         onLoadMore={() => loadUnits({ append: true })}
         canManage={canManage}
         canDelete={canDelete}
@@ -1107,6 +1183,19 @@ export default function InventoryUnitSetup() {
         onClose={closeModal}
         onSubmit={saveUnit}
         onAllowDecimalChange={updateAllowDecimal}
+      />
+
+      <UnitDetailsModal
+        state={detailsModal}
+        onClose={() => setDetailsModal({ open: false, item: null })}
+        onEdit={openEditModal}
+        canManage={canManage}
+      />
+
+      <ConfirmUnitActionModal
+        state={actionState}
+        onClose={closeUnitAction}
+        onConfirm={confirmUnitAction}
       />
     </div>
   )
@@ -1226,19 +1315,6 @@ function FilterModal({
             <option value="true">Decimal quantities allowed</option>
           </select>
         </Field>
-
-        <div className="md:col-span-2 lg:col-span-3 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
-          <p className="text-sm font-black text-gray-900">
-            Active filters
-          </p>
-
-          <ActiveFilterChips
-            activeTab={activeTab}
-            filters={filters}
-            updateFilter={updateFilter}
-            resetFilters={resetFilters}
-          />
-        </div>
       </div>
     </ModalShell>
   )
@@ -1249,20 +1325,20 @@ function UnitList({
   loading,
   loadingMore,
   hasMore,
+  onView,
   onEdit,
-  onStatusChange,
-  onArchive,
-  onRestore,
+  onAction,
+  actionBusy,
   onLoadMore,
   canManage,
   canDelete,
 }) {
   return (
     <div>
-      <div className={cn(card, "overflow-hidden")}>
-        <div className="hidden max-h-[620px] overflow-auto md:block">
+      <div className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]">
+        <div className="hidden h-[560px] overflow-auto md:block lg:h-[610px] xl:h-[650px]">
           <table className="min-w-[1050px] w-full text-left">
-            <thead className="sticky top-0 z-10 bg-gray-50 text-xs font-black uppercase text-gray-500">
+            <thead className="sticky top-0 z-10 bg-gray-50/95 text-[11px] font-black uppercase tracking-wide text-gray-500 backdrop-blur">
               <tr>
                 <th className="px-5 py-3">Unit</th>
                 <th className="px-5 py-3">Code</th>
@@ -1273,161 +1349,126 @@ function UnitList({
                 <th className="px-5 py-3">Order</th>
                 <th className="px-5 py-3">Status</th>
                 <th className="px-5 py-3">Updated</th>
-                <th className="sticky right-0 bg-gray-50 px-5 py-3 text-right">
-                  Actions
-                </th>
+                <th className="sticky right-0 bg-gray-50/95 px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-gray-100">
-              {units.map((unit) => (
-                <tr
-                  key={unit._id}
-                  className="group bg-white transition hover:bg-gray-50/70"
-                >
-                  <td className="px-5 py-4">
-                    <div className="min-w-[220px]">
-                      <p className="truncate text-sm font-black text-gray-900">
-                        {unit.name}
-                      </p>
-
-                      <p className="mt-0.5 max-w-[300px] truncate text-xs font-semibold text-gray-500">
-                        {unit.description || "No description"}
-                      </p>
-                    </div>
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-black text-indigo-700">
-                    {unit.code}
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <span className="inline-flex min-w-10 justify-center rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm font-black text-gray-800">
-                      {unit.symbol}
-                    </span>
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <UnitTypeBadge value={unit.unitType} />
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <span
-                      className={cn(
-                        "inline-flex rounded-full px-3 py-1 text-xs font-black ring-1",
+              {loading ? (
+                <UnitTableSkeleton />
+              ) : units.length ? (
+                units.map((unit) => (
+                  <tr key={unit._id} className="group bg-white transition hover:bg-indigo-50/30">
+                    <td className="px-5 py-3.5">
+                      <div className="min-w-[220px]">
+                        <p className="truncate text-sm font-semibold text-gray-900">{unit.name}</p>
+                        <p className="mt-0.5 max-w-[300px] truncate text-xs font-medium text-gray-500">
+                          {unit.description || "No description"}
+                        </p>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3.5 text-sm font-semibold text-indigo-700">{unit.code}</td>
+                    <td className="px-5 py-3.5">
+                      <span className="inline-flex min-w-10 justify-center rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm font-semibold text-gray-800">
+                        {unit.symbol}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5"><UnitTypeBadge value={unit.unitType} /></td>
+                    <td className="px-5 py-3.5">
+                      <span className={cn(
+                        "inline-flex rounded-full px-3 py-1 text-xs font-bold ring-1",
                         unit.allowDecimal
                           ? "bg-sky-50 text-sky-700 ring-sky-100"
                           : "bg-gray-100 text-gray-700 ring-gray-200"
-                      )}
-                    >
-                      {unit.allowDecimal
-                        ? "Decimal allowed"
-                        : "Whole numbers"}
-                    </span>
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-black text-gray-700">
-                    {unit.allowDecimal
-                      ? `${unit.decimalPlaces} places`
-                      : "0 places"}
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-black text-gray-700">
-                    {unit.sortOrder ?? 0}
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <StatusBadge value={unit.status} />
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-semibold text-gray-600">
-                    {formatDate(unit.updatedAt)}
-                  </td>
-
-                  <td className="sticky right-0 bg-white px-5 py-4 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-gray-50/70">
-                    <UnitActions
-                      unit={unit}
-                      onEdit={onEdit}
-                      onStatusChange={onStatusChange}
-                      onArchive={onArchive}
-                      onRestore={onRestore}
-                      canManage={canManage}
-                      canDelete={canDelete}
-                    />
-                  </td>
-                </tr>
-              ))}
-
-              {!units.length ? (
+                      )}>
+                        {unit.allowDecimal ? "Decimal allowed" : "Whole numbers"}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5 text-sm font-medium text-gray-700">
+                      {unit.allowDecimal ? `${unit.decimalPlaces} places` : "0 places"}
+                    </td>
+                    <td className="px-5 py-3.5 text-sm font-medium text-gray-700">{unit.sortOrder ?? 0}</td>
+                    <td className="px-5 py-3.5"><StatusBadge value={unit.status} /></td>
+                    <td className="px-5 py-3.5 text-sm font-medium text-gray-600">{formatDate(unit.updatedAt)}</td>
+                    <td className="sticky right-0 bg-white px-5 py-3 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-indigo-50/30">
+                      <UnitActions
+                        unit={unit}
+                        busy={String(actionBusy.id) === String(unit._id)}
+                        onView={onView}
+                        onEdit={onEdit}
+                        onAction={onAction}
+                        canManage={canManage}
+                        canDelete={canDelete}
+                      />
+                    </td>
+                  </tr>
+                ))
+              ) : (
                 <tr>
-                  <td
-                    colSpan={10}
-                    className="px-5 py-14 text-center text-sm font-bold text-gray-500"
-                  >
-                    {loading
-                      ? "Loading inventory units..."
-                      : "No inventory units found."}
+                  <td colSpan={10} className="px-5 py-16 text-center">
+                    <Icon icon={FolderLibraryIcon} className="mx-auto h-8 w-8 text-gray-300" />
+                    <p className="mt-3 text-sm font-bold text-gray-900">No inventory units found</p>
+                    <p className="mt-1 text-sm font-medium text-gray-500">Create a unit or adjust the current filters.</p>
                   </td>
                 </tr>
-              ) : null}
+              )}
             </tbody>
           </table>
         </div>
 
         <div className="divide-y divide-gray-100 md:hidden">
-          {units.map((unit) => (
-            <UnitMobileCard
-              key={unit._id}
-              unit={unit}
-              onEdit={onEdit}
-              onStatusChange={onStatusChange}
-              onArchive={onArchive}
-              onRestore={onRestore}
-              canManage={canManage}
-              canDelete={canDelete}
-            />
-          ))}
-
-          {!units.length ? (
-            <div className="px-5 py-14 text-center text-sm font-bold text-gray-500">
-              {loading
-                ? "Loading inventory units..."
-                : "No inventory units found."}
+          {loading ? (
+            <UnitMobileSkeleton />
+          ) : units.length ? (
+            units.map((unit) => (
+              <UnitMobileCard
+                key={unit._id}
+                unit={unit}
+                busy={String(actionBusy.id) === String(unit._id)}
+                onView={onView}
+                onEdit={onEdit}
+                onAction={onAction}
+                canManage={canManage}
+                canDelete={canDelete}
+              />
+            ))
+          ) : (
+            <div className="px-5 py-14 text-center">
+              <Icon icon={FolderLibraryIcon} className="mx-auto h-8 w-8 text-gray-300" />
+              <p className="mt-3 text-sm font-bold text-gray-900">No inventory units found</p>
             </div>
-          ) : null}
+          )}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3 sm:px-5">
+          <p className="text-xs font-medium text-gray-500">
+            {units.length} unit{units.length === 1 ? "" : "s"} loaded
+          </p>
+          {hasMore ? (
+            <button
+              className={cn(button, ghostButton, "min-w-[126px] px-3 py-2")}
+              onClick={onLoadMore}
+              disabled={loadingMore}
+              type="button"
+            >
+              {loadingMore ? <Spinner /> : <Icon icon={RefreshIcon} className="h-4 w-4" />}
+              {loadingMore ? "Loading..." : "Load more"}
+            </button>
+          ) : (
+            <span className="text-xs font-medium text-gray-400">All units loaded</span>
+          )}
         </div>
       </div>
-
-      {hasMore ? (
-        <div className="mt-4 flex justify-center">
-          <button
-            className={cn(button, ghostButton, "min-w-[150px]")}
-            onClick={onLoadMore}
-            disabled={loadingMore}
-            type="button"
-          >
-            <Icon
-              icon={RefreshIcon}
-              className={cn(
-                "h-4 w-4",
-                loadingMore ? "animate-spin" : ""
-              )}
-            />
-
-            {loadingMore ? "Loading..." : "Load more"}
-          </button>
-        </div>
-      ) : null}
     </div>
   )
 }
 
 function UnitMobileCard({
   unit,
+  busy,
+  onView,
   onEdit,
-  onStatusChange,
-  onArchive,
-  onRestore,
+  onAction,
   canManage,
   canDelete,
 }) {
@@ -1439,190 +1480,289 @@ function UnitMobileCard({
         </div>
 
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="truncate text-sm font-black text-gray-900">
-                {unit.name}
-              </h3>
-
-              <p className="mt-0.5 text-xs font-black text-indigo-700">
-                {unit.code}
-              </p>
+              <h3 className="truncate text-sm font-semibold text-gray-900">{unit.name}</h3>
+              <p className="mt-0.5 text-xs font-semibold text-indigo-700">{unit.code}</p>
             </div>
-
             <StatusBadge value={unit.status} />
           </div>
 
-          <div className="mt-2">
-            <UnitTypeBadge value={unit.unitType} />
-          </div>
+          <div className="mt-2"><UnitTypeBadge value={unit.unitType} /></div>
 
           <div className="mt-3 grid grid-cols-2 gap-3 rounded-xl bg-gray-50 p-3 text-xs">
-            <div>
-              <p className="font-bold text-gray-400">Quantity</p>
-              <p className="mt-1 font-black text-gray-700">
-                {unit.allowDecimal ? "Decimal allowed" : "Whole only"}
-              </p>
-            </div>
-
-            <div>
-              <p className="font-bold text-gray-400">Precision</p>
-              <p className="mt-1 font-black text-gray-700">
-                {unit.allowDecimal
-                  ? `${unit.decimalPlaces} places`
-                  : "0 places"}
-              </p>
-            </div>
-
-            <div>
-              <p className="font-bold text-gray-400">Sort order</p>
-              <p className="mt-1 font-black text-gray-700">
-                {unit.sortOrder ?? 0}
-              </p>
-            </div>
-
-            <div>
-              <p className="font-bold text-gray-400">Example</p>
-              <p className="mt-1 font-black text-gray-700">
-                {unit.allowDecimal
-                  ? `${Number(1.25).toFixed(
-                      Math.min(Number(unit.decimalPlaces || 2), 2)
-                    )} ${unit.symbol}`
-                  : `1 ${unit.symbol}`}
-              </p>
-            </div>
+            <MiniMetric label="Quantity" value={unit.allowDecimal ? "Decimal allowed" : "Whole only"} />
+            <MiniMetric label="Precision" value={unit.allowDecimal ? `${unit.decimalPlaces} places` : "0 places"} />
+            <MiniMetric label="Sort order" value={String(unit.sortOrder ?? 0)} />
+            <MiniMetric
+              label="Example"
+              value={unit.allowDecimal
+                ? `${Number(1.25).toFixed(Math.min(Number(unit.decimalPlaces || 2), 2))} ${unit.symbol}`
+                : `1 ${unit.symbol}`}
+            />
           </div>
 
-          {unit.description ? (
-            <p className="mt-3 line-clamp-2 text-xs font-semibold leading-5 text-gray-500">
-              {unit.description}
-            </p>
-          ) : null}
-
-          {canManage || canDelete ? (
-            <div className="mt-3 border-t border-gray-100 pt-3">
-              <UnitActions
-                unit={unit}
-                onEdit={onEdit}
-                onStatusChange={onStatusChange}
-                onArchive={onArchive}
-                onRestore={onRestore}
-                canManage={canManage}
-                canDelete={canDelete}
-                mobile
-              />
-            </div>
-          ) : null}
+          <div className="mt-3 border-t border-gray-100 pt-3">
+            <UnitActions
+              unit={unit}
+              busy={busy}
+              onView={onView}
+              onEdit={onEdit}
+              onAction={onAction}
+              canManage={canManage}
+              canDelete={canDelete}
+              mobile
+            />
+          </div>
         </div>
       </div>
     </article>
   )
 }
 
+function MiniMetric({ label, value }) {
+  return (
+    <div>
+      <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-gray-800">{value}</p>
+    </div>
+  )
+}
+
 function UnitActions({
   unit,
+  busy,
+  onView,
   onEdit,
-  onStatusChange,
-  onArchive,
-  onRestore,
+  onAction,
   canManage,
   canDelete,
   mobile = false,
 }) {
-  if (!canManage && !canDelete) {
-    return (
-      <span className="text-xs font-bold text-gray-400">View only</span>
+  const [open, setOpen] = useState(false)
+  const [menuStyle, setMenuStyle] = useState({ top: 0, left: 0, transformOrigin: "top right" })
+  const rootRef = useRef(null)
+  const buttonRef = useRef(null)
+  const menuRef = useRef(null)
+
+  const updateMenuPosition = useCallback(() => {
+    if (typeof window === "undefined" || !buttonRef.current) return
+    const rect = buttonRef.current.getBoundingClientRect()
+    const menuWidth = 250
+    const gap = 8
+    const estimatedHeight = 250
+    const shouldOpenUp = window.innerHeight - rect.bottom < 230
+    const top = shouldOpenUp
+      ? Math.max(12, rect.top - Math.min(estimatedHeight, window.innerHeight - 24) - gap)
+      : Math.min(rect.bottom + gap, window.innerHeight - 12)
+    const left = Math.min(
+      Math.max(12, rect.right - menuWidth),
+      Math.max(12, window.innerWidth - menuWidth - 12)
     )
+    setMenuStyle({ top, left, transformOrigin: shouldOpenUp ? "bottom right" : "top right" })
+  }, [])
+
+  useEffect(() => {
+    if (!open) return undefined
+    updateMenuPosition()
+    const closeOutside = (event) => {
+      if (rootRef.current?.contains(event.target) || menuRef.current?.contains(event.target)) return
+      setOpen(false)
+    }
+    const reposition = () => updateMenuPosition()
+    document.addEventListener("mousedown", closeOutside)
+    window.addEventListener("resize", reposition)
+    window.addEventListener("scroll", reposition, true)
+    return () => {
+      document.removeEventListener("mousedown", closeOutside)
+      window.removeEventListener("resize", reposition)
+      window.removeEventListener("scroll", reposition, true)
+    }
+  }, [open, updateMenuPosition])
+
+  const items = []
+  if (unit.status !== "archived") {
+    if (canManage) {
+      items.push(["edit", "Edit unit", Edit02Icon])
+      UNIT_STATUSES.forEach(([status, label]) => {
+        if (status !== unit.status) {
+          items.push([`status-${status}`, `Mark ${label.toLowerCase()}`, Tick02Icon, status === "inactive" ? "warning" : undefined])
+        }
+      })
+    }
+    if (canDelete) items.push(["archive", "Archive unit", Archive02Icon, "danger"])
+  } else if (canDelete) {
+    items.push(["restore", "Restore unit", RestoreBinIcon])
   }
 
-  if (unit.status === "archived") {
-    return canDelete ? (
-      <div
-        className={cn(
-          "flex gap-2",
-          mobile ? "flex-wrap" : "justify-end"
-        )}
-      >
-        <button
-          className={cn(
-            button,
-            ghostButton,
-            mobile ? "px-3 py-2" : "px-3"
-          )}
-          onClick={() => onRestore(unit)}
-          type="button"
-          title="Restore inventory unit"
-        >
-          <Icon icon={RestoreBinIcon} className="h-4 w-4" />
-          {mobile ? "Restore" : null}
-        </button>
-      </div>
-    ) : (
-      <span className="text-xs font-bold text-gray-400">Archived</span>
-    )
+  const handleItem = (key) => {
+    setOpen(false)
+    if (key === "edit") return onEdit(unit)
+    if (key.startsWith("status-")) return onAction("status", unit, key.replace("status-", ""))
+    if (key === "archive") return onAction("archive", unit)
+    if (key === "restore") return onAction("restore", unit)
   }
+
+  const menu = open && typeof document !== "undefined"
+    ? createPortal(
+        <motion.div
+          ref={menuRef}
+          initial={{ opacity: 0, y: 8, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.14 }}
+          style={{ top: menuStyle.top, left: menuStyle.left, transformOrigin: menuStyle.transformOrigin }}
+          className="fixed z-[9999] w-[250px] overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_24px_60px_-20px_rgba(15,23,42,0.45)]"
+        >
+          <div className="p-1.5">
+            {items.length ? items.map(([key, label, icon, tone]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => handleItem(key)}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition",
+                  tone === "danger"
+                    ? "text-rose-700 hover:bg-rose-50"
+                    : tone === "warning"
+                      ? "text-amber-700 hover:bg-amber-50"
+                      : "text-gray-700 hover:bg-gray-50"
+                )}
+              >
+                <Icon icon={icon} className="h-4 w-4 shrink-0" />
+                <span>{label}</span>
+              </button>
+            )) : (
+              <p className="px-3 py-2.5 text-sm font-medium text-gray-400">No additional actions</p>
+            )}
+          </div>
+        </motion.div>,
+        document.body
+      )
+    : null
 
   return (
-    <div
-      className={cn(
-        "flex items-center gap-2",
-        mobile ? "flex-wrap" : "justify-end"
-      )}
-    >
-      {canManage ? (
-        <>
-          <select
-            className={cn(
-              "rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-black text-gray-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20",
-              mobile ? "min-w-[126px]" : "w-[112px]"
-            )}
-            value={unit.status}
-            onChange={(event) =>
-              onStatusChange(unit, event.target.value)
-            }
-            aria-label={`Update ${unit.name} status`}
-          >
-            {UNIT_STATUSES.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+    <div ref={rootRef} className={cn("flex items-center gap-2", mobile ? "justify-end" : "justify-end")}>
+      <button
+        className={cn(button, ghostButton, mobile ? "px-3 py-2" : "px-3 py-2")}
+        onClick={() => onView(unit)}
+        disabled={busy}
+        type="button"
+      >
+        {busy ? <Spinner /> : <Icon icon={ViewIcon} className="h-4 w-4" />}
+        <span>View</span>
+      </button>
 
-          <button
-            className={cn(
-              button,
-              ghostButton,
-              mobile ? "px-3 py-2" : "px-3"
-            )}
-            onClick={() => onEdit(unit)}
-            type="button"
-            title="Edit inventory unit"
-            aria-label={`Edit ${unit.name}`}
-          >
-            <Icon icon={Edit02Icon} className="h-4 w-4" />
-            {mobile ? "Edit" : null}
-          </button>
-        </>
-      ) : null}
-
-      {canDelete ? (
+      {(canManage || canDelete) ? (
         <button
-          className={cn(
-            button,
-            dangerButton,
-            mobile ? "px-3 py-2" : "px-3"
-          )}
-          onClick={() => onArchive(unit)}
+          ref={buttonRef}
           type="button"
-          title="Archive inventory unit"
-          aria-label={`Archive ${unit.name}`}
+          onClick={() => {
+            if (busy) return
+            setOpen((previous) => !previous)
+          }}
+          disabled={busy}
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-xl font-black leading-none text-gray-500 transition hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
+          aria-label={`More actions for ${unit.name}`}
         >
-          <Icon icon={Archive02Icon} className="h-4 w-4" />
-          {mobile ? "Archive" : null}
+          ⋮
         </button>
       ) : null}
+
+      {menu}
     </div>
+  )
+}
+
+function UnitDetailsModal({ state, onClose, onEdit, canManage }) {
+  const unit = state.item
+  if (!unit) return null
+
+  return (
+    <ModalShell
+      open={state.open}
+      onClose={onClose}
+      title="Unit details"
+      subtitle={unit.code || ""}
+      icon={<Icon icon={ViewIcon} className="h-5 w-5" />}
+      maxWidthClass="max-w-3xl"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button className={cn(button, ghostButton)} type="button" onClick={onClose}>Close</button>
+          {canManage && unit.status !== "archived" ? (
+            <button
+              className={cn(button, primaryButton)}
+              type="button"
+              onClick={() => {
+                onClose()
+                onEdit(unit)
+              }}
+            >
+              <Icon icon={Edit02Icon} className="h-4 w-4" />
+              Edit
+            </button>
+          ) : null}
+        </div>
+      }
+    >
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <DetailItem label="Name" value={unit.name || "—"} />
+        <DetailItem label="Code" value={unit.code || "—"} />
+        <DetailItem label="Symbol" value={unit.symbol || "—"} />
+        <DetailItem label="Type" value={pretty(unit.unitType)} />
+        <DetailItem label="Decimal" value={unit.allowDecimal ? "Allowed" : "Whole numbers only"} />
+        <DetailItem label="Precision" value={`${unit.decimalPlaces ?? 0} places`} />
+        <DetailItem label="Sort Order" value={String(unit.sortOrder ?? 0)} />
+        <DetailItem label="Status" value={pretty(unit.status)} />
+        <DetailItem label="Updated" value={formatDate(unit.updatedAt)} />
+        {clean(unit.description) ? (
+          <div className="sm:col-span-2 lg:col-span-3 rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3">
+            <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">Description</p>
+            <p className="mt-2 whitespace-pre-wrap text-sm font-medium leading-6 text-gray-700">{unit.description}</p>
+          </div>
+        ) : null}
+      </div>
+    </ModalShell>
+  )
+}
+
+function DetailItem({ label, value }) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3">
+      <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="mt-1 break-words text-sm font-semibold text-gray-800">{value}</p>
+    </div>
+  )
+}
+
+function ConfirmUnitActionModal({ state, onClose, onConfirm }) {
+  return (
+    <ModalShell
+      open={state.open}
+      onClose={onClose}
+      title={state.title}
+      subtitle={state.item?.name || ""}
+      icon={<Icon icon={state.danger ? Alert02Icon : Tick02Icon} className="h-5 w-5" />}
+      maxWidthClass="max-w-lg"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button className={cn(button, ghostButton)} type="button" onClick={onClose} disabled={state.loading}>Cancel</button>
+          <button
+            className={cn(button, state.danger ? dangerButton : primaryButton)}
+            type="button"
+            onClick={onConfirm}
+            disabled={state.loading}
+          >
+            {state.loading ? <Spinner /> : <Icon icon={Tick02Icon} className="h-4 w-4" />}
+            {state.loading ? "Processing..." : "Confirm"}
+          </button>
+        </div>
+      }
+    >
+      {state.error ? (
+        <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{state.error}</div>
+      ) : null}
+      <p className="text-sm font-medium leading-6 text-gray-700">{state.message}</p>
+    </ModalShell>
   )
 }
 

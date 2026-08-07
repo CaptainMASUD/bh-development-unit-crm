@@ -5,6 +5,7 @@ import ProductStock from "../../models/inventory/productStock.model.js";
 import Branch from "../../models/branch.model.js";
 import User from "../../models/user.model.js";
 import AccessRole from "../../models/accessRole.model.js";
+import { runMongoTransaction } from "../../utils/mongoTransaction.js";
 
 const LIST_FIELDS = [
   "name",
@@ -25,33 +26,7 @@ const LIST_FIELDS = [
 
 const OPTION_FIELDS = "name code warehouseType branch isDefault status";
 const MANAGER_USER_ROLES = ["admin", "employee"];
-let transactionSupport;
-
-const supportsTransactions = async () => {
-  if (transactionSupport !== undefined) return transactionSupport;
-  try {
-    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
-    transactionSupport = Boolean(hello?.setName || hello?.msg === "isdbgrid");
-  } catch {
-    transactionSupport = false;
-  }
-  return transactionSupport;
-};
-
-const runWarehouseWrite = async (work) => {
-  if (!(await supportsTransactions())) return work(null);
-
-  const session = await mongoose.startSession();
-  try {
-    let result;
-    await session.withTransaction(async () => {
-      result = await work(session);
-    });
-    return result;
-  } finally {
-    await session.endSession();
-  }
-};
+const runWarehouseWrite = runMongoTransaction;
 
 const sessionOptions = (session) => (session ? { session } : {});
 

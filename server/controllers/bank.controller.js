@@ -8,34 +8,13 @@ import AccountingSettings from "../models/accountingSettings.model.js";
 import Payroll from "../models/payroll.model.js";
 import JournalEntry from "../models/journalEntry.model.js";
 import { createPostedJournal, movementLines, parsePostingDate } from "../services/accountingPosting.service.js";
+import { runMongoTransaction } from "../utils/mongoTransaction.js";
 
 const clean = (value) => String(value ?? "").trim();
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const money = (value) => Math.round(Number(value || 0) * 100) / 100;
 
-let transactionSupport;
-const supportsTransactions = async () => {
-  if (transactionSupport !== undefined) return transactionSupport;
-  try {
-    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
-    transactionSupport = Boolean(hello?.setName || hello?.msg === "isdbgrid");
-  } catch {
-    transactionSupport = false;
-  }
-  return transactionSupport;
-};
-
-const runBankWrite = async (work) => {
-  if (!(await supportsTransactions())) return work(null);
-  const session = await mongoose.startSession();
-  try {
-    let result;
-    await session.withTransaction(async () => { result = await work(session); });
-    return result;
-  } finally {
-    await session.endSession();
-  }
-};
+const runBankWrite = runMongoTransaction;
 
 const parseLimit = (value) => {
   const n = Number(value);

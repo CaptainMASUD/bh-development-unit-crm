@@ -10,34 +10,13 @@ import Invoice from "../models/invoice.model.js";
 import VendorBill from "../models/vendorBill.model.js";
 import { createPostedJournal, movementLines, resolveAccountingAccount, assertOpenAccountingPeriod, assertPostableLedgerAccounts, parsePostingDate } from "../services/accountingPosting.service.js";
 import { accountingCache } from "../utils/cache.js";
+import { runMongoTransaction } from "../utils/mongoTransaction.js";
 
 const clean = (value) => String(value ?? "").trim();
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const money = (value) => Math.round(Number(value || 0) * 100) / 100;
 
-let transactionSupport;
-const supportsTransactions = async () => {
-  if (transactionSupport !== undefined) return transactionSupport;
-  try {
-    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
-    transactionSupport = Boolean(hello?.setName || hello?.msg === "isdbgrid");
-  } catch {
-    transactionSupport = false;
-  }
-  return transactionSupport;
-};
-
-const runBankingWrite = async (work) => {
-  if (!(await supportsTransactions())) return work(null);
-  const session = await mongoose.startSession();
-  try {
-    let result;
-    await session.withTransaction(async () => { result = await work(session); });
-    return result;
-  } finally {
-    await session.endSession();
-  }
-};
+const runBankingWrite = runMongoTransaction;
 
 const withSession = (query, session) => session ? query.session(session) : query;
 const sessionOptions = (session) => session ? { session } : {};

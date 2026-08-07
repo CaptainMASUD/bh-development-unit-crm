@@ -20,6 +20,7 @@ import {
   postGoodsReceiptAccounting,
   reverseProcurementAccounting,
 } from "../services/procurementAccounting.service.js";
+import { runMongoTransaction } from "../utils/mongoTransaction.js";
 
 const LIST_FIELDS = [
   "receiptNo",
@@ -51,24 +52,6 @@ const LIST_FIELDS = [
 ].join(" ");
 
 const clean = (value) => String(value ?? "").trim();
-let transactionSupport;
-const supportsTransactions = async () => {
-  if (transactionSupport !== undefined) return transactionSupport;
-  try {
-    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
-    transactionSupport = Boolean(hello?.setName || hello?.msg === "isdbgrid");
-  } catch {
-    transactionSupport = false;
-  }
-  return transactionSupport;
-};
-const runTransaction = async (session, work) => {
-  if (!(await supportsTransactions())) return work();
-  return session.withTransaction(work, {
-    readConcern: { level: "snapshot" },
-    writeConcern: { w: "majority" },
-  });
-};
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -791,7 +774,6 @@ export const getGoodsReceipt = async (req, res) => {
 };
 
 export const createGoodsReceipt = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     const actorId = req.user?._id || null;
     const payload = buildPayload(req.body);
@@ -802,7 +784,7 @@ export const createGoodsReceipt = async (req, res) => {
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
     let receipt;
-    await runTransaction(session, async () => {
+    await runMongoTransaction(async (session) => {
       if (payload.idempotencyKey) {
         const existing = await GoodsReceipt.findOne({
           idempotencyKey: payload.idempotencyKey,
@@ -836,13 +818,10 @@ export const createGoodsReceipt = async (req, res) => {
     });
   } catch (error) {
     return sendError(res, error, "Failed to create goods receipt.");
-  } finally {
-    await session.endSession();
   }
 };
 
 export const updateGoodsReceipt = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) {
       return res.status(400).json({ message: "Invalid goods-receipt ID." });
@@ -856,7 +835,7 @@ export const updateGoodsReceipt = async (req, res) => {
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
     let receipt;
-    await runTransaction(session, async () => {
+    await runMongoTransaction(async (session) => {
       const current = await GoodsReceipt.findById(req.params.id).session(session);
       if (!current) throw Object.assign(new Error("Goods receipt not found."), { statusCode: 404 });
       if (!GOODS_RECEIPT_EDITABLE_STATUSES.includes(current.status)) {
@@ -895,8 +874,6 @@ export const updateGoodsReceipt = async (req, res) => {
     return res.json({ message: "Goods-receipt draft updated.", goodsReceipt: populated });
   } catch (error) {
     return sendError(res, error, "Failed to update goods receipt.");
-  } finally {
-    await session.endSession();
   }
 };
 
@@ -917,11 +894,10 @@ export const submitGoodsReceipt = async (req, res) => {
 };
 
 export const approveGoodsReceipt = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid goods-receipt ID." });
     let receipt;
-    await runTransaction(session, async () => {
+    await runMongoTransaction(async (session) => {
       receipt = await GoodsReceipt.findOne({
         _id: req.params.id,
         status: "submitted",
@@ -941,13 +917,10 @@ export const approveGoodsReceipt = async (req, res) => {
     return res.json({ message: "Goods receipt approved.", goodsReceipt: receipt });
   } catch (error) {
     return sendError(res, error, "Failed to approve goods receipt.");
-  } finally {
-    await session.endSession();
   }
 };
 
 export const postGoodsReceipt = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid goods-receipt ID." });
     const actorId = req.user?._id || null;
@@ -955,7 +928,7 @@ export const postGoodsReceipt = async (req, res) => {
     let movement;
     let journalEntry;
 
-    await runTransaction(session, async () => {
+    await runMongoTransaction(async (session) => {
       receipt = await GoodsReceipt.findById(req.params.id).session(session);
       if (!receipt) throw Object.assign(new Error("Goods receipt not found."), { statusCode: 404 });
       if (receipt.status === "posted") {
@@ -1038,13 +1011,10 @@ export const postGoodsReceipt = async (req, res) => {
     });
   } catch (error) {
     return sendError(res, error, "Failed to post goods receipt.");
-  } finally {
-    await session.endSession();
   }
 };
 
 export const reverseGoodsReceipt = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid goods-receipt ID." });
     const reason = clean(req.body.reason);
@@ -1054,7 +1024,7 @@ export const reverseGoodsReceipt = async (req, res) => {
     let reversal;
     let reversalJournalEntry;
 
-    await runTransaction(session, async () => {
+    await runMongoTransaction(async (session) => {
       receipt = await GoodsReceipt.findById(req.params.id).session(session);
       if (!receipt) throw Object.assign(new Error("Goods receipt not found."), { statusCode: 404 });
       if (receipt.status === "reversed") {
@@ -1126,8 +1096,6 @@ export const reverseGoodsReceipt = async (req, res) => {
     });
   } catch (error) {
     return sendError(res, error, "Failed to reverse goods receipt.");
-  } finally {
-    await session.endSession();
   }
 };
 

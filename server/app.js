@@ -2,7 +2,9 @@
 import "./config/tenant.plugin.js";
 import express from "express";
 import cors from "cors";
+import mongoose from "mongoose";
 import { protect, requireModule } from "./middleware/auth.middleware.js";
+import { getMongoTransactionCapability } from "./utils/mongoTransaction.js";
 
 const app = express();
 
@@ -193,16 +195,53 @@ app.get("/", (req, res) => {
     message: "BusinessHub ERP backend is online.",
     version: "1.0.0",
     health: "/api/health",
+    readiness: "/api/ready",
     timestamp: new Date().toISOString(),
   });
 });
 
+// Liveness intentionally has no external dependency. Infrastructure can use
+// this endpoint to determine whether the Node process/function is responsive.
 app.get("/api/health", (req, res) => {
   return res.status(200).json({
     success: true,
+    status: "alive",
     message: "BusinessHub ERP API is running",
     timestamp: new Date().toISOString(),
   });
+});
+
+// Readiness verifies the database and the transaction guarantees required by
+// financial and inventory writes. A failed check returns 503 so traffic can be
+// retried instead of reaching a partially initialized application.
+app.get("/api/ready", async (req, res) => {
+  try {
+    if (mongoose.connection.readyState !== 1 || !mongoose.connection.db) {
+      throw new Error("MongoDB is disconnected.");
+    }
+
+    await mongoose.connection.db.admin().command({ ping: 1 });
+    const transactions = await getMongoTransactionCapability();
+    return res.status(200).json({
+      success: true,
+      status: "ready",
+      database: "connected",
+      transactions: {
+        mode: transactions.mode,
+        topology: transactions.topology,
+        supported: transactions.supported,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    return res.status(503).json({
+      success: false,
+      status: "not-ready",
+      database: mongoose.connection.readyState === 1 ? "unavailable" : "disconnected",
+      message: "BusinessHub ERP API is temporarily unavailable.",
+      timestamp: new Date().toISOString(),
+    });
+  }
 });
 
 app.use("/api/companies", companyRoutes);

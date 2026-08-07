@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Warehouse from "../../models/inventory/warehouse.model.js";
 import WarehouseLocation, { LOCATION_STATUSES, LOCATION_TYPES } from "../../models/inventory/warehouseLocation.model.js";
 import ProductStock from "../../models/inventory/productStock.model.js";
+import { runMongoTransaction } from "../../utils/mongoTransaction.js";
 
 const LIST_FIELDS = [
   "warehouse",
@@ -537,7 +538,6 @@ export const updateWarehouseLocationStatus = async (req, res) => {
 };
 
 export const deleteWarehouseLocation = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid warehouse location ID." });
 
@@ -553,7 +553,7 @@ export const deleteWarehouseLocation = async (req, res) => {
     }
 
     let location;
-    await session.withTransaction(async () => {
+    await runMongoTransaction(async (session) => {
       const now = new Date();
       location = await WarehouseLocation.findByIdAndUpdate(
         req.params.id,
@@ -578,8 +578,6 @@ export const deleteWarehouseLocation = async (req, res) => {
     return res.json({ message: "Warehouse location archived safely.", location });
   } catch (error) {
     return sendWriteError(res, error, "Failed to archive warehouse location.");
-  } finally {
-    await session.endSession();
   }
 };
 

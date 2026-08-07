@@ -15,6 +15,7 @@ import { ensureEmployeeAttendanceForRange } from "./attendance.controller.js";
 import { calculateEmployeeTaxDeduction } from "../services/tax.service.js";
 import { createPostedJournal, movementLines, resolveAccountingAccount } from "../services/accountingPosting.service.js";
 import { accountingCache } from "../utils/cache.js";
+import { runMongoTransaction } from "../utils/mongoTransaction.js";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -1181,7 +1182,6 @@ export const getEmployeePayrolls = async (req, res) => {
    APPROVE PAYROLL
 ================================ */
 export const approvePayroll = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!requireAdmin(req, res)) return;
 
@@ -1190,7 +1190,7 @@ export const approvePayroll = async (req, res) => {
     }
 
     let payroll;
-    await session.withTransaction(async () => {
+    await runMongoTransaction(async (session) => {
       payroll = await Payroll.findById(req.params.id).session(session);
       if (!payroll) throw Object.assign(new Error("Payroll not found."), { statusCode: 404 });
       if (payroll.status === "paid") throw Object.assign(new Error("Paid payroll cannot be approved again."), { statusCode: 400 });
@@ -1213,8 +1213,6 @@ export const approvePayroll = async (req, res) => {
       message: "Server error in approvePayroll.",
       error: err.message,
     });
-  } finally {
-    session.endSession();
   }
 };
 
@@ -1222,7 +1220,6 @@ export const approvePayroll = async (req, res) => {
    MARK PAYROLL PAID
 ================================ */
 export const markPayrollPaid = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!requireAdmin(req, res)) return;
 
@@ -1231,7 +1228,7 @@ export const markPayrollPaid = async (req, res) => {
     }
 
     let payroll;
-    await session.withTransaction(async () => {
+    await runMongoTransaction(async (session) => {
       payroll = await Payroll.findById(req.params.id).session(session);
       if (!payroll) throw Object.assign(new Error("Payroll not found."), { statusCode: 404 });
       if (payroll.status === "cancelled") throw Object.assign(new Error("Cancelled payroll cannot be paid."), { statusCode: 400 });
@@ -1244,7 +1241,7 @@ export const markPayrollPaid = async (req, res) => {
       if (amount <= 0) throw Object.assign(new Error("Net payroll amount must be greater than zero."), { statusCode: 400 });
 
       await ensurePayrollAccrual({ payroll, userId: req.user?._id || null, session });
-      const payableAccount = await resolveAccountingAccount("payrollPayableAccount", "2200");
+      const payableAccount = await resolveAccountingAccount("payrollPayableAccount", "2200", session);
       let paymentJournal;
       let bankTransaction = null;
       const useBank = ["bank", "mobile_banking", "cheque"].includes(paymentMethod) || Boolean(req.body.bankAccount);
@@ -1289,7 +1286,7 @@ export const markPayrollPaid = async (req, res) => {
         payroll.bankAccount = bankAccount._id;
         payroll.bankTransaction = bankTransaction._id;
       } else {
-        const cashAccount = await resolveAccountingAccount("defaultCashAccount", "1000");
+        const cashAccount = await resolveAccountingAccount("defaultCashAccount", "1000", session);
         paymentJournal = await createPostedJournal({
           date: paymentDate,
           sourceType: "payroll",
@@ -1338,8 +1335,6 @@ export const markPayrollPaid = async (req, res) => {
       message: "Server error in markPayrollPaid.",
       error: err.message,
     });
-  } finally {
-    session.endSession();
   }
 };
 

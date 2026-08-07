@@ -22,6 +22,7 @@ import {
   postPurchaseReturnAccounting,
   reverseProcurementAccounting,
 } from "../services/procurementAccounting.service.js";
+import { runMongoTransaction } from "../utils/mongoTransaction.js";
 
 const LIST_FIELDS = [
   "returnNo",
@@ -49,24 +50,6 @@ const LIST_FIELDS = [
 ].join(" ");
 
 const clean = (value) => String(value ?? "").trim();
-let transactionSupport;
-const supportsTransactions = async () => {
-  if (transactionSupport !== undefined) return transactionSupport;
-  try {
-    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
-    transactionSupport = Boolean(hello?.setName || hello?.msg === "isdbgrid");
-  } catch {
-    transactionSupport = false;
-  }
-  return transactionSupport;
-};
-const runTransaction = async (session, work) => {
-  if (!(await supportsTransactions())) return work();
-  return session.withTransaction(work, {
-    readConcern: { level: "snapshot" },
-    writeConcern: { w: "majority" },
-  });
-};
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -709,7 +692,6 @@ export const getPurchaseReturn = async (req, res) => {
 };
 
 export const createPurchaseReturn = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     const actorId = req.user?._id || null;
     const payload = buildPayload(req.body);
@@ -720,7 +702,7 @@ export const createPurchaseReturn = async (req, res) => {
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
     let purchaseReturn;
-    await runTransaction(session, async () => {
+    await runMongoTransaction(async (session) => {
       if (payload.idempotencyKey) {
         const existing = await PurchaseReturn.findOne({
           idempotencyKey: payload.idempotencyKey,
@@ -757,13 +739,10 @@ export const createPurchaseReturn = async (req, res) => {
     });
   } catch (error) {
     return sendError(res, error, "Failed to create purchase return.");
-  } finally {
-    await session.endSession();
   }
 };
 
 export const updatePurchaseReturn = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) {
       return res.status(400).json({ message: "Invalid purchase-return ID." });
@@ -777,7 +756,7 @@ export const updatePurchaseReturn = async (req, res) => {
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
     let purchaseReturn;
-    await runTransaction(session, async () => {
+    await runMongoTransaction(async (session) => {
       const current = await PurchaseReturn.findById(req.params.id).session(session);
       if (!current) {
         throw Object.assign(new Error("Purchase return not found."), { statusCode: 404 });
@@ -827,8 +806,6 @@ export const updatePurchaseReturn = async (req, res) => {
     });
   } catch (error) {
     return sendError(res, error, "Failed to update purchase return.");
-  } finally {
-    await session.endSession();
   }
 };
 
@@ -857,11 +834,10 @@ export const submitPurchaseReturn = async (req, res) => {
 };
 
 export const approvePurchaseReturn = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid purchase-return ID." });
     let purchaseReturn;
-    await runTransaction(session, async () => {
+    await runMongoTransaction(async (session) => {
       purchaseReturn = await PurchaseReturn.findOne({
         _id: req.params.id,
         status: "submitted",
@@ -881,13 +857,10 @@ export const approvePurchaseReturn = async (req, res) => {
     return res.json({ message: "Purchase return approved.", purchaseReturn });
   } catch (error) {
     return sendError(res, error, "Failed to approve purchase return.");
-  } finally {
-    await session.endSession();
   }
 };
 
 export const postPurchaseReturn = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid purchase-return ID." });
     const actorId = req.user?._id || null;
@@ -895,7 +868,7 @@ export const postPurchaseReturn = async (req, res) => {
     let movement;
     let journalEntry;
 
-    await runTransaction(session, async () => {
+    await runMongoTransaction(async (session) => {
       purchaseReturn = await PurchaseReturn.findById(req.params.id).session(session);
       if (!purchaseReturn) {
         throw Object.assign(new Error("Purchase return not found."), { statusCode: 404 });
@@ -979,13 +952,10 @@ export const postPurchaseReturn = async (req, res) => {
     });
   } catch (error) {
     return sendError(res, error, "Failed to post purchase return.");
-  } finally {
-    await session.endSession();
   }
 };
 
 export const reversePurchaseReturn = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid purchase-return ID." });
     const reason = clean(req.body.reason);
@@ -995,7 +965,7 @@ export const reversePurchaseReturn = async (req, res) => {
     let reversal;
     let reversalJournalEntry;
 
-    await runTransaction(session, async () => {
+    await runMongoTransaction(async (session) => {
       purchaseReturn = await PurchaseReturn.findById(req.params.id).session(session);
       if (!purchaseReturn) {
         throw Object.assign(new Error("Purchase return not found."), { statusCode: 404 });
@@ -1065,8 +1035,6 @@ export const reversePurchaseReturn = async (req, res) => {
     });
   } catch (error) {
     return sendError(res, error, "Failed to reverse purchase return.");
-  } finally {
-    await session.endSession();
   }
 };
 

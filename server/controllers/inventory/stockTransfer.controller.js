@@ -8,6 +8,7 @@ import StockTransfer, {
   TRANSFER_STATUSES,
 } from "../../models/inventory/stockTransfer.model.js";
 import { roundMoney, roundQuantity } from "../../models/inventory/productStock.model.js";
+import { runMongoTransaction } from "../../utils/mongoTransaction.js";
 
 const LIST_FIELDS = [
   "transferNo",
@@ -348,19 +349,6 @@ const createMovement = async ({ transfer, lines, idempotencyKey, reference, note
   return movement;
 };
 
-const withTransaction = async (work) => {
-  const session = await mongoose.startSession();
-  try {
-    let result;
-    await session.withTransaction(async () => {
-      result = await work(session);
-    });
-    return result;
-  } finally {
-    await session.endSession();
-  }
-};
-
 export const listStockTransfers = async (req, res) => {
   try {
     const limit = parseLimit(req.query.limit, 30, 100);
@@ -593,7 +581,7 @@ export const postDirectStockTransfer = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock transfer ID." });
     const userId = req.user?._id || null;
-    const transfer = await withTransaction(async (session) => {
+    const transfer = await runMongoTransaction(async (session) => {
       const doc = await StockTransfer.findById(req.params.id).session(session);
       if (!doc) throw Object.assign(new Error("Stock transfer not found."), { statusCode: 404 });
       if (doc.status === "received" && doc.directMovement) return doc;
@@ -654,7 +642,7 @@ export const dispatchStockTransfer = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock transfer ID." });
     const userId = req.user?._id || null;
-    const transfer = await withTransaction(async (session) => {
+    const transfer = await runMongoTransaction(async (session) => {
       const doc = await StockTransfer.findById(req.params.id).session(session);
       if (!doc) throw Object.assign(new Error("Stock transfer not found."), { statusCode: 404 });
       if (doc.status === "dispatched" && doc.dispatchMovement) return doc;
@@ -736,7 +724,7 @@ export const receiveStockTransfer = async (req, res) => {
       return res.json({ message: "This receipt was already posted.", transfer: existingTransfer });
     }
 
-    const transfer = await withTransaction(async (session) => {
+    const transfer = await runMongoTransaction(async (session) => {
       const doc = await StockTransfer.findById(req.params.id).session(session);
       if (!doc) throw Object.assign(new Error("Stock transfer not found."), { statusCode: 404 });
       if (!["dispatched", "partially_received"].includes(doc.status) || doc.transferMode !== "two_step") {
@@ -877,7 +865,7 @@ export const closeShortStockTransfer = async (req, res) => {
     if (!reason) return res.status(400).json({ message: "A close reason is required." });
     const userId = req.user?._id || null;
 
-    const transfer = await withTransaction(async (session) => {
+    const transfer = await runMongoTransaction(async (session) => {
       const doc = await StockTransfer.findById(req.params.id).session(session);
       if (!doc) throw Object.assign(new Error("Stock transfer not found."), { statusCode: 404 });
       if (!["dispatched", "partially_received"].includes(doc.status) || doc.transferMode !== "two_step") {
@@ -940,7 +928,7 @@ export const reverseStockTransfer = async (req, res) => {
     if (!reason) return res.status(400).json({ message: "Reversal reason is required." });
     const userId = req.user?._id || null;
 
-    const transfer = await withTransaction(async (session) => {
+    const transfer = await runMongoTransaction(async (session) => {
       const doc = await StockTransfer.findById(req.params.id).session(session);
       if (!doc) throw Object.assign(new Error("Stock transfer not found."), { statusCode: 404 });
       if (doc.status === "reversed") return doc;

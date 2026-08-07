@@ -13,6 +13,7 @@ import {
   postInventoryAdjustmentAccounting,
   reverseProcurementAccounting,
 } from "../../services/procurementAccounting.service.js";
+import { runMongoTransaction } from "../../utils/mongoTransaction.js";
 
 const LIST_FIELDS = [
   "adjustmentNo",
@@ -45,24 +46,6 @@ const LIST_FIELDS = [
 ].join(" ");
 
 const clean = (value) => String(value ?? "").trim();
-let transactionSupport;
-const supportsTransactions = async () => {
-  if (transactionSupport !== undefined) return transactionSupport;
-  try {
-    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
-    transactionSupport = Boolean(hello?.setName || hello?.msg === "isdbgrid");
-  } catch {
-    transactionSupport = false;
-  }
-  return transactionSupport;
-};
-const runTransaction = async (session, work) => {
-  if (!(await supportsTransactions())) return work();
-  return session.withTransaction(work, {
-    readConcern: { level: "snapshot" },
-    writeConcern: { w: "majority" },
-  });
-};
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const idKey = (value) => String(value || "");
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -628,11 +611,10 @@ export const refreshStockAdjustment = async (req, res) => {
 };
 
 export const submitStockAdjustment = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock adjustment ID." });
     let adjustment;
-    await runTransaction(session, async () => {
+    await runMongoTransaction(async (session) => {
       adjustment = await StockAdjustment.findOne({ _id: req.params.id, status: "draft" }).session(session);
       if (!adjustment) throw Object.assign(new Error("Only a draft adjustment can be submitted."), { statusCode: 409 });
       if (!adjustment.lines.some((line) => Number(line.varianceQuantity || 0) !== 0)) {
@@ -648,8 +630,6 @@ export const submitStockAdjustment = async (req, res) => {
     return res.json({ message: "Stock adjustment submitted for approval.", adjustment });
   } catch (error) {
     return sendWriteError(res, error, "Failed to submit stock adjustment.");
-  } finally {
-    await session.endSession();
   }
 };
 
@@ -697,7 +677,6 @@ export const rejectStockAdjustment = async (req, res) => {
 };
 
 export const postStockAdjustment = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock adjustment ID." });
     const userId = req.user?._id || null;
@@ -705,7 +684,7 @@ export const postStockAdjustment = async (req, res) => {
     let movement;
     let journalEntry;
 
-    await runTransaction(session, async () => {
+    await runMongoTransaction(async (session) => {
       adjustment = await StockAdjustment.findOne({ _id: req.params.id, status: "approved" }).session(session);
       if (!adjustment) throw Object.assign(new Error("Only an approved adjustment can be posted."), { statusCode: 409 });
       await validateFreshness(adjustment, { session });
@@ -766,13 +745,10 @@ export const postStockAdjustment = async (req, res) => {
     return res.json({ message: "Stock adjustment posted to inventory and the General Ledger.", adjustment: populated, movement, journalEntry });
   } catch (error) {
     return sendWriteError(res, error, "Failed to post stock adjustment.");
-  } finally {
-    await session.endSession();
   }
 };
 
 export const reverseStockAdjustment = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock adjustment ID." });
     const userId = req.user?._id || null;
@@ -780,7 +756,7 @@ export const reverseStockAdjustment = async (req, res) => {
     let reversal;
     let reversalJournalEntry;
 
-    await runTransaction(session, async () => {
+    await runMongoTransaction(async (session) => {
       adjustment = await StockAdjustment.findOne({ _id: req.params.id, status: "posted" }).session(session);
       if (!adjustment) throw Object.assign(new Error("Only a posted adjustment can be reversed."), { statusCode: 409 });
       if (!adjustment.movement) throw Object.assign(new Error("The posted movement for this adjustment is missing."), { statusCode: 409 });
@@ -818,8 +794,6 @@ export const reverseStockAdjustment = async (req, res) => {
     });
   } catch (error) {
     return sendWriteError(res, error, "Failed to reverse stock adjustment.");
-  } finally {
-    await session.endSession();
   }
 };
 

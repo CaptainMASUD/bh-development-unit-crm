@@ -618,7 +618,6 @@ const applyDelta = async ({
   });
 
 stockMovementSchema.statics.postMovementDocument = async function ({ movementId, userId = null, session }) {
-  if (!session) throw Object.assign(new Error("Stock posting requires a database transaction."), { statusCode: 500 });
   if (!isId(movementId)) throw Object.assign(new Error("Invalid stock movement ID."), { statusCode: 400 });
 
   const movement = await this.findById(movementId).session(session);
@@ -781,7 +780,6 @@ stockMovementSchema.statics.reverseMovementDocument = async function ({
   reason = "",
   session,
 }) {
-  if (!session) throw Object.assign(new Error("Stock reversal requires a database transaction."), { statusCode: 500 });
   if (!isId(movementId)) throw Object.assign(new Error("Invalid stock movement ID."), { statusCode: 400 });
 
   const original = await this.findById(movementId).session(session);

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { motion } from "framer-motion"
 import toast, { Toaster } from "react-hot-toast"
@@ -161,6 +161,101 @@ function Icon({
       strokeWidth={strokeWidth}
       {...props}
     />
+  )
+}
+
+
+function Spinner({ className = "h-4 w-4" }) {
+  return (
+    <span
+      className={cn(
+        "inline-block rounded-full border-2 border-current border-r-transparent animate-spin",
+        className
+      )}
+      aria-hidden="true"
+    />
+  )
+}
+
+function SkeletonBlock({ className = "" }) {
+  return <div className={cn("animate-pulse rounded-lg bg-gray-200/80", className)} aria-hidden="true" />
+}
+
+function CategoryTableSkeleton({ rows = 7 }) {
+  return Array.from({ length: rows }).map((_, index) => (
+    <tr key={`category-skeleton-${index}`}>
+      <td className="border-b border-gray-100 px-5 py-3">
+        <div className="flex items-center gap-3">
+          <SkeletonBlock className="h-11 w-11 rounded-2xl" />
+          <div className="space-y-2">
+            <SkeletonBlock className="h-4 w-36" />
+            <SkeletonBlock className="h-3 w-52" />
+          </div>
+        </div>
+      </td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-20" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-6 w-32 rounded-lg" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-28" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-10" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-7 w-20 rounded-full" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-24" /></td>
+      <td className="sticky right-0 border-b border-gray-100 bg-white px-5 py-2">
+        <div className="flex justify-end gap-2">
+          <SkeletonBlock className="h-10 w-20 rounded-xl" />
+          <SkeletonBlock className="h-10 w-10 rounded-xl" />
+        </div>
+      </td>
+    </tr>
+  ))
+}
+
+function CategoryMobileSkeleton({ rows = 5 }) {
+  return Array.from({ length: rows }).map((_, index) => (
+    <div key={`category-mobile-skeleton-${index}`} className="p-4">
+      <div className="flex items-start gap-3">
+        <SkeletonBlock className="h-12 w-12 shrink-0 rounded-2xl" />
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-2">
+              <SkeletonBlock className="h-4 w-36" />
+              <SkeletonBlock className="h-3 w-20" />
+            </div>
+            <SkeletonBlock className="h-7 w-20 rounded-full" />
+          </div>
+          <SkeletonBlock className="h-28 w-full rounded-xl" />
+          <div className="flex justify-end gap-2 border-t border-gray-100 pt-3">
+            <SkeletonBlock className="h-10 w-20 rounded-xl" />
+            <SkeletonBlock className="h-10 w-10 rounded-xl" />
+          </div>
+        </div>
+      </div>
+    </div>
+  ))
+}
+
+function CategoryTreeSkeleton({ rows = 6 }) {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: rows }).map((_, index) => (
+        <div
+          key={`category-tree-skeleton-${index}`}
+          className="rounded-2xl border border-gray-100 bg-white p-4"
+          style={{ marginLeft: `${Math.min(index % 3, 2) * 16}px` }}
+        >
+          <div className="flex items-center gap-3">
+            <SkeletonBlock className="h-8 w-8 rounded-lg" />
+            <SkeletonBlock className="h-11 w-11 rounded-2xl" />
+            <div className="flex-1 space-y-2">
+              <SkeletonBlock className="h-4 w-44 max-w-full" />
+              <SkeletonBlock className="h-3 w-28" />
+            </div>
+            <SkeletonBlock className="h-7 w-20 rounded-full" />
+            <SkeletonBlock className="h-10 w-20 rounded-xl" />
+            <SkeletonBlock className="h-10 w-10 rounded-xl" />
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -414,61 +509,6 @@ async function api(path, options = {}) {
   return data
 }
 
-function ActiveFilterChips({
-  filters,
-  updateFilter,
-  resetFilters,
-  parentName,
-}) {
-  const hasFilters =
-    clean(filters.q) ||
-    filters.status !== "all" ||
-    filters.parent !== "all"
-
-  return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      {clean(filters.q) ? (
-        <FilterChip
-          label="Search"
-          value={clean(filters.q)}
-          onClear={() => updateFilter("q", "")}
-        />
-      ) : null}
-
-      {filters.status !== "all" ? (
-        <FilterChip
-          label="Status"
-          value={pretty(filters.status)}
-          onClear={() => updateFilter("status", "all")}
-        />
-      ) : null}
-
-      {filters.parent !== "all" ? (
-        <FilterChip
-          label="Parent"
-          value={
-            filters.parent === "root"
-              ? "Root categories"
-              : parentName || "Selected category"
-          }
-          onClear={() => updateFilter("parent", "all")}
-        />
-      ) : null}
-
-      {hasFilters ? (
-        <button
-          type="button"
-          onClick={resetFilters}
-          className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-black text-gray-500 transition hover:bg-gray-100 hover:text-gray-800"
-        >
-          <Icon icon={Cancel01Icon} className="h-3.5 w-3.5" />
-          Clear all
-        </button>
-      ) : null}
-    </div>
-  )
-}
-
 function HeaderSearchFilters({
   filters,
   updateFilter,
@@ -477,63 +517,54 @@ function HeaderSearchFilters({
   parentName,
   onOpenFilters,
 }) {
+  const chipCount = [
+    filters.status !== "all",
+    filters.parent !== "all",
+  ].filter(Boolean).length
+
+  const hasAnySearchOrFilter = Boolean(clean(filters.q) || chipCount)
+
   return (
     <div
       className={cn(
-        "w-full transition-all duration-200",
-        activeFilterCount
-          ? "lg:min-w-[540px] lg:max-w-[74%] lg:flex-[0_1_74%]"
-          : "lg:max-w-[50%] lg:flex-[0_1_50%]"
+        "w-full transition-[max-width,flex-basis] duration-200 ease-out",
+        chipCount === 0
+          ? "xl:max-w-[50%] xl:flex-[0_1_50%]"
+          : chipCount <= 2
+            ? "xl:max-w-[64%] xl:flex-[0_1_64%]"
+            : "xl:min-w-[540px] xl:max-w-[78%] xl:flex-[0_1_78%]"
       )}
     >
-      <div className="flex min-h-[44px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
-        <Icon
-          icon={Search01Icon}
-          className="h-4 w-4 shrink-0 text-gray-400"
-        />
-
-        {clean(filters.q) ? (
-          <FilterChip
-            label="Search"
-            value={clean(filters.q)}
-            onClear={() => updateFilter("q", "")}
-          />
-        ) : null}
+      <div className="flex min-h-[40px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
+        <Icon icon={Search01Icon} className="h-4 w-4 shrink-0 text-gray-400" />
 
         {filters.status !== "all" ? (
-          <FilterChip
-            label="Status"
-            value={pretty(filters.status)}
-            onClear={() => updateFilter("status", "all")}
-          />
+          <FilterChip label="Status" value={pretty(filters.status)} onClear={() => updateFilter("status", "all")} />
         ) : null}
 
         {filters.parent !== "all" ? (
           <FilterChip
             label="Parent"
-            value={
-              filters.parent === "root"
-                ? "Root categories"
-                : parentName || "Selected category"
-            }
+            value={filters.parent === "root" ? "Root categories" : parentName || "Selected category"}
             onClear={() => updateFilter("parent", "all")}
           />
         ) : null}
 
         <FocusPlaceholderInput
-          className="min-w-[120px] flex-1 border-0 bg-transparent px-1 py-1 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:outline-none focus:ring-0"
+          className="h-8 min-w-[120px] flex-[1_1_170px] border-0 bg-transparent px-1 py-0 text-sm font-medium text-gray-800 shadow-none outline-none placeholder:text-gray-400 focus:border-0 focus:outline-none focus:ring-0 focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0"
+          style={{ boxShadow: "none" }}
           value={filters.q}
           onChange={(event) => updateFilter("q", event.target.value)}
           placeholder="Search category name, code or slug..."
           type="text"
-          aria-label="Search categories"
+          aria-label="Search product categories"
         />
 
         <button
           type="button"
           onClick={onOpenFilters}
           className={cn(
-            "inline-flex h-8 shrink-0 items-center gap-2 rounded-xl px-2.5 text-xs font-black transition",
+            "inline-flex h-8 shrink-0 items-center gap-2 rounded-xl px-2.5 text-xs font-bold transition",
             activeFilterCount
               ? "bg-indigo-600 text-white hover:bg-indigo-700"
               : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
@@ -541,15 +572,10 @@ function HeaderSearchFilters({
         >
           <Icon icon={FilterIcon} className="h-3.5 w-3.5" />
           Filters
-
-          {activeFilterCount ? (
-            <span className="rounded-full bg-white/20 px-1.5 text-[10px]">
-              {activeFilterCount}
-            </span>
-          ) : null}
+          {activeFilterCount ? <span className="rounded-full bg-white/20 px-1.5 text-[10px]">{activeFilterCount}</span> : null}
         </button>
 
-        {activeFilterCount ? (
+        {hasAnySearchOrFilter ? (
           <button
             type="button"
             onClick={resetFilters}
@@ -598,6 +624,20 @@ export default function ProductCategorySetup() {
 
   const [form, setForm] = useState(emptyCategoryForm)
   const [formError, setFormError] = useState("")
+
+  const [detailsModal, setDetailsModal] = useState({ open: false, item: null })
+  const [actionState, setActionState] = useState({
+    open: false,
+    item: null,
+    type: "",
+    value: "",
+    title: "",
+    message: "",
+    danger: false,
+    loading: false,
+    error: "",
+  })
+  const [actionBusy, setActionBusy] = useState({ id: "", type: "" })
 
   const [filters, setFilters] = useState({
     q: "",
@@ -913,63 +953,111 @@ export default function ProductCategorySetup() {
     }
   }
 
-  const updateCategoryStatus = async (item, status) => {
-    try {
-      await api(`/inventory/categories/${item._id}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      })
-
-      toast.success(
-        `Category marked as ${pretty(status).toLowerCase()}`
-      )
-
-      await Promise.all([
-        activeTab === "list" ? loadCategories() : loadTree(),
-        loadDirectory(),
-      ])
-    } catch (error) {
-      toast.error(error.message || "Failed to update category status")
-    }
+  const openCategoryDetails = (item) => {
+    setDetailsModal({ open: true, item })
   }
 
-  const archiveCategory = async (item) => {
-    const confirmed = window.confirm(
-      `Archive "${item.name}"? The category can be restored later.`
-    )
+  const openCategoryAction = (type, item, value = "") => {
+    const config =
+      type === "status"
+        ? {
+            title: `Mark category ${pretty(value).toLowerCase()}`,
+            message: `Update "${item.name}" from ${pretty(item.status)} to ${pretty(value)}.`,
+            danger: value === "inactive",
+          }
+        : type === "archive"
+          ? {
+              title: "Archive product category",
+              message:
+                `Archive "${item.name}"? The category can be restored later. ` +
+                "Existing products and child-category relationships remain protected by backend rules.",
+              danger: true,
+            }
+          : {
+              title: "Restore product category",
+              message: `Restore "${item.name}" as inactive so it can be reviewed before activation.`,
+              danger: false,
+            }
 
-    if (!confirmed) return
-
-    try {
-      await api(`/inventory/categories/${item._id}`, {
-        method: "DELETE",
-      })
-
-      toast.success("Category archived")
-
-      await Promise.all([
-        activeTab === "list" ? loadCategories() : loadTree(),
-        loadDirectory(),
-      ])
-    } catch (error) {
-      toast.error(error.message || "Failed to archive category")
-    }
+    setActionState({
+      open: true,
+      item,
+      type,
+      value,
+      title: config.title,
+      message: config.message,
+      danger: config.danger,
+      loading: false,
+      error: "",
+    })
   }
 
-  const restoreCategory = async (item) => {
+  const closeCategoryAction = () => {
+    if (actionState.loading) return
+    setActionState({
+      open: false,
+      item: null,
+      type: "",
+      value: "",
+      title: "",
+      message: "",
+      danger: false,
+      loading: false,
+      error: "",
+    })
+  }
+
+  const refreshCategoryViews = async () => {
+    await Promise.all([
+      activeTab === "list"
+        ? loadCategories({ showLoader: false })
+        : loadTree({ showLoader: false }),
+      loadDirectory(),
+    ])
+  }
+
+  const confirmCategoryAction = async () => {
+    const item = actionState.item
+    if (!item?._id) return
+
+    setActionState((previous) => ({ ...previous, loading: true, error: "" }))
+    setActionBusy({ id: item._id, type: actionState.type })
+
     try {
-      await api(`/inventory/categories/${item._id}/restore`, {
-        method: "PATCH",
+      if (actionState.type === "status") {
+        await api(`/inventory/categories/${item._id}/status`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: actionState.value }),
+        })
+        toast.success(`Category marked as ${pretty(actionState.value).toLowerCase()}`)
+      } else if (actionState.type === "archive") {
+        await api(`/inventory/categories/${item._id}`, { method: "DELETE" })
+        toast.success("Category archived")
+      } else if (actionState.type === "restore") {
+        await api(`/inventory/categories/${item._id}/restore`, { method: "PATCH" })
+        toast.success("Category restored as inactive")
+      }
+
+      setActionState({
+        open: false,
+        item: null,
+        type: "",
+        value: "",
+        title: "",
+        message: "",
+        danger: false,
+        loading: false,
+        error: "",
       })
-
-      toast.success("Category restored as inactive")
-
-      await Promise.all([
-        activeTab === "list" ? loadCategories() : loadTree(),
-        loadDirectory(),
-      ])
+      await refreshCategoryViews()
     } catch (error) {
-      toast.error(error.message || "Failed to restore category")
+      setActionState((previous) => ({
+        ...previous,
+        loading: false,
+        error: error.message || "Action failed",
+      }))
+    } finally {
+      setActionBusy({ id: "", type: "" })
     }
   }
 
@@ -986,7 +1074,7 @@ export default function ProductCategorySetup() {
 
   return (
     <div className={`${shell} p-4 sm:p-6 lg:p-8`}>
-      <Toaster position="top-right" />
+      <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: "14px", fontWeight: 700 } }} />
 
       <section className={cn(card, "mb-6 p-4 sm:p-5")}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -1003,11 +1091,6 @@ export default function ProductCategorySetup() {
               <h1 className="truncate text-2xl font-extrabold tracking-tight text-gray-900">
                 Product Categories
               </h1>
-
-              <p className="mt-0.5 text-sm text-gray-500">
-                Organize products with searchable categories and a safe
-                parent-child hierarchy.
-              </p>
             </div>
           </div>
 
@@ -1084,7 +1167,7 @@ export default function ProductCategorySetup() {
             <button
               key={tab.key}
               className={cn(
-                "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-extrabold transition sm:px-5",
+                "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-bold transition sm:px-4 sm:text-sm",
                 activeTab === tab.key
                   ? "bg-indigo-600 text-white shadow-sm"
                   : "text-gray-700 hover:bg-gray-50"
@@ -1106,10 +1189,10 @@ export default function ProductCategorySetup() {
           loadingMore={loadingMore}
           hasMore={hasMore}
           getParentName={getParentName}
+          onView={openCategoryDetails}
           onEdit={openEditModal}
-          onStatusChange={updateCategoryStatus}
-          onArchive={archiveCategory}
-          onRestore={restoreCategory}
+          onAction={openCategoryAction}
+          actionBusy={actionBusy}
           onLoadMore={() => loadCategories({ append: true })}
           canManage={canManage}
           canDelete={canDelete}
@@ -1119,10 +1202,10 @@ export default function ProductCategorySetup() {
           categories={visibleTree}
           loading={loading}
           getParentName={getParentName}
+          onView={openCategoryDetails}
           onEdit={openEditModal}
-          onStatusChange={updateCategoryStatus}
-          onArchive={archiveCategory}
-          onRestore={restoreCategory}
+          onAction={openCategoryAction}
+          actionBusy={actionBusy}
           canManage={canManage}
           canDelete={canDelete}
         />
@@ -1149,6 +1232,20 @@ export default function ProductCategorySetup() {
         saving={saving}
         onClose={closeModal}
         onSubmit={saveCategory}
+      />
+
+      <CategoryDetailsModal
+        state={detailsModal}
+        getParentName={getParentName}
+        onClose={() => setDetailsModal({ open: false, item: null })}
+        onEdit={openEditModal}
+        canManage={canManage}
+      />
+
+      <ConfirmCategoryActionModal
+        state={actionState}
+        onClose={closeCategoryAction}
+        onConfirm={confirmCategoryAction}
       />
     </div>
   )
@@ -1242,19 +1339,6 @@ function FilterModal({
             ))}
           </select>
         </Field>
-
-        <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
-          <p className="text-sm font-black text-gray-900">
-            Active filters
-          </p>
-
-          <ActiveFilterChips
-            filters={filters}
-            updateFilter={updateFilter}
-            resetFilters={resetFilters}
-            parentName={selectedParentName}
-          />
-        </div>
       </div>
     </ModalShell>
   )
@@ -1266,20 +1350,20 @@ function CategoryList({
   loadingMore,
   hasMore,
   getParentName,
+  onView,
   onEdit,
-  onStatusChange,
-  onArchive,
-  onRestore,
+  onAction,
+  actionBusy,
   onLoadMore,
   canManage,
   canDelete,
 }) {
   return (
     <div>
-      <div className={cn(card, "overflow-hidden")}>
-        <div className="hidden max-h-[620px] overflow-auto md:block">
+      <div className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]">
+        <div className="hidden h-[560px] overflow-auto md:block lg:h-[610px] xl:h-[650px]">
           <table className="min-w-[1080px] w-full text-left">
-            <thead className="sticky top-0 z-10 bg-gray-50 text-xs font-black uppercase text-gray-500">
+            <thead className="sticky top-0 z-10 bg-gray-50/95 text-[11px] font-black uppercase tracking-wide text-gray-500 backdrop-blur">
               <tr>
                 <th className="px-5 py-3">Category</th>
                 <th className="px-5 py-3">Code</th>
@@ -1288,134 +1372,100 @@ function CategoryList({
                 <th className="px-5 py-3">Order</th>
                 <th className="px-5 py-3">Status</th>
                 <th className="px-5 py-3">Updated</th>
-                <th className="sticky right-0 bg-gray-50 px-5 py-3 text-right">
-                  Actions
-                </th>
+                <th className="sticky right-0 bg-gray-50/95 px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-gray-100">
-              {categories.map((category) => (
-                <tr
-                  key={category._id}
-                  className="group bg-white transition hover:bg-gray-50/70"
-                >
-                  <td className="px-5 py-4">
-                    <div className="flex min-w-[240px] items-center gap-3">
-                      <CategoryImage category={category} />
-
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-black text-gray-900">
-                          {category.name}
-                        </p>
-
-                        <p className="mt-0.5 max-w-[310px] truncate text-xs font-semibold text-gray-500">
-                          {category.description || "No description"}
-                        </p>
+              {loading ? (
+                <CategoryTableSkeleton />
+              ) : categories.length ? (
+                categories.map((category) => (
+                  <tr key={category._id} className="group bg-white transition hover:bg-indigo-50/30">
+                    <td className="px-5 py-3.5">
+                      <div className="flex min-w-[240px] items-center gap-3">
+                        <CategoryImage category={category} />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-gray-900">{category.name}</p>
+                          <p className="mt-0.5 max-w-[310px] truncate text-xs font-medium text-gray-500">
+                            {category.description || "No description"}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-black text-indigo-700">
-                    {category.code}
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <span className="inline-flex max-w-[220px] truncate rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-600">
-                      {category.slug}
-                    </span>
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-semibold text-gray-700">
-                    {getParentName(category)}
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-black text-gray-700">
-                    {category.sortOrder ?? 0}
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <StatusBadge value={category.status} />
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-semibold text-gray-600">
-                    {formatDate(category.updatedAt)}
-                  </td>
-
-                  <td className="sticky right-0 bg-white px-5 py-4 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-gray-50/70">
-                    <CategoryActions
-                      category={category}
-                      onEdit={onEdit}
-                      onStatusChange={onStatusChange}
-                      onArchive={onArchive}
-                      onRestore={onRestore}
-                      canManage={canManage}
-                      canDelete={canDelete}
-                    />
-                  </td>
-                </tr>
-              ))}
-
-              {!categories.length ? (
+                    </td>
+                    <td className="px-5 py-3.5 text-sm font-semibold text-indigo-700">{category.code}</td>
+                    <td className="px-5 py-3.5">
+                      <span className="inline-flex max-w-[220px] truncate rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600">
+                        {category.slug}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3.5 text-sm font-medium text-gray-700">{getParentName(category)}</td>
+                    <td className="px-5 py-3.5 text-sm font-medium text-gray-700">{category.sortOrder ?? 0}</td>
+                    <td className="px-5 py-3.5"><StatusBadge value={category.status} /></td>
+                    <td className="px-5 py-3.5 text-sm font-medium text-gray-600">{formatDate(category.updatedAt)}</td>
+                    <td className="sticky right-0 bg-white px-5 py-3 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-indigo-50/30">
+                      <CategoryActions
+                        category={category}
+                        busy={String(actionBusy.id) === String(category._id)}
+                        onView={onView}
+                        onEdit={onEdit}
+                        onAction={onAction}
+                        canManage={canManage}
+                        canDelete={canDelete}
+                      />
+                    </td>
+                  </tr>
+                ))
+              ) : (
                 <tr>
-                  <td
-                    colSpan={8}
-                    className="px-5 py-14 text-center text-sm font-bold text-gray-500"
-                  >
-                    {loading
-                      ? "Loading product categories..."
-                      : "No product categories found."}
+                  <td colSpan={8} className="px-5 py-16 text-center">
+                    <Icon icon={FolderLibraryIcon} className="mx-auto h-8 w-8 text-gray-300" />
+                    <p className="mt-3 text-sm font-bold text-gray-900">No product categories found</p>
+                    <p className="mt-1 text-sm font-medium text-gray-500">Create a category or adjust the current filters.</p>
                   </td>
                 </tr>
-              ) : null}
+              )}
             </tbody>
           </table>
         </div>
 
         <div className="divide-y divide-gray-100 md:hidden">
-          {categories.map((category) => (
-            <CategoryMobileCard
-              key={category._id}
-              category={category}
-              parentName={getParentName(category)}
-              onEdit={onEdit}
-              onStatusChange={onStatusChange}
-              onArchive={onArchive}
-              onRestore={onRestore}
-              canManage={canManage}
-              canDelete={canDelete}
-            />
-          ))}
-
-          {!categories.length ? (
-            <div className="px-5 py-14 text-center text-sm font-bold text-gray-500">
-              {loading
-                ? "Loading product categories..."
-                : "No product categories found."}
+          {loading ? (
+            <CategoryMobileSkeleton />
+          ) : categories.length ? (
+            categories.map((category) => (
+              <CategoryMobileCard
+                key={category._id}
+                category={category}
+                parentName={getParentName(category)}
+                busy={String(actionBusy.id) === String(category._id)}
+                onView={onView}
+                onEdit={onEdit}
+                onAction={onAction}
+                canManage={canManage}
+                canDelete={canDelete}
+              />
+            ))
+          ) : (
+            <div className="px-5 py-14 text-center">
+              <Icon icon={FolderLibraryIcon} className="mx-auto h-8 w-8 text-gray-300" />
+              <p className="mt-3 text-sm font-bold text-gray-900">No product categories found</p>
             </div>
-          ) : null}
+          )}
+        </div>
+
+        <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3 sm:px-5">
+          <p className="text-xs font-medium text-gray-500">{categories.length} categor{categories.length === 1 ? "y" : "ies"} loaded</p>
+          {hasMore ? (
+            <button className={cn(btn, btnGhost, "min-w-[126px] px-3 py-2")} onClick={onLoadMore} disabled={loadingMore} type="button">
+              {loadingMore ? <Spinner /> : <Icon icon={RefreshIcon} className="h-4 w-4" />}
+              {loadingMore ? "Loading..." : "Load more"}
+            </button>
+          ) : (
+            <span className="text-xs font-medium text-gray-400">All categories loaded</span>
+          )}
         </div>
       </div>
-
-      {hasMore ? (
-        <div className="mt-4 flex justify-center">
-          <button
-            className={cn(btn, btnGhost, "min-w-[150px]")}
-            onClick={onLoadMore}
-            disabled={loadingMore}
-            type="button"
-          >
-            <Icon
-              icon={RefreshIcon}
-              className={cn(
-                "h-4 w-4",
-                loadingMore ? "animate-spin" : ""
-              )}
-            />
-            {loadingMore ? "Loading..." : "Load more"}
-          </button>
-        </div>
-      ) : null}
     </div>
   )
 }
@@ -1423,10 +1473,10 @@ function CategoryList({
 function CategoryMobileCard({
   category,
   parentName,
+  busy,
+  onView,
   onEdit,
-  onStatusChange,
-  onArchive,
-  onRestore,
+  onAction,
   canManage,
   canDelete,
 }) {
@@ -1434,62 +1484,45 @@ function CategoryMobileCard({
     <article className="p-4">
       <div className="flex items-start gap-3">
         <CategoryImage category={category} />
-
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="truncate text-sm font-black text-gray-900">
-                {category.name}
-              </h3>
-
-              <p className="mt-0.5 text-xs font-black text-indigo-700">
-                {category.code}
-              </p>
+              <h3 className="truncate text-sm font-semibold text-gray-900">{category.name}</h3>
+              <p className="mt-0.5 text-xs font-semibold text-indigo-700">{category.code}</p>
             </div>
-
             <StatusBadge value={category.status} />
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-3 rounded-xl bg-gray-50 p-3 text-xs">
-            <div>
-              <p className="font-bold text-gray-400">Parent</p>
-              <p className="mt-1 font-black text-gray-700">
-                {parentName}
-              </p>
-            </div>
-
-            <div>
-              <p className="font-bold text-gray-400">Sort order</p>
-              <p className="mt-1 font-black text-gray-700">
-                {category.sortOrder ?? 0}
-              </p>
-            </div>
-
-            <div className="col-span-2">
-              <p className="font-bold text-gray-400">Slug</p>
-              <p className="mt-1 break-all font-black text-gray-700">
-                {category.slug}
-              </p>
-            </div>
+            <MiniMetric label="Parent" value={parentName} />
+            <MiniMetric label="Sort order" value={String(category.sortOrder ?? 0)} />
+            <div className="col-span-2"><MiniMetric label="Slug" value={category.slug || "—"} /></div>
           </div>
 
-          {canManage || canDelete ? (
-            <div className="mt-3 border-t border-gray-100 pt-3">
-              <CategoryActions
-                category={category}
-                onEdit={onEdit}
-                onStatusChange={onStatusChange}
-                onArchive={onArchive}
-                onRestore={onRestore}
-                canManage={canManage}
-                canDelete={canDelete}
-                mobile
-              />
-            </div>
-          ) : null}
+          <div className="mt-3 border-t border-gray-100 pt-3">
+            <CategoryActions
+              category={category}
+              busy={busy}
+              onView={onView}
+              onEdit={onEdit}
+              onAction={onAction}
+              canManage={canManage}
+              canDelete={canDelete}
+              mobile
+            />
+          </div>
         </div>
       </div>
     </article>
+  )
+}
+
+function MiniMetric({ label, value }) {
+  return (
+    <div>
+      <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-gray-800">{value}</p>
+    </div>
   )
 }
 
@@ -1497,20 +1530,17 @@ function CategoryImage({ category, size = "h-11 w-11" }) {
   const [failed, setFailed] = useState(false)
   const showImage = clean(category.imageUrl) && !failed
 
+  useEffect(() => {
+    setFailed(false)
+  }, [category.imageUrl])
+
   return (
-    <div
-      className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-indigo-100 bg-indigo-50 text-indigo-700",
-        size
-      )}
-    >
+    <div className={cn(
+      "flex shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-indigo-100 bg-indigo-50 text-indigo-700",
+      size
+    )}>
       {showImage ? (
-        <img
-          src={category.imageUrl}
-          alt=""
-          className="h-full w-full object-cover"
-          onError={() => setFailed(true)}
-        />
+        <img src={category.imageUrl} alt="" className="h-full w-full object-cover" onError={() => setFailed(true)} />
       ) : (
         <Icon icon={Folder01Icon} className="h-5 w-5" />
       )}
@@ -1520,115 +1550,128 @@ function CategoryImage({ category, size = "h-11 w-11" }) {
 
 function CategoryActions({
   category,
+  busy,
+  onView,
   onEdit,
-  onStatusChange,
-  onArchive,
-  onRestore,
+  onAction,
   canManage,
   canDelete,
   mobile = false,
 }) {
-  if (!canManage && !canDelete) {
-    return (
-      <span className="text-xs font-bold text-gray-400">View only</span>
-    )
+  const [open, setOpen] = useState(false)
+  const [menuStyle, setMenuStyle] = useState({ top: 0, left: 0, transformOrigin: "top right" })
+  const rootRef = useRef(null)
+  const buttonRef = useRef(null)
+  const menuRef = useRef(null)
+
+  const updateMenuPosition = useCallback(() => {
+    if (typeof window === "undefined" || !buttonRef.current) return
+    const rect = buttonRef.current.getBoundingClientRect()
+    const menuWidth = 250
+    const gap = 8
+    const estimatedHeight = 260
+    const shouldOpenUp = window.innerHeight - rect.bottom < 240
+    const top = shouldOpenUp
+      ? Math.max(12, rect.top - Math.min(estimatedHeight, window.innerHeight - 24) - gap)
+      : Math.min(rect.bottom + gap, window.innerHeight - 12)
+    const left = Math.min(Math.max(12, rect.right - menuWidth), Math.max(12, window.innerWidth - menuWidth - 12))
+    setMenuStyle({ top, left, transformOrigin: shouldOpenUp ? "bottom right" : "top right" })
+  }, [])
+
+  useEffect(() => {
+    if (!open) return undefined
+    updateMenuPosition()
+    const closeOutside = (event) => {
+      if (rootRef.current?.contains(event.target) || menuRef.current?.contains(event.target)) return
+      setOpen(false)
+    }
+    const reposition = () => updateMenuPosition()
+    document.addEventListener("mousedown", closeOutside)
+    window.addEventListener("resize", reposition)
+    window.addEventListener("scroll", reposition, true)
+    return () => {
+      document.removeEventListener("mousedown", closeOutside)
+      window.removeEventListener("resize", reposition)
+      window.removeEventListener("scroll", reposition, true)
+    }
+  }, [open, updateMenuPosition])
+
+  const items = []
+  if (category.status !== "archived") {
+    if (canManage) {
+      items.push(["edit", "Edit category", Edit02Icon])
+      if (category.status !== "active") items.push(["status-active", "Mark active", Tick02Icon])
+      if (category.status !== "inactive") items.push(["status-inactive", "Mark inactive", Alert02Icon, "warning"])
+    }
+    if (canDelete) items.push(["archive", "Archive category", Archive02Icon, "danger"])
+  } else if (canDelete) {
+    items.push(["restore", "Restore category", RestoreBinIcon])
   }
 
-  if (category.status === "archived") {
-    return canDelete ? (
-      <div className={cn("flex gap-2", mobile ? "flex-wrap" : "justify-end")}>
-        <button
-          className={cn(btn, btnGhost, mobile ? "px-3 py-2" : "px-3")}
-          onClick={() => onRestore(category)}
-          type="button"
-          title="Restore category"
-        >
-          <Icon icon={RestoreBinIcon} className="h-4 w-4" />
-          {mobile ? "Restore" : null}
-        </button>
-      </div>
-    ) : (
-      <span className="text-xs font-bold text-gray-400">Archived</span>
-    )
+  const handleItem = (key) => {
+    setOpen(false)
+    if (key === "edit") return onEdit(category)
+    if (key.startsWith("status-")) return onAction("status", category, key.replace("status-", ""))
+    if (key === "archive") return onAction("archive", category)
+    if (key === "restore") return onAction("restore", category)
   }
+
+  const menu = open && typeof document !== "undefined"
+    ? createPortal(
+        <motion.div
+          ref={menuRef}
+          initial={{ opacity: 0, y: 8, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.14 }}
+          style={{ top: menuStyle.top, left: menuStyle.left, transformOrigin: menuStyle.transformOrigin }}
+          className="fixed z-[9999] w-[250px] overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_24px_60px_-20px_rgba(15,23,42,0.45)]"
+        >
+          <div className="p-1.5">
+            {items.length ? items.map(([key, label, icon, tone]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => handleItem(key)}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition",
+                  tone === "danger"
+                    ? "text-rose-700 hover:bg-rose-50"
+                    : tone === "warning"
+                      ? "text-amber-700 hover:bg-amber-50"
+                      : "text-gray-700 hover:bg-gray-50"
+                )}
+              >
+                <Icon icon={icon} className="h-4 w-4 shrink-0" />
+                <span>{label}</span>
+              </button>
+            )) : (
+              <p className="px-3 py-2.5 text-sm font-medium text-gray-400">No additional actions</p>
+            )}
+          </div>
+        </motion.div>,
+        document.body
+      )
+    : null
 
   return (
-    <div className={cn("flex gap-2", mobile ? "flex-wrap" : "justify-end")}>
-      {canManage ? (
-        <>
-          <button
-            className={cn(
-              btn,
-              btnGhost,
-              mobile ? "px-3 py-2" : "px-3"
-            )}
-            onClick={() => onEdit(category)}
-            type="button"
-            title="Edit category"
-            aria-label={`Edit ${category.name}`}
-          >
-            <Icon icon={Edit02Icon} className="h-4 w-4" />
-            {mobile ? "Edit" : null}
-          </button>
-
-          <button
-            className={cn(
-              btn,
-              category.status === "active" ? btnWarning : btnGhost,
-              mobile ? "px-3 py-2" : "px-3"
-            )}
-            onClick={() =>
-              onStatusChange(
-                category,
-                category.status === "active" ? "inactive" : "active"
-              )
-            }
-            type="button"
-            title={
-              category.status === "active"
-                ? "Mark inactive"
-                : "Activate category"
-            }
-            aria-label={
-              category.status === "active"
-                ? `Mark ${category.name} inactive`
-                : `Activate ${category.name}`
-            }
-          >
-            <Icon
-              icon={
-                category.status === "active"
-                  ? ViewIcon
-                  : Tick02Icon
-              }
-              className="h-4 w-4"
-            />
-
-            {mobile
-              ? category.status === "active"
-                ? "Deactivate"
-                : "Activate"
-              : null}
-          </button>
-        </>
-      ) : null}
-
-      {canDelete ? (
+    <div ref={rootRef} className="flex items-center justify-end gap-2">
+      <button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onView(category)} disabled={busy} type="button">
+        {busy ? <Spinner /> : <Icon icon={ViewIcon} className="h-4 w-4" />}
+        <span>View</span>
+      </button>
+      {(canManage || canDelete) ? (
         <button
-          className={cn(
-            btn,
-            btnDanger,
-            mobile ? "px-3 py-2" : "px-3"
-          )}
-          onClick={() => onArchive(category)}
+          ref={buttonRef}
           type="button"
-          title="Archive category"
-          aria-label={`Archive ${category.name}`}
+          onClick={() => !busy && setOpen((previous) => !previous)}
+          disabled={busy}
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-xl font-black leading-none text-gray-500 transition hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
+          aria-label={`More actions for ${category.name}`}
         >
-          <Icon icon={Archive02Icon} className="h-4 w-4" />
-          {mobile ? "Archive" : null}
+          ⋮
         </button>
       ) : null}
+      {menu}
     </div>
   )
 }
@@ -1637,16 +1680,18 @@ function CategoryTree({
   categories,
   loading,
   getParentName,
+  onView,
   onEdit,
-  onStatusChange,
-  onArchive,
-  onRestore,
+  onAction,
+  actionBusy,
   canManage,
   canDelete,
 }) {
   return (
-    <div className={cn(card, "p-3 sm:p-4")}>
-      {categories.length ? (
+    <div className="rounded-3xl border border-gray-100 bg-white p-3 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)] sm:p-4">
+      {loading ? (
+        <CategoryTreeSkeleton />
+      ) : categories.length ? (
         <div className="space-y-2">
           {categories.map((category) => (
             <CategoryTreeNode
@@ -1654,20 +1699,19 @@ function CategoryTree({
               category={category}
               depth={0}
               getParentName={getParentName}
+              onView={onView}
               onEdit={onEdit}
-              onStatusChange={onStatusChange}
-              onArchive={onArchive}
-              onRestore={onRestore}
+              onAction={onAction}
+              actionBusy={actionBusy}
               canManage={canManage}
               canDelete={canDelete}
             />
           ))}
         </div>
       ) : (
-        <div className="px-5 py-14 text-center text-sm font-bold text-gray-500">
-          {loading
-            ? "Loading category hierarchy..."
-            : "No categories found in this hierarchy."}
+        <div className="px-5 py-14 text-center">
+          <Icon icon={HierarchySquare01Icon} className="mx-auto h-8 w-8 text-gray-300" />
+          <p className="mt-3 text-sm font-bold text-gray-900">No categories found in this hierarchy</p>
         </div>
       )}
     </div>
@@ -1678,15 +1722,16 @@ function CategoryTreeNode({
   category,
   depth,
   getParentName,
+  onView,
   onEdit,
-  onStatusChange,
-  onArchive,
-  onRestore,
+  onAction,
+  actionBusy,
   canManage,
   canDelete,
 }) {
   const hasChildren = Boolean(category.children?.length)
   const [expanded, setExpanded] = useState(depth < 2)
+  const busy = String(actionBusy.id) === String(category._id)
 
   return (
     <div>
@@ -1706,63 +1751,37 @@ function CategoryTreeNode({
                   ? "bg-gray-100 text-gray-700 hover:bg-indigo-100 hover:text-indigo-700"
                   : "text-gray-300"
               )}
-              aria-label={
-                hasChildren
-                  ? expanded
-                    ? "Collapse category"
-                    : "Expand category"
-                  : "No child categories"
-              }
+              aria-label={hasChildren ? (expanded ? "Collapse category" : "Expand category") : "No child categories"}
             >
-              <Icon
-                icon={
-                  hasChildren && expanded
-                    ? ArrowDown01Icon
-                    : ArrowRight01Icon
-                }
-                className="h-4 w-4"
-              />
+              {hasChildren ? (
+                <Icon icon={expanded ? ArrowDown01Icon : ArrowRight01Icon} className="h-4 w-4" />
+              ) : (
+                <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
+              )}
             </button>
 
-            <CategoryImage category={category} size="h-10 w-10" />
-
+            <CategoryImage category={category} />
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="truncate text-sm font-black text-gray-900">
-                  {category.name}
-                </h3>
-
-                <span className="rounded-lg bg-indigo-50 px-2 py-1 text-[11px] font-black text-indigo-700">
-                  {category.code}
-                </span>
-
+                <h3 className="truncate text-sm font-semibold text-gray-900">{category.name}</h3>
                 <StatusBadge value={category.status} />
               </div>
-
-              <p className="mt-1 truncate text-xs font-semibold text-gray-500">
-                {category.slug}
-              </p>
-
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-gray-500">
-                <span>Parent: {getParentName(category)}</span>
-                <span>Order: {category.sortOrder ?? 0}</span>
-                <span>
-                  {category.children?.length || 0} child
-                  {category.children?.length === 1 ? "" : "ren"}
-                </span>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-gray-500">
+                <span className="font-semibold text-indigo-700">{category.code}</span>
+                <span>{getParentName(category)}</span>
+                <span>{category.slug}</span>
               </div>
             </div>
           </div>
 
           <CategoryActions
             category={category}
+            busy={busy}
+            onView={onView}
             onEdit={onEdit}
-            onStatusChange={onStatusChange}
-            onArchive={onArchive}
-            onRestore={onRestore}
+            onAction={onAction}
             canManage={canManage}
             canDelete={canDelete}
-            mobile
           />
         </div>
       </div>
@@ -1775,10 +1794,10 @@ function CategoryTreeNode({
               category={child}
               depth={depth + 1}
               getParentName={getParentName}
+              onView={onView}
               onEdit={onEdit}
-              onStatusChange={onStatusChange}
-              onArchive={onArchive}
-              onRestore={onRestore}
+              onAction={onAction}
+              actionBusy={actionBusy}
               canManage={canManage}
               canDelete={canDelete}
             />
@@ -1786,6 +1805,90 @@ function CategoryTreeNode({
         </div>
       ) : null}
     </div>
+  )
+}
+
+function CategoryDetailsModal({ state, getParentName, onClose, onEdit, canManage }) {
+  const category = state.item
+  if (!category) return null
+
+  return (
+    <ModalShell
+      open={state.open}
+      onClose={onClose}
+      title="Category details"
+      subtitle={category.code || ""}
+      icon={<Icon icon={ViewIcon} className="h-5 w-5" />}
+      maxWidthClass="max-w-3xl"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button className={cn(btn, btnGhost)} type="button" onClick={onClose}>Close</button>
+          {canManage && category.status !== "archived" ? (
+            <button className={cn(btn, btnPrimary)} type="button" onClick={() => { onClose(); onEdit(category) }}>
+              <Icon icon={Edit02Icon} className="h-4 w-4" />
+              Edit
+            </button>
+          ) : null}
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <div className="flex items-center gap-4">
+          <CategoryImage category={category} size="h-16 w-16" />
+          <div>
+            <h3 className="text-xl font-black text-gray-950">{category.name}</h3>
+            <div className="mt-2"><StatusBadge value={category.status} /></div>
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <DetailItem label="Code" value={category.code || "—"} />
+          <DetailItem label="Slug" value={category.slug || "—"} />
+          <DetailItem label="Parent" value={getParentName(category)} />
+          <DetailItem label="Sort Order" value={String(category.sortOrder ?? 0)} />
+          <DetailItem label="Updated" value={formatDate(category.updatedAt)} />
+        </div>
+        {clean(category.description) ? (
+          <div className="rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3">
+            <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">Description</p>
+            <p className="mt-2 whitespace-pre-wrap text-sm font-medium leading-6 text-gray-700">{category.description}</p>
+          </div>
+        ) : null}
+      </div>
+    </ModalShell>
+  )
+}
+
+function DetailItem({ label, value }) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3">
+      <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="mt-1 break-words text-sm font-semibold text-gray-800">{value}</p>
+    </div>
+  )
+}
+
+function ConfirmCategoryActionModal({ state, onClose, onConfirm }) {
+  return (
+    <ModalShell
+      open={state.open}
+      onClose={onClose}
+      title={state.title}
+      subtitle={state.item?.name || ""}
+      icon={<Icon icon={state.danger ? Alert02Icon : Tick02Icon} className="h-5 w-5" />}
+      maxWidthClass="max-w-lg"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button className={cn(btn, btnGhost)} type="button" onClick={onClose} disabled={state.loading}>Cancel</button>
+          <button className={cn(btn, state.danger ? btnDanger : btnPrimary)} type="button" onClick={onConfirm} disabled={state.loading}>
+            {state.loading ? <Spinner /> : <Icon icon={Tick02Icon} className="h-4 w-4" />}
+            {state.loading ? "Processing..." : "Confirm"}
+          </button>
+        </div>
+      }
+    >
+      {state.error ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{state.error}</div> : null}
+      <p className="text-sm font-medium leading-6 text-gray-700">{state.message}</p>
+    </ModalShell>
   )
 }
 

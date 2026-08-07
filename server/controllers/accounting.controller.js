@@ -24,6 +24,7 @@ import { getReqMeta, writeAudit } from "../utils/audit.js";
 import { nextAccountingNumber } from "../services/accountingNumbering.service.js";
 import { createPostedJournal } from "../services/accountingPosting.service.js";
 import { provisionSystemAccounts } from "../services/accountingSetup.service.js";
+import { runMongoTransaction } from "../utils/mongoTransaction.js";
 
 const money = (value) => Math.round(Number(value || 0) * 100) / 100;
 const clean = (value) => String(value ?? "").trim();
@@ -31,28 +32,7 @@ const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const toId = (value) => new mongoose.Types.ObjectId(String(value));
 const ACTIVE_LEDGER_STATUSES = ["posted", "reversed"];
 const VOUCHER_TYPES = ["journal", "payment", "receipt", "contra", "opening", "closing", "sales", "purchase", "payroll", "tax", "adjustment"];
-let transactionSupport;
-const supportsTransactions = async () => {
-  if (transactionSupport !== undefined) return transactionSupport;
-  try {
-    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
-    transactionSupport = Boolean(hello?.setName || hello?.msg === "isdbgrid");
-  } catch {
-    transactionSupport = false;
-  }
-  return transactionSupport;
-};
-const runAccountingWrite = async (work) => {
-  if (!(await supportsTransactions())) return work(null);
-  const session = await mongoose.startSession();
-  try {
-    let result;
-    await session.withTransaction(async () => { result = await work(session); });
-    return result;
-  } finally {
-    await session.endSession();
-  }
-};
+const runAccountingWrite = runMongoTransaction;
 const withAccountingSession = (query, session) => session ? query.session(session) : query;
 const accountingSessionOptions = (session) => session ? { session } : {};
 const validateVoucherSettlements = async (entry, session = null) => {

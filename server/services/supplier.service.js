@@ -11,6 +11,7 @@ import Supplier, {
   SUPPLIER_TYPES,
   TAX_TREATMENTS,
 } from "../models/supplier.model.js";
+import { runMongoTransaction } from "../utils/mongoTransaction.js";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const URL_PATTERN = /^https?:\/\//i;
@@ -796,30 +797,7 @@ const writeAudit = async ({
   }
 };
 
-const runAtomic = async (work) => {
-  if (process.env.MONGO_TRANSACTIONS === "false") {
-    return work(null);
-  }
-
-  const session = await mongoose.startSession();
-  let result;
-
-  try {
-    await session.withTransaction(
-      async () => {
-        result = await work(session);
-      },
-      {
-        readConcern: { level: "snapshot" },
-        writeConcern: { w: "majority" },
-      }
-    );
-
-    return result;
-  } finally {
-    await session.endSession();
-  }
-};
+const runAtomic = runMongoTransaction;
 
 const sessionOption = (session) => (session ? { session } : {});
 

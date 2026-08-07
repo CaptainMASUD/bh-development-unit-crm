@@ -17,6 +17,7 @@ import {
   writeConversionLog,
 } from "../utils/audit.js";
 import { verifyAdminPassword } from "../utils/verifyAdminPassword.js";
+import { runMongoTransaction, sessionOptions } from "../utils/mongoTransaction.js";
 
 const invalidateDashboardCache = () => {
   try {
@@ -2017,41 +2018,37 @@ export const markLeadLost = async (req, res) => {
    CONVERT LEAD TO CUSTOMER
 ======================= */
 export const convertLead = async (req, res) => {
-  const session = await mongoose.startSession();
-
   try {
     const meta = getReqMeta(req);
 
     const id = toObjectId(req.params.id);
     if (!id) return res.status(400).json({ message: "Invalid lead id" });
+    let lead;
+    let customer;
+    await runMongoTransaction(async (session) => {
+      lead = await getLeadOrThrow({ req, leadId: id, session });
+      if (lead.convertedCustomer || lead.customerId) {
+        throw Object.assign(new Error("Lead already converted"), { statusCode: 400 });
+      }
 
-    session.startTransaction();
+      [customer] = await Customer.create(
+        [
+          {
+            name: lead.contact?.name,
+            email: lead.contact?.email,
+            phone: lead.contact?.phone,
+            companyName: lead.contact?.companyName,
+            source: lead.source || "",
+            tags: lead.tags || [],
+            createdBy: req.user._id,
+            assignedTo: lead.assignedTo || req.user._id,
+            leadId: lead._id,
+          },
+        ],
+        sessionOptions(session)
+      );
 
-    const lead = await getLeadOrThrow({ req, leadId: id, session });
-
-    if (lead.convertedCustomer || lead.customerId) {
-      await session.abortTransaction();
-      return res.status(400).json({ message: "Lead already converted" });
-    }
-
-    const [customer] = await Customer.create(
-      [
-        {
-          name: lead.contact?.name,
-          email: lead.contact?.email,
-          phone: lead.contact?.phone,
-          companyName: lead.contact?.companyName,
-          source: lead.source || "",
-          tags: lead.tags || [],
-          createdBy: req.user._id,
-          assignedTo: lead.assignedTo || req.user._id,
-          leadId: lead._id,
-        },
-      ],
-      { session }
-    );
-
-    const before = lead.toObject();
+      const before = lead.toObject();
 
     lead.customerId = customer._id;
     lead.convertedCustomer = customer._id;
@@ -2079,46 +2076,45 @@ export const convertLead = async (req, res) => {
       })
     );
 
-    await lead.save({ session });
+      await lead.save(sessionOptions(session));
 
-    await WorkQueue.updateMany(
-      { leadId: id, status: { $in: ["pending", "in_progress", "snoozed"] } },
-      { $set: { status: "done", result: "Converted to customer", doneAt: new Date() } },
-      { session }
-    );
+      await WorkQueue.updateMany(
+        { leadId: id, status: { $in: ["pending", "in_progress", "snoozed"] } },
+        { $set: { status: "done", result: "Converted to customer", doneAt: new Date() } },
+        sessionOptions(session)
+      );
 
-    await writeConversionLog({
-      session,
-      leadId: lead._id,
-      customerId: customer._id,
-      convertedBy: req.user._id,
-      leadSnapshot: before,
-      customerSnapshot: customer.toObject(),
+      await writeConversionLog({
+        session,
+        leadId: lead._id,
+        customerId: customer._id,
+        convertedBy: req.user._id,
+        leadSnapshot: before,
+        customerSnapshot: customer.toObject(),
+      });
+
+      await writeAudit({
+        session,
+        actorId: req.user._id,
+        action: "convert",
+        entityType: "Lead",
+        entityId: lead._id,
+        before,
+        after: lead.toObject(),
+        meta,
+      });
+
+      await writeActivity({
+        session,
+        leadId: lead._id,
+        customerId: customer._id,
+        entityType: "Lead",
+        entityId: lead._id,
+        type: "converted",
+        message: "Lead converted to customer",
+        createdBy: req.user._id,
+      });
     });
-
-    await writeAudit({
-      session,
-      actorId: req.user._id,
-      action: "convert",
-      entityType: "Lead",
-      entityId: lead._id,
-      before,
-      after: lead.toObject(),
-      meta,
-    });
-
-    await writeActivity({
-      session,
-      leadId: lead._id,
-      customerId: customer._id,
-      entityType: "Lead",
-      entityId: lead._id,
-      type: "converted",
-      message: "Lead converted to customer",
-      createdBy: req.user._id,
-    });
-
-    await session.commitTransaction();
 
     invalidateDashboardCache();
 
@@ -2129,18 +2125,12 @@ export const convertLead = async (req, res) => {
       lead,
     });
   } catch (err) {
-    try {
-      await session.abortTransaction();
-    } catch {}
-
     const code = err.statusCode || 500;
 
     return res.status(code).json({
       message: err.statusCode ? err.message : "Failed to convert lead",
       error: err.message,
     });
-  } finally {
-    session.endSession();
   }
 };
 

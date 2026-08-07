@@ -4,6 +4,7 @@ import StockMovement, {
   MOVEMENT_TYPES,
   STOCK_EFFECTS,
 } from "../../models/inventory/stockMovement.model.js";
+import { runMongoTransaction } from "../../utils/mongoTransaction.js";
 
 const LIST_FIELDS = [
   "movementNo",
@@ -336,7 +337,6 @@ export const createStockMovement = async (req, res) => {
 };
 
 export const createAndPostStockMovement = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     const userId = req.user?._id || null;
     const payload = buildMovementPayload(req.body, userId);
@@ -349,7 +349,7 @@ export const createAndPostStockMovement = async (req, res) => {
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
     let movement;
-    await session.withTransaction(async () => {
+    await runMongoTransaction(async (session) => {
       if (payload.idempotencyKey) {
         const existing = await StockMovement.findOne({ idempotencyKey: payload.idempotencyKey }).session(session);
         if (existing) {
@@ -375,8 +375,6 @@ export const createAndPostStockMovement = async (req, res) => {
     return res.status(201).json({ message: "Stock movement posted.", movement: populated });
   } catch (error) {
     return sendWriteError(res, error, "Failed to create and post stock movement.");
-  } finally {
-    await session.endSession();
   }
 };
 
@@ -402,11 +400,10 @@ export const updateStockMovement = async (req, res) => {
 };
 
 export const postStockMovement = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock movement ID." });
     let movement;
-    await session.withTransaction(async () => {
+    await runMongoTransaction(async (session) => {
       movement = await StockMovement.postMovementDocument({
         movementId: req.params.id,
         userId: req.user?._id || null,
@@ -417,17 +414,14 @@ export const postStockMovement = async (req, res) => {
     return res.json({ message: "Stock movement posted.", movement: populated });
   } catch (error) {
     return sendWriteError(res, error, "Failed to post stock movement.");
-  } finally {
-    await session.endSession();
   }
 };
 
 export const reverseStockMovement = async (req, res) => {
-  const session = await mongoose.startSession();
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock movement ID." });
     let reversal;
-    await session.withTransaction(async () => {
+    await runMongoTransaction(async (session) => {
       reversal = await StockMovement.reverseMovementDocument({
         movementId: req.params.id,
         userId: req.user?._id || null,
@@ -439,8 +433,6 @@ export const reverseStockMovement = async (req, res) => {
     return res.status(201).json({ message: "Stock movement reversed with a compensating entry.", movement: populated });
   } catch (error) {
     return sendWriteError(res, error, "Failed to reverse stock movement.");
-  } finally {
-    await session.endSession();
   }
 };
 

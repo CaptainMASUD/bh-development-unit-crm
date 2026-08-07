@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { motion } from "framer-motion"
 import toast, { Toaster } from "react-hot-toast"
@@ -65,7 +65,7 @@ const TAX_TYPES = [
   ["inclusive", "Tax Inclusive"],
 ]
 
-const shell = "min-h-screen bg-gradient-to-b from-gray-50 to-white"
+const shell = "min-h-screen bg-gray-50"
 
 const card =
   "rounded-2xl border border-gray-100 bg-white shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]"
@@ -232,6 +232,91 @@ function Icon({
       {...props}
     />
   )
+}
+
+function Spinner({ className = "h-4 w-4" }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "inline-block shrink-0 animate-spin rounded-full border-2 border-current border-r-transparent",
+        className
+      )}
+    />
+  )
+}
+
+function SkeletonBlock({ className = "h-4 w-full" }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={cn(
+        "animate-pulse rounded-md bg-gray-200/80",
+        className
+      )}
+    />
+  )
+}
+
+function ProductTableSkeleton({ rows = 8 }) {
+  return Array.from({ length: rows }).map((_, index) => (
+    <tr key={`product-skeleton-${index}`}>
+      <td className="border-b border-gray-100 px-5 py-3">
+        <div className="flex min-w-[250px] items-center gap-3">
+          <SkeletonBlock className="h-12 w-12 shrink-0 rounded-2xl" />
+          <div className="space-y-2">
+            <SkeletonBlock className="h-4 w-40" />
+            <SkeletonBlock className="h-3 w-24" />
+            <SkeletonBlock className="h-3 w-32" />
+          </div>
+        </div>
+      </td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-7 w-24 rounded-full" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><div className="space-y-2"><SkeletonBlock className="h-4 w-32" /><SkeletonBlock className="h-3 w-24" /></div></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-24" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-32" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-24" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-24" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-7 w-24 rounded-full" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-20" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-7 w-24 rounded-full" /></td>
+      <td className="border-b border-gray-100 px-5 py-3"><SkeletonBlock className="h-4 w-24" /></td>
+      <td className="sticky right-0 border-b border-gray-100 bg-white px-5 py-2">
+        <div className="flex justify-end gap-2">
+          <SkeletonBlock className="h-10 w-20 rounded-xl" />
+          <SkeletonBlock className="h-10 w-10 rounded-xl" />
+        </div>
+      </td>
+    </tr>
+  ))
+}
+
+function ProductMobileSkeleton({ rows = 5 }) {
+  return Array.from({ length: rows }).map((_, index) => (
+    <div key={`product-mobile-skeleton-${index}`} className="p-4">
+      <div className="flex items-start gap-3">
+        <SkeletonBlock className="h-12 w-12 shrink-0 rounded-2xl" />
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-2">
+              <SkeletonBlock className="h-4 w-40 max-w-full" />
+              <SkeletonBlock className="h-3 w-24" />
+            </div>
+            <SkeletonBlock className="h-7 w-20 rounded-full" />
+          </div>
+          <div className="flex gap-2">
+            <SkeletonBlock className="h-7 w-24 rounded-full" />
+            <SkeletonBlock className="h-7 w-20 rounded-full" />
+          </div>
+          <SkeletonBlock className="h-28 w-full rounded-xl" />
+          <div className="flex justify-end gap-2 border-t border-gray-100 pt-3">
+            <SkeletonBlock className="h-10 w-20 rounded-xl" />
+            <SkeletonBlock className="h-10 w-10 rounded-xl" />
+          </div>
+        </div>
+      </div>
+    </div>
+  ))
 }
 
 function RequiredMark() {
@@ -555,108 +640,6 @@ async function api(path, options = {}) {
   return data
 }
 
-function ActiveFilterChips({
-  activeTab,
-  filters,
-  updateFilter,
-  resetFilters,
-  categoryName,
-  brandName,
-}) {
-  const hasFilters =
-    clean(filters.q) ||
-    (activeTab === "current" && filters.status !== "all") ||
-    filters.productType !== "all" ||
-    filters.trackingType !== "all" ||
-    filters.currency !== "" ||
-    filters.category !== "all" ||
-    filters.brand !== "all" ||
-    filters.trackInventory !== "all"
-
-  return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      {clean(filters.q) ? (
-        <FilterChip
-          label="Search"
-          value={clean(filters.q)}
-          onClear={() => updateFilter("q", "")}
-        />
-      ) : null}
-
-      {activeTab === "current" && filters.status !== "all" ? (
-        <FilterChip
-          label="Status"
-          value={pretty(filters.status)}
-          onClear={() => updateFilter("status", "all")}
-        />
-      ) : null}
-
-      {filters.productType !== "all" ? (
-        <FilterChip
-          label="Type"
-          value={pretty(filters.productType)}
-          onClear={() => updateFilter("productType", "all")}
-        />
-      ) : null}
-
-      {filters.trackingType !== "all" ? (
-        <FilterChip
-          label="Tracking"
-          value={pretty(filters.trackingType)}
-          onClear={() => updateFilter("trackingType", "all")}
-        />
-      ) : null}
-
-      {filters.currency ? (
-        <FilterChip
-          label="Currency"
-          value={filters.currency}
-          onClear={() => updateFilter("currency", "")}
-        />
-      ) : null}
-
-      {filters.category !== "all" ? (
-        <FilterChip
-          label="Category"
-          value={categoryName || "Selected category"}
-          onClear={() => updateFilter("category", "all")}
-        />
-      ) : null}
-
-      {filters.brand !== "all" ? (
-        <FilterChip
-          label="Brand"
-          value={brandName || "Selected brand"}
-          onClear={() => updateFilter("brand", "all")}
-        />
-      ) : null}
-
-      {filters.trackInventory !== "all" ? (
-        <FilterChip
-          label="Stock"
-          value={
-            filters.trackInventory === "true"
-              ? "Tracked"
-              : "Not tracked"
-          }
-          onClear={() => updateFilter("trackInventory", "all")}
-        />
-      ) : null}
-
-      {hasFilters ? (
-        <button
-          type="button"
-          onClick={resetFilters}
-          className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-black text-gray-500 transition hover:bg-gray-100 hover:text-gray-800"
-        >
-          <Icon icon={Cancel01Icon} className="h-3.5 w-3.5" />
-          Clear all
-        </button>
-      ) : null}
-    </div>
-  )
-}
-
 function HeaderSearchFilters({
   activeTab,
   filters,
@@ -667,28 +650,31 @@ function HeaderSearchFilters({
   brandName,
   onOpenFilters,
 }) {
+  const chipCount = [
+    activeTab === "current" && filters.status !== "all",
+    filters.productType !== "all",
+    filters.trackingType !== "all",
+    clean(filters.currency),
+    filters.category !== "all",
+    filters.brand !== "all",
+    filters.trackInventory !== "all",
+  ].filter(Boolean).length
+
+  const hasAnySearchOrFilter = Boolean(clean(filters.q) || chipCount)
+
   return (
     <div
       className={cn(
-        "w-full transition-all duration-200",
-        activeFilterCount
-          ? "lg:min-w-[560px] lg:max-w-[78%] lg:flex-[0_1_78%]"
-          : "lg:max-w-[52%] lg:flex-[0_1_52%]"
+        "w-full transition-[max-width,flex-basis] duration-200 ease-out",
+        chipCount === 0
+          ? "xl:max-w-[50%] xl:flex-[0_1_50%]"
+          : chipCount <= 2
+            ? "xl:max-w-[64%] xl:flex-[0_1_64%]"
+            : "xl:min-w-[560px] xl:max-w-[78%] xl:flex-[0_1_78%]"
       )}
     >
-      <div className="flex min-h-[44px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
-        <Icon
-          icon={Search01Icon}
-          className="h-4 w-4 shrink-0 text-gray-400"
-        />
-
-        {clean(filters.q) ? (
-          <FilterChip
-            label="Search"
-            value={clean(filters.q)}
-            onClear={() => updateFilter("q", "")}
-          />
-        ) : null}
+      <div className="flex min-h-[40px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
+        <Icon icon={Search01Icon} className="h-4 w-4 shrink-0 text-gray-400" />
 
         {activeTab === "current" && filters.status !== "all" ? (
           <FilterChip
@@ -703,6 +689,14 @@ function HeaderSearchFilters({
             label="Type"
             value={pretty(filters.productType)}
             onClear={() => updateFilter("productType", "all")}
+          />
+        ) : null}
+
+        {filters.trackingType !== "all" ? (
+          <FilterChip
+            label="Tracking"
+            value={pretty(filters.trackingType)}
+            onClear={() => updateFilter("trackingType", "all")}
           />
         ) : null}
 
@@ -722,8 +716,24 @@ function HeaderSearchFilters({
           />
         ) : null}
 
+        {clean(filters.currency) ? (
+          <FilterChip
+            label="Currency"
+            value={clean(filters.currency).toUpperCase()}
+            onClear={() => updateFilter("currency", "")}
+          />
+        ) : null}
+
+        {filters.trackInventory !== "all" ? (
+          <FilterChip
+            label="Stock"
+            value={filters.trackInventory === "true" ? "Tracked" : "Not tracked"}
+            onClear={() => updateFilter("trackInventory", "all")}
+          />
+        ) : null}
+
         <FocusPlaceholderInput
-          className="min-w-[120px] flex-1 border-0 bg-transparent px-1 py-1 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:outline-none focus:ring-0"
+          className="h-8 min-w-[140px] basis-[180px] flex-[1_1_180px] border-0 bg-transparent px-1 py-0 text-sm font-medium text-gray-900 outline-none ring-0 shadow-none placeholder:text-gray-400 focus:border-0 focus:outline-none focus:ring-0 focus:shadow-none focus-visible:border-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none"
           value={filters.q}
           onChange={(event) => updateFilter("q", event.target.value)}
           placeholder="Search product name, SKU or barcode..."
@@ -743,7 +753,6 @@ function HeaderSearchFilters({
         >
           <Icon icon={FilterIcon} className="h-3.5 w-3.5" />
           Filters
-
           {activeFilterCount ? (
             <span className="rounded-full bg-white/20 px-1.5 text-[10px]">
               {activeFilterCount}
@@ -751,7 +760,7 @@ function HeaderSearchFilters({
           ) : null}
         </button>
 
-        {activeFilterCount ? (
+        {hasAnySearchOrFilter ? (
           <button
             type="button"
             onClick={resetFilters}
@@ -808,6 +817,32 @@ export default function ProductSetup() {
   const [form, setForm] = useState(emptyProductForm)
   const [formError, setFormError] = useState("")
 
+
+  const [loadingDetailsId, setLoadingDetailsId] = useState("")
+  const [detailsModal, setDetailsModal] = useState({
+    open: false,
+    product: null,
+  })
+  const [actionState, setActionState] = useState({ id: "", type: "" })
+  const [actionModal, setActionModal] = useState({
+    open: false,
+    product: null,
+    type: "",
+    targetStatus: "",
+    title: "",
+    message: "",
+    danger: false,
+    loading: false,
+    error: "",
+  })
+  const [deleteModal, setDeleteModal] = useState({
+    open: false,
+    product: null,
+    password: "",
+    loading: false,
+    error: "",
+  })
+
   const [filters, setFilters] = useState({
     q: "",
     status: "all",
@@ -863,8 +898,6 @@ export default function ProductSetup() {
 
   const activeFilterCount = useMemo(() => {
     let count = 0
-
-    if (clean(filters.q)) count += 1
 
     if (activeTab === "current" && filters.status !== "all") {
       count += 1
@@ -1348,8 +1381,10 @@ export default function ProductSetup() {
         modal.item ? "Product updated" : "Product created"
       )
 
-      closeModal()
-      await loadProducts()
+      setModal({ open: false, item: null })
+      setForm(emptyProductForm)
+      setFormError("")
+      await loadProducts({ showLoader: false })
     } catch (error) {
       setFormError(error.message || "Failed to save product.")
     } finally {
@@ -1357,56 +1392,194 @@ export default function ProductSetup() {
     }
   }
 
-  const updateProductStatus = async (product, status) => {
-    if (status === product.status) return
+  const openDetailsModal = async (product) => {
+    setLoadingDetailsId(product._id)
 
     try {
-      await api(`/inventory/products/${product._id}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
+      const data = await api(`/inventory/products/${product._id}`)
+      setDetailsModal({
+        open: true,
+        product: data.product || product,
       })
-
-      toast.success(
-        `Product marked as ${pretty(status).toLowerCase()}`
-      )
-
-      await loadProducts()
     } catch (error) {
-      toast.error(
-        error.message || "Failed to update product status"
-      )
+      toast.error(error.message || "Failed to load product details")
+    } finally {
+      setLoadingDetailsId("")
     }
   }
 
-  const archiveProduct = async (product) => {
-    const confirmed = window.confirm(
-      `Archive "${product.name}"? Historical inventory, purchase, sales, and accounting references will remain safe.`
-    )
+  const closeDetailsModal = () => {
+    setDetailsModal({ open: false, product: null })
+  }
 
-    if (!confirmed) return
+  const openProductAction = (type, product, targetStatus = "") => {
+    const config =
+      type === "status"
+        ? {
+            title: `Mark as ${pretty(targetStatus)}`,
+            message: `Update “${product.name}” to ${pretty(targetStatus).toLowerCase()}?`,
+            danger: targetStatus === "discontinued",
+          }
+        : type === "archive"
+          ? {
+              title: "Archive product",
+              message: `Archive “${product.name}”? Historical inventory, purchase, sales, and accounting references will remain available.`,
+              danger: true,
+            }
+          : {
+              title: "Restore product",
+              message: `Restore “${product.name}” as an inactive product?`,
+              danger: false,
+            }
+
+    setActionModal({
+      open: true,
+      product,
+      type,
+      targetStatus,
+      title: config.title,
+      message: config.message,
+      danger: config.danger,
+      loading: false,
+      error: "",
+    })
+  }
+
+  const closeProductAction = () => {
+    if (actionModal.loading) return
+    setActionModal({
+      open: false,
+      product: null,
+      type: "",
+      targetStatus: "",
+      title: "",
+      message: "",
+      danger: false,
+      loading: false,
+      error: "",
+    })
+  }
+
+  const confirmProductAction = async () => {
+    const product = actionModal.product
+    if (!product?._id || !actionModal.type) return
+
+    const actionKey =
+      actionModal.type === "status"
+        ? `status-${actionModal.targetStatus}`
+        : actionModal.type
+
+    setActionState({ id: product._id, type: actionKey })
+    setActionModal((previous) => ({ ...previous, loading: true, error: "" }))
 
     try {
-      await api(`/inventory/products/${product._id}`, {
+      if (actionModal.type === "status") {
+        await api(`/inventory/products/${product._id}/status`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: actionModal.targetStatus }),
+        })
+        toast.success(`Product marked as ${pretty(actionModal.targetStatus).toLowerCase()}`)
+      } else if (actionModal.type === "archive") {
+        await api(`/inventory/products/${product._id}`, {
+          method: "DELETE",
+        })
+        toast.success("Product archived")
+      } else if (actionModal.type === "restore") {
+        await api(`/inventory/products/${product._id}/restore`, {
+          method: "PATCH",
+        })
+        toast.success("Product restored as inactive")
+      }
+
+      setActionModal({
+        open: false,
+        product: null,
+        type: "",
+        targetStatus: "",
+        title: "",
+        message: "",
+        danger: false,
+        loading: false,
+        error: "",
+      })
+      await loadProducts({ showLoader: false })
+    } catch (error) {
+      setActionModal((previous) => ({
+        ...previous,
+        loading: false,
+        error: error.message || "Failed to update product",
+      }))
+    } finally {
+      setActionState({ id: "", type: "" })
+    }
+  }
+
+  const openDeleteProduct = (product) => {
+    setDeleteModal({
+      open: true,
+      product,
+      password: "",
+      loading: false,
+      error: "",
+    })
+  }
+
+  const closeDeleteProduct = () => {
+    if (deleteModal.loading) return
+    setDeleteModal({
+      open: false,
+      product: null,
+      password: "",
+      loading: false,
+      error: "",
+    })
+  }
+
+  const deleteProductPermanently = async (event) => {
+    event.preventDefault()
+    const product = deleteModal.product
+    const password = clean(deleteModal.password)
+
+    if (!product?._id) return
+    if (!password) {
+      setDeleteModal((previous) => ({
+        ...previous,
+        error: "Password is required.",
+      }))
+      return
+    }
+
+    setDeleteModal((previous) => ({ ...previous, loading: true, error: "" }))
+    setActionState({ id: product._id, type: "delete" })
+
+    try {
+      const data = await api(`/inventory/products/${product._id}/permanent`, {
         method: "DELETE",
+        body: JSON.stringify({ password }),
       })
 
-      toast.success("Product archived")
-      await loadProducts()
-    } catch (error) {
-      toast.error(error.message || "Failed to archive product")
-    }
-  }
-
-  const restoreProduct = async (product) => {
-    try {
-      await api(`/inventory/products/${product._id}/restore`, {
-        method: "PATCH",
+      toast.success(data.message || "Product deleted permanently")
+      setDeleteModal({
+        open: false,
+        product: null,
+        password: "",
+        loading: false,
+        error: "",
       })
-
-      toast.success("Product restored as inactive")
-      await loadProducts()
+      setDetailsModal((previous) =>
+        String(previous.product?._id) === String(product._id)
+          ? { open: false, product: null }
+          : previous
+      )
+      await loadProducts({ showLoader: false })
     } catch (error) {
-      toast.error(error.message || "Failed to restore product")
+      setDeleteModal((previous) => ({
+        ...previous,
+        loading: false,
+        error: error.message || "Failed to delete product permanently.",
+      }))
+    } finally {
+      setActionState({ id: "", type: "" })
     }
   }
 
@@ -1444,7 +1617,7 @@ export default function ProductSetup() {
 
   return (
     <div className={`${shell} p-4 sm:p-6 lg:p-8`}>
-      <Toaster position="top-right" />
+      <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: 14, fontWeight: 700 } }} />
 
       <section className={cn(card, "mb-6 p-4 sm:p-5")}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -1461,11 +1634,6 @@ export default function ProductSetup() {
               <h1 className="truncate text-2xl font-extrabold tracking-tight text-gray-900">
                 Products
               </h1>
-
-              <p className="mt-0.5 text-sm text-gray-500">
-                Manage sellable items, services, pricing, tax,
-                inventory tracking, and product lifecycle.
-              </p>
             </div>
           </div>
 
@@ -1511,14 +1679,15 @@ export default function ProductSetup() {
             onOpenFilters={() => setFilterOpen(true)}
           />
 
-          <p className="shrink-0 text-sm font-bold text-gray-500">
-            Showing{" "}
-            <span className="text-gray-900">{products.length}</span>{" "}
-            {activeTab === "archived"
-              ? "archived products"
-              : "products"}
-            {hasMore ? "+" : ""}
-          </p>
+          {loading ? (
+            <SkeletonBlock className="h-4 w-28" />
+          ) : (
+            <p className="shrink-0 text-sm font-bold text-gray-500">
+              Showing <span className="text-gray-900">{products.length}</span>{" "}
+              {activeTab === "archived" ? "archived products" : "products"}
+              {hasMore ? "+" : ""}
+            </p>
+          )}
         </div>
       </section>
 
@@ -1530,33 +1699,24 @@ export default function ProductSetup() {
         </div>
       ) : null}
 
-      <div className={`${card} mb-6 p-2`}>
+      <div className={`${card} mb-4 p-1.5`}>
         <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           {[
-            {
-              key: "current",
-              label: "Current Products",
-              icon: FolderLibraryIcon,
-            },
-            {
-              key: "archived",
-              label: "Archived",
-              icon: Archive02Icon,
-            },
-          ].map((tab) => (
+            ["current", "Current"],
+            ["archived", "Archived"],
+          ].map(([key, label]) => (
             <button
-              key={tab.key}
+              key={key}
               className={cn(
-                "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-extrabold transition sm:px-5",
-                activeTab === tab.key
+                "rounded-xl px-3 py-2.5 text-xs font-extrabold transition sm:px-4 sm:text-sm",
+                activeTab === key
                   ? "bg-indigo-600 text-white shadow-sm"
                   : "text-gray-700 hover:bg-gray-50"
               )}
-              onClick={() => switchTab(tab.key)}
+              onClick={() => switchTab(key)}
               type="button"
             >
-              <Icon icon={tab.icon} className="h-4 w-4" />
-              {tab.label}
+              {label}
             </button>
           ))}
         </div>
@@ -1572,10 +1732,12 @@ export default function ProductSetup() {
         getBrandName={getBrandName}
         getUnitName={getUnitName}
         getSupplierName={getSupplierName}
+        loadingDetailsId={loadingDetailsId}
+        actionState={actionState}
+        onView={openDetailsModal}
         onEdit={openEditModal}
-        onStatusChange={updateProductStatus}
-        onArchive={archiveProduct}
-        onRestore={restoreProduct}
+        onAction={openProductAction}
+        onDelete={openDeleteProduct}
         onLoadMore={() => loadProducts({ append: true })}
         canManage={canManage}
         canDelete={canDelete}
@@ -1591,8 +1753,32 @@ export default function ProductSetup() {
         activeFilterCount={activeFilterCount}
         categoryOptions={categoryOptions}
         brandOptions={brandOptions}
-        selectedCategoryName={selectedCategoryName}
-        selectedBrandName={selectedBrandName}
+      />
+
+      <ProductDetailsModal
+        state={detailsModal}
+        getCategoryName={getCategoryName}
+        getBrandName={getBrandName}
+        getUnitName={getUnitName}
+        getSupplierName={getSupplierName}
+        onClose={closeDetailsModal}
+        onEdit={openEditModal}
+        onDelete={openDeleteProduct}
+        canManage={canManage}
+        canDelete={canDelete}
+      />
+
+      <ConfirmProductActionModal
+        state={actionModal}
+        onClose={closeProductAction}
+        onConfirm={confirmProductAction}
+      />
+
+      <DeleteProductModal
+        state={deleteModal}
+        setState={setDeleteModal}
+        onClose={closeDeleteProduct}
+        onSubmit={deleteProductPermanently}
       />
 
       <ProductFormModal
@@ -1632,17 +1818,14 @@ function FilterModal({
   activeFilterCount,
   categoryOptions,
   brandOptions,
-  selectedCategoryName,
-  selectedBrandName,
 }) {
   return (
     <ModalShell
       open={open}
       onClose={onClose}
       title="Product filters"
-      subtitle="Filter products by lifecycle, type, assignment, and stock behavior."
       icon={<Icon icon={FilterIcon} className="h-5 w-5" />}
-      maxWidthClass="max-w-5xl"
+      maxWidthClass="max-w-4xl"
       footer={
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <span
@@ -1653,8 +1836,7 @@ function FilterModal({
                 : "bg-gray-100 text-gray-600 ring-gray-600/10"
             )}
           >
-            {activeFilterCount} active filter
-            {activeFilterCount === 1 ? "" : "s"}
+            {activeFilterCount} active filter{activeFilterCount === 1 ? "" : "s"}
           </span>
 
           <div className="flex justify-end gap-2">
@@ -1665,7 +1847,6 @@ function FilterModal({
             >
               Reset
             </button>
-
             <button
               className={cn(button, primaryButton)}
               onClick={onClose}
@@ -1678,53 +1859,31 @@ function FilterModal({
         </div>
       }
     >
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         {activeTab === "current" ? (
           <Field label="Status">
             <select
               className={input}
               value={filters.status}
-              onChange={(event) =>
-                updateFilter("status", event.target.value)
-              }
+              onChange={(event) => updateFilter("status", event.target.value)}
             >
-              <option value="all">
-                Active + Inactive + Discontinued
-              </option>
-
+              <option value="all">All current statuses</option>
               {PRODUCT_STATUSES.map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
+                <option key={value} value={value}>{label}</option>
               ))}
             </select>
           </Field>
-        ) : (
-          <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4">
-            <p className="text-sm font-black text-amber-800">
-              Archived products
-            </p>
-
-            <p className="mt-1 text-xs font-semibold text-amber-700">
-              This tab only displays archived product records.
-            </p>
-          </div>
-        )}
+        ) : null}
 
         <Field label="Product Type">
           <select
             className={input}
             value={filters.productType}
-            onChange={(event) =>
-              updateFilter("productType", event.target.value)
-            }
+            onChange={(event) => updateFilter("productType", event.target.value)}
           >
             <option value="all">All product types</option>
-
             {PRODUCT_TYPES.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
+              <option key={value} value={value}>{label}</option>
             ))}
           </select>
         </Field>
@@ -1733,16 +1892,11 @@ function FilterModal({
           <select
             className={input}
             value={filters.trackingType}
-            onChange={(event) =>
-              updateFilter("trackingType", event.target.value)
-            }
+            onChange={(event) => updateFilter("trackingType", event.target.value)}
           >
             <option value="all">All tracking types</option>
-
             {TRACKING_TYPES.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
+              <option key={value} value={value}>{label}</option>
             ))}
           </select>
         </Field>
@@ -1751,12 +1905,9 @@ function FilterModal({
           <select
             className={input}
             value={filters.category}
-            onChange={(event) =>
-              updateFilter("category", event.target.value)
-            }
+            onChange={(event) => updateFilter("category", event.target.value)}
           >
             <option value="all">All categories</option>
-
             {categoryOptions.map((category) => (
               <option key={category._id} value={category._id}>
                 {optionLabel(category, "category")}
@@ -1769,12 +1920,9 @@ function FilterModal({
           <select
             className={input}
             value={filters.brand}
-            onChange={(event) =>
-              updateFilter("brand", event.target.value)
-            }
+            onChange={(event) => updateFilter("brand", event.target.value)}
           >
             <option value="all">All brands</option>
-
             {brandOptions.map((brand) => (
               <option key={brand._id} value={brand._id}>
                 {optionLabel(brand, "brand")}
@@ -1787,9 +1935,7 @@ function FilterModal({
           <select
             className={input}
             value={filters.trackInventory}
-            onChange={(event) =>
-              updateFilter("trackInventory", event.target.value)
-            }
+            onChange={(event) => updateFilter("trackInventory", event.target.value)}
           >
             <option value="all">Tracked + Not tracked</option>
             <option value="true">Tracked products only</option>
@@ -1801,31 +1947,11 @@ function FilterModal({
           <FocusPlaceholderInput
             className={input}
             value={filters.currency}
-            onChange={(event) =>
-              updateFilter(
-                "currency",
-                event.target.value.toUpperCase()
-              )
-            }
+            onChange={(event) => updateFilter("currency", event.target.value.toUpperCase())}
             placeholder="Example: BDT"
             maxLength={12}
           />
         </Field>
-
-        <div className="md:col-span-2 lg:col-span-3 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
-          <p className="text-sm font-black text-gray-900">
-            Active filters
-          </p>
-
-          <ActiveFilterChips
-            activeTab={activeTab}
-            filters={filters}
-            updateFilter={updateFilter}
-            resetFilters={resetFilters}
-            categoryName={selectedCategoryName}
-            brandName={selectedBrandName}
-          />
-        </div>
       </div>
     </ModalShell>
   )
@@ -1837,185 +1963,134 @@ function ProductList({
   loadingMore,
   hasMore,
   openingProductId,
+  loadingDetailsId,
+  actionState,
   getCategoryName,
   getBrandName,
   getUnitName,
   getSupplierName,
+  onView,
   onEdit,
-  onStatusChange,
-  onArchive,
-  onRestore,
+  onAction,
+  onDelete,
   onLoadMore,
   canManage,
   canDelete,
 }) {
   return (
-    <div>
-      <div className={cn(card, "overflow-hidden")}>
-        <div className="hidden max-h-[650px] overflow-auto lg:block">
-          <table className="min-w-[1450px] w-full text-left">
-            <thead className="sticky top-0 z-10 bg-gray-50 text-xs font-black uppercase text-gray-500">
-              <tr>
-                <th className="px-5 py-3">Product</th>
-                <th className="px-5 py-3">Type</th>
-                <th className="px-5 py-3">Category / Brand</th>
-                <th className="px-5 py-3">Unit</th>
-                <th className="px-5 py-3">Supplier</th>
-                <th className="px-5 py-3">Purchase</th>
-                <th className="px-5 py-3">Selling</th>
-                <th className="px-5 py-3">Inventory</th>
-                <th className="px-5 py-3">Tracking</th>
-                <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3">Updated</th>
-                <th className="sticky right-0 bg-gray-50 px-5 py-3 text-right">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-gray-100">
-              {products.map((product) => (
-                <tr
-                  key={product._id}
-                  className="group bg-white transition hover:bg-gray-50/70"
+    <div className={cn(card, "overflow-hidden rounded-3xl border-gray-200")}>
+      <div className="hidden h-[560px] overflow-auto [scrollbar-gutter:stable] xl:block 2xl:h-[650px]">
+        <table className="w-full min-w-[1450px] border-separate border-spacing-0 text-left">
+          <thead className="sticky top-0 z-20">
+            <tr>
+              {[
+                "Product",
+                "Type",
+                "Category / Brand",
+                "Unit",
+                "Supplier",
+                "Purchase",
+                "Selling",
+                "Inventory",
+                "Tracking",
+                "Status",
+                "Updated",
+              ].map((label) => (
+                <th
+                  key={label}
+                  className="border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-black uppercase tracking-[0.06em] text-gray-600"
                 >
-                  <td className="px-5 py-4">
-                    <div className="flex min-w-[260px] items-center gap-3">
+                  {label}
+                </th>
+              ))}
+              <th className="sticky right-0 z-30 border-b border-gray-200 bg-gray-50 px-5 py-4 text-right text-xs font-black uppercase tracking-[0.06em] text-gray-600 shadow-[-12px_0_20px_-20px_rgba(15,23,42,0.35)]">
+                Actions
+              </th>
+            </tr>
+          </thead>
+
+          <tbody className="bg-white">
+            {loading ? (
+              <ProductTableSkeleton rows={8} />
+            ) : products.length ? (
+              products.map((product) => (
+                <tr key={product._id} className="group">
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 transition group-hover:bg-indigo-50/40">
+                    <div className="flex min-w-[250px] items-center gap-3">
                       <ProductImage product={product} />
-
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-black text-gray-900">
-                          {product.name}
-                        </p>
-
-                        <p className="mt-0.5 text-xs font-black text-indigo-700">
-                          {product.sku}
-                        </p>
-
-                        <p className="mt-0.5 max-w-[300px] truncate text-xs font-semibold text-gray-500">
+                        <p className="truncate text-sm font-black text-gray-950">{product.name}</p>
+                        <p className="mt-0.5 text-xs font-black text-indigo-700">{product.sku}</p>
+                        <p className="mt-0.5 max-w-[280px] truncate text-xs font-medium text-gray-500">
                           {product.barcode || "No barcode"}
                         </p>
                       </div>
                     </div>
                   </td>
 
-                  <td className="px-5 py-4">
-                    <TypeBadge value={product.productType} />
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 transition group-hover:bg-indigo-50/40"><TypeBadge value={product.productType} /></td>
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 transition group-hover:bg-indigo-50/40">
+                    <p className="max-w-[190px] truncate text-sm font-semibold text-gray-800">{getCategoryName(product)}</p>
+                    <p className="mt-0.5 max-w-[190px] truncate text-xs font-medium text-gray-500">{getBrandName(product)}</p>
                   </td>
-
-                  <td className="px-5 py-4">
-                    <p className="max-w-[190px] truncate text-sm font-black text-gray-800">
-                      {getCategoryName(product)}
-                    </p>
-
-                    <p className="mt-0.5 max-w-[190px] truncate text-xs font-semibold text-gray-500">
-                      {getBrandName(product)}
-                    </p>
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-semibold text-gray-700">
-                    {getUnitName(product)}
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-semibold text-gray-700">
-                    <p className="max-w-[190px] truncate">
-                      {getSupplierName(product)}
-                    </p>
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-black text-gray-700">
-                    {formatMoney(
-                      product.purchasePrice,
-                      product.currency
-                    )}
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-black text-indigo-700">
-                    {formatMoney(
-                      product.sellingPrice,
-                      product.currency
-                    )}
-
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 text-sm font-medium text-gray-700 transition group-hover:bg-indigo-50/40">{getUnitName(product)}</td>
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 text-sm font-medium text-gray-700 transition group-hover:bg-indigo-50/40"><p className="max-w-[190px] truncate">{getSupplierName(product)}</p></td>
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 text-sm font-semibold text-gray-800 transition group-hover:bg-indigo-50/40">{formatMoney(product.purchasePrice, product.currency)}</td>
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 transition group-hover:bg-indigo-50/40">
+                    <p className="text-sm font-semibold text-indigo-700">{formatMoney(product.sellingPrice, product.currency)}</p>
                     {Number(product.wholesalePrice || 0) > 0 ? (
-                      <p className="mt-0.5 text-xs font-semibold text-gray-500">
-                        Wholesale:{" "}
-                        {formatMoney(
-                          product.wholesalePrice,
-                          product.currency
-                        )}
-                      </p>
+                      <p className="mt-0.5 text-xs font-medium text-gray-500">Wholesale {formatMoney(product.wholesalePrice, product.currency)}</p>
                     ) : null}
                   </td>
-
-                  <td className="px-5 py-4">
-                    <span
-                      className={cn(
-                        "inline-flex rounded-full px-3 py-1 text-xs font-black ring-1",
-                        product.trackInventory
-                          ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
-                          : "bg-gray-100 text-gray-600 ring-gray-200"
-                      )}
-                    >
-                      {product.trackInventory
-                        ? "Tracked"
-                        : "Not tracked"}
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 transition group-hover:bg-indigo-50/40">
+                    <span className={cn(
+                      "inline-flex rounded-full px-3 py-1 text-xs font-black ring-1",
+                      product.trackInventory
+                        ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
+                        : "bg-gray-100 text-gray-600 ring-gray-200"
+                    )}>
+                      {product.trackInventory ? "Tracked" : "Not tracked"}
                     </span>
-
-                    {product.trackInventory ? (
-                      <p className="mt-1 text-xs font-semibold text-gray-500">
-                        Reorder: {product.reorderLevel ?? 0}
-                      </p>
-                    ) : null}
+                    {product.trackInventory ? <p className="mt-1 text-xs font-medium text-gray-500">Reorder {product.reorderLevel ?? 0}</p> : null}
                   </td>
-
-                  <td className="px-5 py-4 text-sm font-semibold text-gray-700">
-                    {pretty(product.trackingType)}
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <StatusBadge value={product.status} />
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-semibold text-gray-600">
-                    {formatDate(product.updatedAt)}
-                  </td>
-
-                  <td className="sticky right-0 bg-white px-5 py-4 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-gray-50/70">
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 text-sm font-medium text-gray-700 transition group-hover:bg-indigo-50/40">{pretty(product.trackingType)}</td>
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 transition group-hover:bg-indigo-50/40"><StatusBadge value={product.status} /></td>
+                  <td className="border-b border-gray-100 bg-white px-5 py-3 text-sm font-medium text-gray-600 transition group-hover:bg-indigo-50/40">{formatDate(product.updatedAt)}</td>
+                  <td className="sticky right-0 z-10 border-b border-gray-100 bg-white px-5 py-2 text-right transition shadow-[-14px_0_24px_-22px_rgba(15,23,42,0.45)] group-hover:bg-indigo-50/40">
                     <ProductActions
                       product={product}
-                      opening={
-                        String(openingProductId) ===
-                        String(product._id)
-                      }
+                      opening={String(openingProductId) === String(product._id)}
+                      loadingDetails={String(loadingDetailsId) === String(product._id)}
+                      actionState={actionState}
+                      onView={onView}
                       onEdit={onEdit}
-                      onStatusChange={onStatusChange}
-                      onArchive={onArchive}
-                      onRestore={onRestore}
+                      onAction={onAction}
+                      onDelete={onDelete}
                       canManage={canManage}
                       canDelete={canDelete}
                     />
                   </td>
                 </tr>
-              ))}
+              ))
+            ) : (
+              <tr>
+                <td colSpan={12} className="bg-white p-10 text-center">
+                  <div className="mx-auto flex max-w-sm flex-col items-center rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 p-8">
+                    <Icon icon={FolderLibraryIcon} className="h-6 w-6 text-gray-400" />
+                    <p className="mt-3 text-sm font-black text-gray-900">No products found</p>
+                  </div>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
 
-              {!products.length ? (
-                <tr>
-                  <td
-                    colSpan={12}
-                    className="px-5 py-14 text-center text-sm font-bold text-gray-500"
-                  >
-                    {loading
-                      ? "Loading products..."
-                      : "No products found."}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="divide-y divide-gray-100 lg:hidden">
-          {products.map((product) => (
+      <div className="divide-y divide-gray-100 xl:hidden">
+        {loading ? (
+          <ProductMobileSkeleton rows={5} />
+        ) : products.length ? (
+          products.map((product) => (
             <ProductMobileCard
               key={product._id}
               product={product}
@@ -2023,46 +2098,38 @@ function ProductList({
               brandName={getBrandName(product)}
               unitName={getUnitName(product)}
               supplierName={getSupplierName(product)}
-              opening={
-                String(openingProductId) === String(product._id)
-              }
+              opening={String(openingProductId) === String(product._id)}
+              loadingDetails={String(loadingDetailsId) === String(product._id)}
+              actionState={actionState}
+              onView={onView}
               onEdit={onEdit}
-              onStatusChange={onStatusChange}
-              onArchive={onArchive}
-              onRestore={onRestore}
+              onAction={onAction}
+              onDelete={onDelete}
               canManage={canManage}
               canDelete={canDelete}
             />
-          ))}
-
-          {!products.length ? (
-            <div className="px-5 py-14 text-center text-sm font-bold text-gray-500">
-              {loading ? "Loading products..." : "No products found."}
-            </div>
-          ) : null}
-        </div>
+          ))
+        ) : (
+          <div className="p-8 text-center text-sm font-bold text-gray-500">No products found</div>
+        )}
       </div>
 
-      {hasMore ? (
-        <div className="mt-4 flex justify-center">
+      <div className="flex flex-col gap-3 border-t border-gray-100 bg-gray-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <p className="text-xs font-semibold text-gray-500">
+          {loading ? "Loading products…" : `${products.length} product${products.length === 1 ? "" : "s"} loaded`}
+        </p>
+        {hasMore ? (
           <button
-            className={cn(button, ghostButton, "min-w-[150px]")}
+            className={cn(button, ghostButton, "min-w-[140px] py-2")}
             onClick={onLoadMore}
             disabled={loadingMore}
             type="button"
           >
-            <Icon
-              icon={RefreshIcon}
-              className={cn(
-                "h-4 w-4",
-                loadingMore ? "animate-spin" : ""
-              )}
-            />
-
+            {loadingMore ? <Spinner /> : <Icon icon={RefreshIcon} className="h-4 w-4" />}
             {loadingMore ? "Loading..." : "Load more"}
           </button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -2074,10 +2141,12 @@ function ProductMobileCard({
   unitName,
   supplierName,
   opening,
+  loadingDetails,
+  actionState,
+  onView,
   onEdit,
-  onStatusChange,
-  onArchive,
-  onRestore,
+  onAction,
+  onDelete,
   canManage,
   canDelete,
 }) {
@@ -2085,102 +2154,63 @@ function ProductMobileCard({
     <article className="p-4">
       <div className="flex items-start gap-3">
         <ProductImage product={product} />
-
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="truncate text-sm font-black text-gray-900">
-                {product.name}
-              </h3>
-
-              <p className="mt-0.5 text-xs font-black text-indigo-700">
-                {product.sku}
-              </p>
+              <h3 className="truncate text-sm font-black text-gray-950">{product.name}</h3>
+              <p className="mt-0.5 text-xs font-black text-indigo-700">{product.sku}</p>
             </div>
-
             <StatusBadge value={product.status} />
           </div>
 
           <div className="mt-2 flex flex-wrap gap-2">
             <TypeBadge value={product.productType} />
-
-            <span
-              className={cn(
-                "inline-flex rounded-full px-3 py-1 text-xs font-black ring-1",
-                product.trackInventory
-                  ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
-                  : "bg-gray-100 text-gray-600 ring-gray-200"
-              )}
-            >
+            <span className={cn(
+              "inline-flex rounded-full px-3 py-1 text-xs font-black ring-1",
+              product.trackInventory
+                ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
+                : "bg-gray-100 text-gray-600 ring-gray-200"
+            )}>
               {product.trackInventory ? "Tracked" : "Not tracked"}
             </span>
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-3 rounded-xl bg-gray-50 p-3 text-xs">
-            <div>
-              <p className="font-bold text-gray-400">Category</p>
-              <p className="mt-1 truncate font-black text-gray-700">
-                {categoryName}
-              </p>
-            </div>
-
-            <div>
-              <p className="font-bold text-gray-400">Brand</p>
-              <p className="mt-1 truncate font-black text-gray-700">
-                {brandName}
-              </p>
-            </div>
-
-            <div>
-              <p className="font-bold text-gray-400">Selling price</p>
-              <p className="mt-1 font-black text-indigo-700">
-                {formatMoney(product.sellingPrice, product.currency)}
-              </p>
-            </div>
-
-            <div>
-              <p className="font-bold text-gray-400">Base unit</p>
-              <p className="mt-1 truncate font-black text-gray-700">
-                {unitName}
-              </p>
-            </div>
-
-            <div className="col-span-2">
-              <p className="font-bold text-gray-400">Default supplier</p>
-              <p className="mt-1 truncate font-black text-gray-700">
-                {supplierName}
-              </p>
-            </div>
-
-            <div className="col-span-2">
-              <p className="font-bold text-gray-400">Tracking</p>
-              <p className="mt-1 font-black text-gray-700">
-                {pretty(product.trackingType)}
-                {product.trackInventory
-                  ? ` · Reorder ${product.reorderLevel ?? 0}`
-                  : ""}
-              </p>
-            </div>
+            <MiniMetric label="Category" value={categoryName} />
+            <MiniMetric label="Brand" value={brandName} />
+            <MiniMetric label="Selling" value={formatMoney(product.sellingPrice, product.currency)} />
+            <MiniMetric label="Base Unit" value={unitName} />
+            <div className="col-span-2"><MiniMetric label="Supplier" value={supplierName} /></div>
+            <div className="col-span-2"><MiniMetric label="Tracking" value={`${pretty(product.trackingType)}${product.trackInventory ? ` · Reorder ${product.reorderLevel ?? 0}` : ""}`} /></div>
           </div>
 
-          {canManage || canDelete ? (
-            <div className="mt-3 border-t border-gray-100 pt-3">
-              <ProductActions
-                product={product}
-                opening={opening}
-                onEdit={onEdit}
-                onStatusChange={onStatusChange}
-                onArchive={onArchive}
-                onRestore={onRestore}
-                canManage={canManage}
-                canDelete={canDelete}
-                mobile
-              />
-            </div>
-          ) : null}
+          <div className="mt-3 border-t border-gray-100 pt-3">
+            <ProductActions
+              product={product}
+              opening={opening}
+              loadingDetails={loadingDetails}
+              actionState={actionState}
+              onView={onView}
+              onEdit={onEdit}
+              onAction={onAction}
+              onDelete={onDelete}
+              canManage={canManage}
+              canDelete={canDelete}
+              mobile
+            />
+          </div>
         </div>
       </div>
     </article>
+  )
+}
+
+function MiniMetric({ label, value }) {
+  return (
+    <div>
+      <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-gray-800">{value}</p>
+    </div>
   )
 }
 
@@ -2194,12 +2224,10 @@ function ProductImage({ product, size = "h-12 w-12" }) {
   }, [product.imageUrl])
 
   return (
-    <div
-      className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-indigo-100 bg-indigo-50 text-indigo-700",
-        size
-      )}
-    >
+    <div className={cn(
+      "flex shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-indigo-100 bg-indigo-50 text-indigo-700",
+      size
+    )}>
       {showImage ? (
         <img
           src={product.imageUrl}
@@ -2208,9 +2236,7 @@ function ProductImage({ product, size = "h-12 w-12" }) {
           onError={() => setFailed(true)}
         />
       ) : (
-        <span className="text-xs font-black tracking-wide">
-          {initials}
-        </span>
+        <span className="text-xs font-black tracking-wide">{initials}</span>
       )}
     </div>
   )
@@ -2219,115 +2245,160 @@ function ProductImage({ product, size = "h-12 w-12" }) {
 function ProductActions({
   product,
   opening,
+  loadingDetails,
+  actionState,
+  onView,
   onEdit,
-  onStatusChange,
-  onArchive,
-  onRestore,
+  onAction,
+  onDelete,
   canManage,
   canDelete,
   mobile = false,
 }) {
-  if (!canManage && !canDelete) {
-    return (
-      <span className="text-xs font-bold text-gray-400">View only</span>
+  const [open, setOpen] = useState(false)
+  const [menuStyle, setMenuStyle] = useState({ top: 0, left: 0, transformOrigin: "top right" })
+  const rootRef = useRef(null)
+  const buttonRef = useRef(null)
+  const menuRef = useRef(null)
+  const busy = String(actionState.id) === String(product._id)
+
+  const updateMenuPosition = useCallback(() => {
+    if (typeof window === "undefined" || !buttonRef.current) return
+    const rect = buttonRef.current.getBoundingClientRect()
+    const menuWidth = 250
+    const gap = 8
+    const estimatedHeight = 360
+    const shouldOpenUp = window.innerHeight - rect.bottom < 280
+    const top = shouldOpenUp
+      ? Math.max(12, rect.top - Math.min(estimatedHeight, window.innerHeight - 24) - gap)
+      : Math.min(rect.bottom + gap, window.innerHeight - 12)
+    const left = Math.min(
+      Math.max(12, rect.right - menuWidth),
+      Math.max(12, window.innerWidth - menuWidth - 12)
     )
+    setMenuStyle({ top, left, transformOrigin: shouldOpenUp ? "bottom right" : "top right" })
+  }, [])
+
+  useEffect(() => {
+    if (!open) return undefined
+    updateMenuPosition()
+    const closeOutside = (event) => {
+      if (rootRef.current?.contains(event.target) || menuRef.current?.contains(event.target)) return
+      setOpen(false)
+    }
+    const reposition = () => updateMenuPosition()
+    document.addEventListener("mousedown", closeOutside)
+    window.addEventListener("resize", reposition)
+    window.addEventListener("scroll", reposition, true)
+    return () => {
+      document.removeEventListener("mousedown", closeOutside)
+      window.removeEventListener("resize", reposition)
+      window.removeEventListener("scroll", reposition, true)
+    }
+  }, [open, updateMenuPosition])
+
+  const items = []
+
+  if (product.status !== "archived") {
+    if (canManage) {
+      items.push(["edit", "Edit product", Edit02Icon])
+      PRODUCT_STATUSES.forEach(([status, label]) => {
+        if (status !== product.status) {
+          items.push([
+            `status-${status}`,
+            `Mark ${label.toLowerCase()}`,
+            status === "discontinued" ? Alert02Icon : Tick02Icon,
+            status === "discontinued" ? "warning" : undefined,
+          ])
+        }
+      })
+    }
+    if (canDelete) items.push(["archive", "Archive product", Archive02Icon, "warning"])
+  } else if (canDelete) {
+    items.push(["restore", "Restore product", RestoreBinIcon])
   }
 
-  if (product.status === "archived") {
-    return canDelete ? (
-      <div
-        className={cn(
-          "flex gap-2",
-          mobile ? "flex-wrap" : "justify-end"
-        )}
-      >
-        <button
-          className={cn(
-            button,
-            ghostButton,
-            mobile ? "px-3 py-2" : "px-3"
-          )}
-          onClick={() => onRestore(product)}
-          type="button"
-          title="Restore product"
-        >
-          <Icon icon={RestoreBinIcon} className="h-4 w-4" />
-          {mobile ? "Restore" : null}
-        </button>
-      </div>
-    ) : (
-      <span className="text-xs font-bold text-gray-400">Archived</span>
-    )
+  if (canDelete) items.push(["delete", "Delete product", Cancel01Icon, "danger"])
+
+  const handleItem = (key) => {
+    setOpen(false)
+    if (key === "edit") return onEdit(product)
+    if (key.startsWith("status-")) return onAction("status", product, key.replace("status-", ""))
+    if (key === "archive") return onAction("archive", product)
+    if (key === "restore") return onAction("restore", product)
+    if (key === "delete") return onDelete(product)
   }
+
+  const menu = open && typeof document !== "undefined"
+    ? createPortal(
+        <motion.div
+          ref={menuRef}
+          initial={{ opacity: 0, y: 8, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.14 }}
+          style={{ top: menuStyle.top, left: menuStyle.left, transformOrigin: menuStyle.transformOrigin }}
+          className="fixed z-[9999] w-[250px] overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_24px_60px_-20px_rgba(15,23,42,0.45)]"
+        >
+          <div className="max-h-[min(70vh,420px)] overflow-y-auto p-2">
+            {items.length ? items.map(([key, text, icon, tone]) => {
+              const itemBusy = busy && actionState.type === key
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => handleItem(key)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50",
+                    tone === "danger"
+                      ? "text-rose-700 hover:bg-rose-50"
+                      : tone === "warning"
+                        ? "text-amber-800 hover:bg-amber-50"
+                        : "text-gray-800 hover:bg-gray-50"
+                  )}
+                >
+                  {itemBusy ? <Spinner /> : <Icon icon={icon} className="h-4 w-4 shrink-0" />}
+                  <span>{text}</span>
+                </button>
+              )
+            }) : (
+              <p className="px-3 py-2 text-sm font-semibold text-gray-400">No additional actions</p>
+            )}
+          </div>
+        </motion.div>,
+        document.body
+      )
+    : null
 
   return (
-    <div
-      className={cn(
-        "flex items-center gap-2",
-        mobile ? "flex-wrap" : "justify-end"
-      )}
-    >
-      {canManage ? (
-        <>
-          <select
-            className={cn(
-              "rounded-xl border border-gray-200 bg-white px-2.5 py-2 text-xs font-black text-gray-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/20",
-              mobile ? "min-w-[138px]" : "w-[126px]"
-            )}
-            value={product.status}
-            onChange={(event) =>
-              onStatusChange(product, event.target.value)
-            }
-            aria-label={`Update ${product.name} status`}
-          >
-            {PRODUCT_STATUSES.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+    <div ref={rootRef} className="relative flex items-center justify-end gap-2">
+      <button
+        type="button"
+        onClick={() => onView(product)}
+        disabled={loadingDetails}
+        className={cn(button, primaryButton, mobile ? "h-10 px-3" : "h-10 px-4")}
+      >
+        {loadingDetails ? <Spinner /> : <Icon icon={ViewIcon} className="h-4 w-4" />}
+        View
+      </button>
 
-          <button
-            className={cn(
-              button,
-              ghostButton,
-              mobile ? "px-3 py-2" : "px-3"
-            )}
-            onClick={() => onEdit(product)}
-            disabled={opening}
-            type="button"
-            title="Edit product"
-            aria-label={`Edit ${product.name}`}
-          >
-            <Icon
-              icon={opening ? RefreshIcon : Edit02Icon}
-              className={cn(
-                "h-4 w-4",
-                opening ? "animate-spin" : ""
-              )}
-            />
-
-            {mobile ? (opening ? "Loading" : "Edit") : null}
-          </button>
-        </>
-      ) : null}
-
-      {canDelete ? (
+      {items.length ? (
         <button
-          className={cn(
-            button,
-            dangerButton,
-            mobile ? "px-3 py-2" : "px-3"
-          )}
-          onClick={() => onArchive(product)}
+          ref={buttonRef}
           type="button"
-          title="Archive product"
-          aria-label={`Archive ${product.name}`}
+          aria-label="More product actions"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => {
+            if (!open) updateMenuPosition()
+            setOpen((previous) => !previous)
+          }}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
         >
-          <Icon icon={Archive02Icon} className="h-4 w-4" />
-          {mobile ? "Archive" : null}
+          <span className="-mt-1 text-xl font-black leading-none">⋮</span>
         </button>
       ) : null}
+      {menu}
     </div>
   )
 }
@@ -2371,6 +2442,175 @@ function RelationSelect({
         </option>
       ))}
     </select>
+  )
+}
+
+function ProductDetailsModal({
+  state,
+  getCategoryName,
+  getBrandName,
+  getUnitName,
+  getSupplierName,
+  onClose,
+  onEdit,
+  onDelete,
+  canManage,
+  canDelete,
+}) {
+  const product = state.product
+  if (!product) return null
+
+  return (
+    <ModalShell
+      open={state.open}
+      onClose={onClose}
+      title="Product details"
+      subtitle={product.sku || ""}
+      icon={<Icon icon={ViewIcon} className="h-5 w-5" />}
+      maxWidthClass="max-w-4xl"
+      footer={
+        <div className="flex flex-wrap justify-end gap-2">
+          <button className={cn(button, ghostButton)} type="button" onClick={onClose}>Close</button>
+          {canManage && product.status !== "archived" ? (
+            <button className={cn(button, primaryButton)} type="button" onClick={() => { onClose(); onEdit(product) }}>
+              <Icon icon={Edit02Icon} className="h-4 w-4" />
+              Edit
+            </button>
+          ) : null}
+          {canDelete ? (
+            <button className={cn(button, dangerButton)} type="button" onClick={() => onDelete(product)}>
+              <Icon icon={Cancel01Icon} className="h-4 w-4" />
+              Delete
+            </button>
+          ) : null}
+        </div>
+      }
+    >
+      <div className="space-y-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+          <ProductImage product={product} size="h-16 w-16" />
+          <div className="min-w-0">
+            <h3 className="truncate text-xl font-black text-gray-950">{product.name}</h3>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <StatusBadge value={product.status} />
+              <TypeBadge value={product.productType} />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <DetailItem label="SKU" value={product.sku || "—"} />
+          <DetailItem label="Barcode" value={product.barcode || "—"} />
+          <DetailItem label="Category" value={getCategoryName(product)} />
+          <DetailItem label="Brand" value={getBrandName(product)} />
+          <DetailItem label="Base Unit" value={getUnitName(product)} />
+          <DetailItem label="Default Supplier" value={getSupplierName(product)} />
+          <DetailItem label="Purchase Price" value={formatMoney(product.purchasePrice, product.currency)} />
+          <DetailItem label="Selling Price" value={formatMoney(product.sellingPrice, product.currency)} />
+          <DetailItem label="Wholesale Price" value={formatMoney(product.wholesalePrice, product.currency)} />
+          <DetailItem label="Tracking" value={pretty(product.trackingType)} />
+          <DetailItem label="Costing Method" value={pretty(product.costingMethod)} />
+          <DetailItem label="Reorder Level" value={String(product.reorderLevel ?? 0)} />
+        </div>
+
+        {clean(product.description) ? (
+          <div className="rounded-2xl border border-gray-100 bg-gray-50/70 p-4">
+            <p className="text-xs font-black uppercase tracking-wide text-gray-400">Description</p>
+            <p className="mt-2 whitespace-pre-wrap text-sm font-medium leading-6 text-gray-700">{product.description}</p>
+          </div>
+        ) : null}
+      </div>
+    </ModalShell>
+  )
+}
+
+function DetailItem({ label, value }) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-gray-50/70 px-4 py-3">
+      <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">{label}</p>
+      <p className="mt-1 break-words text-sm font-semibold text-gray-800">{value}</p>
+    </div>
+  )
+}
+
+function ConfirmProductActionModal({ state, onClose, onConfirm }) {
+  return (
+    <ModalShell
+      open={state.open}
+      onClose={onClose}
+      title={state.title}
+      subtitle={state.product?.name || ""}
+      icon={<Icon icon={state.danger ? Alert02Icon : Tick02Icon} className="h-5 w-5" />}
+      maxWidthClass="max-w-lg"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button className={cn(button, ghostButton)} type="button" onClick={onClose} disabled={state.loading}>Cancel</button>
+          <button
+            className={cn(button, state.danger ? dangerButton : primaryButton)}
+            type="button"
+            onClick={onConfirm}
+            disabled={state.loading}
+          >
+            {state.loading ? <Spinner /> : <Icon icon={Tick02Icon} className="h-4 w-4" />}
+            {state.loading ? "Processing..." : "Confirm"}
+          </button>
+        </div>
+      }
+    >
+      {state.error ? (
+        <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{state.error}</div>
+      ) : null}
+      <p className="text-sm font-semibold leading-6 text-gray-700">{state.message}</p>
+    </ModalShell>
+  )
+}
+
+function DeleteProductModal({ state, setState, onClose, onSubmit }) {
+  return (
+    <ModalShell
+      open={state.open}
+      onClose={onClose}
+      title="Delete product"
+      subtitle={state.product?.name || ""}
+      icon={<Icon icon={Cancel01Icon} className="h-5 w-5" />}
+      maxWidthClass="max-w-lg"
+      footer={
+        <div className="flex justify-end gap-2">
+          <button className={cn(button, ghostButton)} type="button" onClick={onClose} disabled={state.loading}>Cancel</button>
+          <button
+            className={cn(button, dangerButton)}
+            type="submit"
+            form="product-delete-form"
+            disabled={state.loading}
+          >
+            {state.loading ? <Spinner /> : <Icon icon={Cancel01Icon} className="h-4 w-4" />}
+            {state.loading ? "Deleting..." : "Delete permanently"}
+          </button>
+        </div>
+      }
+    >
+      {state.error ? (
+        <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{state.error}</div>
+      ) : null}
+
+      <form id="product-delete-form" onSubmit={onSubmit} className="space-y-4">
+        <div className="rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800">
+          Permanent delete cannot be undone. Products referenced by transactions should normally be archived instead.
+        </div>
+        <Field label="Your Password" required>
+          <input
+            className={input}
+            type="password"
+            autoComplete="current-password"
+            value={state.password}
+            onChange={(event) => setState((previous) => ({ ...previous, password: event.target.value, error: "" }))}
+            placeholder="Enter password"
+            required
+            autoFocus
+          />
+        </Field>
+      </form>
+    </ModalShell>
   )
 }
 

@@ -16,6 +16,7 @@ import PurchaseOrder, {
   roundMoney,
   roundQuantity,
 } from "../models/purchaseOrder.model.js";
+import { runMongoTransaction } from "../utils/mongoTransaction.js";
 
 const LIST_FIELDS = [
   "orderNo",
@@ -44,33 +45,7 @@ const LIST_FIELDS = [
 ].join(" ");
 
 const clean = (value) => String(value ?? "").trim();
-let transactionSupport;
-const supportsTransactions = async () => {
-  if (transactionSupport !== undefined) return transactionSupport;
-  try {
-    const hello = await mongoose.connection.db.admin().command({ hello: 1 });
-    transactionSupport = Boolean(hello?.setName || hello?.msg === "isdbgrid");
-  } catch {
-    transactionSupport = false;
-  }
-  return transactionSupport;
-};
-const runTransaction = async (work) => {
-  if (!(await supportsTransactions())) return work(null);
-  const session = await mongoose.startSession();
-  try {
-    let result;
-    await session.withTransaction(async () => {
-      result = await work(session);
-    }, {
-      readConcern: { level: "snapshot" },
-      writeConcern: { w: "majority" },
-    });
-    return result;
-  } finally {
-    await session.endSession();
-  }
-};
+const runTransaction = runMongoTransaction;
 const sessionOptions = (session) => (session ? { session } : {});
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
