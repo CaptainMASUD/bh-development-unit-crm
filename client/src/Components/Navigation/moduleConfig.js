@@ -23,7 +23,7 @@ export const MODULES = {
   },
   inventory: {
     id: "inventory",
-    name: "Inventory",
+    name: "Inventory Management",
     description: "Products, categories, brands, stock operations, warehouses, and inventory reporting.",
     permissions: [
       "inventory-product:view",
@@ -67,12 +67,16 @@ export const MODULES = {
       "inventory-transfer:delete",
       "inventory-report:view",
     ],
-    adminSections: ["Dashboard", "Product Management", "Warehouse Management", "Stock Control"],
-    employeeSections: ["Dashboard", "Product Management", "Warehouse Management", "Stock Control"],
+    adminSections: ["Dashboard", "Inventory Items", "Product Management", "Warehouse Management", "Inventory Operations", "Stock Inspection", "Tracking", "Consumption History", "Low Stock", "Inventory Valuation", "Inventory Loss Analysis", "Inventory Reports"],
+    employeeSections: ["Dashboard", "Inventory Items", "Product Management", "Warehouse Management", "Inventory Operations", "Stock Inspection", "Tracking", "Consumption History", "Low Stock", "Inventory Valuation", "Inventory Loss Analysis", "Inventory Reports"],
+    sectionAliases: { Dashboard: "Inventory Dashboard" },
     subcategories: {
-      "Product Management": ["Products", "Categories", "Brands", "Units"],
-      "Warehouse Management": ["Warehouses", "Locations"],
-      "Stock Control": ["Stock Overview", "Stock Movements", "Stock Adjustments", "Stock Transfers"],
+      "Inventory Items": ["Total Inventory", "Warehouse Inventory", "Pending Inventory"],
+      "Product Management": ["Products", "Categories", "Units of Measure"],
+      "Warehouse Management": ["Warehouses", "Locations / Bins", "Warehouse Checks"],
+      "Inventory Operations": ["Stock Requests", "Stock Issues", "Stock Transfers", "Stock Adjustments"],
+      Tracking: ["Batch / Lots", "Serial Numbers", "Expiry Tracking"],
+      "Inventory Reports": ["Stock Balance", "Warehouse Stock", "Stock Ledger", "Consumption", "Low Stock", "Expiry", "Valuation", "Loss Analysis"],
     },
   },
   supplier: {
@@ -92,14 +96,19 @@ export const MODULES = {
       "goods-receipt:view", "goods-receipt:manage", "goods-receipt:approve", "goods-receipt:post", "goods-receipt:reverse", "goods-receipt:delete",
       "purchase-return:view", "purchase-return:manage", "purchase-return:approve", "purchase-return:post", "purchase-return:reverse", "purchase-return:delete",
     ],
-    adminSections: ["Dashboard", "Purchase Orders", "Goods Receipts", "Purchase Returns"],
-    employeeSections: ["Dashboard", "Purchase Orders", "Goods Receipts", "Purchase Returns"],
+    adminSections: ["Dashboard", "Quick Purchase", "Purchase Operations", "Purchase Order Management", "Price Analysis", "Purchase Reports"],
+    employeeSections: ["Dashboard", "Quick Purchase", "Purchase Operations", "Purchase Order Management", "Price Analysis", "Purchase Reports"],
+    subcategories: {
+      "Purchase Operations": ["Purchase Requests", "Purchase Analysis", "Purchase Issues", "Purchase Dues", "Purchase Return"],
+      "Purchase Order Management": ["Purchase Orders", "PO Print / PDF"],
+    },
   },
   sales: {
     id: "sales",
     name: "Sales",
     description: "Quotations, customer orders, deliveries, invoices, receipts, returns, and sales reporting.",
     permissions: ["sales-quotation:view", "sales-order:view", "sales-delivery:view", "sales-invoice:view", "sales-return:view", "sales-report:view"],
+    dashboardPermission: "sales-report:view",
     adminSections: ["Dashboard", "Sales Quotations", "Sales Orders", "Deliveries", "Sales Invoices", "Sales Returns", "Sales Reports"],
     employeeSections: ["Dashboard", "Sales Quotations", "Sales Orders", "Deliveries", "Sales Invoices", "Sales Returns", "Sales Reports"],
   },
@@ -174,8 +183,13 @@ export function buildModuleSections(sections, moduleId, role = "admin") {
   const result = {}
 
   for (const name of order) {
-    const config = sections?.[name]
+    const sourceName = module.sectionAliases?.[name] || name
+    const config = sections?.[sourceName]
     if (!config) continue
+    if (name === "Dashboard" && module.dashboardPermission) {
+      result[name] = { ...config, permission: module.dashboardPermission }
+      continue
+    }
     const allowedSubcategories = module.subcategories?.[name]
     if (allowedSubcategories && config.subcategories) {
       const subcategories = Object.fromEntries(

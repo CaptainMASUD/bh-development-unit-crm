@@ -46,6 +46,7 @@ const CONFIG = {
     date: "quotationDate",
     viewPermission: "sales-quotation:view",
     managePermission: "sales-quotation:manage",
+    statuses: ["draft", "sent", "viewed", "under_negotiation", "accepted", "rejected", "expired", "cancelled", "converted"],
     icon: FileText,
   },
   orders: {
@@ -56,6 +57,7 @@ const CONFIG = {
     date: "orderDate",
     viewPermission: "sales-order:view",
     managePermission: "sales-order:manage",
+    statuses: ["draft", "pending_approval", "approved", "confirmed", "partially_fulfilled", "fulfilled", "closed", "cancelled"],
     icon: ShoppingCart,
   },
   deliveries: {
@@ -66,6 +68,7 @@ const CONFIG = {
     date: "scheduledDate",
     viewPermission: "sales-delivery:view",
     managePermission: "sales-delivery:manage",
+    statuses: ["draft", "picking", "picked", "packing", "packed", "ready_for_dispatch", "dispatched", "in_transit", "partially_delivered", "delivered", "failed", "cancelled"],
     icon: Truck,
   },
   invoices: {
@@ -76,6 +79,7 @@ const CONFIG = {
     date: "invoiceDate",
     viewPermission: "sales-invoice:view",
     managePermission: "sales-invoice:manage",
+    statuses: ["draft", "posted", "sent", "partially_paid", "paid", "overdue", "void", "cancelled"],
     icon: CircleDollarSign,
   },
   returns: {
@@ -86,6 +90,7 @@ const CONFIG = {
     date: "returnDate",
     viewPermission: "sales-return:view",
     managePermission: "sales-return:manage",
+    statuses: ["draft", "pending_approval", "posted", "rejected", "cancelled", "refunded"],
     icon: Undo2,
   },
 }
@@ -107,6 +112,13 @@ const STATUS_TONES = {
   cancelled: "bg-rose-50 text-rose-700",
   void: "bg-rose-50 text-rose-700",
   overdue: "bg-rose-50 text-rose-700",
+}
+
+const QUOTATION_TRANSITIONS = {
+  draft: ["sent", "cancelled"],
+  sent: ["viewed", "under_negotiation", "accepted", "rejected", "expired", "cancelled"],
+  viewed: ["under_negotiation", "accepted", "rejected", "expired", "cancelled"],
+  under_negotiation: ["sent", "accepted", "rejected", "expired", "cancelled"],
 }
 
 const inputClass = "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-800 outline-none transition focus:border-indigo-400 focus:ring-4 focus:ring-indigo-100 disabled:bg-slate-50 disabled:text-slate-400"
@@ -169,17 +181,17 @@ function newLine(product = null) {
   }
 }
 
-function QuotationForm({ options, busy, onSubmit, onCancel }) {
+function QuotationForm({ options, record, busy, onSubmit, onCancel }) {
   const availableCustomers = options.customers.filter((item) => !item.creditHold)
   const [form, setForm] = useState(() => ({
-    branchId: cleanId(options.branches.find((item) => item.isDefault || item.isMain) || options.branches[0]),
-    customerId: cleanId(availableCustomers[0]),
-    salespersonId: cleanId(options.salespeople[0]),
-    quotationDate: new Date().toISOString().slice(0, 10),
-    validUntil: "",
-    paymentTermsDays: availableCustomers[0]?.paymentTermsDays || 0,
-    notes: "",
-    lines: [newLine(options.products[0])],
+    branchId: cleanId(record?.branchId || options.branches.find((item) => item.isDefault || item.isMain) || options.branches[0]),
+    customerId: cleanId(record?.customerId || availableCustomers[0]),
+    salespersonId: cleanId(record?.salespersonId || options.salespeople[0]),
+    quotationDate: record?.quotationDate ? new Date(record.quotationDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+    validUntil: record?.validUntil ? new Date(record.validUntil).toISOString().slice(0, 10) : "",
+    paymentTermsDays: record?.paymentTermsDays ?? availableCustomers[0]?.paymentTermsDays ?? 0,
+    notes: record?.notes || "",
+    lines: record?.lines?.length ? record.lines.map((line) => ({ ...newLine(), ...line, productId: cleanId(line.productId) })) : [newLine(options.products[0])],
   }))
   const updateLine = (key, patch) => setForm((current) => ({ ...current, lines: current.lines.map((line) => line.key === key ? { ...line, ...patch } : line) }))
   const chooseProduct = (line, productId) => {
@@ -230,16 +242,34 @@ function QuotationForm({ options, busy, onSubmit, onCancel }) {
         <Field label="Notes"><textarea className={inputClass} rows="3" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></Field>
         <div className="min-w-52 rounded-2xl bg-indigo-50 p-4 text-right"><p className="text-xs font-extrabold uppercase tracking-wider text-indigo-500">Estimated total</p><p className="mt-1 text-2xl font-black text-indigo-950">{formatMoney(estimated)}</p></div>
       </div>
-      <div className="flex justify-end gap-3"><SecondaryButton onClick={onCancel}>Cancel</SecondaryButton><PrimaryButton disabled={busy || !form.customerId || !form.lines.every((line) => line.productId)} onClick={submit}>{busy ? "Saving…" : "Create quotation"}</PrimaryButton></div>
+      <div className="flex justify-end gap-3"><SecondaryButton onClick={onCancel}>Cancel</SecondaryButton><PrimaryButton disabled={busy || !form.customerId || !form.lines.every((line) => line.productId)} onClick={submit}>{busy ? "Saving…" : record ? "Update quotation" : "Create quotation"}</PrimaryButton></div>
     </div>
   )
 }
 
-QuotationForm.propTypes = { options: PropTypes.object.isRequired, busy: PropTypes.bool, onSubmit: PropTypes.func.isRequired, onCancel: PropTypes.func.isRequired }
+QuotationForm.propTypes = { options: PropTypes.object.isRequired, record: PropTypes.object, busy: PropTypes.bool, onSubmit: PropTypes.func.isRequired, onCancel: PropTypes.func.isRequired }
+
+function OrderEditForm({ record, busy, onSubmit, onCancel }) {
+  const [form, setForm] = useState({
+    promisedDeliveryDate: record?.promisedDeliveryDate ? new Date(record.promisedDeliveryDate).toISOString().slice(0, 10) : "",
+    customerReference: record?.customerReference || "",
+    notes: record?.notes || "",
+  })
+  return <div className="space-y-5">
+    <div className="grid gap-4 md:grid-cols-2">
+      <Field label="Promised delivery"><input className={inputClass} type="date" value={form.promisedDeliveryDate} onChange={(event) => setForm({ ...form, promisedDeliveryDate: event.target.value })} /></Field>
+      <Field label="Customer reference"><input className={inputClass} value={form.customerReference} onChange={(event) => setForm({ ...form, customerReference: event.target.value })} /></Field>
+    </div>
+    <Field label="Customer notes"><textarea className={inputClass} rows="3" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></Field>
+    <div className="flex justify-end gap-3"><SecondaryButton onClick={onCancel}>Cancel</SecondaryButton><PrimaryButton disabled={busy} onClick={() => onSubmit({ ...form, promisedDeliveryDate: form.promisedDeliveryDate || null })}>{busy ? "Saving…" : "Update order"}</PrimaryButton></div>
+  </div>
+}
+
+OrderEditForm.propTypes = { record: PropTypes.object.isRequired, busy: PropTypes.bool, onSubmit: PropTypes.func.isRequired, onCancel: PropTypes.func.isRequired }
 
 function SimpleActionForm({ action, record, options, lookups, busy, onSubmit, onCancel }) {
   const [form, setForm] = useState(() => ({
-    status: "sent",
+    status: QUOTATION_TRANSITIONS[record?.status]?.[0] || "sent",
     warehouseId: cleanId(options.warehouses.find((item) => item.isDefault) || options.warehouses[0]),
     salesOrderId: cleanId(lookups.orders?.[0]),
     dueDate: "",
@@ -251,7 +281,17 @@ function SimpleActionForm({ action, record, options, lookups, busy, onSubmit, on
     reason: "",
     reference: "",
   }))
-  const statusOptions = ["sent", "viewed", "under_negotiation", "accepted", "rejected", "expired", "cancelled"]
+  const statusOptions = QUOTATION_TRANSITIONS[record?.status] || []
+  const confirmationCopy = {
+    submit: "Submit this document for approval?",
+    approve: "Approve this document and continue its workflow?",
+    confirmOrder: "Confirm this order and reserve its inventory?",
+    close: "Close this fulfilled sales order?",
+    deliveryStatus: "Move this delivery to its next status?",
+    confirmDelivery: "Confirm delivery and post the received quantities to the sales order?",
+    postInvoice: "Post this invoice to accounting? This creates the receivable and revenue entries.",
+    sendInvoice: "Mark this posted invoice as sent to the customer?",
+  }
   const treasury = form.treasuryType === "bank" ? options.bankAccounts : options.cashAccounts
   useEffect(() => {
     if (!treasury.some((item) => String(item._id) === String(form.treasuryAccount))) {
@@ -259,6 +299,7 @@ function SimpleActionForm({ action, record, options, lookups, busy, onSubmit, on
     }
   }, [form.treasuryAccount, treasury])
   return <div className="space-y-5">
+    {confirmationCopy[action] ? <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-sm font-semibold leading-6 text-indigo-950">{confirmationCopy[action]}</div> : null}
     {action === "quotationStatus" ? <Field label="New status"><select className={inputClass} value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>{statusOptions.map((item) => <option key={item} value={item}>{pretty(item)}</option>)}</select></Field> : null}
     {action === "convert" ? <Field label="Fulfillment warehouse"><select className={inputClass} value={form.warehouseId} onChange={(event) => setForm({ ...form, warehouseId: event.target.value })}>{options.warehouses.map((item) => <option key={item._id} value={item._id}>{item.name} ({item.code})</option>)}</select></Field> : null}
     {["createDelivery", "createInvoice"].includes(action) ? <Field label="Sales order"><select className={inputClass} value={form.salesOrderId} onChange={(event) => setForm({ ...form, salesOrderId: event.target.value })}>{(lookups.orders || []).map((item) => <option key={item._id} value={item._id}>{item.orderNumber} — {pretty(item.status)}</option>)}</select></Field> : null}
@@ -332,6 +373,8 @@ export default function SalesPage({ kind }) {
   const [error, setError] = useState("")
   const [query, setQuery] = useState("")
   const [status, setStatus] = useState("")
+  const [page, setPage] = useState(1)
+  const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0 })
   const [detail, setDetail] = useState(null)
   const [modal, setModal] = useState(null)
   const canManage = hasPermission(currentUser, config.managePermission)
@@ -350,7 +393,9 @@ export default function SalesPage({ kind }) {
     setLoading(true)
     setError("")
     try {
-      const params = new URLSearchParams({ limit: "100" })
+      const supportsPagination = ["quotations", "orders", "returns"].includes(kind)
+      const params = new URLSearchParams({ limit: supportsPagination ? "20" : "100" })
+      if (supportsPagination) params.set("page", String(page))
       if (status) params.set("status", status)
       if (query && ["quotations", "orders"].includes(kind)) params.set("search", query)
       const requests = [salesRequest(`/sales/${config.resource}?${params}`)]
@@ -362,6 +407,7 @@ export default function SalesPage({ kind }) {
       else requests.push(Promise.resolve({ data: [] }))
       const [listPayload, optionPayload, orderPayload, invoicePayload] = await Promise.all(requests)
       setRows(Array.isArray(listPayload.data) ? listPayload.data : [])
+      setPagination(listPayload.pagination || { page, pages: 1, total: (listPayload.data || []).length })
       if (optionPayload?.data && !Array.isArray(optionPayload.data)) setOptions(optionPayload.data)
       setLookups({ orders: orderPayload.data || [], invoices: invoicePayload.data || [] })
     } catch (loadError) {
@@ -369,9 +415,10 @@ export default function SalesPage({ kind }) {
     } finally {
       setLoading(false)
     }
-  }, [canManage, canManagePayment, config.resource, kind, query, status])
+  }, [canManage, canManagePayment, config.resource, kind, page, query, status])
 
   useEffect(() => { const timer = setTimeout(load, 250); return () => clearTimeout(timer) }, [load])
+  useEffect(() => { setPage(1) }, [kind, query, status])
 
   const visibleRows = useMemo(() => {
     const normalized = query.trim().toLowerCase()
@@ -402,6 +449,20 @@ export default function SalesPage({ kind }) {
   }
 
   const create = async (body) => mutate(`/sales/${config.resource}`, body)
+  const update = async (path, body) => {
+    setBusy(true)
+    try {
+      const payload = await salesRequest(path, salesJson("PATCH", body))
+      toast.success("Sales document updated successfully.")
+      setModal(null)
+      setDetail(null)
+      await load()
+      return payload
+    } catch (requestError) {
+      toast.error(requestError.message)
+      return null
+    } finally { setBusy(false) }
+  }
 
   const downloadPdf = async (record) => {
     try {
@@ -420,6 +481,8 @@ export default function SalesPage({ kind }) {
   const executeModal = async (form) => {
     const { action, record, payment } = modal
     if (action === "createQuotation") return create(form)
+    if (action === "editQuotation") return update(`/sales/quotations/${record._id}`, form)
+    if (action === "editOrder") return update(`/sales/orders/${record._id}`, form)
     if (action === "createDelivery") return create({ salesOrderId: form.salesOrderId, warehouseId: form.warehouseId })
     if (action === "createInvoice") return create({ salesOrderId: form.salesOrderId, dueDate: form.dueDate || undefined, paymentTermsDays: form.paymentTermsDays })
     if (action === "createReturn") return create(form)
@@ -443,34 +506,29 @@ export default function SalesPage({ kind }) {
 
   const actionsFor = (record) => {
     const actions = []
+    if (kind === "quotations" && canManage && ["draft", "sent", "under_negotiation"].includes(record.status)) actions.push(["Edit quotation", FileText, () => setModal({ action: "editQuotation", record })])
     if (kind === "quotations" && canManage && ["draft", "sent", "viewed", "under_negotiation"].includes(record.status)) actions.push(["Update status", Send, () => setModal({ action: "quotationStatus", record })])
     if (kind === "quotations" && record.status === "accepted" && hasPermission(currentUser, "sales-order:manage")) actions.push(["Convert to order", ArrowRight, () => setModal({ action: "convert", record })])
-    if (kind === "orders" && canManage && record.status === "draft") actions.push(["Submit", Send, () => setModal({ action: "submit", record, instant: true })])
-    if (kind === "orders" && canApproveOrders && record.status === "pending_approval") actions.push(["Approve", CheckCircle2, () => setModal({ action: "approve", record, instant: true })], ["Reject", XCircle, () => setModal({ action: "reject", record })])
-    if (kind === "orders" && canApproveOrders && record.status === "approved") actions.push(["Confirm & reserve", PackageCheck, () => setModal({ action: "confirmOrder", record, instant: true })])
-    if (kind === "orders" && canApproveOrders && record.status === "fulfilled") actions.push(["Close", CheckCircle2, () => setModal({ action: "close", record, instant: true })])
+    if (kind === "orders" && canManage && ["draft", "pending_approval"].includes(record.status)) actions.push(["Edit order", FileText, () => setModal({ action: "editOrder", record })])
+    if (kind === "orders" && canManage && record.status === "draft") actions.push(["Submit", Send, () => setModal({ action: "submit", record })])
+    if (kind === "orders" && canApproveOrders && record.status === "pending_approval") actions.push(["Approve", CheckCircle2, () => setModal({ action: "approve", record })], ["Reject", XCircle, () => setModal({ action: "reject", record })])
+    if (kind === "orders" && canApproveOrders && record.status === "approved") actions.push(["Confirm & reserve", PackageCheck, () => setModal({ action: "confirmOrder", record })])
+    if (kind === "orders" && canApproveOrders && record.status === "fulfilled") actions.push(["Close", CheckCircle2, () => setModal({ action: "close", record })])
     if (kind === "orders" && canManage && ["draft", "pending_approval", "approved", "confirmed"].includes(record.status)) actions.push(["Cancel", XCircle, () => setModal({ action: "cancel", record })])
     const deliveryTransitions = { draft: "picking", picking: "picked", picked: "packing", packing: "packed", packed: "ready_for_dispatch", ready_for_dispatch: "dispatched", dispatched: "in_transit", in_transit: "delivered", failed: "ready_for_dispatch" }
-    if (kind === "deliveries" && canManage && deliveryTransitions[record.status]) actions.push([`Move to ${pretty(deliveryTransitions[record.status])}`, ChevronRight, () => setModal({ action: "deliveryStatus", record, nextStatus: deliveryTransitions[record.status], instant: true })])
-    if (kind === "deliveries" && canPostDelivery && ["dispatched", "in_transit"].includes(record.status)) actions.push(["Confirm delivery", PackageCheck, () => setModal({ action: "confirmDelivery", record, instant: true })])
-    if (kind === "invoices" && canPostInvoice && record.status === "draft") actions.push(["Post invoice", CheckCircle2, () => setModal({ action: "postInvoice", record, instant: true })])
-    if (kind === "invoices" && canManage && ["posted", "sent", "partially_paid"].includes(record.status)) actions.push(["Mark sent", Send, () => setModal({ action: "sendInvoice", record, instant: true })])
+    if (kind === "deliveries" && canManage && deliveryTransitions[record.status]) actions.push([`Move to ${pretty(deliveryTransitions[record.status])}`, ChevronRight, () => setModal({ action: "deliveryStatus", record, nextStatus: deliveryTransitions[record.status] })])
+    if (kind === "deliveries" && canPostDelivery && ["dispatched", "in_transit"].includes(record.status)) actions.push(["Confirm delivery", PackageCheck, () => setModal({ action: "confirmDelivery", record })])
+    if (kind === "invoices" && canPostInvoice && record.status === "draft") actions.push(["Post invoice", CheckCircle2, () => setModal({ action: "postInvoice", record })])
+    if (kind === "invoices" && canManage && ["posted", "sent", "partially_paid"].includes(record.status)) actions.push(["Mark sent", Send, () => setModal({ action: "sendInvoice", record })])
     if (kind === "invoices" && canManagePayment && Number(record.dueAmount || 0) > 0 && !["draft", "void", "cancelled"].includes(record.status)) actions.push(["Receive payment", Banknote, () => setModal({ action: "payment", record })])
     if (kind === "invoices") actions.push(["Download PDF", Download, () => downloadPdf(record)])
     if (kind === "invoices" && canPostInvoice && ["posted", "sent"].includes(record.status) && !record.paidAmount && !record.creditedAmount) actions.push(["Void", XCircle, () => setModal({ action: "void", record })])
-    if (kind === "returns" && canManage && record.status === "draft") actions.push(["Submit", Send, () => setModal({ action: "submit", record, instant: true })])
-    if (kind === "returns" && canApproveReturn && record.status === "pending_approval") actions.push(["Approve & post", CheckCircle2, () => setModal({ action: "approve", record, instant: true })], ["Reject", XCircle, () => setModal({ action: "reject", record })])
+    if (kind === "returns" && canManage && record.status === "draft") actions.push(["Submit", Send, () => setModal({ action: "submit", record })])
+    if (kind === "returns" && canApproveReturn && record.status === "pending_approval") actions.push(["Approve & post", CheckCircle2, () => setModal({ action: "approve", record })], ["Reject", XCircle, () => setModal({ action: "reject", record })])
     if (kind === "returns" && canManage && ["draft", "pending_approval"].includes(record.status)) actions.push(["Cancel", XCircle, () => setModal({ action: "cancel", record })])
     if (kind === "returns" && canManagePayment && record.status === "posted" && Number(record.refundDue || 0) > Number(record.refundedAmount || 0)) actions.push(["Refund customer", RotateCcw, () => setModal({ action: "refund", record })])
     return actions
   }
-
-  useEffect(() => {
-    if (!modal?.instant) return
-    executeModal({}).catch(() => {})
-    // The action is intentionally executed once when the confirmation state opens.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modal])
 
   const createAction = kind === "quotations" ? "createQuotation" : kind === "deliveries" ? "createDelivery" : kind === "invoices" ? "createInvoice" : kind === "returns" ? "createReturn" : ""
 
@@ -486,7 +544,7 @@ export default function SalesPage({ kind }) {
       </div>
       <div className="flex flex-col gap-3 border-b border-slate-100 p-5 md:flex-row md:items-center">
         <div className="relative flex-1"><Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" /><input className={`${inputClass} pl-10`} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search ${config.title.toLowerCase()}…`} /></div>
-        <select className={`${inputClass} md:w-52`} value={status} onChange={(event) => setStatus(event.target.value)}><option value="">All statuses</option>{["draft", "sent", "pending_approval", "approved", "confirmed", "posted", "partially_paid", "paid", "delivered", "rejected", "cancelled", "void", "overdue"].map((item) => <option key={item} value={item}>{pretty(item)}</option>)}</select>
+        <select className={`${inputClass} md:w-52`} value={status} onChange={(event) => setStatus(event.target.value)}><option value="">All statuses</option>{config.statuses.map((item) => <option key={item} value={item}>{pretty(item)}</option>)}</select>
         <SecondaryButton onClick={load}><RefreshCcw size={16} /> Refresh</SecondaryButton>
       </div>
       {error ? <div className="m-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div> : null}
@@ -500,16 +558,17 @@ export default function SalesPage({ kind }) {
               <td className="px-6 py-4 text-slate-500">{formatDate(row[config.date] || row.createdAt)}</td>
               <td className="px-6 py-4"><StatusBadge value={row.status} /></td>
               <td className="px-6 py-4 text-right font-black text-slate-900">{formatMoney(row.totals?.grandTotal ?? row.totalAmount ?? 0, row.currency)}</td>
-              <td className="px-6 py-4"><div className="flex justify-end gap-2"><button type="button" onClick={() => openDetail(row)} className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-white hover:text-indigo-700" title="View"><Eye size={16} /></button>{actionsFor(row).slice(0, 3).map(([label, ActionIcon, handler]) => <button type="button" key={label} onClick={handler} title={label} className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"><ActionIcon size={16} /></button>)}</div></td>
+              <td className="px-6 py-4"><div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={() => openDetail(row)} className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-white hover:text-indigo-700" title="View"><Eye size={16} /></button>{actionsFor(row).map(([label, ActionIcon, handler]) => <button type="button" key={label} onClick={handler} title={label} aria-label={label} className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"><ActionIcon size={16} /></button>)}</div></td>
             </tr>) : <tr><td colSpan="6" className="px-6 py-20 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400"><Icon size={24} /></div><p className="mt-4 font-black text-slate-800">No {kind} found</p><p className="mt-1 text-sm text-slate-500">Create the first document or adjust your filters.</p></td></tr>}
           </tbody>
         </table>
       </div>
+      {pagination.pages > 1 ? <div className="flex items-center justify-between gap-4 border-t border-slate-100 px-5 py-4"><p className="text-sm font-semibold text-slate-500">Page {pagination.page} of {pagination.pages} · {pagination.total} records</p><div className="flex gap-2"><SecondaryButton disabled={page <= 1 || loading} onClick={() => setPage((current) => Math.max(current - 1, 1))}>Previous</SecondaryButton><SecondaryButton disabled={page >= pagination.pages || loading} onClick={() => setPage((current) => current + 1)}>Next</SecondaryButton></div></div> : null}
     </section>
 
     {detail ? <DetailView record={detail} config={config} maps={maps} onClose={() => setDetail(null)} onReversePayment={kind === "invoices" && canManagePayment ? (payment) => { setDetail(null); setModal({ action: "reversePayment", record: detail, payment }) } : undefined} /> : null}
-    {modal && !modal.instant ? <Modal title={pretty(modal.action)} subtitle={modal.record?.[config.number]} onClose={() => setModal(null)} wide={["createQuotation", "createReturn"].includes(modal.action)}>
-      {modal.action === "createQuotation" ? <QuotationForm options={options} busy={busy} onSubmit={executeModal} onCancel={() => setModal(null)} /> : modal.action === "createReturn" ? <ReturnForm invoices={lookups.invoices} busy={busy} onSubmit={executeModal} onCancel={() => setModal(null)} /> : <SimpleActionForm action={modal.action} record={modal.record} options={options} lookups={lookups} busy={busy} onSubmit={executeModal} onCancel={() => setModal(null)} />}
+    {modal ? <Modal title={pretty(modal.action)} subtitle={modal.record?.[config.number]} onClose={() => setModal(null)} wide={["createQuotation", "createReturn"].includes(modal.action)}>
+      {["createQuotation", "editQuotation"].includes(modal.action) ? <QuotationForm options={options} record={modal.record} busy={busy} onSubmit={executeModal} onCancel={() => setModal(null)} /> : modal.action === "editOrder" ? <OrderEditForm record={modal.record} busy={busy} onSubmit={executeModal} onCancel={() => setModal(null)} /> : modal.action === "createReturn" ? <ReturnForm invoices={lookups.invoices} busy={busy} onSubmit={executeModal} onCancel={() => setModal(null)} /> : <SimpleActionForm action={modal.action} record={modal.record} options={options} lookups={lookups} busy={busy} onSubmit={executeModal} onCancel={() => setModal(null)} />}
     </Modal> : null}
   </div>
 }

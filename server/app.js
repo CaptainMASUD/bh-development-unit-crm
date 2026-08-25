@@ -173,6 +173,7 @@ import stockMovementRoutes from "./routes/inventory/stockMovement.routes.js";
 import stockAdjustmentRoutes from "./routes/inventory/stockAdjustment.routes.js";
 import stockTransferRoutes from "./routes/inventory/stockTransfer.routes.js";
 import inventoryReportRoutes from "./routes/inventory/inventoryReport.routes.js";
+import inventoryOperationsRoutes from "./routes/inventory/inventoryOperations.routes.js";
 
 // =========================
 // PURCHASE & SUPPLIERS
@@ -182,6 +183,7 @@ import supplierRoutes from "./routes/supplier.routes.js";
 import purchaseOrderRoutes from "./routes/purchaseOrder.routes.js";
 import goodsReceiptRoutes from "./routes/goodsReceipt.routes.js";
 import purchaseReturnRoutes from "./routes/purchaseReturn.routes.js";
+import purchaseWorkflowRoutes from "./routes/purchaseWorkflow.routes.js";
 import salesRoutes from "./routes/sales/sales.routes.js";
 
 /* =========================
@@ -265,6 +267,8 @@ mountModuleRoutes("/api/purchase/goods-receipts", "purchase", goodsReceiptRoutes
 
 mountModuleRoutes("/api/purchase/purchase-returns", "purchase", purchaseReturnRoutes);
 
+mountModuleRoutes("/api/purchase/workflow", "purchase", purchaseWorkflowRoutes);
+
 /* =========================
    SALES MODULE
 ========================= */
@@ -299,6 +303,8 @@ mountModuleRoutes("/api/inventory/stock-adjustments", "inventory", stockAdjustme
 mountModuleRoutes("/api/inventory/stock-transfers", "inventory", stockTransferRoutes);
 
 mountModuleRoutes("/api/inventory/reports", "inventory", inventoryReportRoutes);
+
+mountModuleRoutes("/api/inventory/operations", "inventory", inventoryOperationsRoutes);
 
 /* =========================
    EMPLOYEE REPORTS

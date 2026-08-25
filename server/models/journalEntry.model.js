@@ -30,7 +30,7 @@ const journalEntrySchema = new mongoose.Schema(
     },
     sourceType: {
       type: String,
-      enum: ["manual", "opening_balance", "fiscal_closing", "invoice", "customer_payment", "vendor_bill", "vendor_payment", "expense", "bank_transfer", "tax", "payroll", "goods_receipt", "purchase_return", "inventory_adjustment"],
+      enum: ["manual", "opening_balance", "fiscal_closing", "invoice", "customer_payment", "vendor_bill", "vendor_payment", "purchase_payment", "purchase_refund", "expense", "bank_transfer", "tax", "payroll", "goods_receipt", "purchase_return", "inventory_adjustment"],
       default: "manual",
       index: true,
     },

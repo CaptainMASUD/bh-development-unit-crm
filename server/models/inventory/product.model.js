@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const PRODUCT_TYPES = ["inventory", "non_inventory", "service"];
 const PRODUCT_STATUSES = ["active", "inactive", "discontinued", "archived"];
-const TRACKING_TYPES = ["none", "batch", "serial"];
+const TRACKING_TYPES = ["none", "batch", "serial", "expiry", "batch_expiry"];
 const COSTING_METHODS = ["weighted_average", "fifo", "standard"];
 const TAX_TYPES = ["none", "exclusive", "inclusive"];
 
@@ -163,6 +163,12 @@ const productSchema = new mongoose.Schema(
     },
 
     maximumStock: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    generalOrderQuantity: {
       type: Number,
       min: 0,
       default: 0,
@@ -370,6 +376,7 @@ const normalizeProductPatch = (source = {}) => {
     patch.reorderLevel = 0;
     patch.minimumStock = 0;
     patch.maximumStock = 0;
+    patch.generalOrderQuantity = 0;
   }
 
   if (patch.status === "archived") {

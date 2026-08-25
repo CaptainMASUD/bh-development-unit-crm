@@ -19,6 +19,7 @@ const cashAccountSchema = new mongoose.Schema(
     lastVerifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     lastVerificationNote: { type: String, trim: true, default: "" },
     isActive: { type: Boolean, default: true, index: true },
+    paymentVersion: { type: Number, min: 0, default: 0 },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null, index: true },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },

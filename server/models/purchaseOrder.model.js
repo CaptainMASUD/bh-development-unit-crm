@@ -42,9 +42,10 @@ const purchaseOrderLineSchema = new mongoose.Schema(
     product: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Product",
-      required: true,
+      default: null,
       index: true,
     },
+    itemName: { type: String, trim: true, maxlength: 180, default: "" },
     supplierProduct: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "SupplierProduct",
@@ -196,6 +197,15 @@ const purchaseOrderSchema = new mongoose.Schema(
       default: Date.now,
       index: true,
     },
+    purchaseType: {
+      type: String,
+      enum: ["quick_purchase", "industrial_purchase", "direct_order"],
+      default: "direct_order",
+      index: true,
+    },
+    purchaseReference: { type: String, trim: true, uppercase: true, maxlength: 80, default: "", index: true },
+    requestReference: { type: String, trim: true, uppercase: true, maxlength: 80, default: "", index: true },
+    purchaseIssue: { type: mongoose.Schema.Types.ObjectId, ref: "PurchaseIssue", default: null, index: true },
     expectedDeliveryDate: {
       type: Date,
       default: null,
@@ -288,6 +298,13 @@ const purchaseOrderSchema = new mongoose.Schema(
     shippingCost: { type: Number, min: 0, default: 0 },
     otherCost: { type: Number, min: 0, default: 0 },
     grandTotal: { type: Number, min: 0, default: 0 },
+    paidAmount: { type: Number, min: 0, default: 0 },
+    dueAmount: { type: Number, min: 0, default: 0 },
+    paymentPlan: { type: String, trim: true, default: "" },
+    paymentStatus: { type: String, enum: ["unpaid", "partial", "paid", "awaiting_inspection", "awaiting_payment"], default: "unpaid", index: true },
+    qualityStatus: { type: String, enum: ["not_required", "waiting", "processing", "passed", "partially_accepted", "rejected"], default: "waiting", index: true },
+    inventoryStatus: { type: String, enum: ["not_ready", "pending_assignment", "partially_received", "received", "rejected"], default: "not_ready", index: true },
+    returnStatus: { type: String, enum: ["none", "pending", "processing", "resolved", "closed"], default: "none", index: true },
     baseCurrencyTotal: { type: Number, min: 0, default: 0 },
     status: {
       type: String,
@@ -364,6 +381,7 @@ purchaseOrderSchema.index(
 );
 
 const normalizeLine = (line) => {
+  line.itemName = clean(line.itemName);
   line.supplierSku = clean(line.supplierSku).toUpperCase();
   line.description = clean(line.description);
   line.notes = clean(line.notes);
@@ -474,6 +492,9 @@ purchaseOrderSchema.pre("validate", function (next) {
   }
 
   for (const line of this.lines || []) {
+    if (!line.product && !line.itemName) {
+      line.invalidate("itemName", "A purchase-order line requires a Product or item name.");
+    }
     const maxReceivable = roundQuantity(
       Number(line.orderedQuantity || 0) - Number(line.cancelledQuantity || 0)
     );

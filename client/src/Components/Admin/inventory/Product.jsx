@@ -48,9 +48,11 @@ const PRODUCT_STATUSES = [
 ]
 
 const TRACKING_TYPES = [
-  ["none", "No Batch / Serial Tracking"],
+  ["none", "No Tracking"],
   ["batch", "Batch Tracking"],
   ["serial", "Serial Number Tracking"],
+  ["expiry", "Expiry Tracking"],
+  ["batch_expiry", "Batch + Expiry Tracking"],
 ]
 
 const COSTING_METHODS = [
@@ -113,6 +115,7 @@ const emptyProductForm = {
   reorderLevel: "0",
   minimumStock: "0",
   maximumStock: "0",
+  generalOrderQuantity: "0",
   status: "active",
 }
 
@@ -1181,6 +1184,7 @@ export default function ProductSetup() {
         reorderLevel: String(item.reorderLevel ?? 0),
         minimumStock: String(item.minimumStock ?? 0),
         maximumStock: String(item.maximumStock ?? 0),
+        generalOrderQuantity: String(item.generalOrderQuantity ?? 0),
         status:
           item.status === "archived"
             ? "inactive"
@@ -1222,6 +1226,7 @@ export default function ProductSetup() {
         reorderLevel: "0",
         minimumStock: "0",
         maximumStock: "0",
+        generalOrderQuantity: "0",
       }
     })
   }
@@ -1244,6 +1249,9 @@ export default function ProductSetup() {
         : "0",
       maximumStock: trackInventory
         ? previous.maximumStock
+        : "0",
+      generalOrderQuantity: trackInventory
+        ? previous.generalOrderQuantity
         : "0",
     }))
   }
@@ -1269,6 +1277,7 @@ export default function ProductSetup() {
       reorderLevel: Number(form.reorderLevel || 0),
       minimumStock: Number(form.minimumStock || 0),
       maximumStock: Number(form.maximumStock || 0),
+      generalOrderQuantity: Number(form.generalOrderQuantity || 0),
     }
 
     if (!clean(form.name)) {
@@ -1360,6 +1369,9 @@ export default function ProductSetup() {
         : 0,
       maximumStock: trackInventory
         ? numericFields.maximumStock
+        : 0,
+      generalOrderQuantity: trackInventory
+        ? numericFields.generalOrderQuantity
         : 0,
       status: form.status,
     }
@@ -3225,6 +3237,27 @@ function ProductFormModal({
                     }))
                   }
                   placeholder="Example: 100"
+                  disabled={!inventoryControlsEnabled}
+                />
+              </Field>
+
+              <Field
+                label="General Order Quantity"
+                hint="Used to round low-stock purchase suggestions to a normal order size."
+              >
+                <FocusPlaceholderInput
+                  className={input}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.generalOrderQuantity}
+                  onChange={(event) =>
+                    setForm((previous) => ({
+                      ...previous,
+                      generalOrderQuantity: event.target.value,
+                    }))
+                  }
+                  placeholder="Example: 25"
                   disabled={!inventoryControlsEnabled}
                 />
               </Field>

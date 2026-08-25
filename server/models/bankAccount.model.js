@@ -25,6 +25,7 @@ const bankAccountSchema = new mongoose.Schema(
     currency: { type: String, trim: true, uppercase: true, default: "BDT", index: true },
     description: { type: String, trim: true, default: "" },
     status: { type: String, enum: ["active", "inactive", "closed"], required: true, default: "active", index: true },
+    paymentVersion: { type: Number, min: 0, default: 0 },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null, index: true },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },

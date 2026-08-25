@@ -460,7 +460,7 @@ export const getLowStockReport = async (req, res) => {
           as: "product",
           pipeline: [
             { $match: { status: "active", productType: "inventory", trackInventory: true } },
-            { $project: { name: 1, sku: 1, barcode: 1, imageUrl: 1, reorderLevel: 1, category: 1, brand: 1 } },
+            { $project: { name: 1, sku: 1, barcode: 1, imageUrl: 1, reorderLevel: 1, minimumStock: 1, maximumStock: 1, generalOrderQuantity: 1, category: 1, brand: 1, baseUnit: 1 } },
           ],
         },
       },
@@ -514,6 +514,21 @@ export const getLowStockReport = async (req, res) => {
           effectiveReorderLevel: 1,
           shortageQuantity: {
             $max: [{ $subtract: ["$effectiveReorderLevel", "$availableQuantity"] }, 0],
+          },
+          suggestedPurchaseQuantity: {
+            $let: {
+              vars: {
+                shortage: { $max: [{ $subtract: ["$effectiveReorderLevel", "$availableQuantity"] }, 0] },
+                orderQuantity: { $ifNull: ["$product.generalOrderQuantity", 0] },
+              },
+              in: {
+                $cond: [
+                  { $gt: ["$$orderQuantity", 0] },
+                  { $multiply: [{ $ceil: { $divide: ["$$shortage", "$$orderQuantity"] } }, "$$orderQuantity"] },
+                  "$$shortage",
+                ],
+              },
+            },
           },
           inventoryValue: 1,
           lastMovementAt: 1,

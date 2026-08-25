@@ -4,6 +4,7 @@ import { lazy } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Analytics01Icon,
+  Alert02Icon,
   Archive02Icon,
   ArrowDataTransferHorizontalIcon,
   BankIcon,
@@ -79,7 +80,6 @@ const TaxReport = lazy(() => import("./reports/TaxReport"))
 const AccessControl = lazy(() => import("./system/AccessControl"))
 const Products = lazy(() => import("./inventory/Product"))
 const ProductCategories = lazy(() => import("./inventory/ProductCategory"))
-const ProductBrands = lazy(() => import("./inventory/ProductBrand"))
 const InventoryUnits = lazy(() => import("./inventory/InventoryUnit"))
 const Warehouses = lazy(() => import("./inventory/Warehouse"))
 const WarehouseLocations = lazy(() => import("./inventory/WarehouseLocation"))
@@ -87,11 +87,41 @@ const StockOverview = lazy(() => import("./inventory/StockOverview"))
 const StockMovements = lazy(() => import("./inventory/StockMovements"))
 const StockAdjustments = lazy(() => import("./inventory/StockAdjustments"))
 const StockTransfers = lazy(() => import("./inventory/StockTransfers"))
+const InventoryDashboard = lazy(() => import("./inventory/InventoryDashboard"))
+const TotalInventory = lazy(() => import("./inventory/TotalInventory"))
+const WarehouseInventory = lazy(() => import("./inventory/WarehouseInventory"))
+const PendingInventory = lazy(() => import("./inventory/PendingInventory"))
+const WarehouseChecks = lazy(() => import("./inventory/WarehouseChecks"))
+const StockRequests = lazy(() => import("./inventory/StockRequests"))
+const StockIssues = lazy(() => import("./inventory/StockIssues"))
+const StockInspection = lazy(() => import("./inventory/StockInspection"))
+const BatchLots = lazy(() => import("./inventory/BatchLots"))
+const SerialNumbers = lazy(() => import("./inventory/SerialNumbers"))
+const ExpiryTracking = lazy(() => import("./inventory/ExpiryTracking"))
+const ConsumptionHistory = lazy(() => import("./inventory/ConsumptionHistory"))
+const LowStock = lazy(() => import("./inventory/LowStock"))
+const InventoryValuation = lazy(() => import("./inventory/InventoryValuation"))
+const InventoryLossAnalysis = lazy(() => import("./inventory/InventoryLossAnalysis"))
+const StockBalanceReport = lazy(() => import("./inventory/StockBalanceReport"))
+const WarehouseStockReport = lazy(() => import("./inventory/WarehouseStockReport"))
+const StockLedgerReport = lazy(() => import("./inventory/StockLedgerReport"))
+const ConsumptionReport = lazy(() => import("./inventory/ConsumptionReport"))
+const LowStockReport = lazy(() => import("./inventory/LowStockReport"))
+const ExpiryReport = lazy(() => import("./inventory/ExpiryReport"))
+const ValuationReport = lazy(() => import("./inventory/ValuationReport"))
+const LossAnalysisReport = lazy(() => import("./inventory/LossAnalysisReport"))
 const Suppliers = lazy(() => import("./Supplier/SupplierSetup"))
 const SupplierProducts = lazy(() => import("./Supplier/SupplierProducts"))
 const PurchaseOrders = lazy(() => import("./purchase/PurchaseOrders"))
 const GoodsReceipts = lazy(() => import("./purchase/GoodsReceipts"))
 const PurchaseReturns = lazy(() => import("./purchase/PurchaseReturns"))
+const QuickPurchase = lazy(() => import("./purchase/QuickPurchase"))
+const PurchaseRequests = lazy(() => import("./purchase/PurchaseRequests"))
+const PurchaseAnalysis = lazy(() => import("./purchase/PurchaseAnalysis"))
+const PurchaseIssues = lazy(() => import("./purchase/PurchaseIssues"))
+const PurchaseDues = lazy(() => import("./purchase/PurchaseDues"))
+const PriceAnalysis = lazy(() => import("./purchase/PriceAnalysis"))
+const PurchaseReportsPage = lazy(() => import("./purchase/PurchaseReportsPage"))
 const SalesPage = lazy(() => import("./sales/SalesPage"))
 const SalesReports = lazy(() => import("./sales/SalesReports"))
 
@@ -108,6 +138,12 @@ const sections = {
   Dashboard: {
     icon: createSectionIcon(DashboardSquare01Icon),
     component: <Dashboard />,
+  },
+
+  "Inventory Dashboard": {
+    icon: createSectionIcon(DashboardSquare01Icon),
+    component: <InventoryDashboard />,
+    permission: "inventory-report:view",
   },
 
   "CRM Analytics": {
@@ -133,19 +169,31 @@ const sections = {
     component: <AdminDealsPage />,
   },
 
+  "Inventory Items": {
+    icon: createSectionIcon(Package01Icon),
+    subcategories: {
+      "Total Inventory": <TotalInventory />,
+      "Warehouse Inventory": <WarehouseInventory />,
+      "Pending Inventory": <PendingInventory />,
+    },
+    subcategoryPermissions: {
+      "Total Inventory": "inventory-stock:view",
+      "Warehouse Inventory": "inventory-stock:view",
+      "Pending Inventory": "inventory-stock:view",
+    },
+  },
+
   "Product Management": {
     icon: createSectionIcon(Package01Icon),
     subcategories: {
       Products: <Products />,
       Categories: <ProductCategories />,
-      Brands: <ProductBrands />,
-      Units: <InventoryUnits />,
+      "Units of Measure": <InventoryUnits />,
     },
     subcategoryPermissions: {
       Products: "inventory-product:view",
       Categories: "inventory-category:view",
-      Brands: "inventory-brand:view",
-      Units: "inventory-unit:view",
+      "Units of Measure": "inventory-unit:view",
     },
   },
 
@@ -153,27 +201,97 @@ const sections = {
     icon: createSectionIcon(Layers01Icon),
     subcategories: {
       Warehouses: <Warehouses />,
-      Locations: <WarehouseLocations />,
+      "Locations / Bins": <WarehouseLocations />,
+      "Warehouse Checks": <WarehouseChecks />,
     },
     subcategoryPermissions: {
       Warehouses: "inventory-warehouse:view",
-      Locations: "inventory-location:view",
+      "Locations / Bins": "inventory-location:view",
+      "Warehouse Checks": "inventory-warehouse:view",
     },
   },
 
-  "Stock Control": {
+  "Inventory Operations": {
     icon: createSectionIcon(ArrowDataTransferHorizontalIcon),
     subcategories: {
-      "Stock Overview": <StockOverview />,
-      "Stock Movements": <StockMovements />,
-      "Stock Adjustments": <StockAdjustments />,
+      "Stock Requests": <StockRequests />,
+      "Stock Issues": <StockIssues />,
       "Stock Transfers": <StockTransfers />,
+      "Stock Adjustments": <StockAdjustments />,
     },
     subcategoryPermissions: {
-      "Stock Overview": "inventory-stock:view",
-      "Stock Movements": "inventory-movement:view",
-      "Stock Adjustments": "inventory-adjustment:view",
+      "Stock Requests": "inventory-stock:view",
+      "Stock Issues": "inventory-movement:view",
       "Stock Transfers": "inventory-transfer:view",
+      "Stock Adjustments": "inventory-adjustment:view",
+    },
+  },
+
+  "Stock Inspection": {
+    icon: createSectionIcon(Archive02Icon),
+    component: <StockInspection />,
+    permission: "inventory-stock:view",
+  },
+
+  Tracking: {
+    icon: createSectionIcon(Archive02Icon),
+    subcategories: {
+      "Batch / Lots": <BatchLots />,
+      "Serial Numbers": <SerialNumbers />,
+      "Expiry Tracking": <ExpiryTracking />,
+    },
+    subcategoryPermissions: {
+      "Batch / Lots": "inventory-stock:view",
+      "Serial Numbers": "inventory-stock:view",
+      "Expiry Tracking": "inventory-stock:view",
+    },
+  },
+
+  "Consumption History": {
+    icon: createSectionIcon(Archive02Icon),
+    component: <ConsumptionHistory />,
+    permission: "inventory-movement:view",
+  },
+
+  "Low Stock": {
+    icon: createSectionIcon(Alert02Icon),
+    component: <LowStock />,
+    permission: "inventory-report:view",
+  },
+
+  "Inventory Valuation": {
+    icon: createSectionIcon(ChartLineData01Icon),
+    component: <InventoryValuation />,
+    permission: "inventory-report:view",
+  },
+
+  "Inventory Loss Analysis": {
+    icon: createSectionIcon(ChartLineData02Icon),
+    component: <InventoryLossAnalysis />,
+    permission: "inventory-report:view",
+  },
+
+  "Inventory Reports": {
+    icon: createSectionIcon(FileChartColumnIcon),
+    subcategories: {
+      "Stock Balance": <StockBalanceReport />,
+      "Warehouse Stock": <WarehouseStockReport />,
+      "Stock Ledger": <StockLedgerReport />,
+      Consumption: <ConsumptionReport />,
+      "Low Stock": <LowStockReport />,
+      Expiry: <ExpiryReport />,
+      Valuation: <ValuationReport />,
+      "Loss Analysis": <LossAnalysisReport />,
+    },
+    subcategoryPermissions: {
+      "Stock Balance": "inventory-report:view",
+      "Warehouse Stock": "inventory-report:view",
+      "Stock Ledger": "inventory-report:view",
+      Consumption: "inventory-report:view",
+      "Low Stock": "inventory-report:view",
+      Expiry: "inventory-report:view",
+      Valuation: "inventory-report:view",
+      "Loss Analysis": "inventory-report:view",
     },
   },
 
@@ -206,6 +324,12 @@ const sections = {
     component: <PurchaseReturns />,
     permission: "purchase-return:view",
   },
+
+  "Quick Purchase": { icon: createSectionIcon(Package01Icon), component: <QuickPurchase />, permission: "purchase-order:manage" },
+  "Purchase Operations": { icon: createSectionIcon(WorkflowSquare03Icon), subcategories: { "Purchase Requests": <PurchaseRequests />, "Purchase Analysis": <PurchaseAnalysis />, "Purchase Issues": <PurchaseIssues />, "Purchase Dues": <PurchaseDues />, "Purchase Return": <PurchaseReturns /> }, subcategoryPermissions: { "Purchase Requests":"purchase-order:view","Purchase Analysis":"purchase-order:view","Purchase Issues":"purchase-order:view","Purchase Dues":"purchase-order:view","Purchase Return":"purchase-return:view" } },
+  "Purchase Order Management": { icon: createSectionIcon(NoteEditIcon), subcategories: { "Purchase Orders": <PurchaseOrders />, "PO Print / PDF": <PurchaseOrders /> }, subcategoryPermissions: { "Purchase Orders":"purchase-order:view","PO Print / PDF":"purchase-order:view" } },
+  "Price Analysis": { icon: createSectionIcon(ChartLineData01Icon), component: <PriceAnalysis />, permission: "purchase-order:view" },
+  "Purchase Reports": { icon: createSectionIcon(FileChartColumnIcon), component: <PurchaseReportsPage />, permission: "purchase-order:view" },
 
   "Sales Quotations": { icon: createSectionIcon(NoteEditIcon), component: <SalesPage kind="quotations" />, permission: "sales-quotation:view" },
   "Sales Orders": { icon: createSectionIcon(Briefcase01Icon), component: <SalesPage kind="orders" />, permission: "sales-order:view" },

@@ -25,7 +25,7 @@ const bankTransactionSchema = new mongoose.Schema(
     counterpartLedgerAccount: { type: mongoose.Schema.Types.ObjectId, ref: "Account", default: null, index: true },
     sourceType: {
       type: String,
-      enum: ["manual", "money_transfer", "opening_balance", "reconciliation_adjustment", "payroll", "vendor_payment", "customer_payment", "expense"],
+      enum: ["manual", "money_transfer", "opening_balance", "reconciliation_adjustment", "payroll", "vendor_payment", "purchase_payment", "purchase_refund", "customer_payment", "expense"],
       default: "manual",
       index: true,
     },

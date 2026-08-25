@@ -32,6 +32,9 @@ const LIST_FIELDS = [
   "trackInventory",
   "trackingType",
   "reorderLevel",
+  "minimumStock",
+  "maximumStock",
+  "generalOrderQuantity",
   "status",
   "updatedAt",
 ].join(" ");
@@ -57,6 +60,7 @@ const PRODUCT_STATE_FIELDS = [
   "reorderLevel",
   "minimumStock",
   "maximumStock",
+  "generalOrderQuantity",
   "status",
 ].join(" ");
 
@@ -244,6 +248,7 @@ const buildProductPayload = (
     "reorderLevel",
     "minimumStock",
     "maximumStock",
+    "generalOrderQuantity",
   ]) {
     if (body[field] !== undefined) {
       payload[field] = parseNumber(
@@ -339,6 +344,7 @@ const validatePayloadShape = (
     "reorderLevel",
     "minimumStock",
     "maximumStock",
+    "generalOrderQuantity",
   ]) {
     if (
       payload[field] !== undefined &&
