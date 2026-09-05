@@ -1,484 +1,122 @@
+/* eslint-disable react/prop-types, react-refresh/only-export-components -- route page uses local presentational components and exports a tested payload helper */
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { createPortal } from "react-dom"
-import { motion } from "framer-motion"
 import toast, { Toaster } from "react-hot-toast"
-import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  Add01Icon,
-  Alert02Icon,
-  ArrowDataTransferHorizontalIcon,
-  Archive02Icon,
-  DashboardSquare01Icon,
-  Cancel01Icon,
-  Edit02Icon,
-  FilterIcon,
-  FloppyDiskIcon,
-  FolderLibraryIcon,
-  Package01Icon,
-  RefreshIcon,
-  RestoreBinIcon,
-  Search01Icon,
-  Tick02Icon,
-  ViewIcon,
-} from "@hugeicons/core-free-icons"
+  FiActivity,
+  FiCheckCircle,
+  FiChevronLeft,
+  FiChevronRight,
+  FiClock,
+  FiDatabase,
+  FiDownload,
+  FiEdit2,
+  FiEye,
+  FiEyeOff,
+  FiMapPin,
+  FiMoreHorizontal,
+  FiPlus,
+  FiRefreshCw,
+  FiSliders,
+  FiTrash2,
+  FiX,
+} from "react-icons/fi"
 import { hasPermission, PERMISSIONS } from "../../Auth/permissions"
+import { InventoryButton, InventoryPageHeader, InventoryPageShell, InventorySearchToolbar } from "./InventoryUI"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
-
-const STOCK_MANAGE_PERMISSION =
-  PERMISSIONS?.INVENTORY_STOCK_MANAGE || "inventory-stock:manage"
-
-const STOCK_DELETE_PERMISSION =
-  PERMISSIONS?.INVENTORY_STOCK_DELETE || "inventory-stock:delete"
-
-const STOCK_STATUSES = [
-  ["active", "Active"],
-  ["inactive", "Inactive"],
-]
+const PAGE_SIZE = 10
 
 const emptySummary = {
-  stockRows: 0,
   productCount: 0,
-  warehouseCount: 0,
-  onHandQuantity: 0,
-  reservedQuantity: 0,
-  quarantineQuantity: 0,
-  availableQuantity: 0,
-  incomingQuantity: 0,
-  outgoingQuantity: 0,
+  stockRows: 0,
   inventoryValue: 0,
   lowStockCount: 0,
   outOfStockCount: 0,
 }
 
-const emptyInitializeForm = {
+const emptyCreateForm = {
   product: "",
   warehouse: "",
   location: "",
-  reorderLevel: "0",
-  minimumStock: "0",
-  maximumStock: "0",
+  quantity: "",
+  stockPrice: "",
+  idempotencyKey: "",
 }
 
 const emptySettingsForm = {
   reorderLevel: "0",
   minimumStock: "0",
   maximumStock: "0",
-  lastCountedAt: "",
   status: "active",
 }
 
-const shell = "min-h-screen bg-gray-50"
+const inputClass =
+  "w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
 
-const card =
-  "rounded-2xl border border-gray-100 bg-white shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]"
-
-const button =
-  "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-60"
-
-const primaryButton =
-  "bg-indigo-600 text-white shadow-sm shadow-indigo-600/10 hover:bg-indigo-700"
-
-const ghostButton =
-  "border border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
-
-const dangerButton =
-  "border border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
-
-const input =
-  "w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-300 focus:border-transparent focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
-
-const chip =
-  "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-semibold ring-1"
-
-function cn(...classes) {
-  return classes.filter(Boolean).join(" ")
-}
+const buttonClass =
+  "inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-bold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/15 disabled:cursor-not-allowed disabled:opacity-50"
 
 function clean(value) {
   return String(value ?? "").trim()
 }
 
-function pretty(value) {
-  return String(value || "-")
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase())
-}
-
 function normalizeId(value) {
-  return value?._id || value || ""
+  return clean(value?._id || value)
 }
 
-function formatDate(value, includeTime = false) {
-  if (!value) return "-"
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "-"
-
-  return date.toLocaleString(
-    undefined,
-    includeTime
-      ? {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        }
-      : {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-        }
-  )
+export function buildOpeningStockPayload(form = {}) {
+  return {
+    product: clean(form.product),
+    warehouse: clean(form.warehouse),
+    location: clean(form.location) || null,
+    quantity: Number(form.quantity),
+    stockPrice: Number(form.stockPrice),
+    idempotencyKey: clean(form.idempotencyKey),
+  }
 }
 
-function toDateInput(value) {
-  if (!value) return ""
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ""
-
-  const offset = date.getTimezoneOffset()
-  return new Date(date.getTime() - offset * 60_000)
-    .toISOString()
-    .slice(0, 16)
-}
-
-function formatNumber(value, maximumFractionDigits = 2) {
+function formatNumber(value, digits = 2) {
   return Number(value || 0).toLocaleString("en-US", {
-    maximumFractionDigits,
+    maximumFractionDigits: digits,
   })
 }
 
-function formatMoney(value, currency = "BDT") {
-  return `${clean(currency || "BDT")} ${formatNumber(value, 2)}`
+function formatMoney(value) {
+  return `৳${formatNumber(value, 2)}`
 }
 
-function relationLabel(item, fallback = "Unnamed") {
+function pretty(value) {
+  return clean(value || "-")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function initials(value) {
+  const words = clean(value).split(/\s+/).filter(Boolean)
+  return (words.length > 1 ? `${words[0][0]}${words[1][0]}` : words[0]?.slice(0, 2) || "IT").toUpperCase()
+}
+
+function relationLabel(item, fallback = "-") {
   if (!item) return fallback
-
   const name = item.name || item.label || fallback
-  const code = item.sku || item.code || item.barcode || ""
-
+  const code = item.code || item.sku || ""
   return `${name}${code ? ` (${code})` : ""}`
 }
 
-function hasAnyQuantity(stock) {
-  const currentStock = stock || {}
-
-  return [
-    currentStock.onHandQuantity,
-    currentStock.reservedQuantity,
-    currentStock.quarantineQuantity,
-    currentStock.incomingQuantity,
-    currentStock.outgoingQuantity,
-  ].some((value) => Number(value || 0) !== 0)
-}
-
-function isLowStock(stock) {
-  const currentStock = stock || {}
-
-  return (
-    Number(currentStock.reorderLevel || 0) > 0 &&
-    Number(currentStock.availableQuantity || 0) <=
-      Number(currentStock.reorderLevel || 0)
-  )
-}
-
-function isOutOfStock(stock) {
-  return Number(stock?.availableQuantity || 0) <= 0
-}
-
-function stockHealth(stock) {
-  const currentStock = stock || {}
-
-  if (currentStock.status === "archived") {
-    return {
-      label: "Archived",
-      className: "bg-amber-50 text-amber-700 ring-amber-100",
-    }
-  }
-
-  if (isOutOfStock(currentStock)) {
-    return {
-      label: "Out of Stock",
-      className: "bg-rose-50 text-rose-700 ring-rose-100",
-    }
-  }
-
-  if (isLowStock(currentStock)) {
-    return {
-      label: "Low Stock",
-      className: "bg-amber-50 text-amber-700 ring-amber-100",
-    }
-  }
-
-  return {
-    label: "Healthy",
-    className: "bg-emerald-50 text-emerald-700 ring-emerald-100",
+function getStoredUser() {
+  try {
+    const stored = JSON.parse(localStorage.getItem("user") || "null")
+    return stored?.user || stored
+  } catch {
+    return null
   }
 }
 
-function Icon({
-  icon,
-  className = "h-4 w-4",
-  strokeWidth = 1.8,
-  ...props
-}) {
-  return (
-    <HugeiconsIcon
-      icon={icon}
-      className={className}
-      strokeWidth={strokeWidth}
-      {...props}
-    />
-  )
-}
-
-function RequiredMark() {
-  return <span className="ml-1 text-rose-500">*</span>
-}
-
-function Field({ label, children, hint, required = false }) {
-  return (
-    <div>
-      <label className="mb-1.5 block text-sm font-semibold text-gray-800">
-        {label}
-        {required ? <RequiredMark /> : null}
-      </label>
-
-      {children}
-
-      {hint ? (
-        <p className="mt-1 text-xs font-medium text-gray-500">
-          {hint}
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
-function SectionCard({ title, description, children }) {
-  return (
-    <section className="rounded-2xl border border-gray-100 bg-gray-50/70 p-4 sm:p-5">
-      <div className="mb-4">
-        <h3 className="text-sm font-black text-gray-900">{title}</h3>
-
-        {description ? (
-          <p className="mt-1 text-xs font-semibold leading-5 text-gray-500">
-            {description}
-          </p>
-        ) : null}
-      </div>
-
-      {children}
-    </section>
-  )
-}
-
-function FocusPlaceholderInput({
-  placeholder = "",
-  onFocus,
-  onBlur,
-  ...props
-}) {
-  const [focused, setFocused] = useState(false)
-
-  return (
-    <input
-      {...props}
-      placeholder={focused ? placeholder : ""}
-      onFocus={(event) => {
-        setFocused(true)
-        onFocus?.(event)
-      }}
-      onBlur={(event) => {
-        setFocused(false)
-        onBlur?.(event)
-      }}
-    />
-  )
-}
-
-function StatusBadge({ value }) {
-  const status = String(value || "").toLowerCase()
-
-  const style =
-    status === "active"
-      ? "bg-emerald-50 text-emerald-700 ring-emerald-100"
-      : status === "inactive"
-        ? "bg-gray-100 text-gray-700 ring-gray-200"
-        : status === "archived"
-          ? "bg-amber-50 text-amber-700 ring-amber-100"
-          : "bg-slate-100 text-slate-700 ring-slate-200"
-
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-black ring-1",
-        style
-      )}
-    >
-      <span
-        className={cn(
-          "h-1.5 w-1.5 rounded-full",
-          status === "active"
-            ? "bg-emerald-500"
-            : status === "inactive"
-              ? "bg-gray-400"
-              : status === "archived"
-                ? "bg-amber-500"
-                : "bg-slate-400"
-        )}
-      />
-
-      {pretty(value)}
-    </span>
-  )
-}
-
-function HealthBadge({ stock }) {
-  const health = stockHealth(stock)
-
-  return (
-    <span
-      className={cn(
-        "inline-flex rounded-full px-3 py-1 text-xs font-black ring-1",
-        health.className
-      )}
-    >
-      {health.label}
-    </span>
-  )
-}
-
-function FilterChip({ label, value, onClear }) {
-  return (
-    <button
-      type="button"
-      onClick={onClear}
-      className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
-      title={`Remove ${label} filter`}
-      aria-label={`Remove ${label} filter`}
-    >
-      <span className="text-indigo-400">{label}:</span>
-      <span className="max-w-[180px] truncate sm:max-w-[220px]">
-        {value}
-      </span>
-      <Icon icon={Cancel01Icon} className="h-3.5 w-3.5 shrink-0" />
-    </button>
-  )
-}
-
-function ModalShell({
-  open,
-  onClose,
-  title,
-  subtitle,
-  icon,
-  children,
-  footer,
-  maxWidthClass = "max-w-5xl",
-}) {
-  useEffect(() => {
-    if (!open) return undefined
-
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = "hidden"
-
-    return () => {
-      document.body.style.overflow = previousOverflow
-    }
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return undefined
-
-    const handleKeyDown = (event) => {
-      if (event.key === "Escape") onClose?.()
-    }
-
-    window.addEventListener("keydown", handleKeyDown)
-
-    return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [open, onClose])
-
-  if (!open || typeof document === "undefined") return null
-
-  return createPortal(
-    <div className="fixed inset-0 z-[90]" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 overflow-y-auto">
-        <div className="flex min-h-full items-start justify-center p-4 sm:items-center sm:p-6">
-          <motion.button
-            type="button"
-            aria-label="Close modal"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="fixed inset-0 cursor-default bg-black/40 backdrop-blur-md"
-            onClick={onClose}
-          />
-
-          <motion.div
-            initial={{ opacity: 0, y: 14, scale: 0.99 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ type: "spring", stiffness: 260, damping: 24 }}
-            className={cn(
-              "relative w-full overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-[0_30px_70px_-30px_rgba(0,0,0,0.65)]",
-              maxWidthClass
-            )}
-          >
-            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-100 bg-gray-50/90 p-4 backdrop-blur sm:p-5">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
-                  {icon}
-                </div>
-
-                <div className="min-w-0">
-                  <h2 className="truncate text-base font-bold text-gray-900 sm:text-lg">
-                    {title}
-                  </h2>
-
-                  {subtitle ? (
-                    <p className="truncate text-sm text-gray-600">
-                      {subtitle}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-xl p-2 text-gray-700 transition hover:bg-gray-100"
-                aria-label="Close modal"
-              >
-                <Icon icon={Cancel01Icon} className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="max-h-[calc(100vh-14rem)] overflow-y-auto bg-white p-4 sm:p-5">
-              {children}
-            </div>
-
-            {footer ? (
-              <div className="sticky bottom-0 z-20 border-t border-gray-100 bg-white p-4 sm:p-5">
-                {footer}
-              </div>
-            ) : null}
-          </motion.div>
-        </div>
-      </div>
-    </div>,
-    document.body
-  )
-}
-
-function headers() {
+function requestHeaders() {
   const token = localStorage.getItem("token")
-
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -489,2788 +127,555 @@ async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
     ...options,
-    headers: {
-      ...headers(),
-      ...(options.headers || {}),
-    },
+    headers: { ...requestHeaders(), ...(options.headers || {}) },
   })
-
   const data = await response.json().catch(() => ({}))
-
-  if (!response.ok) {
-    throw new Error(data?.message || data?.error || "Request failed")
-  }
-
+  if (!response.ok) throw new Error(data.message || data.error || "Request failed")
   return data
 }
 
-function ActiveFilterChips({
-  activeTab,
-  filters,
-  updateFilter,
-  resetFilters,
-  productName,
-  warehouseName,
-  locationName,
-}) {
-  const hasFilters =
-    clean(filters.q) ||
-    filters.product !== "all" ||
-    filters.warehouse !== "all" ||
-    filters.location !== "all" ||
-    (activeTab === "all" && filters.status !== "all") ||
-    (activeTab === "all" && filters.hasStock !== "all")
-
-  return (
-    <div className="mt-3 flex flex-wrap items-center gap-2">
-      {clean(filters.q) ? (
-        <FilterChip
-          label="Search"
-          value={clean(filters.q)}
-          onClear={() => updateFilter("q", "")}
-        />
-      ) : null}
-
-      {filters.product !== "all" ? (
-        <FilterChip
-          label="Product"
-          value={productName || "Selected product"}
-          onClear={() => updateFilter("product", "all")}
-        />
-      ) : null}
-
-      {filters.warehouse !== "all" ? (
-        <FilterChip
-          label="Warehouse"
-          value={warehouseName || "Selected warehouse"}
-          onClear={() => updateFilter("warehouse", "all")}
-        />
-      ) : null}
-
-      {filters.location !== "all" ? (
-        <FilterChip
-          label="Location"
-          value={
-            filters.location === "none"
-              ? "No location"
-              : locationName || "Selected location"
-          }
-          onClear={() => updateFilter("location", "all")}
-        />
-      ) : null}
-
-      {activeTab === "all" && filters.status !== "all" ? (
-        <FilterChip
-          label="Status"
-          value={pretty(filters.status)}
-          onClear={() => updateFilter("status", "all")}
-        />
-      ) : null}
-
-      {activeTab === "all" && filters.hasStock !== "all" ? (
-        <FilterChip
-          label="Balance"
-          value="On-hand stock only"
-          onClear={() => updateFilter("hasStock", "all")}
-        />
-      ) : null}
-
-      {hasFilters ? (
-        <button
-          type="button"
-          onClick={resetFilters}
-          className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-black text-gray-500 transition hover:bg-gray-100 hover:text-gray-800"
-        >
-          <Icon icon={Cancel01Icon} className="h-3.5 w-3.5" />
-          Clear all
-        </button>
-      ) : null}
-    </div>
-  )
+function downloadCsv(filename, rows) {
+  const escape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`
+  const content = rows.map((row) => row.map(escape).join(",")).join("\n")
+  const url = URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8" }))
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
 
-function HeaderSearchFilters({
-  activeTab,
-  filters,
-  updateFilter,
-  resetFilters,
-  activeFilterCount,
-  productName,
-  warehouseName,
-  locationName,
-  onOpenFilters,
-}) {
-  return (
-    <div
-      className={cn(
-        "w-full transition-all duration-200",
-        activeFilterCount
-          ? "lg:min-w-[560px] lg:max-w-[82%] lg:flex-[0_1_82%]"
-          : "lg:max-w-[55%] lg:flex-[0_1_55%]"
-      )}
-    >
-      <div className="flex min-h-[44px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
-        <Icon
-          icon={Search01Icon}
-          className="h-4 w-4 shrink-0 text-gray-400"
-        />
+function Modal({ open, title, subtitle, onClose, children, footer, width = "max-w-3xl" }) {
+  useEffect(() => {
+    if (!open) return undefined
+    const closeOnEscape = (event) => event.key === "Escape" && onClose()
+    window.addEventListener("keydown", closeOnEscape)
+    return () => window.removeEventListener("keydown", closeOnEscape)
+  }, [onClose, open])
 
-        {clean(filters.q) ? (
-          <FilterChip
-            label="Search"
-            value={clean(filters.q)}
-            onClear={() => updateFilter("q", "")}
-          />
-        ) : null}
-
-        {filters.product !== "all" ? (
-          <FilterChip
-            label="Product"
-            value={productName || "Selected product"}
-            onClear={() => updateFilter("product", "all")}
-          />
-        ) : null}
-
-        {filters.warehouse !== "all" ? (
-          <FilterChip
-            label="Warehouse"
-            value={warehouseName || "Selected warehouse"}
-            onClear={() => updateFilter("warehouse", "all")}
-          />
-        ) : null}
-
-        {filters.location !== "all" ? (
-          <FilterChip
-            label="Location"
-            value={
-              filters.location === "none"
-                ? "No location"
-                : locationName || "Selected location"
-            }
-            onClear={() => updateFilter("location", "all")}
-          />
-        ) : null}
-
-        <FocusPlaceholderInput
-          className="min-w-[120px] flex-1 border-0 bg-transparent px-1 py-1 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:outline-none focus:ring-0"
-          value={filters.q}
-          onChange={(event) => updateFilter("q", event.target.value)}
-          placeholder="Search product name, SKU, or barcode..."
-          type="text"
-          aria-label="Search product stock"
-        />
-
-        <button
-          type="button"
-          onClick={onOpenFilters}
-          className={cn(
-            "inline-flex h-8 shrink-0 items-center gap-2 rounded-xl px-2.5 text-xs font-black transition",
-            activeFilterCount
-              ? "bg-indigo-600 text-white hover:bg-indigo-700"
-              : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
-          )}
-        >
-          <Icon icon={FilterIcon} className="h-3.5 w-3.5" />
-          Filters
-
-          {activeFilterCount ? (
-            <span className="rounded-full bg-white/20 px-1.5 text-[10px]">
-              {activeFilterCount}
-            </span>
-          ) : null}
-        </button>
-
-        {activeFilterCount ? (
-          <button
-            type="button"
-            onClick={resetFilters}
-            className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
-            title="Clear search and filters"
-            aria-label="Clear search and filters"
-          >
-            <Icon icon={Cancel01Icon} className="h-4 w-4" />
+  if (!open || typeof document === "undefined") return null
+  return createPortal(
+    <div className="fixed inset-0 z-[120] flex items-center justify-center overflow-y-auto bg-slate-900/40 p-4 backdrop-blur-sm">
+      <button className="fixed inset-0 cursor-default" type="button" aria-label="Close modal" onClick={onClose} />
+      <section className={`relative my-auto w-full ${width} overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-2xl`} role="dialog" aria-modal="true">
+        <header className="flex items-start justify-between gap-4 border-b border-gray-100 px-5 py-5 sm:px-6">
+          <div>
+            <h2 className="text-lg font-black text-gray-950">{title}</h2>
+            {subtitle ? <p className="mt-1 text-sm font-medium text-gray-500">{subtitle}</p> : null}
+          </div>
+          <button type="button" onClick={onClose} className="rounded-xl p-2 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700" aria-label="Close">
+            <FiX className="h-5 w-5" />
           </button>
-        ) : null}
-      </div>
-    </div>
-  )
-}
-
-function SummaryCards({ summary, onOpenLow, onOpenOut }) {
-  const toneStyles = {
-    indigo: {
-      icon: "bg-indigo-50 text-indigo-700 ring-indigo-600/10",
-      glow: "shadow-[0_18px_50px_-30px_rgba(79,70,229,0.40)]",
-    },
-    green: {
-      icon: "bg-emerald-50 text-emerald-700 ring-emerald-600/10",
-      glow: "shadow-[0_18px_50px_-30px_rgba(16,185,129,0.35)]",
-    },
-    sky: {
-      icon: "bg-sky-50 text-sky-700 ring-sky-600/10",
-      glow: "shadow-[0_18px_50px_-30px_rgba(14,165,233,0.35)]",
-    },
-    amber: {
-      icon: "bg-amber-50 text-amber-800 ring-amber-600/10",
-      glow: "shadow-[0_18px_50px_-30px_rgba(245,158,11,0.35)]",
-    },
-    rose: {
-      icon: "bg-rose-50 text-rose-700 ring-rose-600/10",
-      glow: "shadow-[0_18px_50px_-30px_rgba(244,63,94,0.35)]",
-    },
-    violet: {
-      icon: "bg-violet-50 text-violet-700 ring-violet-600/10",
-      glow: "shadow-[0_18px_50px_-30px_rgba(139,92,246,0.35)]",
-    },
-  }
-
-  const items = [
-    {
-      label: "Products",
-      value: formatNumber(summary.productCount, 0),
-      note: `${formatNumber(summary.stockRows, 0)} stock positions`,
-      tone: "indigo",
-      icon: FolderLibraryIcon,
-    },
-    {
-      label: "Warehouses",
-      value: formatNumber(summary.warehouseCount, 0),
-      note: "Included in current filters",
-      tone: "sky",
-      icon: DashboardSquare01Icon,
-    },
-    {
-      label: "On Hand",
-      value: formatNumber(summary.onHandQuantity),
-      note: `${formatNumber(summary.availableQuantity)} available`,
-      tone: "green",
-      icon: Package01Icon,
-    },
-    {
-      label: "Reserved",
-      value: formatNumber(summary.reservedQuantity),
-      note: `${formatNumber(summary.quarantineQuantity)} quarantined`,
-      tone: "violet",
-      icon: Package01Icon,
-    },
-    {
-      label: "Incoming",
-      value: formatNumber(summary.incomingQuantity),
-      note: `${formatNumber(summary.outgoingQuantity)} outgoing`,
-      tone: "sky",
-      icon: ArrowDataTransferHorizontalIcon,
-    },
-    {
-      label: "Inventory Value",
-      value: formatNumber(summary.inventoryValue),
-      note: "Valuation based on average cost",
-      tone: "green",
-      icon: DashboardSquare01Icon,
-    },
-    {
-      label: "Low Stock Positions",
-      value: formatNumber(summary.lowStockCount, 0),
-      note: "Open the low-stock view",
-      tone: "amber",
-      icon: Alert02Icon,
-      onClick: onOpenLow,
-    },
-    {
-      label: "Out of Stock Positions",
-      value: formatNumber(summary.outOfStockCount, 0),
-      note: "Open the out-of-stock view",
-      tone: "rose",
-      icon: Alert02Icon,
-      onClick: onOpenOut,
-    },
-  ]
-
-  return (
-    <div className="mb-6">
-      <div className="mb-3 flex items-end justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-extrabold tracking-tight text-gray-900">
-            Stock Summary
-          </h2>
-
-          <p className="mt-1 text-sm text-gray-500">
-            Current stock position, availability, movement, and replenishment indicators.
-          </p>
-        </div>
-
-        <span className="hidden text-xs font-semibold text-gray-400 sm:inline">
-          Live stock metrics
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {items.map((item, index) => {
-          const styles = toneStyles[item.tone] || toneStyles.indigo
-          const Component = item.onClick ? motion.button : motion.div
-
-          return (
-            <Component
-              key={item.label}
-              type={item.onClick ? "button" : undefined}
-              onClick={item.onClick}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.035, duration: 0.28 }}
-              className={cn(
-                card,
-                styles.glow,
-                "p-5 text-left",
-                item.onClick
-                  ? "cursor-pointer transition hover:-translate-y-0.5 hover:border-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
-                  : ""
-              )}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-gray-500">
-                    {item.label}
-                  </p>
-
-                  <p className="mt-1 truncate text-[1.65rem] font-extrabold leading-tight tracking-tight text-gray-900 tabular-nums sm:text-[1.75rem]">
-                    {item.value}
-                  </p>
-                </div>
-
-                <div
-                  className={cn(
-                    "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ring-1",
-                    styles.icon
-                  )}
-                >
-                  <Icon icon={item.icon} className="h-5 w-5" />
-                </div>
-              </div>
-
-              <p className="mt-3 truncate text-xs font-medium leading-5 text-gray-500">
-                {item.note}
-              </p>
-            </Component>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-export default function StockOverview() {
-  const currentUser = useMemo(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem("user") || "null")
-      return stored?.user || stored
-    } catch {
-      return null
-    }
-  }, [])
-
-  const canManage = hasPermission(
-    currentUser,
-    STOCK_MANAGE_PERMISSION
-  )
-
-  const canDelete = hasPermission(
-    currentUser,
-    STOCK_DELETE_PERMISSION
-  )
-
-  const [activeTab, setActiveTab] = useState("all")
-  const [stocks, setStocks] = useState([])
-  const [summary, setSummary] = useState(emptySummary)
-  const [products, setProducts] = useState([])
-  const [warehouses, setWarehouses] = useState([])
-  const [filterLocations, setFilterLocations] = useState([])
-  const [formLocations, setFormLocations] = useState([])
-
-  const [loading, setLoading] = useState(false)
-  const [loadingMore, setLoadingMore] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [openingStockId, setOpeningStockId] = useState("")
-  const [loadingDetailsId, setLoadingDetailsId] = useState("")
-  const [filterOpen, setFilterOpen] = useState(false)
-  const [nextCursor, setNextCursor] = useState(null)
-  const [hasMore, setHasMore] = useState(false)
-
-  const [initializeModal, setInitializeModal] = useState(false)
-  const [initializeForm, setInitializeForm] = useState(
-    emptyInitializeForm
-  )
-  const [initializeError, setInitializeError] = useState("")
-
-  const [settingsModal, setSettingsModal] = useState({
-    open: false,
-    item: null,
-  })
-  const [settingsForm, setSettingsForm] = useState(
-    emptySettingsForm
-  )
-  const [settingsError, setSettingsError] = useState("")
-
-  const [detailsModal, setDetailsModal] = useState({
-    open: false,
-    stock: null,
-  })
-
-  const [filters, setFilters] = useState({
-    q: "",
-    product: "all",
-    warehouse: "all",
-    location: "all",
-    status: "all",
-    hasStock: "all",
-  })
-
-  const productMap = useMemo(
-    () =>
-      new Map(
-        products
-          .filter((item) => item?._id)
-          .map((item) => [String(item._id), item])
-      ),
-    [products]
-  )
-
-  const warehouseMap = useMemo(
-    () =>
-      new Map(
-        warehouses
-          .filter((item) => item?._id)
-          .map((item) => [String(item._id), item])
-      ),
-    [warehouses]
-  )
-
-  const filterLocationMap = useMemo(
-    () =>
-      new Map(
-        filterLocations
-          .filter((item) => item?._id)
-          .map((item) => [String(item._id), item])
-      ),
-    [filterLocations]
-  )
-
-  const selectedProductName = useMemo(() => {
-    if (filters.product === "all") return ""
-
-    return relationLabel(
-      productMap.get(String(filters.product)),
-      "Selected product"
-    )
-  }, [filters.product, productMap])
-
-  const selectedWarehouseName = useMemo(() => {
-    if (filters.warehouse === "all") return ""
-
-    return relationLabel(
-      warehouseMap.get(String(filters.warehouse)),
-      "Selected warehouse"
-    )
-  }, [filters.warehouse, warehouseMap])
-
-  const selectedLocationName = useMemo(() => {
-    if (
-      filters.location === "all" ||
-      filters.location === "none"
-    ) {
-      return ""
-    }
-
-    return relationLabel(
-      filterLocationMap.get(String(filters.location)),
-      "Selected location"
-    )
-  }, [filters.location, filterLocationMap])
-
-  const activeFilterCount = useMemo(() => {
-    let count = 0
-
-    if (clean(filters.q)) count += 1
-    if (filters.product !== "all") count += 1
-    if (filters.warehouse !== "all") count += 1
-    if (filters.location !== "all") count += 1
-
-    if (activeTab === "all" && filters.status !== "all") {
-      count += 1
-    }
-
-    if (activeTab === "all" && filters.hasStock !== "all") {
-      count += 1
-    }
-
-    return count
-  }, [activeTab, filters])
-
-  const updateFilter = (key, value) => {
-    setFilters((previous) => {
-      const next = {
-        ...previous,
-        [key]: value,
-      }
-
-      if (key === "warehouse") {
-        next.location = "all"
-      }
-
-      return next
-    })
-  }
-
-  const resetFilters = () => {
-    setFilters({
-      q: "",
-      product: "all",
-      warehouse: "all",
-      location: "all",
-      status: "all",
-      hasStock: "all",
-    })
-  }
-
-  const loadSetupOptions = async () => {
-    try {
-      const [productData, warehouseData] = await Promise.all([
-        api(
-          "/inventory/products?status=active&productType=inventory&trackInventory=true&limit=100"
-        ),
-        api("/inventory/warehouses/options?limit=100"),
-      ])
-
-      setProducts(productData.products || [])
-      setWarehouses(warehouseData.warehouses || [])
-    } catch (error) {
-      toast.error(
-        error.message || "Failed to load inventory options"
-      )
-    }
-  }
-
-  const loadLocations = async (
-    warehouseId,
-    target = "filter"
-  ) => {
-    if (!warehouseId || warehouseId === "all") {
-      if (target === "form") setFormLocations([])
-      else setFilterLocations([])
-      return []
-    }
-
-    try {
-      const data = await api(
-        `/inventory/warehouse-locations/options?warehouse=${encodeURIComponent(
-          warehouseId
-        )}&limit=200`
-      )
-
-      const rows = data.locations || []
-
-      if (target === "form") setFormLocations(rows)
-      else setFilterLocations(rows)
-
-      return rows
-    } catch (error) {
-      if (target === "form") setFormLocations([])
-      else setFilterLocations([])
-
-      toast.error(
-        error.message || "Failed to load warehouse locations"
-      )
-
-      return []
-    }
-  }
-
-  const buildListParams = ({ append = false } = {}) => {
-    const params = new URLSearchParams({
-      limit: "50",
-    })
-
-    if (clean(filters.q)) {
-      params.set("q", clean(filters.q))
-    }
-
-    if (filters.product !== "all") {
-      params.set("product", filters.product)
-    }
-
-    if (filters.warehouse !== "all") {
-      params.set("warehouse", filters.warehouse)
-    }
-
-    if (filters.location !== "all") {
-      params.set("location", filters.location)
-    }
-
-    if (activeTab === "archived") {
-      params.set("status", "archived")
-    } else if (
-      activeTab === "all" &&
-      filters.status !== "all"
-    ) {
-      params.set("status", filters.status)
-    }
-
-    if (activeTab === "low") {
-      params.set("lowStock", "true")
-    }
-
-    if (activeTab === "out") {
-      params.set("outOfStock", "true")
-    }
-
-    if (
-      activeTab === "all" &&
-      filters.hasStock === "true"
-    ) {
-      params.set("hasStock", "true")
-    }
-
-    if (append && nextCursor) {
-      params.set("cursor", nextCursor)
-    }
-
-    return params
-  }
-
-  const buildSummaryParams = () => {
-    const params = new URLSearchParams()
-
-    if (filters.product !== "all") {
-      params.set("product", filters.product)
-    }
-
-    if (filters.warehouse !== "all") {
-      params.set("warehouse", filters.warehouse)
-    }
-
-    if (
-      filters.location !== "all" &&
-      filters.location !== "none"
-    ) {
-      params.set("location", filters.location)
-    }
-
-    return params
-  }
-
-  const loadStocks = async ({
-    append = false,
-    showLoader = true,
-    signal,
-  } = {}) => {
-    if (append) setLoadingMore(true)
-    else if (showLoader) setLoading(true)
-
-    try {
-      const data = await api(
-        `/inventory/stocks?${buildListParams({
-          append,
-        }).toString()}`,
-        { signal }
-      )
-
-      const incoming = data.stocks || []
-
-      setStocks((previous) =>
-        append ? [...previous, ...incoming] : incoming
-      )
-
-      setHasMore(Boolean(data.hasMore))
-      setNextCursor(data.nextCursor || null)
-    } catch (error) {
-      if (error?.name !== "AbortError") {
-        toast.error(error.message || "Failed to load stock overview")
-      }
-    } finally {
-      if (append) setLoadingMore(false)
-      else if (showLoader) setLoading(false)
-    }
-  }
-
-  const loadSummary = async ({ signal } = {}) => {
-    try {
-      const data = await api(
-        `/inventory/stocks/summary?${buildSummaryParams().toString()}`,
-        { signal }
-      )
-
-      setSummary({
-        ...emptySummary,
-        ...(data.summary || {}),
-      })
-    } catch (error) {
-      if (error?.name !== "AbortError") {
-        toast.error(error.message || "Failed to load stock summary")
-      }
-    }
-  }
-
-  useEffect(() => {
-    loadSetupOptions()
-  }, [])
-
-  useEffect(() => {
-    loadLocations(filters.warehouse, "filter")
-  }, [filters.warehouse])
-
-  useEffect(() => {
-    const controller = new AbortController()
-
-    const timer = window.setTimeout(() => {
-      Promise.all([
-        loadStocks({ signal: controller.signal }),
-        loadSummary({ signal: controller.signal }),
-      ])
-    }, 250)
-
-    return () => {
-      window.clearTimeout(timer)
-      controller.abort()
-    }
-  }, [
-    activeTab,
-    filters.q,
-    filters.product,
-    filters.warehouse,
-    filters.location,
-    filters.status,
-    filters.hasStock,
-  ])
-
-  const refresh = async () => {
-    await Promise.all([
-      loadSetupOptions(),
-      loadStocks(),
-      loadSummary(),
-    ])
-  }
-
-  const switchTab = (tab) => {
-    setActiveTab(tab)
-    setFilterOpen(false)
-    setNextCursor(null)
-    setHasMore(false)
-
-    setFilters((previous) => ({
-      ...previous,
-      status: "all",
-      hasStock: "all",
-    }))
-  }
-
-  const openInitializeModal = async () => {
-    const warehouseId =
-      filters.warehouse !== "all" ? filters.warehouse : ""
-
-    setInitializeError("")
-    setInitializeForm({
-      ...emptyInitializeForm,
-      product:
-        filters.product !== "all" ? filters.product : "",
-      warehouse: warehouseId,
-    })
-    setInitializeModal(true)
-
-    await loadLocations(warehouseId, "form")
-  }
-
-  const closeInitializeModal = () => {
-    if (saving) return
-
-    setInitializeModal(false)
-    setInitializeForm(emptyInitializeForm)
-    setInitializeError("")
-    setFormLocations([])
-  }
-
-  const updateInitializeWarehouse = async (warehouseId) => {
-    setInitializeForm((previous) => ({
-      ...previous,
-      warehouse: warehouseId,
-      location: "",
-    }))
-
-    await loadLocations(warehouseId, "form")
-  }
-
-  const initializeStock = async (event) => {
-    event.preventDefault()
-    setInitializeError("")
-
-    const reorderLevel = Number(
-      initializeForm.reorderLevel || 0
-    )
-    const minimumStock = Number(
-      initializeForm.minimumStock || 0
-    )
-    const maximumStock = Number(
-      initializeForm.maximumStock || 0
-    )
-
-    if (!initializeForm.product) {
-      return setInitializeError("Product is required.")
-    }
-
-    if (!initializeForm.warehouse) {
-      return setInitializeError("Warehouse is required.")
-    }
-
-    for (const [label, value] of [
-      ["Reorder level", reorderLevel],
-      ["Minimum stock", minimumStock],
-      ["Maximum stock", maximumStock],
-    ]) {
-      if (!Number.isFinite(value) || value < 0) {
-        return setInitializeError(
-          `${label} must be a valid non-negative number.`
-        )
-      }
-    }
-
-    if (maximumStock > 0 && minimumStock > maximumStock) {
-      return setInitializeError(
-        "Maximum stock must be greater than or equal to minimum stock."
-      )
-    }
-
-    if (maximumStock > 0 && reorderLevel > maximumStock) {
-      return setInitializeError(
-        "Reorder level cannot be greater than maximum stock."
-      )
-    }
-
-    setSaving(true)
-
-    try {
-      const data = await api("/inventory/stocks/initialize", {
-        method: "POST",
-        body: JSON.stringify({
-          product: initializeForm.product,
-          warehouse: initializeForm.warehouse,
-          location: initializeForm.location || null,
-          reorderLevel,
-          minimumStock,
-          maximumStock,
-        }),
-      })
-
-      toast.success(
-        data.message || "Stock position initialized"
-      )
-
-      setInitializeModal(false)
-      setInitializeForm(emptyInitializeForm)
-      setInitializeError("")
-      setFormLocations([])
-
-      await Promise.all([loadStocks(), loadSummary()])
-    } catch (error) {
-      setInitializeError(
-        error.message || "Failed to initialize stock position."
-      )
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const openSettingsModal = async (stock) => {
-    if (stock.status === "archived") {
-      toast.error(
-        "Restore the archived stock record before editing it."
-      )
-      return
-    }
-
-    setOpeningStockId(stock._id)
-    setSettingsError("")
-
-    try {
-      const data = await api(`/inventory/stocks/${stock._id}`)
-      const item = data.stock
-
-      setSettingsForm({
-        reorderLevel: String(item.reorderLevel ?? 0),
-        minimumStock: String(item.minimumStock ?? 0),
-        maximumStock: String(item.maximumStock ?? 0),
-        lastCountedAt: toDateInput(item.lastCountedAt),
-        status: item.status || "active",
-      })
-
-      setSettingsModal({
-        open: true,
-        item,
-      })
-    } catch (error) {
-      toast.error(
-        error.message || "Failed to load stock settings"
-      )
-    } finally {
-      setOpeningStockId("")
-    }
-  }
-
-  const closeSettingsModal = () => {
-    if (saving) return
-
-    setSettingsModal({
-      open: false,
-      item: null,
-    })
-    setSettingsForm(emptySettingsForm)
-    setSettingsError("")
-  }
-
-  const saveSettings = async (event) => {
-    event.preventDefault()
-    setSettingsError("")
-
-    const reorderLevel = Number(settingsForm.reorderLevel || 0)
-    const minimumStock = Number(settingsForm.minimumStock || 0)
-    const maximumStock = Number(settingsForm.maximumStock || 0)
-
-    for (const [label, value] of [
-      ["Reorder level", reorderLevel],
-      ["Minimum stock", minimumStock],
-      ["Maximum stock", maximumStock],
-    ]) {
-      if (!Number.isFinite(value) || value < 0) {
-        return setSettingsError(
-          `${label} must be a valid non-negative number.`
-        )
-      }
-    }
-
-    if (maximumStock > 0 && minimumStock > maximumStock) {
-      return setSettingsError(
-        "Maximum stock must be greater than or equal to minimum stock."
-      )
-    }
-
-    if (maximumStock > 0 && reorderLevel > maximumStock) {
-      return setSettingsError(
-        "Reorder level cannot be greater than maximum stock."
-      )
-    }
-
-    if (
-      settingsForm.status === "inactive" &&
-      hasAnyQuantity(settingsModal.item)
-    ) {
-      return setSettingsError(
-        "A stock position with balances or pending quantities cannot be deactivated."
-      )
-    }
-
-    setSaving(true)
-
-    try {
-      await api(
-        `/inventory/stocks/${settingsModal.item._id}/settings`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({
-            reorderLevel,
-            minimumStock,
-            maximumStock,
-            lastCountedAt:
-              settingsForm.lastCountedAt || null,
-            status: settingsForm.status,
-          }),
-        }
-      )
-
-      toast.success("Stock settings updated")
-
-      setSettingsModal({
-        open: false,
-        item: null,
-      })
-      setSettingsForm(emptySettingsForm)
-      setSettingsError("")
-
-      await Promise.all([loadStocks(), loadSummary()])
-    } catch (error) {
-      setSettingsError(
-        error.message || "Failed to update stock settings."
-      )
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const openDetailsModal = async (stock) => {
-    setLoadingDetailsId(stock._id)
-
-    try {
-      const data = await api(`/inventory/stocks/${stock._id}`)
-
-      setDetailsModal({
-        open: true,
-        stock: data.stock,
-      })
-    } catch (error) {
-      toast.error(
-        error.message || "Failed to load stock position details"
-      )
-    } finally {
-      setLoadingDetailsId("")
-    }
-  }
-
-  const archiveStock = async (stock) => {
-    const confirmed = window.confirm(
-      `Archive the stock position for "${stock.product?.name || "this product"}"? Only a zero-balance position with no reserved, quarantine, incoming, or outgoing quantity can be archived.`
-    )
-
-    if (!confirmed) return
-
-    try {
-      await api(`/inventory/stocks/${stock._id}`, {
-        method: "DELETE",
-      })
-
-      toast.success("Zero-balance stock position archived")
-      await Promise.all([loadStocks(), loadSummary()])
-    } catch (error) {
-      toast.error(
-        error.message || "Failed to archive stock position"
-      )
-    }
-  }
-
-  const restoreStock = async (stock) => {
-    try {
-      await api(`/inventory/stocks/${stock._id}/restore`, {
-        method: "PATCH",
-      })
-
-      toast.success("Stock position restored as inactive")
-      await Promise.all([loadStocks(), loadSummary()])
-    } catch (error) {
-      toast.error(
-        error.message || "Failed to restore stock position"
-      )
-    }
-  }
-
-  return (
-    <div className={`${shell} p-4 sm:p-6 lg:p-8`}>
-      <Toaster position="top-right" />
-
-      <section className={cn(card, "mb-6 p-4 sm:p-5")}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
-              <Icon
-                icon={FolderLibraryIcon}
-                className="h-5 w-5"
-                strokeWidth={1.9}
-              />
-            </div>
-
-            <div className="min-w-0">
-              <h1 className="truncate text-2xl font-extrabold tracking-tight text-gray-900">
-                Stock Overview
-              </h1>
-
-              <p className="mt-0.5 text-sm text-gray-500">
-                Review live stock positions, availability, valuation,
-                thresholds, and warehouse-level balances.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              className={cn(button, ghostButton)}
-              onClick={refresh}
-              disabled={loading}
-              type="button"
-            >
-              <Icon
-                icon={RefreshIcon}
-                className={cn(
-                  "h-4 w-4",
-                  loading ? "animate-spin" : ""
-                )}
-              />
-              Refresh
-            </button>
-
-            {canManage && activeTab !== "archived" ? (
-              <button
-                className={cn(button, primaryButton)}
-                onClick={openInitializeModal}
-                type="button"
-              >
-                <Icon icon={Add01Icon} className="h-4 w-4" />
-                Initialize Position
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <HeaderSearchFilters
-            activeTab={activeTab}
-            filters={filters}
-            updateFilter={updateFilter}
-            resetFilters={resetFilters}
-            activeFilterCount={activeFilterCount}
-            productName={selectedProductName}
-            warehouseName={selectedWarehouseName}
-            locationName={selectedLocationName}
-            onOpenFilters={() => setFilterOpen(true)}
-          />
-
-          <p className="shrink-0 text-sm font-bold text-gray-500">
-            Showing{" "}
-            <span className="text-gray-900">{stocks.length}</span>{" "}
-            stock positions
-            {hasMore ? "+" : ""}
-          </p>
-        </div>
+        </header>
+        <div className="max-h-[calc(100vh-13rem)] overflow-y-auto px-5 py-5 sm:px-6">{children}</div>
+        {footer ? <footer className="border-t border-gray-100 px-5 py-4 sm:px-6">{footer}</footer> : null}
       </section>
-
-      <SummaryCards
-        summary={summary}
-        onOpenLow={() => switchTab("low")}
-        onOpenOut={() => switchTab("out")}
-      />
-
-      {!canManage ? (
-        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
-          You have view-only stock access. Initialization, settings,
-          archive, and restore controls are hidden.
-        </div>
-      ) : null}
-
-      <div className={`${card} mb-6 p-2`}>
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-          {[
-            {
-              key: "all",
-              label: "All Stock",
-              icon: FolderLibraryIcon,
-            },
-            {
-              key: "low",
-              label: "Low Stock",
-              icon: Alert02Icon,
-            },
-            {
-              key: "out",
-              label: "Out of Stock",
-              icon: Alert02Icon,
-            },
-            {
-              key: "archived",
-              label: "Archived",
-              icon: Archive02Icon,
-            },
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              className={cn(
-                "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-xs font-extrabold transition sm:px-5 sm:text-sm",
-                activeTab === tab.key
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "text-gray-700 hover:bg-gray-50"
-              )}
-              onClick={() => switchTab(tab.key)}
-              type="button"
-            >
-              <Icon icon={tab.icon} className="h-4 w-4" />
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <StockList
-        stocks={stocks}
-        loading={loading}
-        loadingMore={loadingMore}
-        hasMore={hasMore}
-        openingStockId={openingStockId}
-        loadingDetailsId={loadingDetailsId}
-        onView={openDetailsModal}
-        onEdit={openSettingsModal}
-        onArchive={archiveStock}
-        onRestore={restoreStock}
-        onLoadMore={() => loadStocks({ append: true })}
-        canManage={canManage}
-        canDelete={canDelete}
-      />
-
-      <FilterModal
-        open={filterOpen}
-        onClose={() => setFilterOpen(false)}
-        activeTab={activeTab}
-        filters={filters}
-        updateFilter={updateFilter}
-        resetFilters={resetFilters}
-        activeFilterCount={activeFilterCount}
-        products={products}
-        warehouses={warehouses}
-        locations={filterLocations}
-        selectedProductName={selectedProductName}
-        selectedWarehouseName={selectedWarehouseName}
-        selectedLocationName={selectedLocationName}
-      />
-
-      <InitializeModal
-        open={initializeModal}
-        form={initializeForm}
-        setForm={setInitializeForm}
-        products={products}
-        warehouses={warehouses}
-        locations={formLocations}
-        error={initializeError}
-        saving={saving}
-        onClose={closeInitializeModal}
-        onSubmit={initializeStock}
-        onWarehouseChange={updateInitializeWarehouse}
-      />
-
-      <SettingsModal
-        state={settingsModal}
-        form={settingsForm}
-        setForm={setSettingsForm}
-        error={settingsError}
-        saving={saving}
-        onClose={closeSettingsModal}
-        onSubmit={saveSettings}
-      />
-
-      <StockDetailsModal
-        state={detailsModal}
-        onClose={() =>
-          setDetailsModal({
-            open: false,
-            stock: null,
-          })
-        }
-      />
-    </div>
+    </div>,
+    document.body
   )
 }
 
-function FilterModal({
-  open,
-  onClose,
-  activeTab,
-  filters,
-  updateFilter,
-  resetFilters,
-  activeFilterCount,
-  products,
-  warehouses,
-  locations,
-  selectedProductName,
-  selectedWarehouseName,
-  selectedLocationName,
-}) {
+function Field({ label, required = false, children }) {
   return (
-    <ModalShell
-      open={open}
-      onClose={onClose}
-      title="Stock filters"
-      subtitle="Filter stock positions by product, warehouse, location, status, and balance."
-      icon={<Icon icon={FilterIcon} className="h-5 w-5" />}
-      maxWidthClass="max-w-6xl"
-      footer={
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <span
-            className={cn(
-              chip,
-              activeFilterCount
-                ? "bg-indigo-50 text-indigo-700 ring-indigo-600/10"
-                : "bg-gray-100 text-gray-600 ring-gray-600/10"
-            )}
-          >
-            {activeFilterCount} active filter
-            {activeFilterCount === 1 ? "" : "s"}
-          </span>
-
-          <div className="flex justify-end gap-2">
-            <button
-              className={cn(button, ghostButton)}
-              onClick={resetFilters}
-              type="button"
-            >
-              Reset
-            </button>
-
-            <button
-              className={cn(button, primaryButton)}
-              onClick={onClose}
-              type="button"
-            >
-              <Icon icon={Tick02Icon} className="h-4 w-4" />
-              Apply filters
-            </button>
-          </div>
-        </div>
-      }
-    >
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Field label="Product">
-          <select
-            className={input}
-            value={filters.product}
-            onChange={(event) =>
-              updateFilter("product", event.target.value)
-            }
-          >
-            <option value="all">All products</option>
-
-            {filters.product !== "all" &&
-            !products.some(
-              (product) =>
-                String(product._id) === String(filters.product)
-            ) ? (
-              <option value={filters.product}>
-                {selectedProductName || "Selected product"}
-              </option>
-            ) : null}
-
-            {products.map((product) => (
-              <option key={product._id} value={product._id}>
-                {relationLabel(product)}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <Field label="Warehouse">
-          <select
-            className={input}
-            value={filters.warehouse}
-            onChange={(event) =>
-              updateFilter("warehouse", event.target.value)
-            }
-          >
-            <option value="all">All warehouses</option>
-
-            {filters.warehouse !== "all" &&
-            !warehouses.some(
-              (warehouse) =>
-                String(warehouse._id) ===
-                String(filters.warehouse)
-            ) ? (
-              <option value={filters.warehouse}>
-                {selectedWarehouseName || "Selected warehouse"}
-              </option>
-            ) : null}
-
-            {warehouses.map((warehouse) => (
-              <option key={warehouse._id} value={warehouse._id}>
-                {relationLabel(warehouse)}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <Field
-          label="Location"
-          hint="Choose a warehouse first."
-        >
-          <select
-            className={input}
-            value={filters.location}
-            onChange={(event) =>
-              updateFilter("location", event.target.value)
-            }
-            disabled={filters.warehouse === "all"}
-          >
-            <option value="all">All locations</option>
-            <option value="none">No location</option>
-
-            {filters.location !== "all" &&
-            filters.location !== "none" &&
-            !locations.some(
-              (location) =>
-                String(location._id) ===
-                String(filters.location)
-            ) ? (
-              <option value={filters.location}>
-                {selectedLocationName || "Selected location"}
-              </option>
-            ) : null}
-
-            {locations.map((location) => (
-              <option key={location._id} value={location._id}>
-                {relationLabel(location)}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        {activeTab === "all" ? (
-          <>
-            <Field label="Status">
-              <select
-                className={input}
-                value={filters.status}
-                onChange={(event) =>
-                  updateFilter("status", event.target.value)
-                }
-              >
-                <option value="all">Active + Inactive</option>
-
-                {STOCK_STATUSES.map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="Balance">
-              <select
-                className={input}
-                value={filters.hasStock}
-                onChange={(event) =>
-                  updateFilter("hasStock", event.target.value)
-                }
-              >
-                <option value="all">All balances</option>
-                <option value="true">
-                  Positive on-hand quantity
-                </option>
-              </select>
-            </Field>
-          </>
-        ) : (
-          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-            <p className="text-sm font-black text-gray-900">
-              {activeTab === "low"
-                ? "Low stock view"
-                : activeTab === "out"
-                  ? "Out-of-stock view"
-                  : "Archived view"}
-            </p>
-
-            <p className="mt-1 text-xs font-semibold text-gray-500">
-              The selected tab applies its stock-state filter
-              automatically.
-            </p>
-          </div>
-        )}
-
-        <div className="md:col-span-2 lg:col-span-3 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
-          <p className="text-sm font-black text-gray-900">
-            Active filters
-          </p>
-
-          <ActiveFilterChips
-            activeTab={activeTab}
-            filters={filters}
-            updateFilter={updateFilter}
-            resetFilters={resetFilters}
-            productName={selectedProductName}
-            warehouseName={selectedWarehouseName}
-            locationName={selectedLocationName}
-          />
-        </div>
-      </div>
-    </ModalShell>
+    <label className="block">
+      <span className="mb-2 block text-sm font-bold text-gray-600">
+        {label}{required ? <span className="ml-1 text-rose-500">*</span> : null}
+      </span>
+      {children}
+    </label>
   )
 }
 
-function StockList({
-  stocks,
-  loading,
-  loadingMore,
-  hasMore,
-  openingStockId,
-  loadingDetailsId,
-  onView,
-  onEdit,
-  onArchive,
-  onRestore,
-  onLoadMore,
-  canManage,
-  canDelete,
-}) {
+function StatusBadge({ status }) {
+  const active = status === "active" || status === "completed" || status === "accepted"
+  const pending = ["waiting", "processing", "pending"].includes(status)
   return (
-    <div>
-      <div className={cn(card, "overflow-hidden")}>
-        <div className="hidden max-h-[680px] overflow-auto xl:block">
-          <table className="min-w-[1650px] w-full text-left">
-            <thead className="sticky top-0 z-10 bg-gray-50 text-xs font-black uppercase text-gray-500">
-              <tr>
-                <th className="px-5 py-3">Product</th>
-                <th className="px-5 py-3">Warehouse</th>
-                <th className="px-5 py-3">Location</th>
-                <th className="px-5 py-3">On Hand</th>
-                <th className="px-5 py-3">Available</th>
-                <th className="px-5 py-3">Reserved</th>
-                <th className="px-5 py-3">Quarantine</th>
-                <th className="px-5 py-3">Incoming</th>
-                <th className="px-5 py-3">Outgoing</th>
-                <th className="px-5 py-3">Avg. Cost</th>
-                <th className="px-5 py-3">Value</th>
-                <th className="px-5 py-3">Threshold</th>
-                <th className="px-5 py-3">Health</th>
-                <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3">Last Movement</th>
-                <th className="sticky right-0 bg-gray-50 px-5 py-3 text-right">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-gray-100">
-              {stocks.map((stock) => (
-                <tr
-                  key={stock._id}
-                  className="group bg-white transition hover:bg-gray-50/70"
-                >
-                  <td className="px-5 py-4">
-                    <div className="flex min-w-[245px] items-center gap-3">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-gray-100 bg-gray-50">
-                        {stock.product?.imageUrl ? (
-                          <img
-                            src={stock.product.imageUrl}
-                            alt=""
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <span className="text-xs font-black text-indigo-600">
-                            {(stock.product?.sku || "P")
-                              .slice(0, 3)
-                              .toUpperCase()}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-black text-gray-900">
-                          {stock.product?.name || "Unknown product"}
-                        </p>
-
-                        <p className="mt-0.5 text-xs font-black text-indigo-700">
-                          {stock.product?.sku || "-"}
-                        </p>
-
-                        <p className="mt-0.5 truncate text-xs font-semibold text-gray-500">
-                          {stock.product?.barcode || "No barcode"}
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <p className="min-w-[170px] text-sm font-black text-gray-800">
-                      {stock.warehouse?.name || "Unknown warehouse"}
-                    </p>
-
-                    <p className="mt-0.5 text-xs font-semibold text-gray-500">
-                      {stock.warehouse?.code || "-"}
-                    </p>
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <p className="min-w-[150px] text-sm font-black text-gray-800">
-                      {stock.location?.name || "No location"}
-                    </p>
-
-                    <p className="mt-0.5 text-xs font-semibold text-gray-500">
-                      {stock.location?.code ||
-                        stock.location?.locationType ||
-                        "Warehouse level"}
-                    </p>
-                  </td>
-
-                  <QuantityCell value={stock.onHandQuantity} strong />
-                  <QuantityCell
-                    value={stock.availableQuantity}
-                    strong
-                    negative={
-                      Number(stock.availableQuantity || 0) <= 0
-                    }
-                  />
-                  <QuantityCell value={stock.reservedQuantity} />
-                  <QuantityCell value={stock.quarantineQuantity} />
-                  <QuantityCell value={stock.incomingQuantity} />
-                  <QuantityCell value={stock.outgoingQuantity} />
-
-                  <td className="px-5 py-4 text-sm font-black text-gray-700">
-                    {formatMoney(stock.averageCost)}
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-black text-gray-900">
-                    {formatMoney(stock.inventoryValue)}
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <div className="min-w-[150px] text-xs font-semibold text-gray-600">
-                      <p>
-                        Reorder:{" "}
-                        <span className="font-black text-gray-800">
-                          {formatNumber(stock.reorderLevel)}
-                        </span>
-                      </p>
-
-                      <p className="mt-1">
-                        Min / Max:{" "}
-                        <span className="font-black text-gray-800">
-                          {formatNumber(stock.minimumStock)} /{" "}
-                          {formatNumber(stock.maximumStock)}
-                        </span>
-                      </p>
-                    </div>
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <HealthBadge stock={stock} />
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <StatusBadge value={stock.status} />
-                  </td>
-
-                  <td className="px-5 py-4 text-sm font-semibold text-gray-600">
-                    {formatDate(stock.lastMovementAt, true)}
-                  </td>
-
-                  <td className="sticky right-0 bg-white px-5 py-4 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-gray-50/70">
-                    <StockActions
-                      stock={stock}
-                      opening={
-                        String(openingStockId) === String(stock._id)
-                      }
-                      loadingDetails={
-                        String(loadingDetailsId) ===
-                        String(stock._id)
-                      }
-                      onView={onView}
-                      onEdit={onEdit}
-                      onArchive={onArchive}
-                      onRestore={onRestore}
-                      canManage={canManage}
-                      canDelete={canDelete}
-                    />
-                  </td>
-                </tr>
-              ))}
-
-              {!stocks.length ? (
-                <tr>
-                  <td
-                    colSpan={16}
-                    className="px-5 py-14 text-center text-sm font-bold text-gray-500"
-                  >
-                    {loading
-                      ? "Loading stock positions..."
-                      : "No stock positions found."}
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="divide-y divide-gray-100 xl:hidden">
-          {stocks.map((stock) => (
-            <StockMobileCard
-              key={stock._id}
-              stock={stock}
-              opening={
-                String(openingStockId) === String(stock._id)
-              }
-              loadingDetails={
-                String(loadingDetailsId) === String(stock._id)
-              }
-              onView={onView}
-              onEdit={onEdit}
-              onArchive={onArchive}
-              onRestore={onRestore}
-              canManage={canManage}
-              canDelete={canDelete}
-            />
-          ))}
-
-          {!stocks.length ? (
-            <div className="px-5 py-14 text-center text-sm font-bold text-gray-500">
-              {loading
-                ? "Loading stock positions..."
-                : "No stock positions found."}
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      {hasMore ? (
-        <div className="mt-4 flex justify-center">
-          <button
-            className={cn(button, ghostButton, "min-w-[150px]")}
-            onClick={onLoadMore}
-            disabled={loadingMore}
-            type="button"
-          >
-            <Icon
-              icon={RefreshIcon}
-              className={cn(
-                "h-4 w-4",
-                loadingMore ? "animate-spin" : ""
-              )}
-            />
-
-            {loadingMore ? "Loading..." : "Load more"}
-          </button>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function QuantityCell({ value, strong = false, negative = false }) {
-  return (
-    <td
-      className={cn(
-        "px-5 py-4 text-sm",
-        strong ? "font-black" : "font-bold",
-        negative ? "text-rose-700" : "text-gray-700"
-      )}
-    >
-      {formatNumber(value)}
-    </td>
-  )
-}
-
-function StockMobileCard({
-  stock,
-  opening,
-  loadingDetails,
-  onView,
-  onEdit,
-  onArchive,
-  onRestore,
-  canManage,
-  canDelete,
-}) {
-  return (
-    <article className="p-4">
-      <div className="flex items-start gap-3">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-indigo-100 bg-indigo-50">
-          {stock.product?.imageUrl ? (
-            <img
-              src={stock.product.imageUrl}
-              alt=""
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <span className="text-xs font-black text-indigo-700">
-              {(stock.product?.sku || "P")
-                .slice(0, 3)
-                .toUpperCase()}
-            </span>
-          )}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div className="min-w-0">
-              <h3 className="truncate text-sm font-black text-gray-900">
-                {stock.product?.name || "Unknown product"}
-              </h3>
-
-              <p className="mt-0.5 text-xs font-black text-indigo-700">
-                {stock.product?.sku || "-"}
-              </p>
-            </div>
-
-            <StatusBadge value={stock.status} />
-          </div>
-
-          <div className="mt-2">
-            <HealthBadge stock={stock} />
-          </div>
-
-          <div className="mt-3 rounded-xl bg-gray-50 p-3">
-            <div className="flex flex-wrap justify-between gap-2 text-xs">
-              <span className="font-semibold text-gray-500">
-                {relationLabel(
-                  stock.warehouse,
-                  "Unknown warehouse"
-                )}
-              </span>
-
-              <span className="font-semibold text-gray-500">
-                {relationLabel(stock.location, "No location")}
-              </span>
-            </div>
-
-            <div className="mt-3 grid grid-cols-3 gap-3">
-              <MiniMetric
-                label="On Hand"
-                value={stock.onHandQuantity}
-              />
-              <MiniMetric
-                label="Available"
-                value={stock.availableQuantity}
-                danger={Number(stock.availableQuantity || 0) <= 0}
-              />
-              <MiniMetric
-                label="Reserved"
-                value={stock.reservedQuantity}
-              />
-              <MiniMetric
-                label="Quarantine"
-                value={stock.quarantineQuantity}
-              />
-              <MiniMetric
-                label="Incoming"
-                value={stock.incomingQuantity}
-              />
-              <MiniMetric
-                label="Outgoing"
-                value={stock.outgoingQuantity}
-              />
-            </div>
-          </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
-            <div>
-              <p className="font-bold text-gray-400">Average Cost</p>
-              <p className="mt-1 font-black text-gray-700">
-                {formatMoney(stock.averageCost)}
-              </p>
-            </div>
-
-            <div>
-              <p className="font-bold text-gray-400">Inventory Value</p>
-              <p className="mt-1 font-black text-gray-700">
-                {formatMoney(stock.inventoryValue)}
-              </p>
-            </div>
-
-            <div>
-              <p className="font-bold text-gray-400">Reorder Level</p>
-              <p className="mt-1 font-black text-gray-700">
-                {formatNumber(stock.reorderLevel)}
-              </p>
-            </div>
-
-            <div>
-              <p className="font-bold text-gray-400">Last Movement</p>
-              <p className="mt-1 font-black text-gray-700">
-                {formatDate(stock.lastMovementAt)}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-3 border-t border-gray-100 pt-3">
-            <StockActions
-              stock={stock}
-              opening={opening}
-              loadingDetails={loadingDetails}
-              onView={onView}
-              onEdit={onEdit}
-              onArchive={onArchive}
-              onRestore={onRestore}
-              canManage={canManage}
-              canDelete={canDelete}
-              mobile
-            />
-          </div>
-        </div>
-      </div>
-    </article>
-  )
-}
-
-function MiniMetric({ label, value, danger = false }) {
-  return (
-    <div>
-      <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">
-        {label}
-      </p>
-
-      <p
-        className={cn(
-          "mt-1 text-sm font-black",
-          danger ? "text-rose-700" : "text-gray-800"
-        )}
-      >
-        {formatNumber(value)}
-      </p>
-    </div>
-  )
-}
-
-function ThreeDotsIcon() {
-  return (
-    <span className="flex h-4 w-4 flex-col items-center justify-center gap-[2px]">
-      <span className="h-[3px] w-[3px] rounded-full bg-current" />
-      <span className="h-[3px] w-[3px] rounded-full bg-current" />
-      <span className="h-[3px] w-[3px] rounded-full bg-current" />
+    <span className={`inline-flex rounded-lg border px-2.5 py-1 text-xs font-bold ${
+      active
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : pending
+          ? "border-amber-200 bg-amber-50 text-amber-700"
+          : "border-gray-200 bg-gray-50 text-gray-600"
+    }`}>
+      {pretty(status)}
     </span>
   )
 }
 
-function ActionOverflowMenu({ items = [] }) {
-  const [open, setOpen] = useState(false)
-  const [position, setPosition] = useState({
-    top: 0,
-    left: 0,
-  })
+function ProductAvatar({ product }) {
+  return product?.imageUrl ? (
+    <img src={product.imageUrl} alt="" className="h-10 w-10 rounded-xl border border-gray-200 object-cover" />
+  ) : (
+    <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-xs font-black text-indigo-600">
+      {initials(product?.name)}
+    </div>
+  )
+}
 
-  const buttonRef = useRef(null)
-  const menuRef = useRef(null)
+function SummaryCard({ label, value, note, icon: Icon, tone }) {
+  const styles = {
+    indigo: "bg-indigo-50 text-indigo-600",
+    amber: "bg-amber-50 text-amber-600",
+    cyan: "bg-cyan-50 text-cyan-600",
+    blue: "bg-blue-50 text-blue-600",
+  }
+  return (
+    <article className="rounded-2xl border border-gray-200 bg-white p-4 shadow-[0_12px_34px_-28px_rgba(15,23,42,.45)]">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold text-gray-500">{label}</p>
+          <p className="mt-2 text-2xl font-black tracking-tight text-gray-950">{value}</p>
+        </div>
+        <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${styles[tone]}`}><Icon className="h-5 w-5" /></span>
+      </div>
+      <span className="mt-2 inline-flex rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-600">↗ {note}</span>
+    </article>
+  )
+}
 
-  const visibleItems = items.filter(Boolean)
+function Pagination({ page, totalPages, onChange }) {
+  if (totalPages <= 1) return null
+  return (
+    <div className="flex items-center justify-end gap-2">
+      <button type="button" className={`${buttonClass} px-3 py-2`} onClick={() => onChange(page - 1)} disabled={page <= 1}>
+        <FiChevronLeft /> Previous
+      </button>
+      <span className="flex h-9 min-w-9 items-center justify-center rounded-xl border border-indigo-500 bg-indigo-50 px-3 text-sm font-black text-indigo-700">{page}</span>
+      <button type="button" className={`${buttonClass} px-3 py-2`} onClick={() => onChange(page + 1)} disabled={page >= totalPages}>
+        Next <FiChevronRight />
+      </button>
+    </div>
+  )
+}
 
-  const updatePosition = () => {
-    const buttonNode = buttonRef.current
-    if (!buttonNode || typeof window === "undefined") return
+function RowActions({ onView, onEdit, onDelete, canManage, canDelete }) {
+  return (
+    <div className="flex items-center justify-end gap-1">
+      <button type="button" onClick={onView} className="rounded-lg p-2 text-gray-400 transition hover:bg-indigo-50 hover:text-indigo-600" title="View"><FiEye /></button>
+      {canManage ? <button type="button" onClick={onEdit} className="rounded-lg p-2 text-gray-400 transition hover:bg-indigo-50 hover:text-indigo-600" title="Edit"><FiEdit2 /></button> : null}
+      {canDelete ? <button type="button" onClick={onDelete} className="rounded-lg p-2 text-gray-400 transition hover:bg-rose-50 hover:text-rose-600" title="Archive"><FiTrash2 /></button> : null}
+      <span className="rounded-lg p-2 text-gray-300"><FiMoreHorizontal /></span>
+    </div>
+  )
+}
 
-    const rect = buttonNode.getBoundingClientRect()
-    const menuWidth = 210
-    const estimatedMenuHeight = Math.max(
-      56,
-      visibleItems.length * 44 + 16
-    )
+export default function InventoryItemsPage() {
+  const currentUser = useMemo(getStoredUser, [])
+  const canManage = hasPermission(currentUser, PERMISSIONS?.INVENTORY_STOCK_MANAGE || "inventory-stock:manage")
+  const canDelete = hasPermission(currentUser, PERMISSIONS?.INVENTORY_STOCK_DELETE || "inventory-stock:delete")
 
-    const left = Math.min(
-      window.innerWidth - menuWidth - 12,
-      Math.max(12, rect.right - menuWidth)
-    )
+  const [activeTab, setActiveTab] = useState("items")
+  const [summary, setSummary] = useState(emptySummary)
+  const [items, setItems] = useState([])
+  const [itemTotal, setItemTotal] = useState(0)
+  const [itemTotalPages, setItemTotalPages] = useState(1)
+  const [positions, setPositions] = useState([])
+  const [positionTotal, setPositionTotal] = useState(0)
+  const [qualityRequests, setQualityRequests] = useState([])
+  const [qualityTotal, setQualityTotal] = useState(0)
+  const [products, setProducts] = useState([])
+  const [categories, setCategories] = useState([])
+  const [units, setUnits] = useState([])
+  const [warehouses, setWarehouses] = useState([])
+  const [locations, setLocations] = useState([])
+  const [search, setSearch] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+  const [status, setStatus] = useState("all")
+  const [hideInactive, setHideInactive] = useState(false)
+  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createForm, setCreateForm] = useState(emptyCreateForm)
+  const [createError, setCreateError] = useState("")
+  const [previousQuantity, setPreviousQuantity] = useState(0)
+  const [warehouseQuantity, setWarehouseQuantity] = useState(0)
+  const [detail, setDetail] = useState({ open: false, product: null, positions: [] })
+  const [settings, setSettings] = useState({ open: false, stock: null })
+  const [settingsForm, setSettingsForm] = useState(emptySettingsForm)
 
-    const fitsBelow =
-      rect.bottom + 8 + estimatedMenuHeight <= window.innerHeight
+  const categoryMap = useMemo(() => new Map(categories.map((item) => [normalizeId(item), item])), [categories])
+  const unitMap = useMemo(() => new Map(units.map((item) => [normalizeId(item), item])), [units])
+  const selectedProduct = useMemo(
+    () => products.find((item) => normalizeId(item) === createForm.product) || null,
+    [createForm.product, products]
+  )
 
-    const top = fitsBelow
-      ? rect.bottom + 8
-      : Math.max(12, rect.top - estimatedMenuHeight - 8)
+  const effectiveStatus = hideInactive ? "active" : status
 
-    setPosition({
-      top,
-      left,
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(clean(search))
+      setPage(1)
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [search])
+
+  useEffect(() => {
+    Promise.all([
+      api("/inventory/products?status=active&productType=inventory&trackInventory=true&limit=100"),
+      api("/inventory/categories/options?limit=200"),
+      api("/inventory/units/options?limit=200"),
+      api("/inventory/warehouses/options?limit=100"),
+    ]).then(([productData, categoryData, unitData, warehouseData]) => {
+      setProducts(productData.products || [])
+      setCategories(categoryData.categories || [])
+      setUnits(unitData.units || [])
+      setWarehouses(warehouseData.warehouses || [])
+    }).catch((error) => toast.error(error.message || "Failed to load inventory options"))
+  }, [refreshKey])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) })
+    const listParams = new URLSearchParams({ limit: "100" })
+    if (debouncedSearch) {
+      params.set("q", debouncedSearch)
+      listParams.set("q", debouncedSearch)
+    }
+    if (effectiveStatus !== "all") {
+      params.set("status", effectiveStatus)
+      listParams.set("status", effectiveStatus)
+    }
+
+    setLoading(true)
+    Promise.all([
+      api("/inventory/stocks/summary", { signal: controller.signal }),
+      api(`/inventory/stocks/items?${params}`, { signal: controller.signal }),
+      api(`/inventory/stocks?${listParams}`, { signal: controller.signal }),
+      api("/inventory/operations/inspections?status=waiting&limit=100", { signal: controller.signal }),
+    ]).then(([summaryData, itemData, positionData, qualityData]) => {
+      setSummary({ ...emptySummary, ...(summaryData.summary || {}) })
+      setItems(itemData.items || [])
+      setItemTotal(itemData.total || 0)
+      setItemTotalPages(itemData.totalPages || 1)
+      setPositions(positionData.stocks || [])
+      setPositionTotal(positionData.count || 0)
+      setQualityRequests(qualityData.items || [])
+      setQualityTotal(qualityData.total || 0)
+    }).catch((error) => {
+      if (error.name !== "AbortError") toast.error(error.message || "Failed to load inventory items")
+    }).finally(() => setLoading(false))
+    return () => controller.abort()
+  }, [debouncedSearch, effectiveStatus, page, refreshKey])
+
+  useEffect(() => {
+    if (!createForm.warehouse) {
+      setLocations([])
+      return
+    }
+    api(`/inventory/warehouse-locations/options?warehouse=${encodeURIComponent(createForm.warehouse)}&limit=200`)
+      .then((data) => setLocations(data.locations || []))
+      .catch((error) => toast.error(error.message))
+  }, [createForm.warehouse])
+
+  const visibleQuality = useMemo(() => {
+    const query = debouncedSearch.toLowerCase()
+    if (!query) return qualityRequests
+    return qualityRequests.filter((item) => JSON.stringify(item).toLowerCase().includes(query))
+  }, [debouncedSearch, qualityRequests])
+
+  const positionPages = Math.max(1, Math.ceil(positionTotal / PAGE_SIZE))
+  const qualityPages = Math.max(1, Math.ceil(visibleQuality.length / PAGE_SIZE))
+  const visiblePositions = positions.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const visibleQualityPage = visibleQuality.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const filteredResults = activeTab === "items" ? itemTotal : activeTab === "positions" ? positionTotal : visibleQuality.length
+  const totalPages = activeTab === "items" ? itemTotalPages : activeTab === "positions" ? positionPages : qualityPages
+
+  const refresh = () => setRefreshKey((value) => value + 1)
+
+  const openCreate = async (product = null) => {
+    const productId = normalizeId(product)
+    const found = products.find((item) => normalizeId(item) === productId)
+    setCreateForm({
+      ...emptyCreateForm,
+      product: productId,
+      stockPrice: found?.purchasePrice != null ? String(found.purchasePrice) : "",
+      idempotencyKey: globalThis.crypto?.randomUUID?.() || `inventory-item-${Date.now()}`,
+    })
+    setCreateError("")
+    setPreviousQuantity(0)
+    setWarehouseQuantity(0)
+    setLocations([])
+    setCreateOpen(true)
+    if (productId) await loadProductAvailability(productId)
+  }
+
+  const loadProductAvailability = async (productId, warehouseId = "") => {
+    if (!productId) return
+    try {
+      const suffix = warehouseId ? `?warehouse=${encodeURIComponent(warehouseId)}` : ""
+      const data = await api(`/inventory/stocks/availability/${productId}${suffix}`)
+      if (warehouseId) setWarehouseQuantity(data.totals?.onHandQuantity || 0)
+      else setPreviousQuantity(data.totals?.onHandQuantity || 0)
+    } catch (error) {
+      toast.error(error.message || "Failed to load existing quantity")
+    }
+  }
+
+  const selectProduct = async (productId) => {
+    const product = products.find((item) => normalizeId(item) === productId)
+    setCreateForm((previous) => ({
+      ...previous,
+      product: productId,
+      stockPrice: product?.purchasePrice != null ? String(product.purchasePrice) : "",
+    }))
+    setPreviousQuantity(0)
+    setWarehouseQuantity(0)
+    if (productId) await loadProductAvailability(productId)
+  }
+
+  const selectWarehouse = async (warehouseId) => {
+    setCreateForm((previous) => ({ ...previous, warehouse: warehouseId, location: "" }))
+    setWarehouseQuantity(0)
+    if (createForm.product && warehouseId) await loadProductAvailability(createForm.product, warehouseId)
+  }
+
+  const createInventoryItem = async (event) => {
+    event.preventDefault()
+    setCreateError("")
+    const payload = buildOpeningStockPayload(createForm)
+    if (!payload.product) return setCreateError("Product name is required.")
+    if (!payload.warehouse) return setCreateError("Warehouse is required.")
+    if (!Number.isFinite(payload.quantity) || payload.quantity <= 0) return setCreateError("Quantity to add must be greater than zero.")
+    if (!Number.isFinite(payload.stockPrice) || payload.stockPrice < 0) return setCreateError("Stock price must be a valid non-negative number.")
+
+    setSaving(true)
+    try {
+      const data = await api("/inventory/stocks/opening-stock", { method: "POST", body: JSON.stringify(payload) })
+      toast.success(data.message || "Opening stock posted")
+      setCreateOpen(false)
+      setCreateForm(emptyCreateForm)
+      refresh()
+    } catch (error) {
+      setCreateError(error.message || "Failed to create inventory item")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const openProductDetails = async (product) => {
+    try {
+      const data = await api(`/inventory/stocks/availability/${normalizeId(product)}`)
+      setDetail({ open: true, product: product?.name ? product : data.stocks?.[0]?.product, positions: data.stocks || [] })
+    } catch (error) {
+      toast.error(error.message || "Failed to load item details")
+    }
+  }
+
+  const openPositionDetails = (stock) => setDetail({ open: true, product: stock.product, positions: [stock] })
+
+  const openSettings = (stock) => {
+    setSettings({ open: true, stock })
+    setSettingsForm({
+      reorderLevel: String(stock.reorderLevel ?? 0),
+      minimumStock: String(stock.minimumStock ?? 0),
+      maximumStock: String(stock.maximumStock ?? 0),
+      status: stock.status || "active",
     })
   }
 
-  useEffect(() => {
-    if (!open) return undefined
+  const saveSettings = async (event) => {
+    event.preventDefault()
+    setSaving(true)
+    try {
+      await api(`/inventory/stocks/${settings.stock._id}/settings`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          reorderLevel: Number(settingsForm.reorderLevel),
+          minimumStock: Number(settingsForm.minimumStock),
+          maximumStock: Number(settingsForm.maximumStock),
+          status: settingsForm.status,
+        }),
+      })
+      toast.success("Stock settings updated")
+      setSettings({ open: false, stock: null })
+      refresh()
+    } catch (error) {
+      toast.error(error.message || "Failed to update stock settings")
+    } finally {
+      setSaving(false)
+    }
+  }
 
-    updatePosition()
+  const archivePosition = async (stock) => {
+    if (!window.confirm(`Archive ${stock.product?.name || "this stock position"}?`)) return
+    try {
+      await api(`/inventory/stocks/${stock._id}`, { method: "DELETE" })
+      toast.success("Stock position archived")
+      refresh()
+    } catch (error) {
+      toast.error(error.message || "Only zero-balance positions can be archived")
+    }
+  }
 
-    const closeOnOutside = (event) => {
-      const target = event.target
-
-      if (
-        buttonRef.current?.contains(target) ||
-        menuRef.current?.contains(target)
-      ) {
-        return
+  const archiveProduct = async (product) => {
+    if (!window.confirm(`Archive all zero-balance positions for ${product.name}?`)) return
+    try {
+      const data = await api(`/inventory/stocks/availability/${normalizeId(product)}`)
+      if ((data.stocks || []).some((stock) => Number(stock.onHandQuantity || 0) !== 0)) {
+        throw new Error("This item still has stock. Reduce every position to zero before archiving it.")
       }
-
-      setOpen(false)
+      await Promise.all((data.stocks || []).map((stock) => api(`/inventory/stocks/${stock._id}`, { method: "DELETE" })))
+      toast.success("Inventory item archived")
+      refresh()
+    } catch (error) {
+      toast.error(error.message || "Failed to archive inventory item")
     }
+  }
 
-    const closeOnEscape = (event) => {
-      if (event.key === "Escape") {
-        setOpen(false)
-      }
+  const exportCurrentView = () => {
+    if (activeTab === "items") {
+      downloadCsv("inventory-items.csv", [
+        ["Code", "Product Name", "Total Quantity", "Stock Value", "Status"],
+        ...items.map((item) => [item.product?.sku, item.product?.name, item.totalQuantity, item.stockValue, item.status]),
+      ])
+    } else if (activeTab === "positions") {
+      downloadCsv("warehouse-and-bins.csv", [
+        ["Code", "Product", "Warehouse", "Bin / Shelf", "On Hand", "Available", "Value", "Status"],
+        ...positions.map((stock) => [stock.product?.sku, stock.product?.name, stock.warehouse?.name, stock.location?.name, stock.onHandQuantity, stock.availableQuantity, stock.inventoryValue, stock.status]),
+      ])
+    } else {
+      downloadCsv("pending-quality-requests.csv", [
+        ["Reference", "Product", "Warehouse", "Previous Quantity", "Status"],
+        ...visibleQuality.map((item) => [item.inspectionReference, item.product?.name, item.warehouse?.name, item.previousQuantity, item.status]),
+      ])
     }
-
-    const reposition = () => updatePosition()
-
-    document.addEventListener("pointerdown", closeOnOutside)
-    window.addEventListener("keydown", closeOnEscape)
-    window.addEventListener("resize", reposition)
-    window.addEventListener("scroll", reposition, true)
-
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutside)
-      window.removeEventListener("keydown", closeOnEscape)
-      window.removeEventListener("resize", reposition)
-      window.removeEventListener("scroll", reposition, true)
-    }
-  }, [open, visibleItems.length])
-
-  if (!visibleItems.length) {
-    return null
   }
 
   return (
+    <InventoryPageShell>
+      <Toaster position="top-right" />
+      <InventoryPageHeader title="Inventory Items" description="Add stock only from an existing Products template, then assign its quantity, warehouse and bin." actions={canManage ? <InventoryButton type="button" variant="primary" icon={FiPlus} onClick={() => openCreate()}>Add New</InventoryButton> : null}>
+        <InventorySearchToolbar value={search} onChange={(value) => { setSearch(value); setPage(1) }} placeholder="Search inventory items..." ariaLabel="Search inventory items" onClear={() => { setSearch(""); setPage(1) }} filterCount={status === "all" ? 0 : 1} filterControls={<select className={inputClass} value={status} onChange={(event) => { setStatus(event.target.value); setHideInactive(false); setPage(1) }} aria-label="Filter inventory status"><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>} utilities={<><InventoryButton type="button" onClick={() => { setHideInactive((value) => !value); setPage(1) }} icon={hideInactive ? FiEye : FiEyeOff}>{hideInactive ? "Show Inactive" : "Hide Inactive"}</InventoryButton><InventoryButton type="button" onClick={exportCurrentView} icon={FiDownload}>Export CSV</InventoryButton><InventoryButton type="button" onClick={refresh} disabled={loading} icon={FiRefreshCw}>{loading ? "Refreshing..." : "Refresh"}</InventoryButton></>} />
+      </InventoryPageHeader>
+
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard label="Total Records" value={formatNumber(summary.productCount, 0)} note="current records" icon={FiDatabase} tone="indigo" />
+          <SummaryCard label="Needs Attention" value={formatNumber(summary.lowStockCount, 0)} note={summary.lowStockCount ? "review required" : "all clear"} icon={FiClock} tone="amber" />
+          <SummaryCard label="Total Value" value={formatMoney(summary.inventoryValue)} note="current view basis" icon={FiActivity} tone="cyan" />
+          <SummaryCard label="Filtered Results" value={formatNumber(filteredResults, 0)} note="matching records" icon={FiSliders} tone="blue" />
+        </section>
+
+        <nav className="rounded-2xl border border-gray-200 bg-white p-2 shadow-sm">
+          <div className="flex flex-col gap-1 sm:flex-row">
+            {[
+              ["items", "Total Quantity", itemTotal],
+              ["positions", "Warehouse & Bins", positionTotal],
+              ["quality", "Pending Quality Requests", qualityTotal],
+            ].map(([key, label, count]) => (
+              <button key={key} type="button" onClick={() => { setActiveTab(key); setPage(1) }} className={`flex items-center justify-center gap-3 rounded-xl px-5 py-3 text-sm font-bold transition sm:justify-start ${activeTab === key ? "bg-indigo-600 text-white shadow-sm" : "text-gray-600 hover:bg-gray-50"}`}>
+                {label}<span className={`rounded-full px-2 py-0.5 text-xs ${activeTab === key ? "bg-white/20 text-white" : key === "quality" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-500"}`}>{count}</span>
+              </button>
+            ))}
+          </div>
+        </nav>
+
+        <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+          {loading ? (
+            <div className="flex min-h-72 items-center justify-center text-sm font-bold text-gray-400"><FiRefreshCw className="mr-2 animate-spin" /> Loading inventory items...</div>
+          ) : activeTab === "items" ? (
+            <ItemsTable items={items} canManage={canManage} canDelete={canDelete} onView={openProductDetails} onEdit={openCreate} onDelete={archiveProduct} />
+          ) : activeTab === "positions" ? (
+            <PositionsTable positions={visiblePositions} canManage={canManage} canDelete={canDelete} onView={openPositionDetails} onEdit={openSettings} onDelete={archivePosition} />
+          ) : (
+            <QualityTable rows={visibleQualityPage} />
+          )}
+
+          <footer className="flex flex-col gap-3 border-t border-gray-200 px-4 py-3 text-sm text-gray-500 sm:flex-row sm:items-center sm:justify-between">
+            <span>Showing {filteredResults ? (page - 1) * PAGE_SIZE + 1 : 0}-{Math.min(page * PAGE_SIZE, filteredResults)} of {filteredResults} records</span>
+            <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+          </footer>
+        </section>
+      <CreateInventoryModal
+        open={createOpen}
+        form={createForm}
+        setForm={setCreateForm}
+        product={selectedProduct}
+        products={products}
+        warehouses={warehouses}
+        locations={locations}
+        category={categoryMap.get(normalizeId(selectedProduct?.category))}
+        unit={unitMap.get(normalizeId(selectedProduct?.baseUnit))}
+        previousQuantity={previousQuantity}
+        warehouseQuantity={warehouseQuantity}
+        error={createError}
+        saving={saving}
+        onProductChange={selectProduct}
+        onWarehouseChange={selectWarehouse}
+        onClose={() => !saving && setCreateOpen(false)}
+        onSubmit={createInventoryItem}
+      />
+
+      <DetailModal state={detail} onClose={() => setDetail({ open: false, product: null, positions: [] })} />
+      <SettingsModal state={settings} form={settingsForm} setForm={setSettingsForm} saving={saving} onClose={() => !saving && setSettings({ open: false, stock: null })} onSubmit={saveSettings} />
+    </InventoryPageShell>
+  )
+}
+
+function EmptyRows({ columns, message }) {
+  return <tr><td colSpan={columns} className="px-6 py-20 text-center text-sm font-semibold text-gray-400">{message}</td></tr>
+}
+
+function ItemsTable({ items, canManage, canDelete, onView, onEdit, onDelete }) {
+  return (
     <>
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={() => {
-          if (!open) {
-            updatePosition()
-          }
-
-          setOpen((previous) => !previous)
-        }}
-        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 transition hover:bg-gray-50 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
-        title="More actions"
-        aria-label="More actions"
-        aria-haspopup="menu"
-        aria-expanded={open}
-      >
-        <ThreeDotsIcon />
-      </button>
-
-      {open && typeof document !== "undefined"
-        ? createPortal(
-            <motion.div
-              ref={menuRef}
-              role="menu"
-              initial={{
-                opacity: 0,
-                y: -4,
-                scale: 0.98,
-              }}
-              animate={{
-                opacity: 1,
-                y: 0,
-                scale: 1,
-              }}
-              transition={{
-                duration: 0.14,
-              }}
-              className="fixed z-[140] w-[210px] overflow-hidden rounded-2xl border border-gray-100 bg-white p-1.5 shadow-[0_22px_60px_-26px_rgba(15,23,42,0.45)]"
-              style={{
-                top: position.top,
-                left: position.left,
-              }}
-            >
-              {visibleItems.map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  role="menuitem"
-                  disabled={item.disabled}
-                  title={item.title || item.label}
-                  onClick={() => {
-                    if (item.disabled) return
-
-                    setOpen(false)
-                    item.onClick?.()
-                  }}
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-45",
-                    item.danger
-                      ? "text-rose-700 hover:bg-rose-50"
-                      : "text-gray-700 hover:bg-gray-50"
-                  )}
-                >
-                  <Icon
-                    icon={item.icon}
-                    className={cn(
-                      "h-4 w-4 shrink-0",
-                      item.loading ? "animate-spin" : ""
-                    )}
-                  />
-
-                  <span className="min-w-0 flex-1 truncate">
-                    {item.label}
-                  </span>
-                </button>
-              ))}
-            </motion.div>,
-            document.body
-          )
-        : null}
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full min-w-[900px]">
+          <thead className="bg-gray-50 text-left text-[11px] font-black uppercase tracking-wide text-gray-500"><tr><th className="px-4 py-4">Image</th><th className="px-4 py-4">Code</th><th className="px-4 py-4">Product Name</th><th className="px-4 py-4">Total Quantity</th><th className="px-4 py-4">Stock Value</th><th className="px-4 py-4">Status</th><th className="px-4 py-4 text-right">Actions</th></tr></thead>
+          <tbody className="divide-y divide-gray-100">
+            {items.map((item) => <tr key={item.product?._id} className="text-sm text-gray-700 transition hover:bg-gray-50/70"><td className="px-4 py-3"><ProductAvatar product={item.product} /></td><td className="px-4 py-3 font-semibold">{item.product?.sku || "-"}</td><td className="px-4 py-3 font-semibold">{item.product?.name || "-"}</td><td className="px-4 py-3 font-semibold tabular-nums">{formatNumber(item.totalQuantity)}</td><td className="px-4 py-3 font-black text-gray-900">{formatMoney(item.stockValue)}</td><td className="px-4 py-3"><StatusBadge status={item.status} /></td><td className="px-4 py-3"><RowActions onView={() => onView(item.product)} onEdit={() => onEdit(item.product)} onDelete={() => onDelete(item.product)} canManage={canManage} canDelete={canDelete} /></td></tr>)}
+            {!items.length ? <EmptyRows columns={7} message="No inventory items match the current filters." /> : null}
+          </tbody>
+        </table>
+      </div>
+      <div className="grid gap-3 p-4 md:hidden">{items.map((item) => <article key={item.product?._id} className="rounded-2xl border border-gray-200 p-4"><div className="flex items-center gap-3"><ProductAvatar product={item.product} /><div className="min-w-0 flex-1"><h3 className="truncate font-black text-gray-900">{item.product?.name}</h3><p className="text-xs font-semibold text-gray-400">{item.product?.sku}</p></div><StatusBadge status={item.status} /></div><div className="mt-4 grid grid-cols-2 gap-3"><Metric label="Total Quantity" value={formatNumber(item.totalQuantity)} /><Metric label="Stock Value" value={formatMoney(item.stockValue)} /></div><div className="mt-3 border-t border-gray-100 pt-2"><RowActions onView={() => onView(item.product)} onEdit={() => onEdit(item.product)} onDelete={() => onDelete(item.product)} canManage={canManage} canDelete={canDelete} /></div></article>)}</div>
     </>
   )
 }
 
-function StockActions({
-  stock,
-  opening,
-  loadingDetails,
-  onView,
-  onEdit,
-  onArchive,
-  onRestore,
-  canManage,
-  canDelete,
-  mobile = false,
-}) {
-  const archived = stock.status === "archived"
-  const hasBalance = hasAnyQuantity(stock)
-
-  const menuItems = archived
-    ? [
-        canDelete
-          ? {
-              label: "Restore position",
-              icon: RestoreBinIcon,
-              onClick: () => onRestore(stock),
-            }
-          : null,
-      ]
-    : [
-        canManage
-          ? {
-              label: opening ? "Loading settings..." : "Stock settings",
-              icon: opening ? RefreshIcon : Edit02Icon,
-              loading: opening,
-              disabled: opening,
-              onClick: () => onEdit(stock),
-            }
-          : null,
-        canDelete
-          ? {
-              label: "Archive position",
-              icon: Archive02Icon,
-              danger: true,
-              disabled: hasBalance,
-              title: hasBalance
-                ? "Only a zero-balance stock position can be archived."
-                : "Archive stock position",
-              onClick: () => onArchive(stock),
-            }
-          : null,
-      ]
-
+function PositionsTable({ positions, canManage, canDelete, onView, onEdit, onDelete }) {
   return (
-    <div
-      className={cn(
-        "flex items-center gap-2",
-        mobile ? "w-full" : "justify-end"
-      )}
-    >
-      <button
-        className={cn(
-          button,
-          ghostButton,
-          "h-9 px-3 py-2 text-xs",
-          mobile ? "flex-1" : ""
-        )}
-        onClick={() => onView(stock)}
-        disabled={loadingDetails}
-        type="button"
-        title="View stock position"
-      >
-        <Icon
-          icon={loadingDetails ? RefreshIcon : ViewIcon}
-          className={cn(
-            "h-4 w-4",
-            loadingDetails ? "animate-spin" : ""
-          )}
-        />
-
-        {loadingDetails ? "Loading" : "View"}
-      </button>
-
-      <ActionOverflowMenu items={menuItems} />
-    </div>
+    <div className="overflow-x-auto"><table className="w-full min-w-[1050px]"><thead className="bg-gray-50 text-left text-[11px] font-black uppercase tracking-wide text-gray-500"><tr><th className="px-4 py-4">Product</th><th className="px-4 py-4">Warehouse</th><th className="px-4 py-4">Bin / Shelf</th><th className="px-4 py-4">On Hand</th><th className="px-4 py-4">Available</th><th className="px-4 py-4">Stock Value</th><th className="px-4 py-4">Status</th><th className="px-4 py-4 text-right">Actions</th></tr></thead><tbody className="divide-y divide-gray-100">{positions.map((stock) => <tr key={stock._id} className="text-sm text-gray-700 hover:bg-gray-50/70"><td className="px-4 py-3"><div className="flex items-center gap-3"><ProductAvatar product={stock.product} /><div><p className="font-bold text-gray-900">{stock.product?.name}</p><p className="text-xs text-gray-400">{stock.product?.sku}</p></div></div></td><td className="px-4 py-3 font-semibold">{relationLabel(stock.warehouse)}</td><td className="px-4 py-3">{relationLabel(stock.location, "Warehouse level")}</td><td className="px-4 py-3 font-bold">{formatNumber(stock.onHandQuantity)}</td><td className="px-4 py-3 font-bold">{formatNumber(stock.availableQuantity)}</td><td className="px-4 py-3 font-black">{formatMoney(stock.inventoryValue)}</td><td className="px-4 py-3"><StatusBadge status={stock.status} /></td><td className="px-4 py-3"><RowActions onView={() => onView(stock)} onEdit={() => onEdit(stock)} onDelete={() => onDelete(stock)} canManage={canManage} canDelete={canDelete} /></td></tr>)}{!positions.length ? <EmptyRows columns={8} message="No warehouse positions match the current filters." /> : null}</tbody></table></div>
   )
 }
 
-function InitializeModal({
-  open,
-  form,
-  setForm,
-  products,
-  warehouses,
-  locations,
-  error,
-  saving,
-  onClose,
-  onSubmit,
-  onWarehouseChange,
-}) {
+function QualityTable({ rows }) {
+  return <div className="overflow-x-auto"><table className="w-full min-w-[900px]"><thead className="bg-gray-50 text-left text-[11px] font-black uppercase tracking-wide text-gray-500"><tr><th className="px-4 py-4">Reference</th><th className="px-4 py-4">Product</th><th className="px-4 py-4">Warehouse</th><th className="px-4 py-4">Bin / Shelf</th><th className="px-4 py-4">Previous Quantity</th><th className="px-4 py-4">Status</th></tr></thead><tbody className="divide-y divide-gray-100">{rows.map((item) => <tr key={item._id} className="text-sm text-gray-700 hover:bg-gray-50/70"><td className="px-4 py-3 font-black text-indigo-600">{item.inspectionReference}</td><td className="px-4 py-3 font-semibold">{item.product?.name || "-"}</td><td className="px-4 py-3">{relationLabel(item.warehouse)}</td><td className="px-4 py-3">{relationLabel(item.location, "Warehouse level")}</td><td className="px-4 py-3 font-bold">{formatNumber(item.previousQuantity)}</td><td className="px-4 py-3"><StatusBadge status={item.status} /></td></tr>)}{!rows.length ? <EmptyRows columns={6} message="No pending quality requests." /> : null}</tbody></table></div>
+}
+
+function Metric({ label, value }) {
+  return <div className="rounded-xl bg-gray-50 p-3"><p className="text-[10px] font-black uppercase tracking-wide text-gray-400">{label}</p><p className="mt-1 font-black text-gray-900">{value}</p></div>
+}
+
+function CreateInventoryModal({ open, form, setForm, product, products, warehouses, locations, category, unit, previousQuantity, warehouseQuantity, error, saving, onProductChange, onWarehouseChange, onClose, onSubmit }) {
   return (
-    <ModalShell
-      open={open}
-      onClose={onClose}
-      title="Initialize stock position"
-      subtitle="Create a zero-quantity stock record for one product, warehouse, and optional location."
-      icon={<Icon icon={Add01Icon} className="h-5 w-5" />}
-      maxWidthClass="max-w-5xl"
-      footer={
-        <div className="flex flex-col justify-end gap-2 sm:flex-row">
-          <button
-            className={cn(button, ghostButton)}
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-          >
-            Cancel
-          </button>
-
-          <button
-            className={cn(button, primaryButton)}
-            type="submit"
-            form="initialize-stock-form"
-            disabled={saving}
-          >
-            <Icon
-              icon={saving ? RefreshIcon : FloppyDiskIcon}
-              className={cn(
-                "h-4 w-4",
-                saving ? "animate-spin" : ""
-              )}
-            />
-
-            {saving ? "Initializing..." : "Initialize position"}
-          </button>
-        </div>
-      }
-    >
-      {error ? (
-        <div className="mb-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">
-          <Icon
-            icon={Alert02Icon}
-            className="mt-0.5 h-4 w-4 shrink-0"
-          />
-          <span>{error}</span>
-        </div>
-      ) : null}
-
-      <form id="initialize-stock-form" onSubmit={onSubmit}>
-        <div className="space-y-4">
-          <SectionCard
-            title="Stock position"
-            description="Only active inventory-tracked products and active warehouses can be initialized."
-          >
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              <Field label="Product" required>
-                <select
-                  className={input}
-                  value={form.product}
-                  onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      product: event.target.value,
-                    }))
-                  }
-                  required
-                >
-                  <option value="">Select product</option>
-
-                  {products.map((product) => (
-                    <option key={product._id} value={product._id}>
-                      {relationLabel(product)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field label="Warehouse" required>
-                <select
-                  className={input}
-                  value={form.warehouse}
-                  onChange={(event) =>
-                    onWarehouseChange(event.target.value)
-                  }
-                  required
-                >
-                  <option value="">Select warehouse</option>
-
-                  {warehouses.map((warehouse) => (
-                    <option
-                      key={warehouse._id}
-                      value={warehouse._id}
-                    >
-                      {relationLabel(warehouse)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field
-                label="Location"
-                hint="Leave empty to maintain stock at warehouse level."
-              >
-                <select
-                  className={input}
-                  value={form.location}
-                  onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      location: event.target.value,
-                    }))
-                  }
-                  disabled={!form.warehouse}
-                >
-                  <option value="">No location</option>
-
-                  {locations.map((location) => (
-                    <option
-                      key={location._id}
-                      value={location._id}
-                    >
-                      {relationLabel(location)}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            title="Stock-control thresholds"
-            description="These settings control low-stock warnings; they do not create stock quantity."
-          >
-            <div className="grid gap-4 md:grid-cols-3">
-              <Field label="Reorder Level">
-                <FocusPlaceholderInput
-                  className={input}
-                  type="number"
-                  min="0"
-                  step="0.000001"
-                  value={form.reorderLevel}
-                  onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      reorderLevel: event.target.value,
-                    }))
-                  }
-                  placeholder="Example: 10"
-                />
-              </Field>
-
-              <Field label="Minimum Stock">
-                <FocusPlaceholderInput
-                  className={input}
-                  type="number"
-                  min="0"
-                  step="0.000001"
-                  value={form.minimumStock}
-                  onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      minimumStock: event.target.value,
-                    }))
-                  }
-                  placeholder="Example: 5"
-                />
-              </Field>
-
-              <Field label="Maximum Stock">
-                <FocusPlaceholderInput
-                  className={input}
-                  type="number"
-                  min="0"
-                  step="0.000001"
-                  value={form.maximumStock}
-                  onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      maximumStock: event.target.value,
-                    }))
-                  }
-                  placeholder="Example: 100"
-                />
-              </Field>
-            </div>
-          </SectionCard>
-
-          <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-700">
-            The initialized position starts with zero on-hand,
-            reserved, quarantine, incoming, and outgoing quantities.
-            Use Stock Movements to change quantities.
-          </div>
-        </div>
+    <Modal open={open} onClose={onClose} title="Create Inventory Item" subtitle="Fields are designed from the Inventory & Purchase business workflow." width="max-w-3xl" footer={<div className="flex justify-end gap-2"><button type="button" onClick={onClose} disabled={saving} className={`${buttonClass} border-gray-200 bg-white text-gray-800`}>Cancel</button><button type="submit" form="create-inventory-item" disabled={saving} className={`${buttonClass} border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700`}>{saving ? <FiRefreshCw className="animate-spin" /> : <FiCheckCircle />}{saving ? "Creating..." : "Create Record"}</button></div>}>
+      {error ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">{error}</div> : null}
+      <form id="create-inventory-item" onSubmit={onSubmit} className="grid gap-4 md:grid-cols-2">
+        <Field label="Product Name" required><select className={inputClass} value={form.product} onChange={(event) => onProductChange(event.target.value)} required><option value="">Select Product Name</option>{products.map((item) => <option key={item._id} value={item._id}>{item.name}</option>)}</select></Field>
+        <Field label="Product Code"><input className={inputClass} value={product?.sku || ""} disabled /></Field>
+        <Field label="Category"><input className={inputClass} value={relationLabel(category, "Not assigned")} disabled /></Field>
+        <Field label="Unit"><input className={inputClass} value={relationLabel(unit, "Not assigned")} disabled /></Field>
+        <Field label="Tracking"><input className={inputClass} value={product ? pretty(product.trackingType || "none") : ""} disabled /></Field>
+        <Field label="Previous Total Quantity"><input className={inputClass} value={formatNumber(previousQuantity)} disabled /></Field>
+        <Field label="Quantity to Add" required><input className={inputClass} type="number" min="0.000001" step="0.000001" value={form.quantity} onChange={(event) => setForm((previous) => ({ ...previous, quantity: event.target.value }))} placeholder="Enter quantity to add" required /></Field>
+        <Field label="Stock Price" required><input className={inputClass} type="number" min="0" step="0.01" value={form.stockPrice} onChange={(event) => setForm((previous) => ({ ...previous, stockPrice: event.target.value }))} placeholder="Enter stock price" required /></Field>
+        <Field label="Warehouse" required><select className={inputClass} value={form.warehouse} onChange={(event) => onWarehouseChange(event.target.value)} required><option value="">Select Warehouse</option>{warehouses.map((item) => <option key={item._id} value={item._id}>{relationLabel(item)}</option>)}</select></Field>
+        <Field label="Existing Warehouse Quantity"><input className={inputClass} value={formatNumber(warehouseQuantity)} disabled /></Field>
+        <Field label="Bin / Shelf"><select className={inputClass} value={form.location} onChange={(event) => setForm((previous) => ({ ...previous, location: event.target.value }))} disabled={!form.warehouse}><option value="">Warehouse level</option>{locations.map((item) => <option key={item._id} value={item._id}>{relationLabel(item)}</option>)}</select></Field>
       </form>
-    </ModalShell>
+    </Modal>
   )
 }
 
-function SettingsModal({
-  state,
-  form,
-  setForm,
-  error,
-  saving,
-  onClose,
-  onSubmit,
-}) {
-  if (!state?.open || !state.item) return null
-
-  const stock = state.item
-  const hasBalance = hasAnyQuantity(stock)
-
-  return (
-    <ModalShell
-      open={state.open}
-      onClose={onClose}
-      title="Stock position settings"
-      subtitle={
-        stock
-          ? `${stock.product?.name || "Product"} · ${
-              stock.warehouse?.name || "Warehouse"
-            }`
-          : ""
-      }
-      icon={<Icon icon={Edit02Icon} className="h-5 w-5" />}
-      maxWidthClass="max-w-4xl"
-      footer={
-        <div className="flex flex-col justify-end gap-2 sm:flex-row">
-          <button
-            className={cn(button, ghostButton)}
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-          >
-            Cancel
-          </button>
-
-          <button
-            className={cn(button, primaryButton)}
-            type="submit"
-            form="stock-settings-form"
-            disabled={saving}
-          >
-            <Icon
-              icon={saving ? RefreshIcon : FloppyDiskIcon}
-              className={cn(
-                "h-4 w-4",
-                saving ? "animate-spin" : ""
-              )}
-            />
-
-            {saving ? "Saving..." : "Save settings"}
-          </button>
-        </div>
-      }
-    >
-      {error ? (
-        <div className="mb-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">
-          <Icon
-            icon={Alert02Icon}
-            className="mt-0.5 h-4 w-4 shrink-0"
-          />
-          <span>{error}</span>
-        </div>
-      ) : null}
-
-      {stock ? (
-        <form id="stock-settings-form" onSubmit={onSubmit}>
-          <div className="space-y-4">
-            <SectionCard
-              title="Position"
-              description="Product, warehouse, and location cannot be changed after initialization."
-            >
-              <div className="grid gap-4 md:grid-cols-3">
-                <ReadOnlyValue
-                  label="Product"
-                  value={relationLabel(
-                    stock.product,
-                    "Unknown product"
-                  )}
-                />
-                <ReadOnlyValue
-                  label="Warehouse"
-                  value={relationLabel(
-                    stock.warehouse,
-                    "Unknown warehouse"
-                  )}
-                />
-                <ReadOnlyValue
-                  label="Location"
-                  value={relationLabel(
-                    stock.location,
-                    "No location"
-                  )}
-                />
-              </div>
-            </SectionCard>
-
-            <SectionCard
-              title="Thresholds and counting"
-              description="Update warning limits and the most recent physical count date."
-            >
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <Field label="Reorder Level">
-                  <FocusPlaceholderInput
-                    className={input}
-                    type="number"
-                    min="0"
-                    step="0.000001"
-                    value={form.reorderLevel}
-                    onChange={(event) =>
-                      setForm((previous) => ({
-                        ...previous,
-                        reorderLevel: event.target.value,
-                      }))
-                    }
-                    placeholder="Example: 10"
-                  />
-                </Field>
-
-                <Field label="Minimum Stock">
-                  <FocusPlaceholderInput
-                    className={input}
-                    type="number"
-                    min="0"
-                    step="0.000001"
-                    value={form.minimumStock}
-                    onChange={(event) =>
-                      setForm((previous) => ({
-                        ...previous,
-                        minimumStock: event.target.value,
-                      }))
-                    }
-                    placeholder="Example: 5"
-                  />
-                </Field>
-
-                <Field label="Maximum Stock">
-                  <FocusPlaceholderInput
-                    className={input}
-                    type="number"
-                    min="0"
-                    step="0.000001"
-                    value={form.maximumStock}
-                    onChange={(event) =>
-                      setForm((previous) => ({
-                        ...previous,
-                        maximumStock: event.target.value,
-                      }))
-                    }
-                    placeholder="Example: 100"
-                  />
-                </Field>
-
-                <Field label="Last Counted At">
-                  <FocusPlaceholderInput
-                    className={input}
-                    type="datetime-local"
-                    value={form.lastCountedAt}
-                    onChange={(event) =>
-                      setForm((previous) => ({
-                        ...previous,
-                        lastCountedAt: event.target.value,
-                      }))
-                    }
-                    placeholder="Select date and time"
-                  />
-                </Field>
-              </div>
-            </SectionCard>
-
-            <SectionCard
-              title="Lifecycle"
-              description="A stock position with balances or pending quantities must remain active."
-            >
-              <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Status">
-                  <select
-                    className={input}
-                    value={form.status}
-                    onChange={(event) =>
-                      setForm((previous) => ({
-                        ...previous,
-                        status: event.target.value,
-                      }))
-                    }
-                  >
-                    {STOCK_STATUSES.map(([value, label]) => (
-                      <option
-                        key={value}
-                        value={value}
-                        disabled={
-                          value === "inactive" && hasBalance
-                        }
-                      >
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-
-                <div className="rounded-2xl border border-gray-200 bg-white p-4">
-                  <p className="text-xs font-black uppercase tracking-wide text-gray-400">
-                    Current quantities
-                  </p>
-
-                  <p className="mt-2 text-sm font-black text-gray-800">
-                    On hand {formatNumber(stock.onHandQuantity)} ·
-                    Reserved {formatNumber(stock.reservedQuantity)} ·
-                    Pending{" "}
-                    {formatNumber(
-                      Number(stock.incomingQuantity || 0) +
-                        Number(stock.outgoingQuantity || 0)
-                    )}
-                  </p>
-                </div>
-              </div>
-            </SectionCard>
-          </div>
-        </form>
-      ) : null}
-    </ModalShell>
-  )
+function DetailModal({ state, onClose }) {
+  const totalQuantity = state.positions.reduce((sum, item) => sum + Number(item.onHandQuantity || 0), 0)
+  const value = state.positions.reduce((sum, item) => sum + Number(item.inventoryValue || 0), 0)
+  return <Modal open={state.open} onClose={onClose} title={state.product?.name || "Inventory item"} subtitle={`${state.product?.sku || ""} · Inventory positions`} width="max-w-4xl"><div className="grid gap-3 sm:grid-cols-3"><Metric label="Total Quantity" value={formatNumber(totalQuantity)} /><Metric label="Stock Value" value={formatMoney(value)} /><Metric label="Positions" value={state.positions.length} /></div><div className="mt-5 space-y-3">{state.positions.map((stock) => <div key={stock._id} className="flex flex-col gap-3 rounded-2xl border border-gray-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600"><FiMapPin /></span><div><p className="font-black text-gray-900">{relationLabel(stock.warehouse)}</p><p className="text-sm text-gray-500">{relationLabel(stock.location, "Warehouse level")}</p></div></div><div className="flex gap-6"><Metric label="On Hand" value={formatNumber(stock.onHandQuantity)} /><Metric label="Value" value={formatMoney(stock.inventoryValue)} /></div></div>)}</div></Modal>
 }
 
-function ReadOnlyValue({ label, value }) {
-  return (
-    <div>
-      <p className="text-xs font-black uppercase tracking-wide text-gray-400">
-        {label}
-      </p>
-
-      <p className="mt-2 text-sm font-black text-gray-800">
-        {value}
-      </p>
-    </div>
-  )
+function SettingsModal({ state, form, setForm, saving, onClose, onSubmit }) {
+  return <Modal open={state.open} onClose={onClose} title="Stock Position Settings" subtitle={`${state.stock?.product?.name || "Product"} · ${state.stock?.warehouse?.name || "Warehouse"}`} width="max-w-2xl" footer={<div className="flex justify-end gap-2"><button type="button" onClick={onClose} className={`${buttonClass} border-gray-200 bg-white text-gray-800`}>Cancel</button><button type="submit" form="stock-settings-form" disabled={saving} className={`${buttonClass} border-indigo-600 bg-indigo-600 text-white`}>{saving ? "Saving..." : "Save Changes"}</button></div>}><form id="stock-settings-form" onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2"><Field label="Reorder Level"><input className={inputClass} type="number" min="0" value={form.reorderLevel} onChange={(event) => setForm((previous) => ({ ...previous, reorderLevel: event.target.value }))} /></Field><Field label="Minimum Stock"><input className={inputClass} type="number" min="0" value={form.minimumStock} onChange={(event) => setForm((previous) => ({ ...previous, minimumStock: event.target.value }))} /></Field><Field label="Maximum Stock"><input className={inputClass} type="number" min="0" value={form.maximumStock} onChange={(event) => setForm((previous) => ({ ...previous, maximumStock: event.target.value }))} /></Field><Field label="Status"><select className={inputClass} value={form.status} onChange={(event) => setForm((previous) => ({ ...previous, status: event.target.value }))}><option value="active">Active</option><option value="inactive">Inactive</option></select></Field></form></Modal>
 }
-
-function StockDetailsModal({ state, onClose }) {
-  const stock = state.stock
-
-  return (
-    <ModalShell
-      open={state.open}
-      onClose={onClose}
-      title={stock?.product?.name || "Stock position"}
-      subtitle={
-        stock
-          ? `${stock.product?.sku || "-"} · ${
-              stock.warehouse?.name || "Warehouse"
-            }`
-          : ""
-      }
-      icon={<Icon icon={ViewIcon} className="h-5 w-5" />}
-      maxWidthClass="max-w-6xl"
-      footer={
-        <div className="flex justify-end">
-          <button
-            className={cn(button, ghostButton)}
-            onClick={onClose}
-            type="button"
-          >
-            Close
-          </button>
-        </div>
-      }
-    >
-      {stock ? (
-        <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-            {[
-              ["On Hand", stock.onHandQuantity],
-              ["Available", stock.availableQuantity],
-              ["Reserved", stock.reservedQuantity],
-              ["Quarantine", stock.quarantineQuantity],
-              ["Incoming", stock.incomingQuantity],
-              ["Outgoing", stock.outgoingQuantity],
-              ["Average Cost", formatMoney(stock.averageCost)],
-              ["Inventory Value", formatMoney(stock.inventoryValue)],
-            ].map(([label, value]) => (
-              <div
-                key={label}
-                className="rounded-2xl border border-gray-100 bg-gray-50 p-4"
-              >
-                <p className="text-[10px] font-black uppercase tracking-wide text-gray-400">
-                  {label}
-                </p>
-
-                <p className="mt-2 text-lg font-black text-gray-900">
-                  {typeof value === "string"
-                    ? value
-                    : formatNumber(value)}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <SectionCard title="Stock position">
-              <div className="space-y-3 text-sm">
-                <DetailRow
-                  label="Product"
-                  value={relationLabel(
-                    stock.product,
-                    "Unknown product"
-                  )}
-                />
-                <DetailRow
-                  label="Warehouse"
-                  value={relationLabel(
-                    stock.warehouse,
-                    "Unknown warehouse"
-                  )}
-                />
-                <DetailRow
-                  label="Location"
-                  value={relationLabel(
-                    stock.location,
-                    "No location"
-                  )}
-                />
-                <DetailRow
-                  label="Status"
-                  value={<StatusBadge value={stock.status} />}
-                />
-                <DetailRow
-                  label="Health"
-                  value={<HealthBadge stock={stock} />}
-                />
-                <DetailRow
-                  label="Stock version"
-                  value={stock.stockVersion ?? 0}
-                />
-              </div>
-            </SectionCard>
-
-            <SectionCard title="Control settings">
-              <div className="space-y-3 text-sm">
-                <DetailRow
-                  label="Reorder level"
-                  value={formatNumber(stock.reorderLevel)}
-                />
-                <DetailRow
-                  label="Minimum stock"
-                  value={formatNumber(stock.minimumStock)}
-                />
-                <DetailRow
-                  label="Maximum stock"
-                  value={formatNumber(stock.maximumStock)}
-                />
-                <DetailRow
-                  label="Last movement"
-                  value={formatDate(stock.lastMovementAt, true)}
-                />
-                <DetailRow
-                  label="Last counted"
-                  value={formatDate(stock.lastCountedAt, true)}
-                />
-                <DetailRow
-                  label="Updated"
-                  value={formatDate(stock.updatedAt, true)}
-                />
-              </div>
-            </SectionCard>
-          </div>
-
-          <div className="rounded-2xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-700">
-            Quantity balances are maintained by posted stock
-            movements. This screen only manages the position and its
-            control settings.
-          </div>
-        </div>
-      ) : null}
-    </ModalShell>
-  )
-}
-
-function DetailRow({ label, value }) {
-  return (
-    <div className="flex items-start justify-between gap-4 border-b border-gray-100 pb-3 last:border-b-0 last:pb-0">
-      <span className="shrink-0 font-semibold text-gray-500">
-        {label}
-      </span>
-
-      <span className="min-w-0 text-right font-black text-gray-800">
-        {value}
-      </span>
-    </div>
-  )
-}
-

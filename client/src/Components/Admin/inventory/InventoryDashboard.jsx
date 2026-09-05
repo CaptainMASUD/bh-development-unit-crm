@@ -1,6 +1,8 @@
+/* eslint-disable react/prop-types -- local dashboard metric component has a fixed internal contract */
 import { useCallback, useEffect, useState } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Alert02Icon, ArrowDataTransferHorizontalIcon, DashboardSquare01Icon, Package01Icon, RefreshIcon } from "@hugeicons/core-free-icons"
+import { InventoryButton, InventoryPageHeader, InventoryPageShell } from "./InventoryUI"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const number = (value, digits = 2) => Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: digits })
@@ -43,12 +45,13 @@ export default function InventoryDashboard() {
   const stock = dashboard?.stock || {}
   const maxValue = Math.max(...valuation.map((row) => Number(row.inventoryValue || 0)), 1)
   return (
-    <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
-      <div className="mx-auto max-w-[1600px] space-y-5">
-        <div className="flex flex-col gap-4 rounded-3xl bg-gradient-to-br from-slate-950 via-indigo-950 to-indigo-800 p-6 text-white shadow-xl sm:flex-row sm:items-center sm:justify-between">
-          <div><p className="text-xs font-black uppercase tracking-[.25em] text-indigo-200">Inventory Management</p><h1 className="mt-2 text-3xl font-black">Inventory command center</h1><p className="mt-2 max-w-2xl text-sm font-medium text-indigo-100">Live quantity, value, availability, replenishment, transfers and movement activity.</p></div>
-          <button onClick={load} disabled={loading} className="inline-flex items-center justify-center gap-2 rounded-xl bg-white/10 px-4 py-3 text-sm font-bold ring-1 ring-white/20 hover:bg-white/20 disabled:opacity-60"><HugeiconsIcon icon={RefreshIcon} size={18} className={loading ? "animate-spin" : ""} />Refresh</button>
-        </div>
+    <InventoryPageShell>
+      <div className="space-y-5">
+        <InventoryPageHeader
+          title="Inventory command center"
+          description="Live quantity, value, availability, replenishment, transfers and movement activity."
+          actions={<InventoryButton onClick={load} disabled={loading}><HugeiconsIcon icon={RefreshIcon} size={18} className={loading ? "animate-spin" : ""} />Refresh</InventoryButton>}
+        />
         {error && <div className="flex gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700"><HugeiconsIcon icon={Alert02Icon} size={18} />{error}</div>}
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <Card label="Inventory Quantity" value={number(stock.onHandQuantity)} detail={`${number(stock.availableQuantity)} available`} />
@@ -69,6 +72,6 @@ export default function InventoryDashboard() {
           <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white xl:col-span-3"><div className="flex items-center gap-3 border-b border-gray-100 p-5"><HugeiconsIcon icon={ArrowDataTransferHorizontalIcon} size={20} className="text-indigo-600" /><div><h2 className="font-black text-gray-900">Recent stock movements</h2><p className="text-xs font-semibold text-gray-400">Permanent posted inventory activity</p></div></div><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-gray-50 text-[11px] uppercase tracking-wider text-gray-400"><tr><th className="px-5 py-3">Reference</th><th className="px-5 py-3">Type</th><th className="px-5 py-3 text-right">Quantity</th><th className="px-5 py-3 text-right">Value</th></tr></thead><tbody>{dashboard?.recentMovements?.length ? dashboard.recentMovements.map((movement) => <tr key={movement._id} className="border-t border-gray-100"><td className="px-5 py-3"><p className="font-black text-gray-800">{movement.movementNo}</p><p className="text-xs text-gray-400">{new Date(movement.movementDate).toLocaleDateString()}</p></td><td className="px-5 py-3 font-semibold text-gray-600">{pretty(movement.movementType)}</td><td className="px-5 py-3 text-right font-black">{number(movement.totalQuantity)}</td><td className="px-5 py-3 text-right font-black">{money(movement.totalValue)}</td></tr>) : <tr><td colSpan="4" className="px-5 py-12 text-center text-gray-400"><HugeiconsIcon icon={Package01Icon} size={28} className="mx-auto mb-2" />No posted movements found.</td></tr>}</tbody></table></div></section>
         </div>
       </div>
-    </div>
+    </InventoryPageShell>
   )
 }

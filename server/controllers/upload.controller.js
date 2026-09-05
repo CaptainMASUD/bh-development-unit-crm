@@ -5,6 +5,54 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import crypto from "crypto";
 import path from "path";
 
+export const buildUploadTarget = ({
+  scope,
+  fileName,
+  fileType,
+  customerId,
+  taskId,
+  templateId,
+  subtitleId,
+  now = Date.now(),
+  random = crypto.randomBytes(12).toString("hex"),
+} = {}) => {
+  const uploadScope = String(scope || "task").toLowerCase();
+
+  if (!fileName || !fileType) {
+    throw Object.assign(new Error("fileName and fileType are required"), { statusCode: 400 });
+  }
+
+  if (uploadScope === "product") {
+    if (!["image/png", "image/jpeg", "image/webp"].includes(String(fileType).toLowerCase())) {
+      throw Object.assign(new Error("Product images must be PNG, JPG, or WEBP."), { statusCode: 400 });
+    }
+  } else if (uploadScope === "task") {
+    if (!customerId || !taskId) {
+      throw Object.assign(new Error("customerId and taskId are required when scope=task"), { statusCode: 400 });
+    }
+  } else if (uploadScope === "subtitle") {
+    if (!customerId || !taskId || !subtitleId) {
+      throw Object.assign(new Error("customerId, taskId and subtitleId are required when scope=subtitle"), { statusCode: 400 });
+    }
+  } else if (uploadScope === "templatesubtitle") {
+    if (!templateId || !subtitleId) {
+      throw Object.assign(new Error("templateId and subtitleId are required when scope=templateSubtitle"), { statusCode: 400 });
+    }
+  } else {
+    throw Object.assign(new Error("Invalid scope. Use task | subtitle | templateSubtitle | product"), { statusCode: 400 });
+  }
+
+  const ext = path.extname(fileName) || "";
+  let key = "";
+
+  if (uploadScope === "product") key = `inventory/products/${now}-${random}${ext}`;
+  if (uploadScope === "task") key = `customers/${customerId}/tasks/${taskId}/files/${now}-${random}${ext}`;
+  if (uploadScope === "subtitle") key = `customers/${customerId}/tasks/${taskId}/subtitles/${subtitleId}/files/${now}-${random}${ext}`;
+  if (uploadScope === "templatesubtitle") key = `task-templates/${templateId}/subtitles/${subtitleId}/files/${now}-${random}${ext}`;
+
+  return { scope: uploadScope, key };
+};
+
 export const presignUpload = async (req, res) => {
   try {
     const {
@@ -23,48 +71,9 @@ export const presignUpload = async (req, res) => {
      * - "subtitle"        => customers/<customerId>/tasks/<taskId>/subtitles/<subtitleId>/files/...
      * - "templateSubtitle"=> task-templates/<templateId>/subtitles/<subtitleId>/files/...
      */
-    const uploadScope = String(scope || "task").toLowerCase();
-
-    if (!fileName || !fileType) {
-      return res.status(400).json({ message: "fileName and fileType are required" });
-    }
-
-    if (uploadScope === "task") {
-      if (!customerId || !taskId) {
-        return res.status(400).json({ message: "customerId and taskId are required when scope=task" });
-      }
-    } else if (uploadScope === "subtitle") {
-      if (!customerId || !taskId || !subtitleId) {
-        return res.status(400).json({
-          message: "customerId, taskId and subtitleId are required when scope=subtitle",
-        });
-      }
-    } else if (uploadScope === "templatesubtitle") {
-      if (!templateId || !subtitleId) {
-        return res.status(400).json({
-          message: "templateId and subtitleId are required when scope=templateSubtitle",
-        });
-      }
-    } else {
-      return res.status(400).json({ message: "Invalid scope. Use task | subtitle | templateSubtitle" });
-    }
-
-    const ext = path.extname(fileName) || "";
-    const random = crypto.randomBytes(12).toString("hex");
-
-    let key = "";
-
-    if (uploadScope === "task") {
-      key = `customers/${customerId}/tasks/${taskId}/files/${Date.now()}-${random}${ext}`;
-    }
-
-    if (uploadScope === "subtitle") {
-      key = `customers/${customerId}/tasks/${taskId}/subtitles/${subtitleId}/files/${Date.now()}-${random}${ext}`;
-    }
-
-    if (uploadScope === "templatesubtitle") {
-      key = `task-templates/${templateId}/subtitles/${subtitleId}/files/${Date.now()}-${random}${ext}`;
-    }
+    const target = buildUploadTarget({ scope, fileName, fileType, customerId, taskId, templateId, subtitleId });
+    const uploadScope = target.scope;
+    const key = target.key;
 
     const command = new PutObjectCommand({
       Bucket: process.env.AWS_S3_BUCKET,
@@ -85,7 +94,7 @@ export const presignUpload = async (req, res) => {
       subtitleId: subtitleId || undefined,
     });
   } catch (err) {
-    return res.status(500).json({
+    return res.status(err.statusCode || 500).json({
       message: "Failed to generate presigned URL",
       error: err.message,
     });

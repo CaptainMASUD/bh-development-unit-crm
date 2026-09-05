@@ -1,11 +1,13 @@
 import express from "express";
 import {
   deleteProductStock,
+  createOpeningStock,
   getProductAvailability,
   getProductStock,
   getProductStockSummary,
   getStockPosition,
   initializeProductStock,
+  listInventoryItems,
   listProductStocks,
   restoreProductStock,
   updateProductStockSettings,
@@ -17,8 +19,10 @@ router.use(protect);
 
 router.get("/summary", requirePermission("inventory-stock:view"), getProductStockSummary);
 router.get("/position", requirePermission("inventory-stock:view"), getStockPosition);
+router.get("/items", requirePermission("inventory-stock:view"), listInventoryItems);
 router.get("/availability/:productId", requirePermission("inventory-stock:view"), getProductAvailability);
 router.get("/", requirePermission("inventory-stock:view"), listProductStocks);
+router.post("/opening-stock", requirePermission("inventory-stock:manage"), createOpeningStock);
 router.post("/initialize", requirePermission("inventory-stock:manage"), initializeProductStock);
 router.get("/:id", requirePermission("inventory-stock:view"), getProductStock);
 router.patch("/:id/settings", requirePermission("inventory-stock:manage"), updateProductStockSettings);

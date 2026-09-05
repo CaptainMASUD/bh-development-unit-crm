@@ -34,6 +34,16 @@ const clean = (value) => String(value ?? "").trim();
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+export const attachWarehouseStockValues = (warehouses = [], summaries = []) => {
+  const values = new Map(
+    summaries.map((summary) => [String(summary._id), Math.round(Number(summary.stockValue || 0) * 100) / 100])
+  );
+  return warehouses.map((warehouse) => ({
+    ...warehouse,
+    stockValue: values.get(String(warehouse._id)) || 0,
+  }));
+};
+
 const parseLimit = (value, fallback = 30, max = 100) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -267,8 +277,15 @@ export const listWarehouses = async (req, res) => {
     if (hasMore) warehouses.pop();
     const nextCursor = hasMore && warehouses.length ? encodeCursor(warehouses.at(-1)) : null;
     const data = warehouses.map(({ nameLower, ...warehouse }) => warehouse);
+    const stockSummaries = data.length
+      ? await ProductStock.aggregate([
+          { $match: { warehouse: { $in: data.map((warehouse) => warehouse._id) }, status: { $ne: "archived" } } },
+          { $group: { _id: "$warehouse", stockValue: { $sum: "$inventoryValue" } } },
+        ]).option({ maxTimeMS: 5000 })
+      : [];
+    const valuedWarehouses = attachWarehouseStockValues(data, stockSummaries);
 
-    return res.json({ count: data.length, hasMore, nextCursor, warehouses: data });
+    return res.json({ count: valuedWarehouses.length, hasMore, nextCursor, warehouses: valuedWarehouses });
   } catch (error) {
     return res.status(500).json({ message: "Failed to load warehouses.", error: error.message });
   }

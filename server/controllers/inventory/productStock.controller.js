@@ -3,6 +3,8 @@ import Product from "../../models/inventory/product.model.js";
 import Warehouse from "../../models/inventory/warehouse.model.js";
 import WarehouseLocation from "../../models/inventory/warehouseLocation.model.js";
 import ProductStock, { STOCK_STATUSES, roundMoney, roundQuantity } from "../../models/inventory/productStock.model.js";
+import StockMovement from "../../models/inventory/stockMovement.model.js";
+import { runMongoTransaction, sessionOptions, withSession } from "../../utils/mongoTransaction.js";
 
 const LIST_FIELDS = [
   "product",
@@ -53,6 +55,57 @@ const nullableId = (value) => {
   if (!normalized) return null;
   return isId(normalized) ? normalized : undefined;
 };
+
+export const buildOpeningStockCommand = (body = {}) => {
+  const product = clean(body.product);
+  const warehouse = clean(body.warehouse);
+  const location = nullableId(body.location);
+  const quantity = parseNumber(body.quantity);
+  const stockPrice = parseNumber(body.stockPrice);
+  const idempotencyKey = clean(body.idempotencyKey);
+
+  if (!isId(product)) throw Object.assign(new Error("Select a valid product."), { statusCode: 400 });
+  if (!isId(warehouse)) throw Object.assign(new Error("Select a valid warehouse."), { statusCode: 400 });
+  if (location === undefined) {
+    throw Object.assign(new Error("Select a valid bin or shelf, or leave it empty."), { statusCode: 400 });
+  }
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    throw Object.assign(new Error("Quantity to add must be greater than zero."), { statusCode: 400 });
+  }
+  if (!Number.isFinite(stockPrice) || stockPrice < 0) {
+    throw Object.assign(new Error("Stock price must be a valid non-negative number."), { statusCode: 400 });
+  }
+
+  return {
+    product,
+    warehouse,
+    location,
+    quantity: roundQuantity(quantity),
+    stockPrice: roundMoney(stockPrice),
+    idempotencyKey,
+  };
+};
+
+export const buildOpeningStockMovement = (command, userId = null) => ({
+  movementType: "opening_stock",
+  sourceType: "inventory_item",
+  idempotencyKey: command.idempotencyKey || undefined,
+  currency: "BDT",
+  reason: "Inventory Items opening stock",
+  lines: [
+    {
+      product: command.product,
+      effect: "in",
+      destinationWarehouse: command.warehouse,
+      destinationLocation: command.location,
+      quantity: command.quantity,
+      requestedUnitCost: command.stockPrice,
+      note: "Created from Inventory Items",
+    },
+  ],
+  createdBy: userId,
+  updatedBy: userId,
+});
 
 const encodeCursor = (stock) =>
   Buffer.from(JSON.stringify({ id: String(stock._id) }), "utf8").toString("base64url");
@@ -264,6 +317,71 @@ export const listProductStocks = async (req, res) => {
     return res.json({ count: stocks.length, hasMore, nextCursor, stocks });
   } catch (error) {
     return res.status(500).json({ message: "Failed to load product stock.", error: error.message });
+  }
+};
+
+export const listInventoryItems = async (req, res) => {
+  try {
+    const limit = parseLimit(req.query.limit, 20, 100);
+    const page = Math.max(1, Math.trunc(Number(req.query.page) || 1));
+    const filter = await buildStockFilter(req.query);
+    const pipeline = [
+      { $match: filter },
+      {
+        $group: {
+          _id: "$product",
+          totalQuantity: { $sum: "$onHandQuantity" },
+          availableQuantity: { $sum: "$availableQuantity" },
+          stockValue: { $sum: "$inventoryValue" },
+          warehouseCount: { $addToSet: "$warehouse" },
+          activePositions: { $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] } },
+          positionCount: { $sum: 1 },
+        },
+      },
+      { $lookup: { from: "products", localField: "_id", foreignField: "_id", as: "product" } },
+      { $unwind: "$product" },
+      { $sort: { "product.nameLower": 1, _id: 1 } },
+      {
+        $facet: {
+          rows: [
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
+            {
+              $project: {
+                _id: 0,
+                product: {
+                  _id: "$product._id",
+                  name: "$product.name",
+                  sku: "$product.sku",
+                  barcode: "$product.barcode",
+                  imageUrl: "$product.imageUrl",
+                  status: "$product.status",
+                },
+                totalQuantity: 1,
+                availableQuantity: 1,
+                stockValue: 1,
+                warehouseCount: { $size: "$warehouseCount" },
+                positionCount: 1,
+                status: { $cond: [{ $gt: ["$activePositions", 0] }, "active", "inactive"] },
+              },
+            },
+          ],
+          total: [{ $count: "value" }],
+        },
+      },
+    ];
+
+    const [result] = await ProductStock.aggregate(pipeline).option({ maxTimeMS: 5000 });
+    const total = result?.total?.[0]?.value || 0;
+    return res.json({
+      items: result?.rows || [],
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to load inventory items.", error: error.message });
   }
 };
 
@@ -507,6 +625,75 @@ export const initializeProductStock = async (req, res) => {
       return res.status(200).json({ message: "Stock position already exists.", stock });
     }
     return sendWriteError(res, error, "Failed to initialize product stock.");
+  }
+};
+
+export const createOpeningStock = async (req, res) => {
+  try {
+    const command = buildOpeningStockCommand(req.body);
+    await validateStockReferences({
+      productId: command.product,
+      warehouseId: command.warehouse,
+      locationId: command.location,
+      requireActive: true,
+    });
+
+    const result = await runMongoTransaction(async (session) => {
+      const key = {
+        product: command.product,
+        warehouse: command.warehouse,
+        location: command.location || null,
+      };
+      const existingStock = await withSession(ProductStock.findOne(key), session);
+      if (existingStock?.status === "archived") {
+        throw Object.assign(
+          new Error("This stock position is archived. Restore it before adding quantity."),
+          { statusCode: 409 }
+        );
+      }
+      if (existingStock?.status === "inactive") {
+        existingStock.status = "active";
+        existingStock.updatedBy = req.user?._id || null;
+        await existingStock.save(sessionOptions(session));
+      }
+
+      let movement = command.idempotencyKey
+        ? await withSession(StockMovement.findOne({ idempotencyKey: command.idempotencyKey }), session)
+        : null;
+
+      if (!movement) {
+        movement = new StockMovement(
+          buildOpeningStockMovement(command, req.user?._id || null)
+        );
+        await movement.save(sessionOptions(session));
+      }
+
+      movement = await StockMovement.postMovementDocument({
+        movementId: movement._id,
+        userId: req.user?._id || null,
+        session,
+      });
+
+      const stock = await withSession(ProductStock.findOne(key), session);
+      return { movement, stock };
+    });
+
+    await Promise.all([
+      result.stock?.populate([
+        { path: "product", select: "name sku barcode imageUrl status" },
+        { path: "warehouse", select: "name code status" },
+        { path: "location", select: "name code locationType status" },
+      ]),
+      result.movement?.populate("createdBy", "name email"),
+    ]);
+
+    return res.status(201).json({
+      message: "Opening stock posted successfully.",
+      stock: result.stock,
+      movement: result.movement,
+    });
+  } catch (error) {
+    return sendWriteError(res, error, "Failed to post opening stock.");
   }
 };
 

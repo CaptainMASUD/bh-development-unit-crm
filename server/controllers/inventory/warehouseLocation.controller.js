@@ -29,6 +29,52 @@ const OPTION_FIELDS = "warehouse name code locationType parent ancestors depth s
 const clean = (value) => String(value ?? "").trim();
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const relationId = (value) => String(value?._id || value || "");
+
+const hierarchyValue = (location, type) => {
+  const nodes = [...(location.ancestors || []), location];
+  const node = nodes.find((item) => item?.locationType === type);
+  return clean(node?.code || node?.name) || "—";
+};
+
+export const attachWarehouseLocationStockDetails = (locations = [], stockRows = []) => {
+  const byLocation = new Map();
+  for (const stock of stockRows) {
+    if (stock.status === "archived" || !relationId(stock.location)) continue;
+    const key = relationId(stock.location);
+    if (!byLocation.has(key)) byLocation.set(key, []);
+    byLocation.get(key).push(stock);
+  }
+
+  return locations.map((location) => {
+    const stocks = byLocation.get(relationId(location)) || [];
+    const activeStocks = stocks.filter((stock) => stock.status !== "inactive" && stock.status !== "archived");
+    const products = [...new Map(activeStocks.map((stock) => [relationId(stock.product), stock.product])).values()].filter(Boolean);
+    const quantity = Math.round(activeStocks.reduce((sum, stock) => sum + Number(stock.onHandQuantity || 0), 0) * 1e6) / 1e6;
+    const availableQuantity = activeStocks.reduce((sum, stock) => sum + Number(stock.availableQuantity || 0), 0);
+    const insufficient = activeStocks.some((stock) => {
+      const minimum = Number(stock.minimumStock ?? stock.product?.minimumStock ?? 0);
+      return minimum > 0 && Number(stock.onHandQuantity || 0) <= minimum;
+    });
+    const availabilityStatus = location.status !== "active" || availableQuantity <= 0 ? "unavailable" : insufficient ? "insufficient" : "available";
+    const currentProduct = products.length === 1
+      ? { _id: products[0]._id, name: products[0].name, sku: products[0].sku || "" }
+      : products.length > 1
+        ? { _id: null, name: "Multiple Products", sku: "" }
+        : null;
+
+    return {
+      ...location,
+      zone: location.zone || hierarchyValue(location, "zone"),
+      rack: location.rack || hierarchyValue(location, "rack"),
+      shelf: location.shelf || hierarchyValue(location, "shelf"),
+      quantity,
+      currentProduct,
+      productCount: products.length,
+      availabilityStatus,
+    };
+  });
+};
 
 const parseLimit = (value, fallback = 40, max = 150) => {
   const parsed = Number(value);
@@ -280,6 +326,7 @@ export const listWarehouseLocations = async (req, res) => {
       .select(`${LIST_FIELDS} +nameLower`)
       .populate("warehouse", "name code status")
       .populate("parent", "name code locationType status")
+      .populate("ancestors", "name code locationType status")
       .sort({ sortOrder: 1, nameLower: 1, _id: 1 })
       .limit(limit + 1)
       .maxTimeMS(5000)
@@ -289,8 +336,15 @@ export const listWarehouseLocations = async (req, res) => {
     if (hasMore) locations.pop();
     const nextCursor = hasMore && locations.length ? encodeCursor(locations.at(-1)) : null;
     const data = locations.map(({ nameLower, ...location }) => location);
+    const stockRows = data.length
+      ? await ProductStock.find({ location: { $in: data.map((location) => location._id) }, status: { $ne: "archived" } })
+          .select("location product onHandQuantity availableQuantity minimumStock status")
+          .populate("product", "name sku minimumStock")
+          .lean()
+      : [];
+    const enriched = attachWarehouseLocationStockDetails(data, stockRows);
 
-    return res.json({ count: data.length, hasMore, nextCursor, locations: data });
+    return res.json({ count: enriched.length, hasMore, nextCursor, locations: enriched });
   } catch (error) {
     return res.status(500).json({ message: "Failed to load warehouse locations.", error: error.message });
   }

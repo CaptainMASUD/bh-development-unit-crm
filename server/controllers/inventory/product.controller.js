@@ -7,6 +7,7 @@ import Product, {
   TAX_TYPES,
   TRACKING_TYPES,
 } from "../../models/inventory/product.model.js";
+import ProductCategory from "../../models/inventory/productCategory.model.js";
 import Supplier, {
   SupplierProduct,
 } from "../../models/supplier.model.js";
@@ -75,6 +76,34 @@ const isId = (value) =>
 
 const escapeRegex = (value) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+export const buildCategoryProductCode = (categoryCode, usedSkus = []) => {
+  const prefix = clean(categoryCode).toUpperCase();
+
+  if (!prefix) return "";
+
+  const expression = new RegExp(`^${escapeRegex(prefix)}(\\d+)$`, "i");
+  const highest = usedSkus.reduce((maximum, sku) => {
+    const match = clean(sku).match(expression);
+    return match ? Math.max(maximum, Number(match[1]) || 0) : maximum;
+  }, 0);
+
+  return `${prefix}${highest + 1}`;
+};
+
+const generateProductSku = async (categoryId) => {
+  if (!isId(categoryId)) return "";
+
+  const category = await ProductCategory.findById(categoryId).select("code").lean();
+  if (!category?.code) return "";
+
+  const prefix = clean(category.code).toUpperCase();
+  const products = await Product.find({
+    sku: new RegExp(`^${escapeRegex(prefix)}\\d+$`, "i"),
+  }).select("sku").lean();
+
+  return buildCategoryProductCode(prefix, products.map((product) => product.sku));
+};
 
 const money = (value) =>
   Math.round(Number(value || 0) * 100) / 100;
@@ -917,6 +946,12 @@ export const createProduct = async (
         userId
       );
 
+    const usesGeneratedSku = !clean(payload.sku);
+
+    if (usesGeneratedSku && payload.category) {
+      payload.sku = await generateProductSku(payload.category);
+    }
+
     const errors = [
       ...validatePayloadShape(payload),
       ...validateProductState(payload),
@@ -946,12 +981,22 @@ export const createProduct = async (
       }
     }
 
-    const product =
-      await Product.create({
-        ...payload,
-        createdBy: userId,
-        updatedBy: userId,
-      });
+    let product = null;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        product = await Product.create({
+          ...payload,
+          createdBy: userId,
+          updatedBy: userId,
+        });
+        break;
+      } catch (error) {
+        const skuCollision = usesGeneratedSku && error?.code === 11000 && error?.keyPattern?.sku;
+        if (!skuCollision || attempt === 4) throw error;
+        payload.sku = await generateProductSku(payload.category);
+      }
+    }
 
     let supplierProduct = null;
 

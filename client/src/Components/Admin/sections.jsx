@@ -2,9 +2,9 @@
 // sections.jsx
 import { lazy } from "react"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { InventoryThemeBoundary } from "./inventory/InventoryUI"
 import {
   Analytics01Icon,
-  Alert02Icon,
   Archive02Icon,
   ArrowDataTransferHorizontalIcon,
   BankIcon,
@@ -83,14 +83,11 @@ const ProductCategories = lazy(() => import("./inventory/ProductCategory"))
 const InventoryUnits = lazy(() => import("./inventory/InventoryUnit"))
 const Warehouses = lazy(() => import("./inventory/Warehouse"))
 const WarehouseLocations = lazy(() => import("./inventory/WarehouseLocation"))
-const StockOverview = lazy(() => import("./inventory/StockOverview"))
-const StockMovements = lazy(() => import("./inventory/StockMovements"))
 const StockAdjustments = lazy(() => import("./inventory/StockAdjustments"))
 const StockTransfers = lazy(() => import("./inventory/StockTransfers"))
 const InventoryDashboard = lazy(() => import("./inventory/InventoryDashboard"))
 const TotalInventory = lazy(() => import("./inventory/TotalInventory"))
-const WarehouseInventory = lazy(() => import("./inventory/WarehouseInventory"))
-const PendingInventory = lazy(() => import("./inventory/PendingInventory"))
+const ItemProfiles = lazy(() => import("./inventory/ItemProfiles"))
 const WarehouseChecks = lazy(() => import("./inventory/WarehouseChecks"))
 const StockRequests = lazy(() => import("./inventory/StockRequests"))
 const StockIssues = lazy(() => import("./inventory/StockIssues"))
@@ -103,13 +100,7 @@ const LowStock = lazy(() => import("./inventory/LowStock"))
 const InventoryValuation = lazy(() => import("./inventory/InventoryValuation"))
 const InventoryLossAnalysis = lazy(() => import("./inventory/InventoryLossAnalysis"))
 const StockBalanceReport = lazy(() => import("./inventory/StockBalanceReport"))
-const WarehouseStockReport = lazy(() => import("./inventory/WarehouseStockReport"))
-const StockLedgerReport = lazy(() => import("./inventory/StockLedgerReport"))
-const ConsumptionReport = lazy(() => import("./inventory/ConsumptionReport"))
-const LowStockReport = lazy(() => import("./inventory/LowStockReport"))
-const ExpiryReport = lazy(() => import("./inventory/ExpiryReport"))
-const ValuationReport = lazy(() => import("./inventory/ValuationReport"))
-const LossAnalysisReport = lazy(() => import("./inventory/LossAnalysisReport"))
+const InventoryReports = lazy(() => import("./inventory/InventoryReports"))
 const Suppliers = lazy(() => import("./Supplier/SupplierSetup"))
 const SupplierProducts = lazy(() => import("./Supplier/SupplierProducts"))
 const PurchaseOrders = lazy(() => import("./purchase/PurchaseOrders"))
@@ -122,6 +113,7 @@ const PurchaseIssues = lazy(() => import("./purchase/PurchaseIssues"))
 const PurchaseDues = lazy(() => import("./purchase/PurchaseDues"))
 const PriceAnalysis = lazy(() => import("./purchase/PriceAnalysis"))
 const PurchaseReportsPage = lazy(() => import("./purchase/PurchaseReportsPage"))
+const PurchaseQualityInspections = lazy(() => import("./purchase/PurchaseQualityInspections"))
 const SalesPage = lazy(() => import("./sales/SalesPage"))
 const SalesReports = lazy(() => import("./sales/SalesReports"))
 
@@ -134,6 +126,10 @@ const createSectionIcon = (icon) => (
   />
 )
 
+const withInventoryTheme = (component) => (
+  <InventoryThemeBoundary>{component}</InventoryThemeBoundary>
+)
+
 const sections = {
   Dashboard: {
     icon: createSectionIcon(DashboardSquare01Icon),
@@ -142,7 +138,7 @@ const sections = {
 
   "Inventory Dashboard": {
     icon: createSectionIcon(DashboardSquare01Icon),
-    component: <InventoryDashboard />,
+    component: withInventoryTheme(<InventoryDashboard />),
     permission: "inventory-report:view",
   },
 
@@ -171,24 +167,22 @@ const sections = {
 
   "Inventory Items": {
     icon: createSectionIcon(Package01Icon),
-    subcategories: {
-      "Total Inventory": <TotalInventory />,
-      "Warehouse Inventory": <WarehouseInventory />,
-      "Pending Inventory": <PendingInventory />,
-    },
-    subcategoryPermissions: {
-      "Total Inventory": "inventory-stock:view",
-      "Warehouse Inventory": "inventory-stock:view",
-      "Pending Inventory": "inventory-stock:view",
-    },
+    component: withInventoryTheme(<TotalInventory />),
+    permission: "inventory-stock:view",
+  },
+
+  "Item Profiles": {
+    icon: createSectionIcon(Package01Icon),
+    component: withInventoryTheme(<ItemProfiles />),
+    permission: "inventory-product:view",
   },
 
   "Product Management": {
     icon: createSectionIcon(Package01Icon),
     subcategories: {
-      Products: <Products />,
-      Categories: <ProductCategories />,
-      "Units of Measure": <InventoryUnits />,
+      Products: withInventoryTheme(<Products />),
+      Categories: withInventoryTheme(<ProductCategories />),
+      "Units of Measure": withInventoryTheme(<InventoryUnits />),
     },
     subcategoryPermissions: {
       Products: "inventory-product:view",
@@ -200,99 +194,85 @@ const sections = {
   "Warehouse Management": {
     icon: createSectionIcon(Layers01Icon),
     subcategories: {
-      Warehouses: <Warehouses />,
-      "Locations / Bins": <WarehouseLocations />,
-      "Warehouse Checks": <WarehouseChecks />,
+      Warehouses: withInventoryTheme(<Warehouses />),
+      "Scheduled Warehouse Checks": withInventoryTheme(<WarehouseChecks />),
+      "Locations / Bins / Shelves": withInventoryTheme(<WarehouseLocations />),
     },
     subcategoryPermissions: {
       Warehouses: "inventory-warehouse:view",
-      "Locations / Bins": "inventory-location:view",
-      "Warehouse Checks": "inventory-warehouse:view",
+      "Scheduled Warehouse Checks": "inventory-warehouse:view",
+      "Locations / Bins / Shelves": "inventory-location:view",
     },
   },
 
   "Inventory Operations": {
     icon: createSectionIcon(ArrowDataTransferHorizontalIcon),
     subcategories: {
-      "Stock Requests": <StockRequests />,
-      "Stock Issues": <StockIssues />,
-      "Stock Transfers": <StockTransfers />,
-      "Stock Adjustments": <StockAdjustments />,
+      "Stock Requests": withInventoryTheme(<StockRequests />),
+      "Stock Issues": withInventoryTheme(<StockIssues />),
+      "Stock Transfers": withInventoryTheme(<StockTransfers />),
+      "Stock Adjustments": withInventoryTheme(<StockAdjustments />),
+      "Stock Report": withInventoryTheme(<StockBalanceReport />),
     },
     subcategoryPermissions: {
       "Stock Requests": "inventory-stock:view",
       "Stock Issues": "inventory-movement:view",
       "Stock Transfers": "inventory-transfer:view",
       "Stock Adjustments": "inventory-adjustment:view",
+      "Stock Report": "inventory-report:view",
     },
   },
 
-  "Stock Inspection": {
-    icon: createSectionIcon(Archive02Icon),
-    component: <StockInspection />,
-    permission: "inventory-stock:view",
-  },
-
-  Tracking: {
+  "Quality Management": {
     icon: createSectionIcon(Archive02Icon),
     subcategories: {
-      "Batch / Lots": <BatchLots />,
-      "Serial Numbers": <SerialNumbers />,
-      "Expiry Tracking": <ExpiryTracking />,
+      "Quality Inspection": withInventoryTheme(<PurchaseQualityInspections />),
+      "Stock Inspection": withInventoryTheme(<StockInspection />),
     },
     subcategoryPermissions: {
-      "Batch / Lots": "inventory-stock:view",
+      "Quality Inspection": "inventory-stock:view",
+      "Stock Inspection": "inventory-stock:view",
+    },
+  },
+
+  "Batch, Serial & Expiry": {
+    icon: createSectionIcon(Archive02Icon),
+    subcategories: {
+      "Batches / Lots": withInventoryTheme(<BatchLots />),
+      "Serial Numbers": withInventoryTheme(<SerialNumbers />),
+      "Expiry Management": withInventoryTheme(<ExpiryTracking />),
+      "Low Stock Requests": withInventoryTheme(<LowStock />),
+    },
+    subcategoryPermissions: {
+      "Batches / Lots": "inventory-stock:view",
       "Serial Numbers": "inventory-stock:view",
-      "Expiry Tracking": "inventory-stock:view",
+      "Expiry Management": "inventory-stock:view",
+      "Low Stock Requests": "inventory-report:view",
     },
   },
 
   "Consumption History": {
     icon: createSectionIcon(Archive02Icon),
-    component: <ConsumptionHistory />,
+    component: withInventoryTheme(<ConsumptionHistory />),
     permission: "inventory-movement:view",
-  },
-
-  "Low Stock": {
-    icon: createSectionIcon(Alert02Icon),
-    component: <LowStock />,
-    permission: "inventory-report:view",
   },
 
   "Inventory Valuation": {
     icon: createSectionIcon(ChartLineData01Icon),
-    component: <InventoryValuation />,
+    component: withInventoryTheme(<InventoryValuation />),
     permission: "inventory-report:view",
   },
 
   "Inventory Loss Analysis": {
     icon: createSectionIcon(ChartLineData02Icon),
-    component: <InventoryLossAnalysis />,
+    component: withInventoryTheme(<InventoryLossAnalysis />),
     permission: "inventory-report:view",
   },
 
   "Inventory Reports": {
     icon: createSectionIcon(FileChartColumnIcon),
-    subcategories: {
-      "Stock Balance": <StockBalanceReport />,
-      "Warehouse Stock": <WarehouseStockReport />,
-      "Stock Ledger": <StockLedgerReport />,
-      Consumption: <ConsumptionReport />,
-      "Low Stock": <LowStockReport />,
-      Expiry: <ExpiryReport />,
-      Valuation: <ValuationReport />,
-      "Loss Analysis": <LossAnalysisReport />,
-    },
-    subcategoryPermissions: {
-      "Stock Balance": "inventory-report:view",
-      "Warehouse Stock": "inventory-report:view",
-      "Stock Ledger": "inventory-report:view",
-      Consumption: "inventory-report:view",
-      "Low Stock": "inventory-report:view",
-      Expiry: "inventory-report:view",
-      Valuation: "inventory-report:view",
-      "Loss Analysis": "inventory-report:view",
-    },
+    component: withInventoryTheme(<InventoryReports />),
+    permission: "inventory-report:view",
   },
 
   Suppliers: {

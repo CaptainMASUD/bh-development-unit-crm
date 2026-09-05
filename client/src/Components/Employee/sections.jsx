@@ -5,6 +5,7 @@ import { FiBarChart2, FiCalendar, FiClock, FiCreditCard, FiDollarSign, FiPackage
 import { FaInfoCircle, FaClipboardList } from "react-icons/fa"
 import { FiSettings, FiTarget } from "react-icons/fi"
 import { PERMISSIONS } from "../Auth/permissions"
+import { sections as adminSections } from "../Admin/sections"
 
 // components
 const UnifiedDashboard = lazy(() => import("./UnifiedDashboard"))
@@ -54,16 +55,6 @@ const BankSetup = lazy(() => import("../Admin/banking/BankSetup"))
 const CashManagement = lazy(() => import("../Admin/banking/CashManagement"))
 const TreasuryVouchers = lazy(() => import("../Admin/banking/TreasuryVouchers"))
 const ProfitLoss = lazy(() => import("../Admin/accounting/ProfitLoss"))
-const Products = lazy(() => import("../Admin/inventory/Product"))
-const ProductCategories = lazy(() => import("../Admin/inventory/ProductCategory"))
-const ProductBrands = lazy(() => import("../Admin/inventory/ProductBrand"))
-const InventoryUnits = lazy(() => import("../Admin/inventory/InventoryUnit"))
-const Warehouses = lazy(() => import("../Admin/inventory/Warehouse"))
-const WarehouseLocations = lazy(() => import("../Admin/inventory/WarehouseLocation"))
-const StockOverview = lazy(() => import("../Admin/inventory/StockOverview"))
-const StockMovements = lazy(() => import("../Admin/inventory/StockMovements"))
-const StockAdjustments = lazy(() => import("../Admin/inventory/StockAdjustments"))
-const StockTransfers = lazy(() => import("../Admin/inventory/StockTransfers"))
 const Suppliers = lazy(() => import("../Admin/Supplier/SupplierSetup"))
 const SupplierProducts = lazy(() => import("../Admin/Supplier/SupplierProducts"))
 const PurchaseOrders = lazy(() => import("../Admin/purchase/PurchaseOrders"))
@@ -103,49 +94,18 @@ export const sections = {
     permission: PERMISSIONS.DEALS_VIEW,
   },
 
-  "Product Management": {
-    icon: <FiPackage className="w-5 h-5" />,
-    subcategories: {
-      Products: <Products />,
-      Categories: <ProductCategories />,
-      Brands: <ProductBrands />,
-      Units: <InventoryUnits />,
-    },
-    subcategoryPermissions: {
-      Products: PERMISSIONS.INVENTORY_PRODUCT_VIEW,
-      Categories: PERMISSIONS.INVENTORY_CATEGORY_VIEW,
-      Brands: PERMISSIONS.INVENTORY_BRAND_VIEW,
-      Units: PERMISSIONS.INVENTORY_UNIT_VIEW,
-    },
-  },
-
-  "Warehouse Management": {
-    icon: <FiPackage className="w-5 h-5" />,
-    subcategories: {
-      Warehouses: <Warehouses />,
-      Locations: <WarehouseLocations />,
-    },
-    subcategoryPermissions: {
-      Warehouses: PERMISSIONS.INVENTORY_WAREHOUSE_VIEW,
-      Locations: PERMISSIONS.INVENTORY_LOCATION_VIEW,
-    },
-  },
-
-  "Stock Control": {
-    icon: <FiPackage className="w-5 h-5" />,
-    subcategories: {
-      "Stock Overview": <StockOverview />,
-      "Stock Movements": <StockMovements />,
-      "Stock Adjustments": <StockAdjustments />,
-      "Stock Transfers": <StockTransfers />,
-    },
-    subcategoryPermissions: {
-      "Stock Overview": PERMISSIONS.INVENTORY_STOCK_VIEW,
-      "Stock Movements": PERMISSIONS.INVENTORY_MOVEMENT_VIEW,
-      "Stock Adjustments": PERMISSIONS.INVENTORY_ADJUSTMENT_VIEW,
-      "Stock Transfers": PERMISSIONS.INVENTORY_TRANSFER_VIEW,
-    },
-  },
+  "Inventory Dashboard": adminSections["Inventory Dashboard"],
+  "Inventory Items": adminSections["Inventory Items"],
+  "Item Profiles": adminSections["Item Profiles"],
+  "Product Management": adminSections["Product Management"],
+  "Warehouse Management": adminSections["Warehouse Management"],
+  "Inventory Operations": adminSections["Inventory Operations"],
+  "Quality Management": adminSections["Quality Management"],
+  "Batch, Serial & Expiry": adminSections["Batch, Serial & Expiry"],
+  "Consumption History": adminSections["Consumption History"],
+  "Inventory Valuation": adminSections["Inventory Valuation"],
+  "Inventory Loss Analysis": adminSections["Inventory Loss Analysis"],
+  "Inventory Reports": adminSections["Inventory Reports"],
 
   Suppliers: {
     icon: <FiUsers className="w-5 h-5" />,

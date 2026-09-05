@@ -16,6 +16,72 @@ const reference = (prefix, productCode = "") => `${prefix}-${new Date().toISOStr
 const fail = (res, error, fallback) => res.status(error.statusCode || (error.name === "ValidationError" ? 400 : 500)).json({ message: error.statusCode || error.name === "ValidationError" ? error.message : fallback, error: error.message });
 const page = (query) => ({ limit: Math.min(Math.max(Number(query.limit) || 30, 1), 200), skip: Math.max(Number(query.skip) || 0, 0) });
 const sessionOpt = (session) => session ? { session } : {};
+const idString = (value) => String(value?._id || value || "");
+const positionKey = (value) => `${idString(value.product)}:${idString(value.location)}`;
+
+export const buildMissingWarehouseSchedules = (warehouses = [], schedules = [], userId, now = new Date()) => {
+  const scheduled = new Set(schedules.map((item) => idString(item.warehouse)));
+  return warehouses.filter((warehouse) => !scheduled.has(idString(warehouse))).map((warehouse) => ({
+    warehouse: warehouse._id,
+    frequencyDays: 365,
+    inspectionMode: "full_warehouse",
+    status: "waiting",
+    cycleNumber: 1,
+    nextInspectionDate: new Date(now.getTime() + 365 * 86400000),
+    createdBy: userId,
+    updatedBy: userId,
+  }));
+};
+
+export const pickNextWarehouseSchedule = (schedules = []) => schedules
+  .filter((item) => ["waiting", "processing"].includes(item.status))
+  .sort((left, right) => new Date(left.nextInspectionDate || 0) - new Date(right.nextInspectionDate || 0))[0] || null;
+
+export const isWarehouseCycleComplete = (positions = [], inspections = []) => {
+  if (!positions.length) return false;
+  const completed = new Set(inspections.filter((item) => item.status === "completed").map(positionKey));
+  return positions.every((position) => completed.has(positionKey(position)));
+};
+
+export const advanceWarehouseCheckCycle = (schedule, completedAt = new Date()) => ({
+  status: "waiting",
+  cycleNumber: Number(schedule.cycleNumber || 1) + 1,
+  lastInspectionDate: completedAt,
+  nextInspectionDate: new Date(completedAt.getTime() + Number(schedule.frequencyDays || 365) * 86400000),
+  queuedInspections: [],
+});
+
+export const buildStockRequestCreateData = ({ body = {}, requester, fallbackDepartment = null, actor, reference: requestReference }) => ({
+  requestReference,
+  product: body.product,
+  requestedQuantity: round(body.requestedQuantity),
+  requester,
+  department: isId(body.department) ? body.department : fallbackDepartment || null,
+  notes: clean(body.notes),
+  requiredDate: body.requiredDate ? new Date(`${String(body.requiredDate).slice(0, 10)}T00:00:00.000Z`) : null,
+  createdBy: actor,
+  updatedBy: actor,
+});
+
+export const buildStockRequestUpdateData = (body = {}, actor) => ({
+  product: body.product,
+  requester: body.requester,
+  department: isId(body.department) ? body.department : null,
+  requestedQuantity: round(body.requestedQuantity),
+  notes: clean(body.notes),
+  requiredDate: body.requiredDate ? new Date(`${String(body.requiredDate).slice(0, 10)}T00:00:00.000Z`) : null,
+  updatedBy: actor,
+});
+
+export const attachStockRequestAvailability = (requests = [], stocks = []) => {
+  const totals = new Map();
+  stocks.forEach((stock) => {
+    if (stock.status && stock.status !== "active") return;
+    const productId = idString(stock.product);
+    totals.set(productId, round((totals.get(productId) || 0) + num(stock.availableQuantity)));
+  });
+  return requests.map((request) => ({ ...request, availableQuantity: totals.get(idString(request.product)) || 0 }));
+};
 
 async function postMovement({ movementType, referenceNo, sourceType, sourceId, reason, lines, userId, session }) {
   const [movement] = await StockMovement.create([{ movementType, reference: referenceNo, sourceType, sourceId, reason, lines, createdBy: userId, updatedBy: userId }], sessionOpt(session));
@@ -48,8 +114,43 @@ export const assignPendingInventory = async (req, res) => {
       item.remainingQuantity = round(item.remainingQuantity - quantity); item.status = item.remainingQuantity === 0 ? "assigned" : "partially_assigned"; item.assignments.push({ warehouse: warehouse._id, location: location._id, quantity, movement: movement._id, assignedAt: new Date(), assignedBy: req.user._id }); item.updatedBy = req.user._id; await item.save(sessionOpt(session)); return item; }); return res.json(result); } catch (e) { return fail(res, e, "Failed to assign pending inventory."); }
 };
 
-export const listStockRequests = async (req, res) => { const { limit, skip } = page(req.query); const filter = req.query.status && req.query.status !== "all" ? { status: req.query.status } : {}; const [items, total] = await Promise.all([StockRequest.find(filter).populate("product", "name sku imageUrl baseUnit").populate("requester approver", "name email employeeId").populate("department", "name").sort({ requestDate: -1 }).skip(skip).limit(limit).lean(), StockRequest.countDocuments(filter)]); res.json({ items, total, limit, skip }); };
-export const createStockRequest = async (req, res) => { try { const product = await Product.findById(req.body.product); if (!product) return res.status(400).json({ message: "Product is required." }); const requester = isId(req.body.requester) && req.user.role === "admin" ? req.body.requester : req.user._id; const requesterDoc = requester.equals?.(req.user._id) ? req.user : await mongoose.model("User").findById(requester); const item = await StockRequest.create({ requestReference: reference("SRQ", product.sku), product: product._id, requestedQuantity: round(req.body.requestedQuantity), requester, department: requesterDoc?.department || null, notes: clean(req.body.notes), createdBy: req.user._id, updatedBy: req.user._id }); return res.status(201).json(item); } catch (e) { return fail(res, e, "Failed to create stock request."); } };
+export const listStockRequests = async (req, res) => {
+  const { limit, skip } = page(req.query);
+  const filter = req.query.status && req.query.status !== "all" ? { status: req.query.status } : {};
+  const [items, total] = await Promise.all([
+    StockRequest.find(filter).populate("product", "name sku imageUrl baseUnit").populate("requester approver", "name email employeeId").populate("department", "name").sort({ requestDate: -1 }).skip(skip).limit(limit).lean(),
+    StockRequest.countDocuments(filter),
+  ]);
+  const productIds = [...new Set(items.map((item) => idString(item.product)).filter(Boolean))];
+  const stocks = productIds.length ? await ProductStock.find({ product: { $in: productIds }, status: "active" }).select("product availableQuantity status").lean() : [];
+  res.json({ items: attachStockRequestAvailability(items, stocks), total, limit, skip });
+};
+export const createStockRequest = async (req, res) => {
+  try {
+    const product = await Product.findById(req.body.product);
+    if (!product || product.status !== "active" || !product.trackInventory) return res.status(400).json({ message: "Select an active inventory product." });
+    if (round(req.body.requestedQuantity) <= 0) return res.status(400).json({ message: "Requested quantity must be greater than zero." });
+    const requester = isId(req.body.requester) ? req.body.requester : req.user._id;
+    const requesterDoc = idString(requester) === idString(req.user._id) ? req.user : await mongoose.model("User").findById(requester);
+    if (!requesterDoc) return res.status(400).json({ message: "Requester is required." });
+    const item = await StockRequest.create(buildStockRequestCreateData({ body: { ...req.body, product: product._id }, requester, fallbackDepartment: requesterDoc.department, actor: req.user._id, reference: reference("SRQ", product.sku) }));
+    return res.status(201).json(item);
+  } catch (e) { return fail(res, e, "Failed to create stock request."); }
+};
+export const updateStockRequest = async (req, res) => {
+  try {
+    const item = await StockRequest.findById(req.params.id);
+    if (!item || item.status !== "pending") return res.status(409).json({ message: "Only pending requests can be edited." });
+    const product = await Product.findById(req.body.product);
+    if (!product || product.status !== "active" || !product.trackInventory) return res.status(400).json({ message: "Select an active inventory product." });
+    if (!isId(req.body.requester) || round(req.body.requestedQuantity) <= 0) return res.status(400).json({ message: "Requester and a positive quantity are required." });
+    const before = item.toObject();
+    Object.assign(item, buildStockRequestUpdateData({ ...req.body, product: product._id }, req.user._id));
+    await item.save();
+    await writeAudit({ actorId: req.user._id, action: "update", entityType: "StockRequest", entityId: item._id, before, after: item.toObject(), meta: getReqMeta(req) });
+    return res.json(item);
+  } catch (e) { return fail(res, e, "Failed to update stock request."); }
+};
 export const approveStockRequest = async (req, res) => { try { const item = await StockRequest.findById(req.params.id); if (!item || item.status !== "pending") return res.status(409).json({ message: "Only pending requests can be approved." }); const rows = await ProductStock.aggregate([{ $match: { product: item.product, status: "active" } }, { $group: { _id: null, available: { $sum: "$availableQuantity" } } }]); if (num(rows[0]?.available) < item.requestedQuantity) return res.status(409).json({ message: "Insufficient available stock. The request remains pending.", availableQuantity: num(rows[0]?.available) }); item.status = "approved"; item.approver = req.user._id; item.approvedAt = new Date(); item.updatedBy = req.user._id; await item.save(); return res.json(item); } catch (e) { return fail(res, e, "Failed to approve stock request."); } };
 export const rejectStockRequest = async (req, res) => { try { const item = await StockRequest.findById(req.params.id); if (!item || !["pending", "approved"].includes(item.status)) return res.status(409).json({ message: "Request cannot be rejected." }); item.status = "rejected"; item.rejectionReason = clean(req.body.reason); item.rejectedAt = new Date(); item.approver = req.user._id; await item.save(); return res.json(item); } catch (e) { return fail(res, e, "Failed to reject stock request."); } };
 
@@ -66,10 +167,113 @@ export const listLosses = async (req, res) => { const { limit, skip } = page(req
 
 export const listInspections = async (req, res) => { const { limit, skip } = page(req.query); const filter = req.query.status && req.query.status !== "all" ? { status: req.query.status } : {}; const [items, total] = await Promise.all([StockInspection.find(filter).populate("product", "name sku").populate("warehouse location", "name code").populate("tracking", "trackingReference trackingType").populate("requestedBy inspector", "name employeeId").sort({ createdAt: -1 }).skip(skip).limit(limit).lean(), StockInspection.countDocuments(filter)]); res.json({ items, total, limit, skip }); };
 export const createInspection = async (req, res) => { try { const stock = await ProductStock.findOne({ product: req.body.product, warehouse: req.body.warehouse, location: req.body.location || null, status: "active" }).populate("product", "sku"); if (!stock) return res.status(404).json({ message: "Inventory position not found." }); const item = await StockInspection.create({ inspectionReference: reference("SIQ", stock.product.sku), product: stock.product._id, warehouse: stock.warehouse, location: stock.location, tracking: isId(req.body.tracking) ? req.body.tracking : null, previousQuantity: stock.onHandQuantity, remainingQuantity: stock.onHandQuantity, requestSource: req.body.requestSource || "inventory_item", requestedBy: req.user._id }); return res.status(201).json(item); } catch (e) { return fail(res, e, "Failed to create inspection."); } };
-export const completeInspection = async (req, res) => { try { const result = await runMongoTransaction(async (session) => { const item = await StockInspection.findById(req.params.id).session(session); if (!item || !["waiting", "processing"].includes(item.status)) throw Object.assign(new Error("Inspection is not open."), { statusCode: 409 }); const inspected = round(req.body.inspectedQuantity); const damaged = round(req.body.damagedQuantity); if (inspected < 0 || damaged < 0 || damaged > inspected || inspected > item.previousQuantity) throw Object.assign(new Error("Inspection quantities are invalid."), { statusCode: 400 }); let movement = null, loss = null; if (damaged > 0) { const stock = await ProductStock.findOne({ product: item.product, warehouse: item.warehouse, location: item.location }).session(session); movement = await postMovement({ movementType: "stock_adjustment", referenceNo: item.inspectionReference, sourceType: "stock_inspection", sourceId: item._id, reason: "Inspection damage", lines: [{ product: item.product, effect: "out", sourceWarehouse: item.warehouse, sourceLocation: item.location, quantity: damaged, requestedUnitCost: stock?.averageCost || 0 }], userId: req.user._id, session }); [loss] = await InventoryLoss.create([{ lossReference: reference("LOS"), product: item.product, warehouse: item.warehouse, location: item.location, quantity: damaged, unitCost: stock?.averageCost || 0, lossValue: damaged * num(stock?.averageCost), lossType: "inspection", reason: clean(req.body.note), sourceType: "stock_inspection", sourceId: item._id, movement: movement._id, recordedBy: req.user._id }], sessionOpt(session)); if (item.tracking) { const tracking = await InventoryTracking.findById(item.tracking).session(session); if (tracking) { tracking.remainingQuantity = Math.max(0, round(tracking.remainingQuantity - damaged)); tracking.usableQuantity = Math.max(0, round(tracking.usableQuantity - damaged)); await tracking.save(sessionOpt(session)); } } } item.inspectedQuantity = inspected; item.damagedQuantity = damaged; item.remainingQuantity = round(item.previousQuantity - damaged); item.result = req.body.result || (damaged > 0 ? "damaged" : "accepted"); item.note = clean(req.body.note); item.status = "completed"; item.inspector = req.user._id; item.completedAt = new Date(); item.movement = movement?._id || null; item.loss = loss?._id || null; await item.save(sessionOpt(session)); return item; }); return res.json(result); } catch (e) { return fail(res, e, "Failed to complete inspection."); } };
+export const completeInspection = async (req, res) => {
+  try {
+    const result = await runMongoTransaction(async (session) => {
+      const item = await StockInspection.findById(req.params.id).session(session);
+      if (!item || !["waiting", "processing"].includes(item.status)) throw Object.assign(new Error("Inspection is not open."), { statusCode: 409 });
+      const inspected = round(req.body.inspectedQuantity), damaged = round(req.body.damagedQuantity);
+      if (inspected < 0 || damaged < 0 || damaged > inspected || inspected > item.previousQuantity) throw Object.assign(new Error("Inspection quantities are invalid."), { statusCode: 400 });
+      let movement = null, loss = null;
+      if (damaged > 0) {
+        const stock = await ProductStock.findOne({ product: item.product, warehouse: item.warehouse, location: item.location }).session(session);
+        movement = await postMovement({ movementType: "stock_adjustment", referenceNo: item.inspectionReference, sourceType: "stock_inspection", sourceId: item._id, reason: "Inspection damage", lines: [{ product: item.product, effect: "out", sourceWarehouse: item.warehouse, sourceLocation: item.location, quantity: damaged, requestedUnitCost: stock?.averageCost || 0 }], userId: req.user._id, session });
+        [loss] = await InventoryLoss.create([{ lossReference: reference("LOS"), product: item.product, warehouse: item.warehouse, location: item.location, quantity: damaged, unitCost: stock?.averageCost || 0, lossValue: damaged * num(stock?.averageCost), lossType: "inspection", reason: clean(req.body.note), sourceType: "stock_inspection", sourceId: item._id, movement: movement._id, recordedBy: req.user._id }], sessionOpt(session));
+        if (item.tracking) { const tracking = await InventoryTracking.findById(item.tracking).session(session); if (tracking) { tracking.remainingQuantity = Math.max(0, round(tracking.remainingQuantity - damaged)); tracking.usableQuantity = Math.max(0, round(tracking.usableQuantity - damaged)); await tracking.save(sessionOpt(session)); } }
+      }
+      item.inspectedQuantity = inspected; item.damagedQuantity = damaged; item.remainingQuantity = round(item.previousQuantity - damaged); item.result = req.body.result || (damaged > 0 ? "damaged" : "accepted"); item.note = clean(req.body.note); item.status = "completed"; item.inspector = req.user._id; item.completedAt = new Date(); item.movement = movement?._id || null; item.loss = loss?._id || null;
+      await item.save(sessionOpt(session));
+      if (item.schedule) {
+        const schedule = await WarehouseCheck.findById(item.schedule).session(session);
+        if (schedule) {
+          const [positions, inspections] = await Promise.all([
+            ProductStock.find({ warehouse: schedule.warehouse, status: "active", onHandQuantity: { $gt: 0 } }).select("product location").session(session).lean(),
+            StockInspection.find({ schedule: schedule._id, scheduleCycle: schedule.cycleNumber, status: "completed" }).select("product location status").session(session).lean(),
+          ]);
+          const allCyclePositions = [...positions, ...inspections].filter((position, index, source) => source.findIndex((candidate) => positionKey(candidate) === positionKey(position)) === index);
+          Object.assign(schedule, isWarehouseCycleComplete(allCyclePositions, inspections) ? advanceWarehouseCheckCycle(schedule, item.completedAt) : { status: "waiting", queuedInspections: [] });
+          schedule.updatedBy = req.user._id;
+          await schedule.save(sessionOpt(session));
+        }
+      }
+      return item;
+    });
+    return res.json(result);
+  } catch (e) { return fail(res, e, "Failed to complete inspection."); }
+};
 
-export const listWarehouseChecks = async (_req, res) => res.json({ items: await WarehouseCheck.find().populate("warehouse", "name code").sort({ nextInspectionDate: 1 }).lean() });
+async function dispatchScheduleInspection(schedule, userId) {
+  if (!schedule || schedule.status === "paused") throw Object.assign(new Error("No active warehouse schedule is available."), { statusCode: 409 });
+  const open = await StockInspection.findOne({ schedule: schedule._id, scheduleCycle: schedule.cycleNumber, status: { $in: ["waiting", "processing"] } }).populate("product", "name sku").populate("warehouse location", "name code");
+  if (open) return open;
+  const positions = await ProductStock.find({ warehouse: schedule.warehouse, status: "active", onHandQuantity: { $gt: 0 } }).populate("product", "name sku").sort({ updatedAt: 1, _id: 1 }).lean();
+  if (!positions.length) throw Object.assign(new Error("This warehouse has no active stock positions to inspect."), { statusCode: 409 });
+  const prior = await StockInspection.find({ schedule: schedule._id, scheduleCycle: schedule.cycleNumber, status: { $ne: "cancelled" } }).select("product location status").lean();
+  const dispatched = new Set(prior.map(positionKey));
+  const position = positions.find((candidate) => !dispatched.has(positionKey(candidate)));
+  if (!position) throw Object.assign(new Error("Every item in this warehouse cycle has already been dispatched."), { statusCode: 409 });
+  const item = await StockInspection.create({ inspectionReference: reference("SIQ", position.product?.sku), product: position.product?._id || position.product, warehouse: position.warehouse, location: position.location || null, previousQuantity: position.onHandQuantity, remainingQuantity: position.onHandQuantity, requestSource: "warehouse_schedule", requestedBy: userId, schedule: schedule._id, scheduleCycle: schedule.cycleNumber });
+  schedule.status = "processing"; schedule.queuedInspections = [item._id]; schedule.updatedBy = userId; await schedule.save();
+  return StockInspection.findById(item._id).populate("product", "name sku").populate("warehouse location", "name code");
+}
+
+export const listWarehouseChecks = async (req, res) => {
+  try {
+    const activeWarehouses = await Warehouse.find({ status: "active" }).select("_id").lean();
+    const existing = await WarehouseCheck.find({ warehouse: { $in: activeWarehouses.map((item) => item._id) } }).select("warehouse").lean();
+    const missing = buildMissingWarehouseSchedules(activeWarehouses, existing, req.user._id);
+    if (missing.length) await WarehouseCheck.bulkWrite(missing.map((item) => ({ updateOne: { filter: { warehouse: item.warehouse }, update: { $setOnInsert: item }, upsert: true } })));
+    const items = await WarehouseCheck.find({ warehouse: { $in: activeWarehouses.map((item) => item._id) } }).populate("warehouse", "name code").sort({ nextInspectionDate: 1 }).lean();
+    const scheduleIds = items.map((item) => item._id);
+    const [queue, activityRows] = await Promise.all([
+      StockInspection.find({ schedule: { $in: scheduleIds }, status: { $in: ["waiting", "processing"] } }).populate("product", "name sku").populate("warehouse location", "name code").sort({ createdAt: 1 }).lean(),
+      StockInspection.aggregate([{ $match: { schedule: { $in: scheduleIds } } }, { $group: { _id: "$status", count: { $sum: 1 } } }]),
+    ]);
+    const activity = Object.fromEntries(activityRows.map((row) => [row._id, row.count]));
+    return res.json({ items, queue, activity });
+  } catch (e) { return fail(res, e, "Failed to load warehouse checks."); }
+};
+
 export const createWarehouseCheck = async (req, res) => { try { const days = Number(req.body.frequencyDays); const next = req.body.nextInspectionDate ? new Date(req.body.nextInspectionDate) : new Date(Date.now() + days * 86400000); const item = await WarehouseCheck.create({ warehouse: req.body.warehouse, frequencyDays: days, inspectionMode: req.body.inspectionMode, nextInspectionDate: next, createdBy: req.user._id, updatedBy: req.user._id }); return res.status(201).json(item); } catch (e) { return fail(res, e, "Failed to create warehouse check."); } };
-export const setWarehouseCheckStatus = async (req, res) => { try { const status = req.body.status; if (!["waiting", "processing", "paused", "completed"].includes(status)) return res.status(400).json({ message: "Invalid warehouse check status." }); const item = await WarehouseCheck.findByIdAndUpdate(req.params.id, { $set: { status, updatedBy: req.user._id }, ...(status === "paused" ? { $set: { status, queuedInspections: [], updatedBy: req.user._id } } : {}) }, { new: true, runValidators: true }); return res.json(item); } catch (e) { return fail(res, e, "Failed to update warehouse check."); } };
+
+export const updateWarehouseCheck = async (req, res) => {
+  try {
+    const days = Number(req.body.frequencyDays);
+    if (!Number.isFinite(days) || days < 1 || !["full_warehouse", "item_by_item"].includes(req.body.inspectionMode)) return res.status(400).json({ message: "Checking mode and a positive frequency are required." });
+    const item = await WarehouseCheck.findByIdAndUpdate(req.params.id, { $set: { frequencyDays: days, inspectionMode: req.body.inspectionMode, updatedBy: req.user._id } }, { new: true, runValidators: true }).populate("warehouse", "name code");
+    if (!item) return res.status(404).json({ message: "Warehouse schedule not found." });
+    return res.json(item);
+  } catch (e) { return fail(res, e, "Failed to update warehouse check."); }
+};
+
+export const setWarehouseCheckStatus = async (req, res) => {
+  try {
+    const status = req.body.status;
+    if (!["waiting", "paused"].includes(status)) return res.status(400).json({ message: "Warehouse schedules can only be paused or resumed here." });
+    const item = await WarehouseCheck.findById(req.params.id);
+    if (!item) return res.status(404).json({ message: "Warehouse schedule not found." });
+    if (status === "paused") {
+      await StockInspection.updateMany({ schedule: item._id, scheduleCycle: item.cycleNumber, status: { $in: ["waiting", "processing"] } }, { $set: { status: "cancelled" } });
+      item.status = "paused"; item.queuedInspections = [];
+    } else {
+      item.status = "waiting"; item.queuedInspections = [];
+    }
+    item.updatedBy = req.user._id; await item.save();
+    const inspection = status === "waiting" ? await dispatchScheduleInspection(item, req.user._id).catch(() => null) : null;
+    return res.json({ item, inspection });
+  } catch (e) { return fail(res, e, "Failed to update warehouse check."); }
+};
+
+export const sendNextWarehouseCheckItem = async (req, res) => {
+  try {
+    const activeWarehouseIds = await Warehouse.find({ status: "active" }).distinct("_id");
+    const schedules = await WarehouseCheck.find({ warehouse: { $in: activeWarehouseIds }, status: { $in: ["waiting", "processing"] } }).sort({ nextInspectionDate: 1 }).lean();
+    const selected = pickNextWarehouseSchedule(schedules);
+    if (!selected) return res.status(409).json({ message: "No active warehouse schedule is available." });
+    const schedule = await WarehouseCheck.findById(selected._id);
+    const inspection = await dispatchScheduleInspection(schedule, req.user._id);
+    return res.status(201).json({ inspection });
+  } catch (e) { return fail(res, e, "Failed to send the next warehouse item."); }
+};
 
 export const inventoryOverview = async (_req, res) => { const now = new Date(), pref = await InventoryPreference.findOne({ key: "default" }).lean(), threshold = new Date(Date.now() + num((await InventoryPreference.findOne({ key: "default" }))?.nearExpiryAlertDays || 30) * 86400000); const [pendingInventory, pendingRequests, approvedRequests, inspections, nearExpiry, losses, consumption] = await Promise.all([PendingInventory.countDocuments({ status: { $in: ["pending", "partially_assigned"] } }), StockRequest.countDocuments({ status: "pending" }), StockRequest.countDocuments({ status: "approved" }), StockInspection.countDocuments({ status: { $in: ["waiting", "processing"] } }), InventoryTracking.countDocuments({ expiryDate: { $gte: now, $lte: threshold }, status: "active" }), InventoryLoss.aggregate([{ $group: { _id: null, value: { $sum: "$lossValue" } } }]), ConsumptionHistory.aggregate([{ $match: { issueDate: { $gte: new Date(Date.now() - 30 * 86400000) } } }, { $group: { _id: null, quantity: { $sum: "$quantity" } } }])]); res.json({ pendingInventory, pendingRequests, approvedRequests, pendingInspections: inspections, nearExpiry, currentLossValue: num(losses[0]?.value), consumption30Days: num(consumption[0]?.quantity), preferences: pref }); };
