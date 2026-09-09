@@ -6,6 +6,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Alert02Icon,
   Cancel01Icon,
+  Download01Icon,
   FilterIcon,
   FolderLibraryIcon,
   RefreshIcon,
@@ -741,7 +742,42 @@ export default function SerialNumbers() {
   const [qualityState, setQualityState] = useState("all")
   const [filterOpen, setFilterOpen] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
   const [error, setError] = useState("")
+
+  const handleExportCsv = async () => {
+    setExporting(true)
+    try {
+      const token = localStorage.getItem("token")
+      const whParam = warehouse !== "all" ? `?warehouse=${warehouse}` : ""
+      const res = await fetch(
+        `${API_BASE}/inventory/reports/serial-numbers?format=csv${whParam.replace("?", "&")}`,
+        {
+          credentials: "include",
+          headers: token
+            ? {
+                Authorization: `Bearer ${token}`,
+              }
+            : {},
+        }
+      )
+      if (!res.ok) throw new Error("CSV export failed")
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `serial-tracking-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+      toast.success("Serial tracking CSV downloaded")
+    } catch (err) {
+      toast.error(err.message || "Failed to export CSV.")
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const load = useCallback(
     async ({
@@ -948,31 +984,57 @@ export default function SerialNumbers() {
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() =>
-                  load({
-                    showToast: true,
-                  })
-                }
-                disabled={loading}
-                className={cn(
-                  button,
-                  ghostButton
-                )}
-              >
-                <Icon
-                  icon={RefreshIcon}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportCsv}
+                  disabled={exporting || loading}
                   className={cn(
-                    "h-4 w-4",
-                    loading
-                      ? "animate-spin"
-                      : ""
+                    button,
+                    ghostButton
                   )}
-                />
+                  title="Download serial tracking report as CSV"
+                >
+                  <Icon
+                    icon={Download01Icon}
+                    className={cn(
+                      "h-4 w-4",
+                      exporting
+                        ? "animate-pulse"
+                        : ""
+                    )}
+                  />
+                  {exporting
+                    ? "Exporting..."
+                    : "Export CSV"}
+                </button>
 
-                Refresh
-              </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    load({
+                      showToast: true,
+                    })
+                  }
+                  disabled={loading}
+                  className={cn(
+                    button,
+                    ghostButton
+                  )}
+                >
+                  <Icon
+                    icon={RefreshIcon}
+                    className={cn(
+                      "h-4 w-4",
+                      loading
+                        ? "animate-spin"
+                        : ""
+                    )}
+                  />
+
+                  Refresh
+                </button>
+              </div>
             </div>
 
             <div className="flex flex-col gap-3 border-t border-gray-100 pt-4 lg:flex-row lg:items-center lg:justify-between">

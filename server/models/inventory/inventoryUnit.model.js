@@ -5,6 +5,12 @@ const UNIT_TYPES = ["count", "weight", "volume", "length", "area", "time", "othe
 
 const inventoryUnitSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      required: true,
+      index: true,
+    },
     name: {
       type: String,
       required: true,
@@ -40,6 +46,16 @@ const inventoryUnitSchema = new mongoose.Schema(
       type: String,
       enum: UNIT_TYPES,
       default: "count",
+    },
+    baseUnit: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "InventoryUnit",
+      default: null,
+    },
+    conversionFactor: {
+      type: Number,
+      min: 0.000001,
+      default: 1,
     },
     allowDecimal: {
       type: Boolean,
@@ -106,11 +122,11 @@ inventoryUnitSchema.set("toObject", {
   },
 });
 
-inventoryUnitSchema.index({ code: 1 }, { unique: true });
-inventoryUnitSchema.index({ nameLower: 1 }, { unique: true });
-inventoryUnitSchema.index({ symbolKey: 1 }, { unique: true });
-inventoryUnitSchema.index({ status: 1, sortOrder: 1, nameLower: 1, _id: 1 });
-inventoryUnitSchema.index({ unitType: 1, status: 1, sortOrder: 1, nameLower: 1, _id: 1 });
+inventoryUnitSchema.index({ tenantId: 1, code: 1 }, { unique: true });
+inventoryUnitSchema.index({ tenantId: 1, nameLower: 1 }, { unique: true });
+inventoryUnitSchema.index({ tenantId: 1, symbolKey: 1 });
+inventoryUnitSchema.index({ tenantId: 1, status: 1, sortOrder: 1, nameLower: 1, _id: 1 });
+inventoryUnitSchema.index({ tenantId: 1, unitType: 1, status: 1, sortOrder: 1, nameLower: 1, _id: 1 });
 
 const normalizeUnitPatch = (source = {}) => {
   const patch = source;
@@ -138,6 +154,9 @@ const normalizeUnitPatch = (source = {}) => {
   if (patch.sortOrder !== undefined) {
     patch.sortOrder = Number(patch.sortOrder);
   }
+  if (patch.conversionFactor !== undefined) {
+    patch.conversionFactor = Number(patch.conversionFactor) > 0 ? Number(patch.conversionFactor) : 1;
+  }
   if (patch.status !== undefined) {
     patch.status = String(patch.status || "active").trim().toLowerCase();
   }
@@ -155,6 +174,10 @@ const normalizeUnitPatch = (source = {}) => {
 
 inventoryUnitSchema.pre("validate", function (next) {
   normalizeUnitPatch(this);
+
+  if (this.baseUnit && String(this.baseUnit) === String(this._id)) {
+    this.invalidate("baseUnit", "A unit of measure cannot have itself as its base unit.");
+  }
 
   if (!this.allowDecimal) this.decimalPlaces = 0;
   if (this.allowDecimal && this.decimalPlaces < 1) {

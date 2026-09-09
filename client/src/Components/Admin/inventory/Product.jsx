@@ -14,7 +14,8 @@ const MAX_IMAGE_SIZE = 5 * 1024 * 1024
 const PRODUCT_MANAGE_PERMISSION = PERMISSIONS?.INVENTORY_PRODUCT_MANAGE || "inventory-product:manage"
 const PRODUCT_DELETE_PERMISSION = PERMISSIONS?.INVENTORY_PRODUCT_DELETE || "inventory-product:delete"
 const TRACKING_OPTIONS = [["none", "None"], ["batch", "Batch"], ["serial", "Serial Number"], ["expiry", "Expiry"], ["batch_expiry", "Batch + Expiry"]]
-const emptyForm = { category: "", name: "", baseUnit: "", minimumStock: "", generalOrderQuantity: "", maximumStock: "", trackingType: "none", status: "active", imageUrl: "" }
+const COSTING_METHODS = [["weighted_average", "Weighted Average"], ["fifo", "FIFO (First-In, First-Out)"], ["standard", "Standard Cost"]]
+const emptyForm = { category: "", name: "", sku: "", barcode: "", baseUnit: "", purchaseUnit: "", salesUnit: "", minimumStock: "", generalOrderQuantity: "", maximumStock: "", reorderLevel: "", costingMethod: "weighted_average", standardCost: "", trackingType: "none", status: "active", imageUrl: "" }
 const inputClass = "w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
 const buttonClass = "inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-bold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/15 disabled:cursor-not-allowed disabled:opacity-50"
 
@@ -23,7 +24,25 @@ function relationId(value) { return clean(value?._id || value) }
 function numberValue(value) { const parsed = Number(value); return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0 }
 
 export function buildProductPayload(form = {}) {
-  return { category: clean(form.category), name: clean(form.name), baseUnit: clean(form.baseUnit), minimumStock: numberValue(form.minimumStock), generalOrderQuantity: numberValue(form.generalOrderQuantity), maximumStock: numberValue(form.maximumStock), trackingType: clean(form.trackingType || "none").toLowerCase(), status: clean(form.status || "active").toLowerCase(), imageUrl: clean(form.imageUrl), productType: "inventory", trackInventory: true }
+  const payload = { category: clean(form.category), name: clean(form.name), baseUnit: clean(form.baseUnit), minimumStock: numberValue(form.minimumStock), generalOrderQuantity: numberValue(form.generalOrderQuantity), maximumStock: numberValue(form.maximumStock), trackingType: clean(form.trackingType || "none").toLowerCase(), status: clean(form.status || "active").toLowerCase(), imageUrl: clean(form.imageUrl), productType: "inventory", trackInventory: true }
+  if (clean(form.sku)) payload.sku = clean(form.sku).toUpperCase()
+  if (clean(form.barcode)) payload.barcode = clean(form.barcode).toUpperCase()
+  if (form.costingMethod) payload.costingMethod = clean(form.costingMethod).toLowerCase()
+  if (form.standardCost !== undefined && form.standardCost !== "" && form.standardCost !== null) {
+    payload.standardCost = numberValue(form.standardCost)
+  }
+  if (form.reorderLevel !== undefined && form.reorderLevel !== "" && form.reorderLevel !== null) {
+    payload.reorderLevel = numberValue(form.reorderLevel)
+  }
+  if (clean(form.purchaseUnit)) payload.purchaseUnit = clean(form.purchaseUnit)
+  if (clean(form.salesUnit)) payload.salesUnit = clean(form.salesUnit)
+  if (Array.isArray(form.uomConversions) && form.uomConversions.length > 0) {
+    payload.uomConversions = form.uomConversions.filter((c) => clean(c.unit) && Number(c.conversionFactor) > 0).map((c) => ({
+      unit: clean(c.unit),
+      conversionFactor: Number(c.conversionFactor),
+    }))
+  }
+  return payload
 }
 
 export function filterProducts(products = [], filters = {}) {
@@ -163,7 +182,15 @@ function ProductFormModal({ state, form, setForm, products, categories, units, i
       <Field label="Category" required><select className={inputClass} value={form.category} onChange={(event) => setForm((previous) => ({ ...previous, category: event.target.value }))} required autoFocus><option value="">Select Category</option>{categories.map((category) => <option key={category._id} value={category._id}>{category.name}</option>)}</select></Field>
       <Field label="Product Code"><input className={inputClass} value={code || ""} placeholder={form.category ? "Generated when saved" : "Select a category first"} disabled /></Field>
       <Field label="Product Name" required><input className={inputClass} value={form.name} onChange={(event) => setForm((previous) => ({ ...previous, name: event.target.value }))} placeholder="Enter product name" maxLength={160} required /></Field>
-      <Field label="Unit" required><select className={inputClass} value={form.baseUnit} onChange={(event) => setForm((previous) => ({ ...previous, baseUnit: event.target.value }))} required><option value="">Select Unit</option>{units.map((unit) => <option key={unit._id} value={unit._id}>{unit.name || unit.unitName} ({unit.symbol || unit.code})</option>)}</select></Field>
+      <Field label="Barcode (Optional)"><input className={inputClass} value={form.barcode || ""} onChange={(event) => setForm((previous) => ({ ...previous, barcode: event.target.value.toUpperCase() }))} placeholder="Enter barcode" maxLength={120} /></Field>
+      <Field label="Base Unit" required><select className={inputClass} value={form.baseUnit} onChange={(event) => setForm((previous) => ({ ...previous, baseUnit: event.target.value }))} required><option value="">Select Unit</option>{units.map((unit) => <option key={unit._id} value={unit._id}>{unit.name || unit.unitName} ({unit.symbol || unit.code})</option>)}</select></Field>
+      <Field label="Purchase Unit (Optional)"><select className={inputClass} value={form.purchaseUnit || ""} onChange={(event) => setForm((previous) => ({ ...previous, purchaseUnit: event.target.value }))}><option value="">Same as Base Unit</option>{units.map((unit) => <option key={unit._id} value={unit._id}>{unit.name || unit.unitName} ({unit.symbol || unit.code})</option>)}</select></Field>
+      <Field label="Sales Unit (Optional)"><select className={inputClass} value={form.salesUnit || ""} onChange={(event) => setForm((previous) => ({ ...previous, salesUnit: event.target.value }))}><option value="">Same as Base Unit</option>{units.map((unit) => <option key={unit._id} value={unit._id}>{unit.name || unit.unitName} ({unit.symbol || unit.code})</option>)}</select></Field>
+      <Field label="Costing Method"><select className={inputClass} value={form.costingMethod || "weighted_average"} onChange={(event) => setForm((previous) => ({ ...previous, costingMethod: event.target.value }))}>{COSTING_METHODS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+      {form.costingMethod === "standard" ? (
+        <Field label="Standard Cost (BDT)"><input className={inputClass} type="number" min="0" step="0.01" value={form.standardCost || ""} onChange={(event) => setForm((previous) => ({ ...previous, standardCost: event.target.value }))} placeholder="Enter standard unit cost" /></Field>
+      ) : null}
+      <Field label="Reorder Level"><input className={inputClass} type="number" min="0" step="0.01" value={form.reorderLevel || ""} onChange={(event) => setForm((previous) => ({ ...previous, reorderLevel: event.target.value }))} placeholder="Enter reorder alert level" /></Field>
       <Field label="Minimum Stock"><input className={inputClass} type="number" min="0" step="0.01" value={form.minimumStock} onChange={(event) => setForm((previous) => ({ ...previous, minimumStock: event.target.value }))} placeholder="Enter minimum stock" /></Field>
       <Field label="General Item Order Quantity"><input className={inputClass} type="number" min="0" step="0.01" value={form.generalOrderQuantity} onChange={(event) => setForm((previous) => ({ ...previous, generalOrderQuantity: event.target.value }))} placeholder="Enter general item order quantity" /></Field>
       <Field label="Maximum Stock (Optional)"><input className={inputClass} type="number" min="0" step="0.01" value={form.maximumStock} onChange={(event) => setForm((previous) => ({ ...previous, maximumStock: event.target.value }))} placeholder="Enter maximum stock (optional)" /></Field>
@@ -226,7 +253,24 @@ export default function ProductSetup() {
     try {
       const data = await api(`/inventory/products/${product._id}`)
       const item = data.product
-      setForm({ category: relationId(item.category), name: item.name || "", baseUnit: relationId(item.baseUnit), minimumStock: String(item.minimumStock ?? ""), generalOrderQuantity: String(item.generalOrderQuantity ?? ""), maximumStock: Number(item.maximumStock) > 0 ? String(item.maximumStock) : "", trackingType: item.trackingType || "none", status: item.status || "active", imageUrl: item.imageUrl || "" })
+      setForm({
+        category: relationId(item.category),
+        name: item.name || "",
+        sku: item.sku || "",
+        barcode: item.barcode || "",
+        baseUnit: relationId(item.baseUnit),
+        purchaseUnit: relationId(item.purchaseUnit),
+        salesUnit: relationId(item.salesUnit),
+        minimumStock: String(item.minimumStock ?? ""),
+        generalOrderQuantity: String(item.generalOrderQuantity ?? ""),
+        maximumStock: Number(item.maximumStock) > 0 ? String(item.maximumStock) : "",
+        reorderLevel: String(item.reorderLevel ?? ""),
+        costingMethod: item.costingMethod || "weighted_average",
+        standardCost: String(item.standardCost ?? ""),
+        trackingType: item.trackingType || "none",
+        status: item.status || "active",
+        imageUrl: item.imageUrl || "",
+      })
       setFormState({ open: true, item })
     } catch (error) { toast.error(error.message || "Failed to load product") }
   }
@@ -291,7 +335,7 @@ export default function ProductSetup() {
     </section>
 
     <ProductFormModal state={formState} form={form} setForm={setForm} products={products} categories={categories} units={units} imagePreview={imagePreview} setImageFile={setImageFile} setImagePreview={setImagePreview} error={formError} saving={saving} onClose={closeForm} onSubmit={saveProduct} />
-    <Modal open={Boolean(details)} onClose={() => setDetails(null)} title="Product Details" subtitle="Reusable inventory product template" width="max-w-2xl" footer={<div className="flex justify-end gap-2"><button type="button" className={`${buttonClass} border-gray-200 bg-white text-gray-800 hover:bg-gray-50`} onClick={() => setDetails(null)}>Close</button>{details && canManage && details.status !== "archived" ? <button type="button" className={`${buttonClass} border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700`} onClick={() => openEdit(details)}><FiEdit2 /> Edit</button> : null}</div>}>{details ? <div><div className="mb-5 flex items-center gap-4"><ProductImage product={details} large /><div><p className="text-lg font-black text-gray-950">{details.name}</p><p className="text-sm font-semibold text-gray-500">{details.sku}</p></div></div><div className="grid gap-4 sm:grid-cols-2"><Detail label="Category" value={categoryMap.get(relationId(details.category))?.name} /><Detail label="Unit" value={unitMap.get(relationId(details.baseUnit))?.symbol || unitMap.get(relationId(details.baseUnit))?.name} /><Detail label="Minimum Stock" value={String(details.minimumStock ?? 0)} /><Detail label="General Order Quantity" value={String(details.generalOrderQuantity ?? 0)} /><Detail label="Maximum Stock" value={Number(details.maximumStock) > 0 ? String(details.maximumStock) : "No limit"} /><Detail label="Tracking" value={pretty(details.trackingType)} /><Detail label="Status" value={<StatusBadge status={details.status} />} /><Detail label="Last Updated" value={formatDate(details.updatedAt)} /></div></div> : null}</Modal>
+    <Modal open={Boolean(details)} onClose={() => setDetails(null)} title="Product Details" subtitle="Reusable inventory product template" width="max-w-2xl" footer={<div className="flex justify-end gap-2"><button type="button" className={`${buttonClass} border-gray-200 bg-white text-gray-800 hover:bg-gray-50`} onClick={() => setDetails(null)}>Close</button>{details && canManage && details.status !== "archived" ? <button type="button" className={`${buttonClass} border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700`} onClick={() => openEdit(details)}><FiEdit2 /> Edit</button> : null}</div>}>{details ? <div><div className="mb-5 flex items-center gap-4"><ProductImage product={details} large /><div><p className="text-lg font-black text-gray-950">{details.name}</p><p className="text-sm font-semibold text-gray-500">{details.sku}</p></div></div><div className="grid gap-4 sm:grid-cols-2"><Detail label="Category" value={categoryMap.get(relationId(details.category))?.name} /><Detail label="Unit" value={unitMap.get(relationId(details.baseUnit))?.symbol || unitMap.get(relationId(details.baseUnit))?.name} /><Detail label="Costing Method" value={pretty(details.costingMethod || "weighted_average")} /><Detail label="Standard Cost" value={details.costingMethod === "standard" ? `BDT ${details.standardCost ?? 0}` : "—"} /><Detail label="Barcode" value={details.barcode || "—"} /><Detail label="Reorder Level" value={String(details.reorderLevel ?? 0)} /><Detail label="Minimum Stock" value={String(details.minimumStock ?? 0)} /><Detail label="General Order Quantity" value={String(details.generalOrderQuantity ?? 0)} /><Detail label="Maximum Stock" value={Number(details.maximumStock) > 0 ? String(details.maximumStock) : "No limit"} /><Detail label="Tracking" value={pretty(details.trackingType)} /><Detail label="Status" value={<StatusBadge status={details.status} />} /><Detail label="Last Updated" value={formatDate(details.updatedAt)} /></div></div> : null}</Modal>
     <Modal open={confirmState.open} onClose={closeConfirm} title={confirmState.item?.status === "archived" ? "Restore Product" : "Archive Product"} subtitle={confirmState.item?.name || ""} width="max-w-lg" footer={<div className="flex justify-end gap-2"><button type="button" className={`${buttonClass} border-gray-200 bg-white text-gray-800 hover:bg-gray-50`} onClick={closeConfirm} disabled={confirmState.saving}>Cancel</button><button type="button" className={`${buttonClass} ${confirmState.item?.status === "archived" ? "border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700" : "border-rose-600 bg-rose-600 text-white hover:bg-rose-700"}`} onClick={confirmProductAction} disabled={confirmState.saving}>{confirmState.saving ? "Processing..." : confirmState.item?.status === "archived" ? "Restore" : "Archive"}</button></div>}>{confirmState.error ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{confirmState.error}</div> : null}<p className="text-sm font-medium leading-6 text-gray-700">{confirmState.item?.status === "archived" ? "This product will return as inactive so it can be reviewed before activation." : "This product template will be archived. Existing inventory records remain protected by the server’s inventory rules."}</p></Modal>
   </InventoryPageShell>
 }

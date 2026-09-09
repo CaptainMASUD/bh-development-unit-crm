@@ -5,6 +5,10 @@ import StockMovement, {
   STOCK_EFFECTS,
 } from "../../models/inventory/stockMovement.model.js";
 import { runMongoTransaction } from "../../utils/mongoTransaction.js";
+import {
+  postStockMovement as postStockMovementService,
+  reverseStockMovement as reverseStockMovementService,
+} from "../../services/inventoryPosting.service.js";
 
 const LIST_FIELDS = [
   "movementNo",
@@ -174,8 +178,9 @@ const sendWriteError = (res, error, fallbackMessage) => {
   });
 };
 
-const buildListFilter = (query = {}) => {
+const buildListFilter = (query = {}, tenantId = null) => {
   const filter = {};
+  if (tenantId) filter.tenantId = new mongoose.Types.ObjectId(String(tenantId));
   if (query.status && query.status !== "all") filter.status = clean(query.status).toLowerCase();
   if (query.movementType && query.movementType !== "all") {
     filter.movementType = clean(query.movementType).toLowerCase();
@@ -229,7 +234,7 @@ export const listStockMovements = async (req, res) => {
     const cursor = decodeCursor(req.query.cursor);
     if (req.query.cursor && !cursor) return res.status(400).json({ message: "Invalid pagination cursor." });
 
-    const filter = buildListFilter(req.query);
+    const filter = buildListFilter(req.query, req.tenantId);
     if (cursor) {
       filter.$and = [
         ...(filter.$and || []),
@@ -263,7 +268,7 @@ export const listStockMovements = async (req, res) => {
 
 export const getStockMovementSummary = async (req, res) => {
   try {
-    const filter = buildListFilter(req.query);
+    const filter = buildListFilter(req.query, req.tenantId);
     const summary = await StockMovement.aggregate([
       { $match: filter },
       {
@@ -298,7 +303,9 @@ export const getStockMovementSummary = async (req, res) => {
 export const getStockMovement = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock movement ID." });
-    const movement = await populateMovement(StockMovement.findById(req.params.id)).maxTimeMS(5000).lean();
+    const movement = await populateMovement(
+      StockMovement.findOne({ _id: req.params.id, ...(req.tenantId ? { tenantId: req.tenantId } : {}) })
+    ).maxTimeMS(5000).lean();
     if (!movement) return res.status(404).json({ message: "Stock movement not found." });
     return res.json({ movement });
   } catch (error) {
@@ -314,16 +321,22 @@ export const createStockMovement = async (req, res) => {
     payload.movementType = payload.movementType || "other";
     payload.sourceType = payload.sourceType || "manual";
     payload.currency = payload.currency || "BDT";
+    if (req.tenantId) payload.tenantId = req.tenantId;
 
     const errors = validatePayload(payload);
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
     if (payload.idempotencyKey) {
-      const existing = await StockMovement.findOne({ idempotencyKey: payload.idempotencyKey }).select(LIST_FIELDS).lean();
+      const existing = await StockMovement.findOne({
+        idempotencyKey: payload.idempotencyKey,
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+      })
+        .select(LIST_FIELDS)
+        .lean();
       if (existing) return res.status(200).json({ message: "Stock movement request already exists.", movement: existing });
     }
 
-    await StockMovement.validateDraftLines(payload.lines);
+    await StockMovement.validateDraftLines(payload.lines, { tenantId: req.tenantId });
     const movement = await StockMovement.create({
       ...payload,
       status: "draft",
@@ -348,27 +361,19 @@ export const createAndPostStockMovement = async (req, res) => {
     const errors = validatePayload(payload);
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
-    let movement;
-    await runMongoTransaction(async (session) => {
-      if (payload.idempotencyKey) {
-        const existing = await StockMovement.findOne({ idempotencyKey: payload.idempotencyKey }).session(session);
-        if (existing) {
-          movement = existing.status === "draft"
-            ? await StockMovement.postMovementDocument({ movementId: existing._id, userId, session })
-            : existing;
-          return;
-        }
-      }
-
-      await StockMovement.validateDraftLines(payload.lines, { session });
-      movement = new StockMovement({
-        ...payload,
-        status: "draft",
-        createdBy: userId,
-        updatedBy: userId,
-      });
-      await movement.save({ session });
-      movement = await StockMovement.postMovementDocument({ movementId: movement._id, userId, session });
+    const movement = await postStockMovementService({
+      tenantId: req.tenantId,
+      movementType: payload.movementType,
+      movementDate: payload.movementDate,
+      reference: payload.reference,
+      sourceType: payload.sourceType,
+      sourceId: payload.sourceId,
+      idempotencyKey: payload.idempotencyKey,
+      currency: payload.currency,
+      reason: payload.reason,
+      notes: payload.notes,
+      lines: payload.lines,
+      userId,
     });
 
     const populated = await populateMovement(StockMovement.findById(movement._id)).lean();
@@ -387,9 +392,13 @@ export const updateStockMovement = async (req, res) => {
 
     const errors = validatePayload(payload, { partial: true });
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
-    if (payload.lines) await StockMovement.validateDraftLines(payload.lines);
+    if (payload.lines) await StockMovement.validateDraftLines(payload.lines, { tenantId: req.tenantId });
 
-    const movement = await StockMovement.findOne({ _id: req.params.id, status: "draft" });
+    const movement = await StockMovement.findOne({
+      _id: req.params.id,
+      status: "draft",
+      ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+    });
     if (!movement) return res.status(409).json({ message: "Only an existing draft movement can be updated." });
     Object.assign(movement, payload);
     await movement.save();
@@ -402,13 +411,10 @@ export const updateStockMovement = async (req, res) => {
 export const postStockMovement = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock movement ID." });
-    let movement;
-    await runMongoTransaction(async (session) => {
-      movement = await StockMovement.postMovementDocument({
-        movementId: req.params.id,
-        userId: req.user?._id || null,
-        session,
-      });
+    const movement = await postStockMovementService({
+      tenantId: req.tenantId,
+      movementId: req.params.id,
+      userId: req.user?._id || null,
     });
     const populated = await populateMovement(StockMovement.findById(movement._id)).lean();
     return res.json({ message: "Stock movement posted.", movement: populated });
@@ -420,14 +426,11 @@ export const postStockMovement = async (req, res) => {
 export const reverseStockMovement = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock movement ID." });
-    let reversal;
-    await runMongoTransaction(async (session) => {
-      reversal = await StockMovement.reverseMovementDocument({
-        movementId: req.params.id,
-        userId: req.user?._id || null,
-        reason: clean(req.body.reason),
-        session,
-      });
+    const reversal = await reverseStockMovementService({
+      tenantId: req.tenantId,
+      movementId: req.params.id,
+      userId: req.user?._id || null,
+      reason: clean(req.body.reason),
     });
     const populated = await populateMovement(StockMovement.findById(reversal._id)).lean();
     return res.status(201).json({ message: "Stock movement reversed with a compensating entry.", movement: populated });
@@ -443,7 +446,7 @@ export const cancelStockMovement = async (req, res) => {
     if (!reason) return res.status(400).json({ message: "Cancellation reason is required." });
 
     const movement = await StockMovement.findOneAndUpdate(
-      { _id: req.params.id, status: "draft" },
+      { _id: req.params.id, status: "draft", ...(req.tenantId ? { tenantId: req.tenantId } : {}) },
       {
         status: "cancelled",
         cancellationReason: reason,
@@ -467,6 +470,7 @@ export const deleteStockMovement = async (req, res) => {
       _id: req.params.id,
       status: { $in: ["draft", "cancelled"] },
       reversalOf: null,
+      ...(req.tenantId ? { tenantId: req.tenantId } : {}),
     });
     if (!movement) {
       return res.status(409).json({ message: "Only a draft or cancelled non-reversal movement can be deleted." });

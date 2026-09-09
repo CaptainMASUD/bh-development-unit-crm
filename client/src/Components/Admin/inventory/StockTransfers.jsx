@@ -42,6 +42,9 @@ const PERMISSION = {
   delete:
     PERMISSIONS?.INVENTORY_TRANSFER_DELETE ||
     "inventory-transfer:delete",
+  costView:
+    PERMISSIONS?.INVENTORY_REPORT_COST_VIEW ||
+    "inventory-report:cost-view",
 }
 
 const TRANSFER_MODES = [
@@ -172,6 +175,7 @@ function formatNumber(value, maximumFractionDigits = 2) {
 }
 
 function formatMoney(value, currency = "BDT") {
+  if (value === null || value === undefined || value === "") return "—"
   return `${clean(currency || "BDT")} ${formatNumber(value, 2)}`
 }
 
@@ -529,14 +533,14 @@ async function api(path, options = {}) {
   return data
 }
 
-function SummaryCards({ summary, onSelectStatus }) {
+function SummaryCards({ summary, onSelectStatus, canViewCost = true }) {
   const rows = [
     ["Transfers", summary.totalTransfers, "All matching transfers", "all"],
     ["Drafts", summary.draft, "Still editable", "draft"],
     ["Awaiting Approval", summary.awaitingApproval, "Submitted documents", "submitted"],
     ["In Transit", summary.inTransit, "Dispatched or partial", "dispatched"],
     ["Received", summary.received, "Completed receipt", "received"],
-    ["Transfer Value", formatMoney(summary.transferValue), `${formatNumber(summary.shortQuantity)} short`, "all"],
+    ["Transfer Value", canViewCost ? formatMoney(summary.transferValue) : "—", `${formatNumber(summary.shortQuantity)} short`, "all"],
   ]
 
   return (
@@ -582,6 +586,9 @@ export default function StockTransfers() {
   const canReceive = hasPermission(currentUser, PERMISSION.receive)
   const canReverse = hasPermission(currentUser, PERMISSION.reverse)
   const canDelete = hasPermission(currentUser, PERMISSION.delete)
+  const canViewCost =
+    hasPermission(currentUser, PERMISSION.costView) ||
+    currentUser?.role === "admin"
 
   const [activeTab, setActiveTab] = useState("all")
   const [transfers, setTransfers] = useState([])
@@ -593,6 +600,7 @@ export default function StockTransfers() {
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [exportingCsv, setExportingCsv] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [nextCursor, setNextCursor] = useState(null)
   const [filterOpen, setFilterOpen] = useState(false)
@@ -608,6 +616,7 @@ export default function StockTransfers() {
   const [detailsModal, setDetailsModal] = useState({
     open: false,
     transfer: null,
+    linkedLosses: [],
   })
 
   const [approvalModal, setApprovalModal] = useState({
@@ -811,6 +820,47 @@ export default function StockTransfers() {
 
   const refresh = async () => {
     await Promise.all([loadOptions(), loadTransfers(), loadSummary()])
+  }
+
+  const exportCsv = async () => {
+    setExportingCsv(true)
+    try {
+      const token = localStorage.getItem("token")
+      const params = new URLSearchParams()
+      if (activeTab !== "all") params.set("status", activeTab)
+      if (filters.sourceWarehouse !== "all") {
+        params.set("sourceWarehouse", filters.sourceWarehouse)
+      }
+      if (filters.destinationWarehouse !== "all") {
+        params.set("destinationWarehouse", filters.destinationWarehouse)
+      }
+      params.set("format", "csv")
+      const response = await fetch(
+        `${API_BASE}/inventory/reports/transfers?${params.toString()}`,
+        {
+          credentials: "include",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }
+      )
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}))
+        throw new Error(errJson.message || "Failed to export transfers CSV")
+      }
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `stock-transfers-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      toast.success("Transfers CSV exported successfully")
+    } catch (err) {
+      toast.error(err.message || "Export failed")
+    } finally {
+      setExportingCsv(false)
+    }
   }
 
   const openCreate = () => {
@@ -1103,8 +1153,20 @@ export default function StockTransfers() {
   const openDetails = async (transfer) => {
     setLoadingDetailsId(transfer._id)
     try {
-      const data = await api(`/inventory/stock-transfers/${transfer._id}`)
-      setDetailsModal({ open: true, transfer: data.transfer })
+      const [transferData, lossData] = await Promise.all([
+        api(`/inventory/stock-transfers/${transfer._id}`),
+        transfer.status === "closed_short"
+          ? api("/inventory/reports/losses?lossType=transfer_shortage").catch(() => ({ losses: [] }))
+          : Promise.resolve({ losses: [] }),
+      ])
+      const transferDoc = transferData.transfer
+      const linkedLosses = (lossData?.losses || []).filter(
+        (l) =>
+          String(l.sourceId) === String(transfer._id) ||
+          String(l.movement) === String(transferDoc?.closeMovement?._id || transferDoc?.closeMovement) ||
+          (l.reason && l.reason.includes(transferDoc?.transferNo))
+      )
+      setDetailsModal({ open: true, transfer: transferDoc, linkedLosses })
     } catch (error) {
       toast.error(error.message || "Failed to load transfer details")
     } finally {
@@ -1114,8 +1176,20 @@ export default function StockTransfers() {
 
   const refreshDetailsIfOpen = async (id) => {
     if (detailsModal.transfer?._id !== id) return
-    const data = await api(`/inventory/stock-transfers/${id}`)
-    setDetailsModal({ open: true, transfer: data.transfer })
+    const [transferData, lossData] = await Promise.all([
+      api(`/inventory/stock-transfers/${id}`),
+      detailsModal.transfer?.status === "closed_short"
+        ? api("/inventory/reports/losses?lossType=transfer_shortage").catch(() => ({ losses: [] }))
+        : Promise.resolve({ losses: [] }),
+    ])
+    const transferDoc = transferData.transfer
+    const linkedLosses = (lossData?.losses || []).filter(
+      (l) =>
+        String(l.sourceId) === String(id) ||
+        String(l.movement) === String(transferDoc?.closeMovement?._id || transferDoc?.closeMovement) ||
+        (l.reason && l.reason.includes(transferDoc?.transferNo))
+    )
+    setDetailsModal({ open: true, transfer: transferDoc, linkedLosses })
   }
 
   const runSimpleAction = async (
@@ -1488,6 +1562,18 @@ export default function StockTransfers() {
           <div className="flex flex-wrap gap-2">
             <button
               className={cn(button, ghostButton)}
+              onClick={exportCsv}
+              disabled={exportingCsv}
+              type="button"
+            >
+              <Icon
+                icon={RefreshIcon}
+                className={cn("h-4 w-4", exportingCsv ? "animate-spin" : "rotate-180")}
+              />
+              {exportingCsv ? "Exporting..." : "Export CSV"}
+            </button>
+            <button
+              className={cn(button, ghostButton)}
               onClick={refresh}
               disabled={loading}
               type="button"
@@ -1530,7 +1616,7 @@ export default function StockTransfers() {
         </div>
       </section>
 
-      <SummaryCards summary={summary} onSelectStatus={setActiveTab} />
+      <SummaryCards summary={summary} onSelectStatus={setActiveTab} canViewCost={canViewCost} />
 
       <div className={`${card} mb-6 p-2`}>
         <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap">
@@ -1572,6 +1658,7 @@ export default function StockTransfers() {
         openingId={openingId}
         loadingDetailsId={loadingDetailsId}
         busy={busy}
+        canViewCost={canViewCost}
         permissions={{
           canManage,
           canApprove,
@@ -1674,8 +1761,9 @@ export default function StockTransfers() {
 
       <DetailsModal
         state={detailsModal}
+        canViewCost={canViewCost}
         onClose={() =>
-          setDetailsModal({ open: false, transfer: null })
+          setDetailsModal({ open: false, transfer: null, linkedLosses: [] })
         }
       />
     </div>
@@ -1903,6 +1991,7 @@ function TransferList({
   openingId,
   loadingDetailsId,
   busy,
+  canViewCost = true,
   permissions,
   onView,
   onEdit,
@@ -1962,7 +2051,7 @@ function TransferList({
                   <QtyCell value={transfer.totalDispatchedQuantity} />
                   <QtyCell value={transfer.totalReceivedQuantity} positive />
                   <QtyCell value={transfer.totalShortQuantity} negative />
-                  <td className="px-5 py-4 text-sm font-black text-gray-900">{formatMoney(transfer.totalValue, transfer.currency)}</td>
+                  <td className="px-5 py-4 text-sm font-black text-gray-900">{canViewCost ? formatMoney(transfer.totalValue, transfer.currency) : "—"}</td>
                   <td className="px-5 py-4"><StatusBadge value={transfer.status} /></td>
                   <td className="px-5 py-4 text-sm font-semibold text-gray-600">{formatDate(transfer.expectedDeliveryDate)}</td>
                   <td className="sticky right-0 bg-white px-5 py-4 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-gray-50/70">
@@ -2003,6 +2092,7 @@ function TransferList({
             <TransferMobileCard
               key={transfer._id}
               transfer={transfer}
+              canViewCost={canViewCost}
               opening={String(openingId) === String(transfer._id)}
               loadingDetails={String(loadingDetailsId) === String(transfer._id)}
               busy={busy}
@@ -2074,7 +2164,7 @@ function ProductSummary({ products = [] }) {
 }
 
 function TransferMobileCard(props) {
-  const { transfer } = props
+  const { transfer, canViewCost = true } = props
   return (
     <article className="p-4">
       <div className="flex items-start gap-3">
@@ -2096,7 +2186,7 @@ function TransferMobileCard(props) {
               <MiniMetric label="Dispatched" value={formatNumber(transfer.totalDispatchedQuantity)} />
               <MiniMetric label="Received" value={formatNumber(transfer.totalReceivedQuantity)} positive />
               <MiniMetric label="Short" value={formatNumber(transfer.totalShortQuantity)} negative={Number(transfer.totalShortQuantity) > 0} />
-              <MiniMetric label="Value" value={formatMoney(transfer.totalValue, transfer.currency)} />
+              <MiniMetric label="Value" value={canViewCost ? formatMoney(transfer.totalValue, transfer.currency) : "—"} />
             </div>
           </div>
           <div className="mt-3 border-t border-gray-100 pt-3">
@@ -2618,7 +2708,7 @@ function ErrorBox({ message }) {
   )
 }
 
-function DetailsModal({ state, onClose }) {
+function DetailsModal({ state, onClose, canViewCost = true }) {
   const transfer = state.transfer
   return (
     <ModalShell
@@ -2673,8 +2763,80 @@ function DetailsModal({ state, onClose }) {
           ) : null}
 
           <SectionCard title="Transfer lines" description="Requested, approved, dispatched, received, short, and remaining quantities are preserved for each stock position.">
-            <TransferDetailLines lines={transfer.lines || []} currency={transfer.currency} />
+            <TransferDetailLines lines={transfer.lines || []} currency={transfer.currency} canViewCost={canViewCost} />
           </SectionCard>
+
+          {transfer.status === "closed_short" ? (
+            <SectionCard
+              title="Linked Inventory Loss"
+              description="Stock shortage automatically booked to Inventory Loss and General Ledger upon short closure."
+            >
+              {state.linkedLosses?.length ? (
+                <div className="space-y-3">
+                  {state.linkedLosses.map((loss) => (
+                    <div
+                      key={loss._id || loss.lossReference}
+                      className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <span className="font-mono text-xs font-black text-amber-800">
+                            {loss.lossReference}
+                          </span>
+                          <span className="ml-2 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-800">
+                            {pretty(loss.lossType)}
+                          </span>
+                        </div>
+                        <span className="text-xs font-semibold text-gray-500">
+                          {formatDate(loss.lossDate || loss.createdAt, true)}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <MiniMetric
+                          label="Product"
+                          value={loss.product?.name || "Product"}
+                        />
+                        <MiniMetric
+                          label="Short Quantity"
+                          value={formatNumber(loss.quantity)}
+                          negative
+                        />
+                        <MiniMetric
+                          label="Unit Cost"
+                          value={canViewCost ? formatMoney(loss.unitCost, transfer.currency) : "—"}
+                        />
+                        <MiniMetric
+                          label="Loss Value"
+                          value={canViewCost ? formatMoney(loss.lossValue, transfer.currency) : "—"}
+                          negative
+                        />
+                      </div>
+                      {loss.reason ? (
+                        <p className="mt-2 text-xs font-semibold text-amber-900">
+                          <span className="text-amber-700">Reason: </span>
+                          {loss.reason}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-amber-100 bg-amber-50/30 p-4 text-sm text-amber-800">
+                  <p className="font-semibold">
+                    Shortage of {formatNumber(transfer.totalShortQuantity)} units closed.
+                  </p>
+                  {transfer.closeReason ? (
+                    <p className="mt-1 text-xs text-amber-700">Reason: {transfer.closeReason}</p>
+                  ) : null}
+                  {transfer.closeMovement ? (
+                    <p className="mt-1 text-xs text-amber-700">
+                      Close movement: {transfer.closeMovement?.movementNo || String(transfer.closeMovement)}
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            </SectionCard>
+          ) : null}
 
           <SectionCard title="Posted stock movements" description="Direct posting uses one movement; two-step transfers use dispatch and one or more receipt movements.">
             <MovementReferences transfer={transfer} />
@@ -2694,7 +2856,7 @@ function SummaryValue({ label, value, positive = false, negative = false }) {
   )
 }
 
-function TransferDetailLines({ lines, currency }) {
+function TransferDetailLines({ lines, currency, canViewCost = true }) {
   return (
     <div>
       <div className="hidden overflow-auto xl:block">
@@ -2727,8 +2889,8 @@ function TransferDetailLines({ lines, currency }) {
                 <td className="px-4 py-4 text-sm font-black text-emerald-700">{formatNumber(line.receivedQuantity)}</td>
                 <td className="px-4 py-4 text-sm font-black text-rose-700">{formatNumber(line.shortQuantity)}</td>
                 <td className="px-4 py-4 text-sm font-black text-gray-700">{formatNumber(line.remainingQuantity ?? remainingQuantity(line))}</td>
-                <td className="px-4 py-4 text-sm font-black text-gray-700">{formatMoney(line.unitCost, currency)}</td>
-                <td className="px-4 py-4 text-sm font-black text-gray-900">{formatMoney(line.lineValue, currency)}</td>
+                <td className="px-4 py-4 text-sm font-black text-gray-700">{canViewCost ? formatMoney(line.unitCost, currency) : "—"}</td>
+                <td className="px-4 py-4 text-sm font-black text-gray-900">{canViewCost ? formatMoney(line.lineValue, currency) : "—"}</td>
                 <td className="px-4 py-4 text-xs font-semibold text-gray-600">{line.lotNumber ? `Lot: ${line.lotNumber}` : line.serialNumbers?.length ? `${line.serialNumbers.length} serials · ${line.receivedSerialNumbers?.length || 0} received` : "No tracking data"}</td>
               </tr>
             ))}

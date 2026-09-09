@@ -151,8 +151,8 @@ const sendWriteError = (res, error, fallbackMessage) => {
   });
 };
 
-const buildListFilter = (query = {}) => {
-  const filter = {};
+const buildListFilter = (query = {}, tenantId = null) => {
+  const filter = tenantId ? { tenantId } : {};
 
   if (query.status && query.status !== "all") {
     filter.status = clean(query.status).toLowerCase();
@@ -184,9 +184,10 @@ const buildListFilter = (query = {}) => {
 
 export const listInventoryUnits = async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const limit = parseLimit(req.query.limit, 30, 100);
     const cursor = decodeCursor(req.query.cursor);
-    const filter = buildListFilter(req.query);
+    const filter = buildListFilter(req.query, tenantId);
 
     if (req.query.cursor && !cursor) {
       return res.status(400).json({ message: "Invalid pagination cursor." });
@@ -226,8 +227,12 @@ export const listInventoryUnits = async (req, res) => {
 
 export const listInventoryUnitOptions = async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const limit = parseLimit(req.query.limit, 50, 200);
-    const filter = { status: "active" };
+    const filter = {
+      ...(tenantId ? { tenantId } : {}),
+      status: "active",
+    };
 
     if (req.query.unitType && req.query.unitType !== "all") {
       filter.unitType = clean(req.query.unitType).toLowerCase();
@@ -262,7 +267,10 @@ export const getInventoryUnit = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid unit ID." });
 
-    const unit = await InventoryUnit.findById(req.params.id)
+    const unit = await InventoryUnit.findOne({
+      _id: req.params.id,
+      ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+    })
       .select("-nameLower -symbolKey")
       .maxTimeMS(3000)
       .lean();
@@ -280,6 +288,7 @@ export const lookupInventoryUnit = async (req, res) => {
     if (!value) return res.status(400).json({ message: "Unit code or symbol is required." });
 
     const unit = await InventoryUnit.findOne({
+      ...(req.tenantId ? { tenantId: req.tenantId } : {}),
       status: { $ne: "archived" },
       $or: [{ code: value.toUpperCase() }, { symbolKey: value.toLowerCase() }],
     })
@@ -297,7 +306,9 @@ export const lookupInventoryUnit = async (req, res) => {
 export const createInventoryUnit = async (req, res) => {
   try {
     const userId = req.user?._id || null;
+    const tenantId = req.tenantId;
     const payload = buildUnitPayload(req.body, userId);
+    if (tenantId) payload.tenantId = tenantId;
 
     if (payload.allowDecimal === false) payload.decimalPlaces = 0;
     if (payload.allowDecimal === true && payload.decimalPlaces === undefined) payload.decimalPlaces = 2;
@@ -307,6 +318,7 @@ export const createInventoryUnit = async (req, res) => {
 
     const unit = await InventoryUnit.create({
       ...payload,
+      ...(tenantId ? { tenantId } : {}),
       createdBy: userId,
       updatedBy: userId,
     });
@@ -321,11 +333,15 @@ export const updateInventoryUnit = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid unit ID." });
 
+    const tenantId = req.tenantId;
     const payload = buildUnitPayload(req.body, req.user?._id || null);
     const editableKeys = Object.keys(payload).filter((key) => key !== "updatedBy");
     if (!editableKeys.length) return res.status(400).json({ message: "No valid unit fields were provided." });
 
-    const current = await InventoryUnit.findById(req.params.id)
+    const current = await InventoryUnit.findOne({
+      _id: req.params.id,
+      ...(tenantId ? { tenantId } : {}),
+    })
       .select("allowDecimal decimalPlaces status")
       .maxTimeMS(3000)
       .lean();
@@ -343,11 +359,18 @@ export const updateInventoryUnit = async (req, res) => {
     const errors = validatePayload(payload, { partial: true, current });
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
-    const unit = await InventoryUnit.findByIdAndUpdate(req.params.id, payload, {
-      new: true,
-      runValidators: true,
-      context: "query",
-    }).select("-nameLower -symbolKey");
+    const unit = await InventoryUnit.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+      },
+      payload,
+      {
+        new: true,
+        runValidators: true,
+        context: "query",
+      }
+    ).select("-nameLower -symbolKey");
 
     return res.json({ message: "Inventory unit updated.", unit });
   } catch (error) {
@@ -359,13 +382,18 @@ export const updateInventoryUnitStatus = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid unit ID." });
 
+    const tenantId = req.tenantId;
     const status = clean(req.body.status).toLowerCase();
     if (!["active", "inactive"].includes(status)) {
       return res.status(400).json({ message: "Status must be active or inactive." });
     }
 
     const unit = await InventoryUnit.findOneAndUpdate(
-      { _id: req.params.id, status: { $ne: "archived" } },
+      {
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+        status: { $ne: "archived" },
+      },
       { status, archivedAt: null, updatedBy: req.user?._id || null },
       { new: true, runValidators: true }
     ).select(LIST_FIELDS);
@@ -381,7 +409,11 @@ export const deleteInventoryUnit = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid unit ID." });
 
-    const current = await InventoryUnit.findById(req.params.id)
+    const tenantId = req.tenantId;
+    const current = await InventoryUnit.findOne({
+      _id: req.params.id,
+      ...(tenantId ? { tenantId } : {}),
+    })
       .select("name code status")
       .maxTimeMS(3000)
       .lean();
@@ -390,13 +422,20 @@ export const deleteInventoryUnit = async (req, res) => {
       return res.status(404).json({ message: "Inventory unit not found or already archived." });
     }
 
-    const hasProducts = await Product.exists({ baseUnit: req.params.id, status: { $ne: "archived" } });
+    const hasProducts = await Product.exists({
+      ...(tenantId ? { tenantId } : {}),
+      baseUnit: req.params.id,
+      status: { $ne: "archived" },
+    });
     if (hasProducts) {
       return res.status(409).json({ message: "Change the base unit of assigned products before archiving this unit." });
     }
 
-    const unit = await InventoryUnit.findByIdAndUpdate(
-      req.params.id,
+    const unit = await InventoryUnit.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+      },
       { status: "archived", archivedAt: new Date(), updatedBy: req.user?._id || null },
       { new: true, runValidators: true }
     ).select("name code symbol status archivedAt");
@@ -411,8 +450,13 @@ export const restoreInventoryUnit = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid unit ID." });
 
+    const tenantId = req.tenantId;
     const unit = await InventoryUnit.findOneAndUpdate(
-      { _id: req.params.id, status: "archived" },
+      {
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+        status: "archived",
+      },
       { status: "inactive", archivedAt: null, updatedBy: req.user?._id || null },
       { new: true, runValidators: true }
     ).select(LIST_FIELDS);

@@ -7,8 +7,10 @@ const TRANSFER_STATUSES = [
   "submitted",
   "approved",
   "dispatched",
+  "in_transit",
   "partially_received",
   "received",
+  "closed",
   "closed_short",
   "rejected",
   "cancelled",
@@ -21,7 +23,6 @@ const transferLineSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Product",
       required: true,
-      index: true,
     },
     sourceLocation: {
       type: mongoose.Schema.Types.ObjectId,
@@ -74,6 +75,12 @@ const receiptSchema = new mongoose.Schema(
 
 const stockTransferSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
+      index: true,
+    },
     transferNo: {
       type: String,
       required: true,
@@ -81,31 +88,27 @@ const stockTransferSchema = new mongoose.Schema(
       uppercase: true,
       maxlength: 80,
     },
-    transferDate: { type: Date, required: true, default: Date.now, index: true },
-    expectedDeliveryDate: { type: Date, default: null, index: true },
+    transferDate: { type: Date, required: true, default: Date.now },
+    expectedDeliveryDate: { type: Date, default: null },
     transferMode: {
       type: String,
       enum: TRANSFER_MODES,
       default: "two_step",
-      index: true,
     },
     status: {
       type: String,
       enum: TRANSFER_STATUSES,
       default: "draft",
-      index: true,
     },
     sourceWarehouse: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Warehouse",
       required: true,
-      index: true,
     },
     destinationWarehouse: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Warehouse",
       required: true,
-      index: true,
     },
     reference: { type: String, trim: true, uppercase: true, maxlength: 160, default: "" },
     externalReference: { type: String, trim: true, maxlength: 160, default: "" },
@@ -168,7 +171,7 @@ const stockTransferSchema = new mongoose.Schema(
     reversedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     reversalReason: { type: String, trim: true, maxlength: 1000, default: "" },
 
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null, index: true },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },
   {
@@ -178,21 +181,23 @@ const stockTransferSchema = new mongoose.Schema(
   }
 );
 
-stockTransferSchema.index({ transferNo: 1 }, { unique: true });
+stockTransferSchema.index({ tenantId: 1, transferNo: 1 }, { unique: true });
 stockTransferSchema.index(
-  { clientRequestId: 1 },
+  { tenantId: 1, clientRequestId: 1 },
   {
     unique: true,
     partialFilterExpression: { clientRequestId: { $type: "string", $gt: "" } },
   }
 );
-stockTransferSchema.index({ status: 1, transferDate: -1, _id: -1 });
-stockTransferSchema.index({ transferMode: 1, status: 1, transferDate: -1, _id: -1 });
-stockTransferSchema.index({ sourceWarehouse: 1, status: 1, transferDate: -1, _id: -1 });
-stockTransferSchema.index({ destinationWarehouse: 1, status: 1, transferDate: -1, _id: -1 });
-stockTransferSchema.index({ products: 1, transferDate: -1, _id: -1 });
-stockTransferSchema.index({ reference: 1, transferDate: -1 });
-stockTransferSchema.index({ expectedDeliveryDate: 1, status: 1 });
+stockTransferSchema.index({ tenantId: 1, status: 1, transferDate: -1, _id: -1 });
+stockTransferSchema.index({ tenantId: 1, transferMode: 1, status: 1, transferDate: -1, _id: -1 });
+stockTransferSchema.index({ tenantId: 1, sourceWarehouse: 1, status: 1, transferDate: -1, _id: -1 });
+stockTransferSchema.index({ tenantId: 1, destinationWarehouse: 1, status: 1, transferDate: -1, _id: -1 });
+stockTransferSchema.index({ tenantId: 1, products: 1, transferDate: -1, _id: -1 });
+stockTransferSchema.index({ tenantId: 1, reference: 1, transferDate: -1 });
+stockTransferSchema.index({ tenantId: 1, expectedDeliveryDate: 1, status: 1 });
+stockTransferSchema.index({ tenantId: 1, createdBy: 1, transferDate: -1, _id: -1 });
+stockTransferSchema.index({ tenantId: 1, transferDate: -1, _id: -1 });
 
 const clean = (value) => String(value ?? "").trim();
 const idKey = (value) => String(value || "");

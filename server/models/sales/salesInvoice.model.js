@@ -37,6 +37,8 @@ const salesInvoiceSchema = new Schema(
       ref: "SalesOrder",
       required: true,
     },
+    leadId: { type: Schema.Types.ObjectId, ref: "Lead" },
+    dealId: { type: Schema.Types.ObjectId, ref: "Deal" },
     deliveryNoteIds: [{ type: Schema.Types.ObjectId, ref: "DeliveryNote" }],
     customerId: {
       type: Schema.Types.ObjectId,
@@ -110,3 +112,5 @@ salesInvoiceSchema.index({ tenantId: 1, status: 1, dueDate: 1 });
 export const SalesInvoice =
   mongoose.models.SalesInvoice ||
   mongoose.model("SalesInvoice", salesInvoiceSchema);
+
+export default SalesInvoice;

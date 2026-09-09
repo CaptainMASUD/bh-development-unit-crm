@@ -4,6 +4,7 @@ import Warehouse from "../../models/inventory/warehouse.model.js";
 import WarehouseLocation from "../../models/inventory/warehouseLocation.model.js";
 import ProductStock, { STOCK_STATUSES, roundMoney, roundQuantity } from "../../models/inventory/productStock.model.js";
 import StockMovement from "../../models/inventory/stockMovement.model.js";
+import { postOpeningStock } from "../../services/inventoryPosting.service.js";
 import { runMongoTransaction, sessionOptions, withSession } from "../../utils/mongoTransaction.js";
 
 const LIST_FIELDS = [
@@ -184,24 +185,28 @@ const sendWriteError = (res, error, fallbackMessage) => {
   });
 };
 
-const validateStockReferences = async ({ productId, warehouseId, locationId = null, requireActive = true }) => {
+const validateStockReferences = async ({ tenantId = null, productId, warehouseId, locationId = null, requireActive = true }) => {
   if (!isId(productId)) throw Object.assign(new Error("Select a valid product."), { statusCode: 400 });
   if (!isId(warehouseId)) throw Object.assign(new Error("Select a valid warehouse."), { statusCode: 400 });
   if (locationId && !isId(locationId)) {
     throw Object.assign(new Error("Select a valid warehouse location or leave it empty."), { statusCode: 400 });
   }
 
+  const pFilter = { _id: productId, ...(tenantId ? { tenantId } : {}) };
+  const wFilter = { _id: warehouseId, ...(tenantId ? { tenantId } : {}) };
+  const lFilter = locationId ? { _id: locationId, ...(tenantId ? { tenantId } : {}) } : null;
+
   const [product, warehouse, location] = await Promise.all([
-    Product.findById(productId)
+    Product.findOne(pFilter)
       .select("name sku productType status trackInventory purchasePrice reorderLevel minimumStock maximumStock allowNegativeStock")
       .maxTimeMS(3000)
       .lean(),
-    Warehouse.findById(warehouseId)
+    Warehouse.findOne(wFilter)
       .select("name code status allowNegativeStock")
       .maxTimeMS(3000)
       .lean(),
     locationId
-      ? WarehouseLocation.findById(locationId)
+      ? WarehouseLocation.findOne(lFilter)
           .select("warehouse name code status isQuarantine")
           .maxTimeMS(3000)
           .lean()
@@ -248,8 +253,9 @@ const hasAnyQuantity = (stock) =>
     stock.outgoingQuantity,
   ].some((value) => Number(value || 0) !== 0);
 
-const buildStockFilter = async (query = {}) => {
+const buildStockFilter = async (query = {}, tenantId = null) => {
   const filter = {};
+  if (tenantId) filter.tenantId = new mongoose.Types.ObjectId(String(tenantId));
 
   if (isId(query.product)) filter.product = query.product;
   if (isId(query.warehouse)) filter.warehouse = query.warehouse;
@@ -272,14 +278,16 @@ const buildStockFilter = async (query = {}) => {
 
   const q = clean(query.q);
   if (q && !filter.product) {
-    const productIds = await Product.find({
+    const productQuery = {
       status: { $ne: "archived" },
       $or: [
         { nameLower: new RegExp(`^${escapeRegex(q.toLowerCase())}`) },
         { sku: new RegExp(`^${escapeRegex(q.toUpperCase())}`) },
         { barcode: new RegExp(`^${escapeRegex(q.toUpperCase())}`) },
       ],
-    })
+    };
+    if (tenantId) productQuery.tenantId = new mongoose.Types.ObjectId(String(tenantId));
+    const productIds = await Product.find(productQuery)
       .select("_id")
       .limit(250)
       .maxTimeMS(3000)
@@ -297,7 +305,7 @@ export const listProductStocks = async (req, res) => {
     const cursor = decodeCursor(req.query.cursor);
     if (req.query.cursor && !cursor) return res.status(400).json({ message: "Invalid pagination cursor." });
 
-    const filter = await buildStockFilter(req.query);
+    const filter = await buildStockFilter(req.query, req.tenantId);
     if (cursor) filter._id = { $lt: cursor };
 
     const stocks = await ProductStock.find(filter)
@@ -324,7 +332,7 @@ export const listInventoryItems = async (req, res) => {
   try {
     const limit = parseLimit(req.query.limit, 20, 100);
     const page = Math.max(1, Math.trunc(Number(req.query.page) || 1));
-    const filter = await buildStockFilter(req.query);
+    const filter = await buildStockFilter(req.query, req.tenantId);
     const pipeline = [
       { $match: filter },
       {
@@ -388,6 +396,7 @@ export const listInventoryItems = async (req, res) => {
 export const getProductStockSummary = async (req, res) => {
   try {
     const match = { status: { $ne: "archived" } };
+    if (req.tenantId) match.tenantId = new mongoose.Types.ObjectId(String(req.tenantId));
     if (isId(req.query.product)) match.product = new mongoose.Types.ObjectId(req.query.product);
     if (isId(req.query.warehouse)) match.warehouse = new mongoose.Types.ObjectId(req.query.warehouse);
     if (isId(req.query.location)) match.location = new mongoose.Types.ObjectId(req.query.location);
@@ -460,7 +469,7 @@ export const getProductAvailability = async (req, res) => {
   try {
     if (!isId(req.params.productId)) return res.status(400).json({ message: "Invalid product ID." });
 
-    const filter = { product: req.params.productId, status: { $ne: "archived" } };
+    const filter = { product: req.params.productId, status: { $ne: "archived" }, ...(req.tenantId ? { tenantId: req.tenantId } : {}) };
     if (isId(req.query.warehouse)) filter.warehouse = req.query.warehouse;
 
     const stocks = await ProductStock.find(filter)
@@ -514,7 +523,7 @@ export const getStockPosition = async (req, res) => {
       return res.status(400).json({ message: "Valid product, warehouse and optional location are required." });
     }
 
-    const stock = await ProductStock.findOne({ product, warehouse, location: location || null })
+    const stock = await ProductStock.findOne({ product, warehouse, location: location || null, ...(req.tenantId ? { tenantId: req.tenantId } : {}) })
       .select(LIST_FIELDS)
       .populate("product", "name sku barcode imageUrl status")
       .populate("warehouse", "name code status")
@@ -533,7 +542,7 @@ export const getProductStock = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock ID." });
 
-    const stock = await ProductStock.findById(req.params.id)
+    const stock = await ProductStock.findOne({ _id: req.params.id, ...(req.tenantId ? { tenantId: req.tenantId } : {}) })
       .select(LIST_FIELDS)
       .populate("product", "name sku barcode imageUrl productType trackInventory baseUnit status")
       .populate("warehouse", "name code warehouseType branch status allowNegativeStock")
@@ -560,6 +569,7 @@ export const initializeProductStock = async (req, res) => {
     }
 
     const { product } = await validateStockReferences({
+      tenantId: req.tenantId,
       productId,
       warehouseId,
       locationId,
@@ -575,7 +585,7 @@ export const initializeProductStock = async (req, res) => {
     const errors = validateSettingsPayload(initialState);
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
-    const key = { product: productId, warehouse: warehouseId, location: locationId || null };
+    const key = { product: productId, warehouse: warehouseId, location: locationId || null, ...(req.tenantId ? { tenantId: req.tenantId } : {}) };
     const existing = await ProductStock.findOne(key).select("status").lean();
     if (existing) {
       if (existing.status === "archived") {
@@ -619,6 +629,7 @@ export const initializeProductStock = async (req, res) => {
         product: req.body.product,
         warehouse: req.body.warehouse,
         location: clean(req.body.location) || null,
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
       })
         .select(LIST_FIELDS)
         .lean();
@@ -632,50 +643,17 @@ export const createOpeningStock = async (req, res) => {
   try {
     const command = buildOpeningStockCommand(req.body);
     await validateStockReferences({
+      tenantId: req.tenantId,
       productId: command.product,
       warehouseId: command.warehouse,
       locationId: command.location,
       requireActive: true,
     });
 
-    const result = await runMongoTransaction(async (session) => {
-      const key = {
-        product: command.product,
-        warehouse: command.warehouse,
-        location: command.location || null,
-      };
-      const existingStock = await withSession(ProductStock.findOne(key), session);
-      if (existingStock?.status === "archived") {
-        throw Object.assign(
-          new Error("This stock position is archived. Restore it before adding quantity."),
-          { statusCode: 409 }
-        );
-      }
-      if (existingStock?.status === "inactive") {
-        existingStock.status = "active";
-        existingStock.updatedBy = req.user?._id || null;
-        await existingStock.save(sessionOptions(session));
-      }
-
-      let movement = command.idempotencyKey
-        ? await withSession(StockMovement.findOne({ idempotencyKey: command.idempotencyKey }), session)
-        : null;
-
-      if (!movement) {
-        movement = new StockMovement(
-          buildOpeningStockMovement(command, req.user?._id || null)
-        );
-        await movement.save(sessionOptions(session));
-      }
-
-      movement = await StockMovement.postMovementDocument({
-        movementId: movement._id,
-        userId: req.user?._id || null,
-        session,
-      });
-
-      const stock = await withSession(ProductStock.findOne(key), session);
-      return { movement, stock };
+    const result = await postOpeningStock({
+      tenantId: req.tenantId,
+      command,
+      userId: req.user?._id || null,
     });
 
     await Promise.all([
@@ -705,7 +683,7 @@ export const updateProductStockSettings = async (req, res) => {
     const editableKeys = Object.keys(payload).filter((key) => key !== "updatedBy");
     if (!editableKeys.length) return res.status(400).json({ message: "No valid stock settings were provided." });
 
-    const current = await ProductStock.findById(req.params.id)
+    const current = await ProductStock.findOne({ _id: req.params.id, ...(req.tenantId ? { tenantId: req.tenantId } : {}) })
       .select("product warehouse location reorderLevel minimumStock maximumStock status onHandQuantity reservedQuantity quarantineQuantity incomingQuantity outgoingQuantity")
       .lean();
     if (!current) return res.status(404).json({ message: "Product stock record not found." });
@@ -721,6 +699,7 @@ export const updateProductStockSettings = async (req, res) => {
     }
     if (payload.status === "active") {
       await validateStockReferences({
+        tenantId: req.tenantId,
         productId: current.product,
         warehouseId: current.warehouse,
         locationId: current.location,
@@ -728,7 +707,7 @@ export const updateProductStockSettings = async (req, res) => {
       });
     }
 
-    const stock = await ProductStock.findByIdAndUpdate(req.params.id, payload, {
+    const stock = await ProductStock.findOneAndUpdate({ _id: req.params.id, ...(req.tenantId ? { tenantId: req.tenantId } : {}) }, payload, {
       new: true,
       runValidators: true,
       context: "query",
@@ -748,7 +727,7 @@ export const deleteProductStock = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock ID." });
 
-    const current = await ProductStock.findById(req.params.id)
+    const current = await ProductStock.findOne({ _id: req.params.id, ...(req.tenantId ? { tenantId: req.tenantId } : {}) })
       .select("status onHandQuantity reservedQuantity quarantineQuantity incomingQuantity outgoingQuantity")
       .lean();
     if (!current) return res.status(404).json({ message: "Product stock record not found." });
@@ -757,8 +736,8 @@ export const deleteProductStock = async (req, res) => {
       return res.status(409).json({ message: "A stock record with balances or pending quantities cannot be archived." });
     }
 
-    const stock = await ProductStock.findByIdAndUpdate(
-      req.params.id,
+    const stock = await ProductStock.findOneAndUpdate(
+      { _id: req.params.id, ...(req.tenantId ? { tenantId: req.tenantId } : {}) },
       { status: "archived", archivedAt: new Date(), updatedBy: req.user?._id || null },
       { new: true, runValidators: true }
     ).select("product warehouse location status archivedAt");
@@ -773,20 +752,21 @@ export const restoreProductStock = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock ID." });
 
-    const current = await ProductStock.findOne({ _id: req.params.id, status: "archived" })
+    const current = await ProductStock.findOne({ _id: req.params.id, status: "archived", ...(req.tenantId ? { tenantId: req.tenantId } : {}) })
       .select("product warehouse location")
       .lean();
     if (!current) return res.status(404).json({ message: "Archived product stock record not found." });
 
     await validateStockReferences({
+      tenantId: req.tenantId,
       productId: current.product,
       warehouseId: current.warehouse,
       locationId: current.location,
       requireActive: false,
     });
 
-    const stock = await ProductStock.findByIdAndUpdate(
-      req.params.id,
+    const stock = await ProductStock.findOneAndUpdate(
+      { _id: req.params.id, ...(req.tenantId ? { tenantId: req.tenantId } : {}) },
       { status: "inactive", archivedAt: null, updatedBy: req.user?._id || null },
       { new: true, runValidators: true }
     )

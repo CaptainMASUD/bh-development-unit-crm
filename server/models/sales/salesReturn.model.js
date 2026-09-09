@@ -16,6 +16,7 @@ const lineSchema = new mongoose.Schema({
 }, { _id: true });
 
 const salesReturnSchema = new mongoose.Schema({
+  tenantId: { type: mongoose.Schema.Types.ObjectId, ref: "Tenant", required: true, index: true },
   branchId: { type: mongoose.Schema.Types.ObjectId, ref: "Branch", required: true },
   returnNumber: { type: String, required: true, trim: true },
   salesOrderId: { type: mongoose.Schema.Types.ObjectId, ref: "SalesOrder", required: true, index: true },
@@ -53,3 +54,5 @@ salesReturnSchema.index({ tenantId: 1, status: 1, returnDate: -1 });
 salesReturnSchema.index({ tenantId: 1, customerId: 1, returnDate: -1 });
 
 export const SalesReturn = mongoose.models.SalesReturn || mongoose.model("SalesReturn", salesReturnSchema);
+
+export default SalesReturn;

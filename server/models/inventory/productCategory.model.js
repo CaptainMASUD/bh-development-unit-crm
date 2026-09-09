@@ -4,6 +4,12 @@ const CATEGORY_STATUSES = ["active", "inactive", "archived"];
 
 const productCategorySchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      required: true,
+      index: true,
+    },
     name: {
       type: String,
       required: true,
@@ -95,11 +101,11 @@ productCategorySchema.set("toObject", {
   },
 });
 
-productCategorySchema.index({ code: 1 }, { unique: true });
-productCategorySchema.index({ slug: 1 }, { unique: true });
-productCategorySchema.index({ parent: 1, nameLower: 1 }, { unique: true });
-productCategorySchema.index({ status: 1, sortOrder: 1, nameLower: 1, _id: 1 });
-productCategorySchema.index({ parent: 1, status: 1, sortOrder: 1, nameLower: 1, _id: 1 });
+productCategorySchema.index({ tenantId: 1, code: 1 }, { unique: true });
+productCategorySchema.index({ tenantId: 1, slug: 1 }, { unique: true });
+productCategorySchema.index({ tenantId: 1, parent: 1, nameLower: 1 }, { unique: true });
+productCategorySchema.index({ tenantId: 1, status: 1, sortOrder: 1, nameLower: 1, _id: 1 });
+productCategorySchema.index({ tenantId: 1, parent: 1, status: 1, sortOrder: 1, nameLower: 1, _id: 1 });
 
 const normalizeCategoryPatch = (source = {}) => {
   const patch = source;
@@ -140,7 +146,7 @@ productCategorySchema.pre("validate", function (next) {
   normalizeCategoryPatch(this);
 
   if (this.parent && String(this.parent) === String(this._id)) {
-    this.invalidate("parent", "A category cannot be its own parent.");
+    this.invalidate("parent", "A category cannot have itself as its parent.");
   }
 
   next();

@@ -111,10 +111,13 @@ const validatePayload = (payload, { partial = false } = {}) => {
   return errors;
 };
 
-const validateParentCategory = async (parentId, { requireActive = false } = {}) => {
+const validateParentCategory = async (parentId, { requireActive = false, tenantId = null } = {}) => {
   if (!parentId) return null;
 
-  const parent = await ProductCategory.findById(parentId)
+  const parent = await ProductCategory.findOne({
+    _id: parentId,
+    ...(tenantId ? { tenantId } : {}),
+  })
     .select("name code parent status")
     .maxTimeMS(3000)
     .lean();
@@ -132,14 +135,14 @@ const validateParentCategory = async (parentId, { requireActive = false } = {}) 
   return parent;
 };
 
-const assertNoCategoryCycle = async (categoryId, parentId) => {
+const assertNoCategoryCycle = async (categoryId, parentId, tenantId = null) => {
   if (!parentId) return;
   if (String(categoryId) === String(parentId)) {
     throw Object.assign(new Error("A category cannot be its own parent."), { statusCode: 400 });
   }
 
   const result = await ProductCategory.aggregate([
-    { $match: { _id: new mongoose.Types.ObjectId(parentId) } },
+    { $match: { _id: new mongoose.Types.ObjectId(parentId), ...(tenantId ? { tenantId } : {}) } },
     {
       $graphLookup: {
         from: ProductCategory.collection.name,
@@ -148,6 +151,7 @@ const assertNoCategoryCycle = async (categoryId, parentId) => {
         connectToField: "_id",
         as: "ancestors",
         maxDepth: 30,
+        ...(tenantId ? { restrictSearchWithMatch: { tenantId } } : {}),
       },
     },
     {
@@ -186,8 +190,8 @@ const sendWriteError = (res, error, fallbackMessage) => {
   });
 };
 
-const buildListFilter = (query = {}) => {
-  const filter = {};
+const buildListFilter = (query = {}, tenantId = null) => {
+  const filter = tenantId ? { tenantId } : {};
 
   if (query.status && query.status !== "all") {
     filter.status = clean(query.status).toLowerCase();
@@ -219,9 +223,10 @@ const buildListFilter = (query = {}) => {
 
 export const listProductCategories = async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const limit = parseLimit(req.query.limit, 30, 100);
     const cursor = decodeCursor(req.query.cursor);
-    const filter = buildListFilter(req.query);
+    const filter = buildListFilter(req.query, tenantId);
 
     if (req.query.cursor && !cursor) {
       return res.status(400).json({ message: "Invalid pagination cursor." });
@@ -261,8 +266,12 @@ export const listProductCategories = async (req, res) => {
 
 export const listProductCategoryOptions = async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const limit = parseLimit(req.query.limit, 50, 200);
-    const filter = { status: "active" };
+    const filter = {
+      ...(tenantId ? { tenantId } : {}),
+      status: "active",
+    };
 
     if (isId(req.query.exclude)) filter._id = { $ne: req.query.exclude };
     if (req.query.parent === "root" || req.query.parent === "null") filter.parent = null;
@@ -293,7 +302,8 @@ export const listProductCategoryOptions = async (req, res) => {
 
 export const getProductCategoryTree = async (req, res) => {
   try {
-    const filter = {};
+    const tenantId = req.tenantId;
+    const filter = tenantId ? { tenantId } : {};
     if (req.query.status && req.query.status !== "all") {
       filter.status = clean(req.query.status).toLowerCase();
     } else {
@@ -328,7 +338,10 @@ export const getProductCategory = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid category ID." });
 
-    const category = await ProductCategory.findById(req.params.id)
+    const category = await ProductCategory.findOne({
+      _id: req.params.id,
+      ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+    })
       .select("-nameLower")
       .populate("parent", "name code slug status")
       .maxTimeMS(3000)
@@ -347,6 +360,7 @@ export const lookupProductCategory = async (req, res) => {
     if (!value) return res.status(400).json({ message: "Category code or slug is required." });
 
     const category = await ProductCategory.findOne({
+      ...(req.tenantId ? { tenantId: req.tenantId } : {}),
       status: { $ne: "archived" },
       $or: [{ code: value.toUpperCase() }, { slug: value.toLowerCase() }],
     })
@@ -364,7 +378,9 @@ export const lookupProductCategory = async (req, res) => {
 export const createProductCategory = async (req, res) => {
   try {
     const userId = req.user?._id || null;
+    const tenantId = req.tenantId;
     const payload = buildCategoryPayload(req.body, userId);
+    if (tenantId) payload.tenantId = tenantId;
     const errors = validatePayload(payload);
 
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
@@ -373,10 +389,14 @@ export const createProductCategory = async (req, res) => {
     payload.slug = slugify(payload.slug || `${payload.name}-${payload.code}`);
     if (!payload.slug) return res.status(400).json({ message: "A valid category slug could not be generated." });
 
-    await validateParentCategory(payload.parent, { requireActive: (payload.status || "active") === "active" });
+    await validateParentCategory(payload.parent, {
+      requireActive: (payload.status || "active") === "active",
+      tenantId,
+    });
 
     const category = await ProductCategory.create({
       ...payload,
+      ...(tenantId ? { tenantId } : {}),
       createdBy: userId,
       updatedBy: userId,
     });
@@ -391,6 +411,7 @@ export const updateProductCategory = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid category ID." });
 
+    const tenantId = req.tenantId;
     const payload = buildCategoryPayload(req.body, req.user?._id || null);
     const editableKeys = Object.keys(payload).filter((key) => key !== "updatedBy");
     if (!editableKeys.length) return res.status(400).json({ message: "No valid category fields were provided." });
@@ -398,7 +419,10 @@ export const updateProductCategory = async (req, res) => {
     const errors = validatePayload(payload, { partial: true });
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
-    const current = await ProductCategory.findById(req.params.id)
+    const current = await ProductCategory.findOne({
+      _id: req.params.id,
+      ...(tenantId ? { tenantId } : {}),
+    })
       .select("name code slug parent status")
       .maxTimeMS(3000)
       .lean();
@@ -417,16 +441,23 @@ export const updateProductCategory = async (req, res) => {
     const nextParent = payload.parent !== undefined ? payload.parent : current.parent;
     const nextStatus = payload.status !== undefined ? payload.status : current.status;
 
-    await validateParentCategory(nextParent, { requireActive: nextStatus === "active" });
+    await validateParentCategory(nextParent, { requireActive: nextStatus === "active", tenantId });
     if (payload.parent !== undefined && String(payload.parent || "") !== String(current.parent || "")) {
-      await assertNoCategoryCycle(req.params.id, payload.parent);
+      await assertNoCategoryCycle(req.params.id, payload.parent, tenantId);
     }
 
-    const category = await ProductCategory.findByIdAndUpdate(req.params.id, payload, {
-      new: true,
-      runValidators: true,
-      context: "query",
-    }).select("-nameLower");
+    const category = await ProductCategory.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+      },
+      payload,
+      {
+        new: true,
+        runValidators: true,
+        context: "query",
+      }
+    ).select("-nameLower");
 
     return res.json({ message: "Product category updated.", category });
   } catch (error) {
@@ -438,12 +469,16 @@ export const updateProductCategoryStatus = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid category ID." });
 
+    const tenantId = req.tenantId;
     const status = clean(req.body.status).toLowerCase();
     if (!["active", "inactive"].includes(status)) {
       return res.status(400).json({ message: "Status must be active or inactive." });
     }
 
-    const current = await ProductCategory.findById(req.params.id)
+    const current = await ProductCategory.findOne({
+      _id: req.params.id,
+      ...(tenantId ? { tenantId } : {}),
+    })
       .select("parent status")
       .maxTimeMS(3000)
       .lean();
@@ -453,18 +488,25 @@ export const updateProductCategoryStatus = async (req, res) => {
     }
 
     if (status === "active") {
-      await validateParentCategory(current.parent, { requireActive: true });
+      await validateParentCategory(current.parent, { requireActive: true, tenantId });
     }
 
     if (status === "inactive") {
-      const activeChild = await ProductCategory.exists({ parent: req.params.id, status: "active" });
+      const activeChild = await ProductCategory.exists({
+        ...(tenantId ? { tenantId } : {}),
+        parent: req.params.id,
+        status: "active",
+      });
       if (activeChild) {
         return res.status(409).json({ message: "Deactivate child categories before deactivating this category." });
       }
     }
 
-    const category = await ProductCategory.findByIdAndUpdate(
-      req.params.id,
+    const category = await ProductCategory.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+      },
       { status, archivedAt: null, updatedBy: req.user?._id || null },
       { new: true, runValidators: true }
     ).select(LIST_FIELDS);
@@ -479,7 +521,11 @@ export const deleteProductCategory = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid category ID." });
 
-    const category = await ProductCategory.findById(req.params.id)
+    const tenantId = req.tenantId;
+    const category = await ProductCategory.findOne({
+      _id: req.params.id,
+      ...(tenantId ? { tenantId } : {}),
+    })
       .select("name code status")
       .maxTimeMS(3000)
       .lean();
@@ -489,8 +535,16 @@ export const deleteProductCategory = async (req, res) => {
     }
 
     const [hasChildren, hasProducts] = await Promise.all([
-      ProductCategory.exists({ parent: req.params.id, status: { $ne: "archived" } }),
-      Product.exists({ category: req.params.id, status: { $ne: "archived" } }),
+      ProductCategory.exists({
+        ...(tenantId ? { tenantId } : {}),
+        parent: req.params.id,
+        status: { $ne: "archived" },
+      }),
+      Product.exists({
+        ...(tenantId ? { tenantId } : {}),
+        category: req.params.id,
+        status: { $ne: "archived" },
+      }),
     ]);
 
     if (hasChildren) {
@@ -500,8 +554,11 @@ export const deleteProductCategory = async (req, res) => {
       return res.status(409).json({ message: "Move or archive products assigned to this category first." });
     }
 
-    const archived = await ProductCategory.findByIdAndUpdate(
-      req.params.id,
+    const archived = await ProductCategory.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+      },
       { status: "archived", archivedAt: new Date(), updatedBy: req.user?._id || null },
       { new: true, runValidators: true }
     ).select("name code status archivedAt");
@@ -516,16 +573,24 @@ export const restoreProductCategory = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid category ID." });
 
-    const current = await ProductCategory.findOne({ _id: req.params.id, status: "archived" })
+    const tenantId = req.tenantId;
+    const current = await ProductCategory.findOne({
+      _id: req.params.id,
+      ...(tenantId ? { tenantId } : {}),
+      status: "archived",
+    })
       .select("parent")
       .maxTimeMS(3000)
       .lean();
 
     if (!current) return res.status(404).json({ message: "Archived product category not found." });
-    await validateParentCategory(current.parent, { requireActive: false });
+    await validateParentCategory(current.parent, { requireActive: false, tenantId });
 
-    const category = await ProductCategory.findByIdAndUpdate(
-      req.params.id,
+    const category = await ProductCategory.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+      },
       { status: "inactive", archivedAt: null, updatedBy: req.user?._id || null },
       { new: true, runValidators: true }
     ).select(LIST_FIELDS);

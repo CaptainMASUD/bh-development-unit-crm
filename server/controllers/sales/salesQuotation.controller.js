@@ -1,13 +1,15 @@
+import Lead from "../../models/lead.model.js";
 import { SalesQuotation } from "../../models/sales/salesQuotation.model.js";
 import AccountingSettings from "../../models/accountingSettings.model.js";
 import { SalesOrder } from "../../models/sales/salesOrder.model.js";
 import { calculateDocument } from "../../services/salesCalculation.service.js";
 import { nextSalesNumber } from "../../services/salesNumber.service.js";
-import { markDealWon, logCrmActivity } from "../../services/salesIntegration.service.js";
+import { markDealWon, logCrmActivity, convertLeadAndGenerateWonDeal } from "../../services/salesIntegration.service.js";
 import { runSalesTransaction } from "../../services/salesTransaction.service.js";
 import { validateAndSnapshotSalesLines, validateSalesPartyContext, validateSalesWarehouse } from "../../services/salesReference.service.js";
 import { SalesError, assertTenant } from "../../utils/salesError.js";
 import { getReqMeta, writeAudit } from "../../utils/audit.js";
+import { assertLeadReadyForProposal } from "../../services/crm/leadLifecycle.service.js";
 
 const editableStatuses = new Set(["draft", "sent", "viewed", "under_negotiation"]);
 
@@ -22,7 +24,9 @@ export const createQuotation = async (req, res) => {
   const branchId = req.body.branchId || req.membership?.defaultBranch || req.user.defaultBranch;
 
   if (!branchId) throw new SalesError("branchId is required.");
-  if (!req.body.customerId) throw new SalesError("customerId is required.");
+  if (!req.body.customerId && !req.body.leadId) {
+    throw new SalesError("customerId or leadId is required.");
+  }
   if (!req.body.salespersonId && !userId) {
     throw new SalesError("salespersonId is required.");
   }
@@ -30,7 +34,15 @@ export const createQuotation = async (req, res) => {
   const salespersonId = req.body.salespersonId || userId;
   const accountingPolicy = await AccountingSettings.findOne({ key: "company" }).select("taxCalculationMethod currency").lean();
   const normalizedLines = await validateAndSnapshotSalesLines(req.body.lines);
-  const party = await validateSalesPartyContext({ branchId, customerId: req.body.customerId, dealId: req.body.dealId, salespersonId });
+  const party = await validateSalesPartyContext({
+    branchId,
+    customerId: req.body.customerId,
+    leadId: req.body.leadId,
+    dealId: req.body.dealId,
+    salespersonId,
+  });
+  if (party.lead && !["discovery", "proposal", "negotiation"].includes(party.lead.pipelineStage)) throw new SalesError("Complete qualification and discovery before creating a quotation.", 409);
+  if (party.lead?.pipelineStage === "discovery") assertLeadReadyForProposal(party.lead);
   const calculated = calculateDocument(normalizedLines, {
     shippingCharge: req.body.shippingCharge,
     adjustment: req.body.adjustment,
@@ -42,11 +54,20 @@ export const createQuotation = async (req, res) => {
     documentType: "quotation",
   });
 
+  const leadContact = req.body.leadContact || (party.lead ? {
+    name: party.lead.contact?.name,
+    companyName: party.lead.contact?.companyName,
+    email: party.lead.contact?.email,
+    phone: party.lead.contact?.phone,
+  } : undefined);
+
   const quotation = await SalesQuotation.create({
     tenantId,
     branchId,
     quotationNumber,
-    customerId: req.body.customerId,
+    customerId: req.body.customerId || undefined,
+    leadId: req.body.leadId || undefined,
+    leadContact,
     contactId: req.body.contactId,
     dealId: req.body.dealId,
     salespersonId,
@@ -58,7 +79,7 @@ export const createQuotation = async (req, res) => {
     billingAddress: req.body.billingAddress,
     shippingAddress: req.body.shippingAddress,
     paymentTerms: req.body.paymentTerms,
-    paymentTermsDays: req.body.paymentTermsDays ?? party.customer.paymentTermsDays ?? 0,
+    paymentTermsDays: req.body.paymentTermsDays ?? party.customer?.paymentTermsDays ?? 0,
     deliveryTerms: req.body.deliveryTerms,
     notes: req.body.notes,
     createdBy: userId,
@@ -66,6 +87,7 @@ export const createQuotation = async (req, res) => {
   });
   await writeAudit({ actorId: userId, action: "create", entityType: "SalesQuotation", entityId: quotation._id, after: quotation.toObject(), meta: getReqMeta(req) });
 
+  if (quotation.leadId) await Lead.updateOne({ _id: quotation.leadId, pipelineStage: "discovery" }, { $set: { pipelineStage: "proposal", nextAction: "Send quotation for internal acceptance", nextActionType: "proposal" } });
   res.status(201).json({ success: true, data: quotation });
 };
 
@@ -88,6 +110,7 @@ export const listQuotations = async (req, res) => {
   const [items, total] = await Promise.all([
     SalesQuotation.find(filter)
       .populate("customerId", "name companyName email phone")
+      .populate("leadId", "contact leadNumber pipelineStage")
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
@@ -107,6 +130,7 @@ export const getQuotation = async (req, res) => {
     tenantFilter(req, { _id: req.params.id })
   )
     .populate("customerId", "name email phone")
+    .populate("leadId", "contact leadNumber pipelineStage")
     .populate("salespersonId", "name email")
     .populate("convertedOrderId", "orderNumber status");
 
@@ -216,9 +240,23 @@ export const changeQuotationStatus = async (req, res) => {
       confirmedByName: req.body.confirmedByName,
       confirmedAt: new Date(),
     };
+    if (quotation.leadId) {
+      const lead = await Lead.findById(quotation.leadId);
+      if (!lead || !["proposal", "negotiation"].includes(lead.pipelineStage)) throw new SalesError("Only a lead at Proposal can enter Negotiation through acceptance.", 409);
+    }
   }
 
-  await quotation.save();
+  await runSalesTransaction(async (session) => {
+    if (quotation.leadId && nextStatus === "accepted") {
+      const lead = await Lead.findOneAndUpdate(
+        { _id: quotation.leadId, pipelineStage: { $in: ["proposal", "negotiation"] } },
+        { $set: { pipelineStage: "negotiation", nextAction: "Final client discussion: mark Won or Lost", nextActionType: "follow_up" } },
+        { ...(session ? { session } : {}), new: true }
+      );
+      if (!lead) throw new SalesError("The lead is no longer eligible for proposal acceptance.", 409);
+    }
+    await quotation.save(session ? { session } : {});
+  });
   await writeAudit({ actorId: req.user._id, action: "status_change", entityType: "SalesQuotation", entityId: quotation._id, before: { status: previousStatus }, after: { status: nextStatus }, meta: { ...getReqMeta(req), oldStatus: previousStatus, newStatus: nextStatus } });
 
   await logCrmActivity(req, {
@@ -250,6 +288,17 @@ export const convertQuotationToOrder = async (req, res) => {
       if (quotation.convertedOrderId) {
         throw new SalesError("This quotation has already been converted.", 409);
       }
+
+      if (quotation.leadId) {
+        const lead = await Lead.findById(quotation.leadId).session(session);
+        if (!lead || lead.pipelineStage !== "won" || !lead.customerId) throw new SalesError("Win the lead in Negotiation first. Winning creates its sales order automatically.", 409);
+      }
+      if (!quotation.customerId || !quotation.dealId) {
+        const conversion = await convertLeadAndGenerateWonDeal(req, { quotation, session });
+        if (conversion?.customerId) quotation.customerId = conversion.customerId;
+        if (conversion?.dealId) quotation.dealId = conversion.dealId;
+      }
+
       if (!req.body.warehouseId) {
         throw new SalesError("warehouseId is required to create the sales order.");
       }
@@ -292,6 +341,7 @@ export const convertQuotationToOrder = async (req, res) => {
             branchId: quotation.branchId,
             orderNumber,
             quotationId: quotation._id,
+            leadId: quotation.leadId || undefined,
             dealId: quotation.dealId,
             customerId: quotation.customerId,
             contactId: quotation.contactId,

@@ -391,11 +391,11 @@ export default function LeadDetailsPage({
               <button
                 onClick={() => lead?._id && onConvert?.(lead._id)}
                 className={cn(btnBase, btnPrimary, "px-3 py-2")}
-                disabled={!lead || loading || converted}
-                title={converted ? "Already converted" : "Convert to customer"}
+                disabled={!lead || loading || converted || lead.pipelineStage !== "negotiation"}
+                title={converted ? "Already converted" : "Win negotiation and create Customer, Won Deal and Sales Order"}
               >
                 <FiUserPlus className="w-4 h-4" />
-                {converted ? "Converted" : "Convert"}
+                {converted ? "Converted" : "Win & Convert"}
               </button>
 
               <button

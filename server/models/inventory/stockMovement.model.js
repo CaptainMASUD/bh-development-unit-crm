@@ -3,6 +3,15 @@ import Product from "./product.model.js";
 import Warehouse from "./warehouse.model.js";
 import WarehouseLocation from "./warehouseLocation.model.js";
 import ProductStock, { roundMoney, roundQuantity } from "./productStock.model.js";
+import {
+  processInboundLineCost,
+  processOutboundLineCost,
+  getOrCreateValuation,
+} from "../../services/inventoryCosting.service.js";
+import {
+  postInventoryMovementJournal,
+  reverseMovementJournal,
+} from "../../services/inventoryAccounting.service.js";
 
 const MOVEMENT_TYPES = [
   "opening_stock",
@@ -156,12 +165,34 @@ const stockMovementLineSchema = new mongoose.Schema(
       type: balanceSnapshotSchema,
       default: null,
     },
+    costingMethod: {
+      type: String,
+      default: "",
+    },
+    consumedLayers: [
+      {
+        layerId: { type: mongoose.Schema.Types.ObjectId, ref: "FifoCostLayer" },
+        quantity: Number,
+        unitCost: Number,
+        totalCost: Number,
+      },
+    ],
+    varianceAmount: {
+      type: Number,
+      default: 0,
+    },
   },
   { _id: true }
 );
 
 const stockMovementSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
+      index: true,
+    },
     movementNo: {
       type: String,
       required: true,
@@ -173,19 +204,16 @@ const stockMovementSchema = new mongoose.Schema(
       type: Date,
       required: true,
       default: Date.now,
-      index: true,
     },
     movementType: {
       type: String,
       enum: MOVEMENT_TYPES,
       required: true,
-      index: true,
     },
     status: {
       type: String,
       enum: MOVEMENT_STATUSES,
       default: "draft",
-      index: true,
     },
     reference: {
       type: String,
@@ -200,12 +228,10 @@ const stockMovementSchema = new mongoose.Schema(
       lowercase: true,
       maxlength: 80,
       default: "manual",
-      index: true,
     },
     sourceId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,
-      index: true,
     },
     idempotencyKey: {
       type: String,
@@ -261,7 +287,27 @@ const stockMovementSchema = new mongoose.Schema(
       ref: "StockMovement",
       default: null,
     },
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null, index: true },
+    journalEntry: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "JournalEntry",
+      default: null,
+      index: true,
+    },
+    reversalJournalEntry: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "JournalEntry",
+      default: null,
+    },
+    accountingStatus: {
+      type: String,
+      enum: ["not_applicable", "pending", "posted", "error", "reversed"],
+      default: "not_applicable",
+    },
+    postingDate: {
+      type: Date,
+      default: null,
+    },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },
   {
@@ -271,25 +317,29 @@ const stockMovementSchema = new mongoose.Schema(
   }
 );
 
-stockMovementSchema.index({ movementNo: 1 }, { unique: true });
+stockMovementSchema.index({ tenantId: 1, movementNo: 1 }, { unique: true });
 stockMovementSchema.index(
-  { idempotencyKey: 1 },
+  { tenantId: 1, idempotencyKey: 1 },
   {
     unique: true,
     partialFilterExpression: { idempotencyKey: { $type: "string", $gt: "" } },
   }
 );
-stockMovementSchema.index({ sourceType: 1, sourceId: 1, movementDate: -1 });
-stockMovementSchema.index({ status: 1, movementDate: -1, _id: -1 });
-stockMovementSchema.index({ movementType: 1, status: 1, movementDate: -1, _id: -1 });
-stockMovementSchema.index({ products: 1, movementDate: -1, _id: -1 });
-stockMovementSchema.index({ sourceWarehouses: 1, movementDate: -1, _id: -1 });
-stockMovementSchema.index({ destinationWarehouses: 1, movementDate: -1, _id: -1 });
-stockMovementSchema.index({ reference: 1, movementDate: -1 });
+stockMovementSchema.index({ tenantId: 1, sourceType: 1, sourceId: 1, movementDate: -1 });
+stockMovementSchema.index({ tenantId: 1, status: 1, movementDate: -1, _id: -1 });
+stockMovementSchema.index({ tenantId: 1, movementType: 1, status: 1, movementDate: -1, _id: -1 });
+stockMovementSchema.index({ tenantId: 1, products: 1, movementDate: -1, _id: -1 });
+stockMovementSchema.index({ tenantId: 1, products: 1, status: 1, movementDate: 1, _id: 1 });
+stockMovementSchema.index({ tenantId: 1, status: 1, postingDate: -1, _id: -1 });
+stockMovementSchema.index({ tenantId: 1, movementType: 1, movementDate: -1, _id: -1 });
+stockMovementSchema.index({ tenantId: 1, sourceWarehouses: 1, movementDate: -1, _id: -1 });
+stockMovementSchema.index({ tenantId: 1, destinationWarehouses: 1, movementDate: -1, _id: -1 });
+stockMovementSchema.index({ tenantId: 1, reference: 1, movementDate: -1 });
 stockMovementSchema.index(
-  { reversalOf: 1 },
+  { tenantId: 1, reversalOf: 1 },
   { unique: true, partialFilterExpression: { reversalOf: { $type: "objectId" } } }
 );
+stockMovementSchema.index({ tenantId: 1, journalEntry: 1 });
 
 const clean = (value) => String(value ?? "").trim();
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
@@ -415,6 +465,10 @@ const buildReversalLine = (line) => {
   };
 };
 
+stockMovementSchema.post("init", function () {
+  this._originalStatus = this.status;
+});
+
 stockMovementSchema.pre("validate", function (next) {
   this.movementDate = this.movementDate || new Date();
   this.movementNo = clean(this.movementNo || movementNumber(this)).toUpperCase();
@@ -443,7 +497,54 @@ stockMovementSchema.pre("validate", function (next) {
   next();
 });
 
-stockMovementSchema.pre("findOneAndUpdate", function (next) {
+stockMovementSchema.pre("save", function (next) {
+  if (!this.isNew && (this._originalStatus === "posted" || this._originalStatus === "reversed")) {
+    const forbiddenPaths = [
+      "lines",
+      "movementNo",
+      "movementType",
+      "tenantId",
+      "movementDate",
+      "reference",
+      "sourceType",
+      "sourceId",
+      "currency",
+      "totalQuantity",
+      "totalValue",
+    ];
+    const modifiedForbidden = forbiddenPaths.filter((path) => this.isModified(path));
+    if (modifiedForbidden.length > 0) {
+      const err = new Error(`Cannot modify posted or reversed stock movement fields: ${modifiedForbidden.join(", ")}`);
+      err.statusCode = 409;
+      return next(err);
+    }
+  }
+  next();
+});
+
+stockMovementSchema.pre("findOneAndUpdate", async function (next) {
+  const query = this.getQuery();
+  const existing = await this.model.findOne(query).select("status movementNo").lean();
+  if (existing && (existing.status === "posted" || existing.status === "reversed")) {
+    const update = this.getUpdate() || {};
+    const patch = update.$set || update;
+    const allowedKeys = new Set([
+      "status",
+      "reversedBy",
+      "updatedBy",
+      "cancellationReason",
+      "cancelledAt",
+      "cancelledBy",
+      "notes",
+    ]);
+    const modifiedKeys = Object.keys(patch).filter((k) => !k.startsWith("$") && !allowedKeys.has(k));
+    if (modifiedKeys.length > 0) {
+      const err = new Error(`Cannot modify a ${existing.status} stock movement (${existing.movementNo}).`);
+      err.statusCode = 409;
+      return next(err);
+    }
+  }
+
   const update = this.getUpdate() || {};
   const patch = update.$set || update;
   if (patch.movementNo !== undefined) patch.movementNo = clean(patch.movementNo).toUpperCase();
@@ -458,6 +559,17 @@ stockMovementSchema.pre("findOneAndUpdate", function (next) {
   if (patch.cancellationReason !== undefined) patch.cancellationReason = clean(patch.cancellationReason);
   if (update.$set) update.$set = patch;
   this.setUpdate(update);
+  next();
+});
+
+stockMovementSchema.pre(["deleteOne", "findOneAndDelete"], async function (next) {
+  const query = this.getQuery();
+  const doc = await this.model.findOne(query).select("status movementNo").lean();
+  if (doc && (doc.status === "posted" || doc.status === "reversed")) {
+    const err = new Error(`Cannot delete a ${doc.status} stock movement (${doc.movementNo}). Use reversal instead.`);
+    err.statusCode = 409;
+    return next(err);
+  }
   next();
 });
 
@@ -493,7 +605,7 @@ const validateLineShape = (line, index) => {
   }
 };
 
-stockMovementSchema.statics.validateDraftLines = async function (lines, { session = null } = {}) {
+stockMovementSchema.statics.validateDraftLines = async function (lines, { tenantId = null, session = null } = {}) {
   if (!Array.isArray(lines) || !lines.length || lines.length > 500) {
     throw Object.assign(new Error("A movement must contain between 1 and 500 lines."), { statusCode: 400 });
   }
@@ -507,14 +619,23 @@ stockMovementSchema.statics.validateDraftLines = async function (lines, { sessio
     lines.flatMap((line) => [line.sourceLocation, line.destinationLocation])
   );
 
-  const productQuery = Product.find({ _id: { $in: productIds } })
+  const productFilter = { _id: { $in: productIds } };
+  const warehouseFilter = { _id: { $in: warehouseIds } };
+  const locationFilter = { _id: { $in: locationIds } };
+  if (tenantId) {
+    productFilter.tenantId = tenantId;
+    warehouseFilter.tenantId = tenantId;
+    locationFilter.tenantId = tenantId;
+  }
+
+  const productQuery = Product.find(productFilter)
     .select("name sku productType trackInventory trackingType purchasePrice allowNegativeStock status")
     .lean();
-  const warehouseQuery = Warehouse.find({ _id: { $in: warehouseIds } })
+  const warehouseQuery = Warehouse.find(warehouseFilter)
     .select("name code allowNegativeStock status")
     .lean();
   const locationQuery = locationIds.length
-    ? WarehouseLocation.find({ _id: { $in: locationIds } })
+    ? WarehouseLocation.find(locationFilter)
         .select("warehouse name code status isQuarantine")
         .lean()
     : Promise.resolve([]);
@@ -583,14 +704,18 @@ stockMovementSchema.statics.validateDraftLines = async function (lines, { sessio
   return { productMap, warehouseMap, locationMap };
 };
 
-const loadPosition = async ({ product, warehouse, location = null, session }) =>
-  ProductStock.findOne({ product, warehouse, location: location || null })
+const loadPosition = async ({ tenantId = null, product, warehouse, location = null, session }) => {
+  const filter = { product, warehouse, location: location || null };
+  if (tenantId) filter.tenantId = tenantId;
+  return ProductStock.findOne(filter)
     .select(
       "onHandQuantity reservedQuantity quarantineQuantity availableQuantity incomingQuantity outgoingQuantity averageCost inventoryValue stockVersion status"
     )
     .session(session);
+};
 
 const applyDelta = async ({
+  tenantId = null,
   product,
   warehouse,
   location = null,
@@ -602,6 +727,7 @@ const applyDelta = async ({
   session,
 }) =>
   ProductStock.applyQuantityDelta({
+    tenantId,
     product,
     warehouse,
     location,
@@ -627,7 +753,10 @@ stockMovementSchema.statics.postMovementDocument = async function ({ movementId,
     throw Object.assign(new Error("Only a draft stock movement can be posted."), { statusCode: 409 });
   }
 
-  const { productMap, warehouseMap, locationMap } = await this.validateDraftLines(movement.lines, { session });
+  const { productMap, warehouseMap, locationMap } = await this.validateDraftLines(movement.lines, {
+    tenantId: movement.tenantId,
+    session,
+  });
   let movementValue = 0;
 
   for (const line of movement.lines) {
@@ -644,24 +773,33 @@ stockMovementSchema.statics.postMovementDocument = async function ({ movementId,
       : null;
 
     let appliedUnitCost = roundMoney(line.requestedUnitCost || product.purchasePrice || 0);
+    let appliedValue = 0;
     let sourceAfter = null;
     let destinationAfter = null;
 
-    if (["out", "out_quarantine", "transfer"].includes(effect)) {
-      const sourceStock = await loadPosition({
-        product: line.product,
-        warehouse: line.sourceWarehouse,
-        location: line.sourceLocation,
+    if (["out", "out_quarantine"].includes(effect)) {
+      const outboundCosting = await processOutboundLineCost({
+        tenantId: movement.tenantId,
+        productId: line.product,
+        warehouseId: line.sourceWarehouse,
+        quantity,
+        sourceMovementId: movement._id,
+        userId,
         session,
       });
-      appliedUnitCost = roundMoney(sourceStock?.averageCost || line.requestedUnitCost || product.purchasePrice || 0);
+      appliedUnitCost = outboundCosting.appliedUnitCost;
+      appliedValue = outboundCosting.appliedValue;
+      line.costingMethod = outboundCosting.costingMethod;
+      line.consumedLayers = outboundCosting.consumedLayers || [];
+
       const sourceIsQuarantine = effect === "out_quarantine" || sourceLocation?.isQuarantine === true;
       sourceAfter = await applyDelta({
+        tenantId: movement.tenantId,
         product: line.product,
         warehouse: line.sourceWarehouse,
         location: line.sourceLocation,
         delta: { onHand: -quantity, quarantine: sourceIsQuarantine ? -quantity : 0 },
-        averageCost: sourceStock?.averageCost,
+        averageCost: appliedUnitCost,
         allowNegativeStock: Boolean(product.allowNegativeStock || sourceWarehouse?.allowNegativeStock),
         movementDate: movement.movementDate,
         userId,
@@ -670,27 +808,31 @@ stockMovementSchema.statics.postMovementDocument = async function ({ movementId,
     }
 
     if (["in", "in_quarantine"].includes(effect)) {
-      const destinationStock = await loadPosition({
-        product: line.product,
-        warehouse: line.destinationWarehouse,
-        location: line.destinationLocation,
+      const inboundCosting = await processInboundLineCost({
+        tenantId: movement.tenantId,
+        productId: line.product,
+        warehouseId: line.destinationWarehouse,
+        quantity,
+        receiptUnitCost: roundMoney(line.requestedUnitCost || product.purchasePrice || 0),
+        sourceMovementId: movement._id,
+        sourceType: movement.sourceType,
+        sourceDocument: movement.reference || movement.movementNo,
+        userId,
         session,
       });
-      const incomingCost = roundMoney(line.requestedUnitCost || destinationStock?.averageCost || product.purchasePrice || 0);
-      const nextAverageCost = weightedAverageCost({
-        currentQuantity: destinationStock?.onHandQuantity,
-        currentCost: destinationStock?.averageCost,
-        incomingQuantity: quantity,
-        incomingCost,
-      });
-      appliedUnitCost = incomingCost;
+      appliedUnitCost = inboundCosting.appliedUnitCost;
+      appliedValue = inboundCosting.appliedValue;
+      line.costingMethod = inboundCosting.costingMethod;
+      line.varianceAmount = inboundCosting.varianceAmount || 0;
+
       const destinationIsQuarantine = effect === "in_quarantine" || destinationLocation?.isQuarantine === true;
       destinationAfter = await applyDelta({
+        tenantId: movement.tenantId,
         product: line.product,
         warehouse: line.destinationWarehouse,
         location: line.destinationLocation,
         delta: { onHand: quantity, quarantine: destinationIsQuarantine ? quantity : 0 },
-        averageCost: nextAverageCost,
+        averageCost: appliedUnitCost,
         allowNegativeStock: true,
         movementDate: movement.movementDate,
         userId,
@@ -699,39 +841,115 @@ stockMovementSchema.statics.postMovementDocument = async function ({ movementId,
     }
 
     if (effect === "transfer") {
-      const destinationStock = await loadPosition({
-        product: line.product,
-        warehouse: line.destinationWarehouse,
-        location: line.destinationLocation,
-        session,
-      });
-      const nextAverageCost = weightedAverageCost({
-        currentQuantity: destinationStock?.onHandQuantity,
-        currentCost: destinationStock?.averageCost,
-        incomingQuantity: quantity,
-        incomingCost: appliedUnitCost,
-      });
-      destinationAfter = await applyDelta({
-        product: line.product,
-        warehouse: line.destinationWarehouse,
-        location: line.destinationLocation,
-        delta: {
-          onHand: quantity,
-          quarantine: destinationLocation?.isQuarantine === true ? quantity : 0,
-        },
-        averageCost: nextAverageCost,
-        allowNegativeStock: true,
-        movementDate: movement.movementDate,
-        userId,
-        session,
-      });
+      const isSameWarehouse = String(line.sourceWarehouse) === String(line.destinationWarehouse);
+
+      if (isSameWarehouse) {
+        // Bin-to-bin transfer within same warehouse: valuation is unaffected
+        const valuation = await getOrCreateValuation({
+          tenantId: movement.tenantId,
+          productId: line.product,
+          warehouseId: line.sourceWarehouse,
+          session,
+        });
+        appliedUnitCost = roundMoney(valuation.averageCost || line.requestedUnitCost || product.purchasePrice || 0);
+        appliedValue = roundMoney(quantity * appliedUnitCost);
+        line.costingMethod = valuation.costingMethod;
+
+        const sourceIsQuarantine = sourceLocation?.isQuarantine === true;
+        sourceAfter = await applyDelta({
+          tenantId: movement.tenantId,
+          product: line.product,
+          warehouse: line.sourceWarehouse,
+          location: line.sourceLocation,
+          delta: { onHand: -quantity, quarantine: sourceIsQuarantine ? -quantity : 0 },
+          averageCost: appliedUnitCost,
+          allowNegativeStock: Boolean(product.allowNegativeStock || sourceWarehouse?.allowNegativeStock),
+          movementDate: movement.movementDate,
+          userId,
+          session,
+        });
+
+        const destIsQuarantine = destinationLocation?.isQuarantine === true;
+        destinationAfter = await applyDelta({
+          tenantId: movement.tenantId,
+          product: line.product,
+          warehouse: line.destinationWarehouse,
+          location: line.destinationLocation,
+          delta: { onHand: quantity, quarantine: destIsQuarantine ? quantity : 0 },
+          averageCost: appliedUnitCost,
+          allowNegativeStock: true,
+          movementDate: movement.movementDate,
+          userId,
+          session,
+        });
+      } else {
+        // Inter-warehouse transfer: relieves source, adds to destination
+        const outboundCosting = await processOutboundLineCost({
+          tenantId: movement.tenantId,
+          productId: line.product,
+          warehouseId: line.sourceWarehouse,
+          quantity,
+          sourceMovementId: movement._id,
+          userId,
+          session,
+        });
+        appliedUnitCost = outboundCosting.appliedUnitCost;
+        appliedValue = outboundCosting.appliedValue;
+        line.costingMethod = outboundCosting.costingMethod;
+        line.consumedLayers = outboundCosting.consumedLayers || [];
+
+        sourceAfter = await applyDelta({
+          tenantId: movement.tenantId,
+          product: line.product,
+          warehouse: line.sourceWarehouse,
+          location: line.sourceLocation,
+          delta: { onHand: -quantity },
+          averageCost: appliedUnitCost,
+          allowNegativeStock: Boolean(product.allowNegativeStock || sourceWarehouse?.allowNegativeStock),
+          movementDate: movement.movementDate,
+          userId,
+          session,
+        });
+
+        const inboundCosting = await processInboundLineCost({
+          tenantId: movement.tenantId,
+          productId: line.product,
+          warehouseId: line.destinationWarehouse,
+          quantity,
+          receiptUnitCost: appliedUnitCost,
+          sourceMovementId: movement._id,
+          sourceType: "transfer_in",
+          sourceDocument: movement.reference || movement.movementNo,
+          userId,
+          session,
+        });
+
+        destinationAfter = await applyDelta({
+          tenantId: movement.tenantId,
+          product: line.product,
+          warehouse: line.destinationWarehouse,
+          location: line.destinationLocation,
+          delta: { onHand: quantity },
+          averageCost: inboundCosting.appliedUnitCost,
+          allowNegativeStock: true,
+          movementDate: movement.movementDate,
+          userId,
+          session,
+        });
+      }
     }
 
     if (["reserve", "release", "quarantine", "release_quarantine", "incoming", "incoming_clear", "outgoing", "outgoing_clear"].includes(effect)) {
       const warehouse = sourceWarehouse || destinationWarehouse;
       const warehouseId = line.sourceWarehouse || line.destinationWarehouse;
       const locationId = line.sourceLocation || line.destinationLocation;
-      const current = await loadPosition({ product: line.product, warehouse: warehouseId, location: locationId, session });
+      const current = await loadPosition({
+        tenantId: movement.tenantId,
+        product: line.product,
+        warehouse: warehouseId,
+        location: locationId,
+        session,
+      });
       appliedUnitCost = roundMoney(current?.averageCost || line.requestedUnitCost || product.purchasePrice || 0);
       const delta = {};
       if (effect === "reserve") delta.reserved = quantity;
@@ -743,6 +961,7 @@ stockMovementSchema.statics.postMovementDocument = async function ({ movementId,
       if (effect === "outgoing") delta.outgoing = quantity;
       if (effect === "outgoing_clear") delta.outgoing = -quantity;
       const updated = await applyDelta({
+        tenantId: movement.tenantId,
         product: line.product,
         warehouse: warehouseId,
         location: locationId,
@@ -757,7 +976,9 @@ stockMovementSchema.statics.postMovementDocument = async function ({ movementId,
       else destinationAfter = updated;
     }
 
-    const appliedValue = PHYSICAL_EFFECTS.has(effect) ? roundMoney(quantity * appliedUnitCost) : 0;
+    if (!appliedValue && PHYSICAL_EFFECTS.has(effect)) {
+      appliedValue = roundMoney(quantity * appliedUnitCost);
+    }
     movementValue = roundMoney(movementValue + appliedValue);
     line.appliedUnitCost = appliedUnitCost;
     line.appliedValue = appliedValue;
@@ -770,6 +991,22 @@ stockMovementSchema.statics.postMovementDocument = async function ({ movementId,
   movement.postedBy = userId;
   movement.updatedBy = userId;
   movement.totalValue = movementValue;
+
+  const journal = await postInventoryMovementJournal({
+    movement,
+    linesWithCosting: movement.lines,
+    userId,
+    session,
+  });
+
+  if (journal) {
+    movement.journalEntry = journal._id;
+    movement.accountingStatus = "posted";
+    movement.postingDate = movement.movementDate;
+  } else {
+    movement.accountingStatus = "not_applicable";
+  }
+
   await movement.save({ session });
   return movement;
 };
@@ -795,6 +1032,7 @@ stockMovementSchema.statics.reverseMovementDocument = async function ({
   }
 
   const reversal = new this({
+    tenantId: original.tenantId,
     movementDate: new Date(),
     movementType: "reversal",
     status: "draft",
@@ -811,6 +1049,19 @@ stockMovementSchema.statics.reverseMovementDocument = async function ({
   });
   await reversal.save({ session });
   await this.postMovementDocument({ movementId: reversal._id, userId, session });
+
+  if (original.journalEntry) {
+    const reversalJournal = await reverseMovementJournal({
+      movement: original,
+      reason: clean(reason) || `Reversal of ${original.movementNo}`,
+      userId,
+      session,
+    });
+    if (reversalJournal) {
+      original.reversalJournalEntry = reversalJournal._id;
+      original.accountingStatus = "reversed";
+    }
+  }
 
   original.status = "reversed";
   original.reversedBy = reversal._id;

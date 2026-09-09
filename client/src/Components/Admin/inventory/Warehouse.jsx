@@ -112,7 +112,14 @@ function formatDate(value) {
 }
 
 function downloadCsv(warehouses) {
-  const escape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`
+  const escape = (value) => {
+    if (value === null || value === undefined) return '""'
+    if (typeof value === "number") return String(value)
+    const str = String(value)
+    const isPureNumber = /^[+-]?\d+(?:\.\d+)?$/.test(str.trim())
+    const neutralized = (!isPureNumber && /^[=+\-@]/.test(str)) ? `'${str}` : str
+    return `"${neutralized.replace(/"/g, '""')}"`
+  }
   const rows = [["Code", "Warehouse", "Location", "Responsible Person", "Stock Value", "Status"], ...warehouses.map((warehouse) => [warehouse.code, warehouse.name, formatWarehouseLocation(warehouse.address), managerLabel(warehouse.manager), warehouse.stockValue || 0, warehouse.status])]
   const csv = `\uFEFF${rows.map((row) => row.map(escape).join(",")).join("\n")}`
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }))

@@ -14,6 +14,11 @@ export const accountingCache = new NodeCache({
   useClones: false,
 });
 
+export const inventoryDashboardCache = new NodeCache({
+  stdTTL: 15,
+  checkperiod: 30,
+  useClones: false,
+});
 
 export const invalidateDashboardCache = () => {
   dashboardCache.flushAll();
@@ -21,4 +26,8 @@ export const invalidateDashboardCache = () => {
 
 export const invalidateAccountingCache = () => {
   accountingCache.flushAll();
+};
+
+export const invalidateInventoryDashboardCache = () => {
+  inventoryDashboardCache.flushAll();
 };

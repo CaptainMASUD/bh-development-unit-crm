@@ -103,61 +103,61 @@ app.use(
    ROUTE IMPORTS
 ========================= */
 
-// Users and uploads
-import userRoutes from "./routes/user.routes.js";
-import uploadRoutes from "./routes/upload.routes.js";
-import accessControlRoutes from "./routes/accessControl.routes.js";
-import companyRoutes from "./routes/company.routes.js";
-import erpModuleRoutes from "./routes/erpModule.routes.js";
+// Administration and platform
+import userRoutes from "./routes/administration/user.routes.js";
+import uploadRoutes from "./routes/administration/upload.routes.js";
+import accessControlRoutes from "./routes/administration/accessControl.routes.js";
+import companyRoutes from "./routes/administration/company.routes.js";
+import erpModuleRoutes from "./routes/administration/erpModule.routes.js";
+import notificationRoutes from "./routes/administration/notification.routes.js";
 
 // Core CRM
-import customerRoutes from "./routes/customer.route.js";
-import taskRoutes, { deadlineNotificationRoutes } from "./routes/task.route.js";
-import reportRoutes from "./routes/report.route.js";
+import customerRoutes from "./routes/crm/customer.route.js";
+import taskRoutes, { deadlineNotificationRoutes } from "./routes/crm/task.route.js";
+import reportRoutes from "./routes/crm/report.route.js";
 
-import leadRoutes from "./routes/lead.routes.js";
-import activityRoutes from "./routes/activity.routes.js";
-import proposalRoutes from "./routes/proposal.routes.js";
-import dealRoutes from "./routes/deal.routes.js";
-import invoiceRoutes from "./routes/invoice.routes.js";
-import leadMessageRoutes from "./routes/leadMessage.routes.js";
+import leadRoutes from "./routes/crm/lead.routes.js";
+import activityRoutes from "./routes/crm/activity.routes.js";
+import proposalRoutes from "./routes/crm/proposal.routes.js";
+import dealRoutes from "./routes/crm/deal.routes.js";
+import invoiceRoutes from "./routes/crm/invoice.routes.js";
+import leadMessageRoutes from "./routes/crm/leadMessage.routes.js";
 
 // CRM productivity
-import workQueueRoutes from "./routes/workQueue.routes.js";
-import automationRoutes from "./routes/automation.routes.js";
-import notificationRoutes from "./routes/notification.routes.js";
-import templateRoutes from "./routes/template.routes.js";
-import assignmentRoutes from "./routes/assignment.routes.js";
-import taskTemplateRoutes from "./routes/taskTemplate.route.js";
-import dashboardRoutes from "./routes/dashboard.routes.js";
-import engagementTemplateRoutes from "./routes/engagementTemplate.route.js";
-import workloadRoutes from "./routes/workload.route.js";
+import workQueueRoutes from "./routes/crm/workQueue.routes.js";
+import automationRoutes from "./routes/crm/automation.routes.js";
+import templateRoutes from "./routes/crm/template.routes.js";
+import assignmentRoutes from "./routes/crm/assignment.routes.js";
+import taskTemplateRoutes from "./routes/crm/taskTemplate.route.js";
+import dashboardRoutes from "./routes/crm/dashboard.routes.js";
+import engagementTemplateRoutes from "./routes/crm/engagementTemplate.route.js";
+import workloadRoutes from "./routes/crm/workload.route.js";
 
 // Preferences and settings
-import viewPreferenceRoutes from "./routes/viewPreference.routes.js";
-import purchaseTypeRoutes from "./routes/purchaseType.routes.js";
-import customerViewPreferenceRoutes from "./routes/customerViewPreference.routes.js";
+import viewPreferenceRoutes from "./routes/crm/viewPreference.routes.js";
+import purchaseTypeRoutes from "./routes/purchase/purchaseType.routes.js";
+import customerViewPreferenceRoutes from "./routes/crm/customerViewPreference.routes.js";
 
 // Reports
-import serviceReportRoutes from "./routes/serviceReport.route.js";
-import employeeReportRoutes from "./routes/employeeReport.route.js";
-import employeeReportViewPreferenceRoutes from "./routes/employeeReportViewPreference.route.js";
+import serviceReportRoutes from "./routes/crm/serviceReport.route.js";
+import employeeReportRoutes from "./routes/payroll/employeeReport.route.js";
+import employeeReportViewPreferenceRoutes from "./routes/payroll/employeeReportViewPreference.route.js";
 
 // HR, payroll and attendance
-import salaryProfileRoutes from "./routes/salaryProfile.routes.js";
-import attendanceRoutes from "./routes/attendance.routes.js";
-import payrollRoutes from "./routes/payroll.routes.js";
-import employeeLoanRoutes from "./routes/employeeLoan.routes.js";
-import rosterRoutes from "./routes/roster.routes.js";
-import leaveRequestRoutes from "./routes/leaveRequest.routes.js";
-import leaveTemplateRoutes from "./routes/leaveTemplate.routes.js";
-import taxRoutes from "./routes/tax.routes.js";
-import expenseRoutes from "./routes/expense.routes.js";
+import salaryProfileRoutes from "./routes/payroll/salaryProfile.routes.js";
+import attendanceRoutes from "./routes/payroll/attendance.routes.js";
+import payrollRoutes from "./routes/payroll/payroll.routes.js";
+import employeeLoanRoutes from "./routes/payroll/employeeLoan.routes.js";
+import rosterRoutes from "./routes/payroll/roster.routes.js";
+import leaveRequestRoutes from "./routes/payroll/leaveRequest.routes.js";
+import leaveTemplateRoutes from "./routes/payroll/leaveTemplate.routes.js";
+import taxRoutes from "./routes/accounting/tax.routes.js";
+import expenseRoutes from "./routes/accounting/expense.routes.js";
 
 // Accounting and banking
-import accountingRoutes from "./routes/accounting.routes.js";
-import bankRoutes from "./routes/bank.routes.js";
-import bankingRoutes from "./routes/banking.routes.js";
+import accountingRoutes from "./routes/accounting/accounting.routes.js";
+import bankRoutes from "./routes/accounting/bank.routes.js";
+import bankingRoutes from "./routes/accounting/banking.routes.js";
 
 // Inventory setup
 import productRoutes from "./routes/inventory/product.routes.js";
@@ -178,12 +178,12 @@ import inventoryOperationsRoutes from "./routes/inventory/inventoryOperations.ro
 // =========================
 // PURCHASE & SUPPLIERS
 // =========================
-import supplierRoutes from "./routes/supplier.routes.js";
+import supplierRoutes from "./routes/supplier/supplier.routes.js";
 
-import purchaseOrderRoutes from "./routes/purchaseOrder.routes.js";
-import goodsReceiptRoutes from "./routes/goodsReceipt.routes.js";
-import purchaseReturnRoutes from "./routes/purchaseReturn.routes.js";
-import purchaseWorkflowRoutes from "./routes/purchaseWorkflow.routes.js";
+import purchaseOrderRoutes from "./routes/purchase/purchaseOrder.routes.js";
+import goodsReceiptRoutes from "./routes/purchase/goodsReceipt.routes.js";
+import purchaseReturnRoutes from "./routes/purchase/purchaseReturn.routes.js";
+import purchaseWorkflowRoutes from "./routes/purchase/purchaseWorkflow.routes.js";
 import salesRoutes from "./routes/sales/sales.routes.js";
 
 /* =========================

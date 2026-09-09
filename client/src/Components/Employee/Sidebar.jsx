@@ -21,7 +21,7 @@ import {
 import { useDispatch } from "react-redux"
 import { signOut } from "../../Redux/UserSlice/UserSlice"
 
-import jetsky from "../../../public/jetsky.svg"
+const jetsky = "/jetsky.svg"
 import JetskyModal from "./JetskyModal"
 
 // ✅ NEW

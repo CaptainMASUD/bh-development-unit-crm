@@ -29,6 +29,12 @@ const addressSchema = new mongoose.Schema(
 
 const warehouseSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      required: true,
+      index: true,
+    },
     name: { type: String, required: true, trim: true, maxlength: 160 },
     nameLower: { type: String, trim: true, default: "", select: false },
     code: { type: String, required: true, trim: true, uppercase: true, maxlength: 50 },
@@ -67,7 +73,21 @@ const warehouseSchema = new mongoose.Schema(
     },
     timezone: { type: String, trim: true, maxlength: 80, default: "Asia/Dhaka" },
     isDefault: { type: Boolean, default: false, index: true },
-    allowNegativeStock: { type: Boolean, default: false },
+    allowNegativeStock: {
+      type: Boolean,
+      default: false,
+      validate: {
+        validator: function (v) {
+          return v !== true;
+        },
+        message: "Negative stock is strictly disabled until GL variance accounting is implemented.",
+      },
+    },
+    inventoryAccount: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Account",
+      default: null,
+    },
     status: {
       type: String,
       enum: WAREHOUSE_STATUSES,
@@ -108,13 +128,13 @@ warehouseSchema.set("toObject", {
   },
 });
 
-warehouseSchema.index({ code: 1 }, { unique: true });
-warehouseSchema.index({ nameLower: 1, _id: 1 });
-warehouseSchema.index({ status: 1, nameLower: 1, _id: 1 });
-warehouseSchema.index({ branch: 1, status: 1, nameLower: 1, _id: 1 });
-warehouseSchema.index({ warehouseType: 1, status: 1, nameLower: 1, _id: 1 });
+warehouseSchema.index({ tenantId: 1, code: 1 }, { unique: true });
+warehouseSchema.index({ tenantId: 1, nameLower: 1, _id: 1 });
+warehouseSchema.index({ tenantId: 1, status: 1, nameLower: 1, _id: 1 });
+warehouseSchema.index({ tenantId: 1, branch: 1, status: 1, nameLower: 1, _id: 1 });
+warehouseSchema.index({ tenantId: 1, warehouseType: 1, status: 1, nameLower: 1, _id: 1 });
 warehouseSchema.index(
-  { branch: 1, isDefault: 1 },
+  { tenantId: 1, branch: 1, isDefault: 1 },
   {
     unique: true,
     partialFilterExpression: { isDefault: true },

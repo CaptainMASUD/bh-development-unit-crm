@@ -1173,11 +1173,7 @@ export default function ProductSetup() {
             : "none",
         costingMethod:
           item.costingMethod || "weighted_average",
-        allowNegativeStock:
-          item.productType === "inventory" &&
-          item.trackInventory !== false
-            ? Boolean(item.allowNegativeStock)
-            : false,
+        allowNegativeStock: false,
         reorderLevel: String(item.reorderLevel ?? 0),
         minimumStock: String(item.minimumStock ?? 0),
         maximumStock: String(item.maximumStock ?? 0),
@@ -1233,9 +1229,7 @@ export default function ProductSetup() {
       trackingType: trackInventory
         ? previous.trackingType
         : "none",
-      allowNegativeStock: trackInventory
-        ? previous.allowNegativeStock
-        : false,
+      allowNegativeStock: false,
       reorderLevel: trackInventory
         ? previous.reorderLevel
         : "0",
@@ -1349,9 +1343,7 @@ export default function ProductSetup() {
         ? form.trackingType
         : "none",
       costingMethod: form.costingMethod,
-      allowNegativeStock: trackInventory
-        ? Boolean(form.allowNegativeStock)
-        : false,
+      allowNegativeStock: false,
       reorderLevel: trackInventory
         ? numericFields.reorderLevel
         : 0,
@@ -3096,32 +3088,6 @@ function ProductFormModal({
                     onChange={onTrackInventoryChange}
                     disabled={!isInventoryProduct}
                     label="Track product inventory"
-                  />
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-gray-200 bg-white p-4">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-black text-gray-900">
-                      Allow Negative Stock
-                    </p>
-
-                    <p className="mt-1 text-xs font-semibold leading-5 text-gray-500">
-                      Permit transactions below available quantity.
-                    </p>
-                  </div>
-
-                  <Toggle
-                    checked={Boolean(form.allowNegativeStock)}
-                    onChange={(value) =>
-                      setForm((previous) => ({
-                        ...previous,
-                        allowNegativeStock: value,
-                      }))
-                    }
-                    disabled={!inventoryControlsEnabled}
-                    label="Allow negative stock"
                   />
                 </div>
               </div>

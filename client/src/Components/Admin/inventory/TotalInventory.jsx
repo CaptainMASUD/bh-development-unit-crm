@@ -85,6 +85,7 @@ function formatNumber(value, digits = 2) {
 }
 
 function formatMoney(value) {
+  if (value === null || value === undefined) return "—"
   return `৳${formatNumber(value, 2)}`
 }
 
@@ -135,9 +136,16 @@ async function api(path, options = {}) {
 }
 
 function downloadCsv(filename, rows) {
-  const escape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`
+  const escape = (value) => {
+    if (value === null || value === undefined) return '""'
+    if (typeof value === "number") return String(value)
+    const str = String(value)
+    const isPureNumber = /^[+-]?\d+(?:\.\d+)?$/.test(str.trim())
+    const neutralized = (!isPureNumber && /^[=+\-@]/.test(str)) ? `'${str}` : str
+    return `"${neutralized.replace(/"/g, '""')}"`
+  }
   const content = rows.map((row) => row.map(escape).join(",")).join("\n")
-  const url = URL.createObjectURL(new Blob([content], { type: "text/csv;charset=utf-8" }))
+  const url = URL.createObjectURL(new Blob([`\uFEFF${content}`], { type: "text/csv;charset=utf-8" }))
   const anchor = document.createElement("a")
   anchor.href = url
   anchor.download = filename

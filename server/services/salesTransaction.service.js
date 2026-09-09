@@ -1,3 +1,1 @@
-import { runMongoTransaction } from "../utils/mongoTransaction.js";
-
-export const runSalesTransaction = runMongoTransaction;
+export * from "./sales/salesTransaction.service.js";

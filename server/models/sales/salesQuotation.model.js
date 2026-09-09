@@ -12,10 +12,19 @@ const salesQuotationSchema = new Schema(
     tenantId: { type: Schema.Types.ObjectId, required: true, index: true },
     branchId: { type: Schema.Types.ObjectId, ref: "Branch", required: true },
     quotationNumber: { type: String, required: true, trim: true },
+    leadId: { type: Schema.Types.ObjectId, ref: "Lead", index: true },
     customerId: {
       type: Schema.Types.ObjectId,
       ref: "Customer",
-      required: true,
+      required: function () {
+        return !this.leadId;
+      },
+    },
+    leadContact: {
+      name: { type: String, trim: true },
+      companyName: { type: String, trim: true },
+      email: { type: String, trim: true, lowercase: true },
+      phone: { type: String, trim: true },
     },
     contactId: { type: Schema.Types.ObjectId },
     dealId: { type: Schema.Types.ObjectId, ref: "Deal" },
@@ -78,9 +87,12 @@ salesQuotationSchema.index(
   { unique: true }
 );
 salesQuotationSchema.index({ tenantId: 1, customerId: 1, createdAt: -1 });
+salesQuotationSchema.index({ tenantId: 1, leadId: 1, createdAt: -1 });
 salesQuotationSchema.index({ tenantId: 1, dealId: 1, createdAt: -1 });
 salesQuotationSchema.index({ tenantId: 1, status: 1, createdAt: -1 });
 
 export const SalesQuotation =
   mongoose.models.SalesQuotation ||
   mongoose.model("SalesQuotation", salesQuotationSchema);
+
+export default SalesQuotation;

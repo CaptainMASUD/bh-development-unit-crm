@@ -40,13 +40,13 @@ import {
 const CONFIG = {
   quotations: {
     title: "Sales Quotations",
-    description: "Prepare controlled offers, negotiate terms, capture acceptance, and convert approved demand into orders.",
+    description: "Accept offers internally to move leads into Negotiation. Winning the lead creates its Customer, Won Deal and Sales Order.",
     resource: "quotations",
     number: "quotationNumber",
     date: "quotationDate",
     viewPermission: "sales-quotation:view",
     managePermission: "sales-quotation:manage",
-    statuses: ["draft", "sent", "viewed", "under_negotiation", "accepted", "rejected", "expired", "cancelled", "converted"],
+    statuses: ["draft", "sent", "viewed", "under_negotiation", "accepted", "rejected", "expired", "cancelled"],
     icon: FileText,
   },
   orders: {
@@ -165,7 +165,17 @@ function SecondaryButton({ children, ...props }) {
 SecondaryButton.propTypes = { children: PropTypes.node.isRequired, className: PropTypes.string }
 
 function customerName(value, maps) {
-  const customer = typeof value === "object" ? value : maps.customers.get(String(value))
+  if (!value) return "—"
+  if (typeof value === "object") {
+    if (value.leadContact?.companyName || value.leadContact?.name) {
+      return `${value.leadContact.companyName || value.leadContact.name} (Lead)`
+    }
+    if (value.customerId) {
+      return customerName(value.customerId, maps)
+    }
+    return value.companyName || value.name || "Customer"
+  }
+  const customer = maps?.customers?.get(String(value))
   return customer?.companyName || customer?.name || "Customer"
 }
 
@@ -183,16 +193,32 @@ function newLine(product = null) {
 
 function QuotationForm({ options, record, busy, onSubmit, onCancel }) {
   const availableCustomers = options.customers.filter((item) => !item.creditHold)
-  const [form, setForm] = useState(() => ({
-    branchId: cleanId(record?.branchId || options.branches.find((item) => item.isDefault || item.isMain) || options.branches[0]),
-    customerId: cleanId(record?.customerId || availableCustomers[0]),
-    salespersonId: cleanId(record?.salespersonId || options.salespeople[0]),
-    quotationDate: record?.quotationDate ? new Date(record.quotationDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
-    validUntil: record?.validUntil ? new Date(record.validUntil).toISOString().slice(0, 10) : "",
-    paymentTermsDays: record?.paymentTermsDays ?? availableCustomers[0]?.paymentTermsDays ?? 0,
-    notes: record?.notes || "",
-    lines: record?.lines?.length ? record.lines.map((line) => ({ ...newLine(), ...line, productId: cleanId(line.productId) })) : [newLine(options.products[0])],
-  }))
+  const availableLeads = options.leads || []
+
+  const queryLeadId = useMemo(() => {
+    if (typeof window === "undefined") return ""
+    const params = new URLSearchParams(window.location.search)
+    return params.get("createQuotationForLead") || ""
+  }, [])
+
+  const initialTargetType = record?.leadId || (!record?.customerId && (queryLeadId || availableLeads.length > 0 && availableCustomers.length === 0)) ? "lead" : "customer"
+  const [targetType, setTargetType] = useState(initialTargetType)
+
+  const [form, setForm] = useState(() => {
+    const defaultLeadId = cleanId(record?.leadId || queryLeadId || availableLeads[0]?._id)
+    const defaultCustomerId = cleanId(record?.customerId || availableCustomers[0]?._id)
+    return {
+      branchId: cleanId(record?.branchId || options.branches.find((item) => item.isDefault || item.isMain) || options.branches[0]),
+      customerId: initialTargetType === "customer" ? defaultCustomerId : "",
+      leadId: initialTargetType === "lead" ? defaultLeadId : "",
+      salespersonId: cleanId(record?.salespersonId || options.salespeople[0]),
+      quotationDate: record?.quotationDate ? new Date(record.quotationDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+      validUntil: record?.validUntil ? new Date(record.validUntil).toISOString().slice(0, 10) : "",
+      paymentTermsDays: record?.paymentTermsDays ?? (initialTargetType === "customer" ? availableCustomers[0]?.paymentTermsDays ?? 0 : 0),
+      notes: record?.notes || "",
+      lines: record?.lines?.length ? record.lines.map((line) => ({ ...newLine(), ...line, productId: cleanId(line.productId) })) : [newLine(options.products[0])],
+    }
+  })
   const updateLine = (key, patch) => setForm((current) => ({ ...current, lines: current.lines.map((line) => line.key === key ? { ...line, ...patch } : line) }))
   const chooseProduct = (line, productId) => {
     const product = options.products.find((item) => String(item._id) === String(productId))
@@ -206,6 +232,8 @@ function QuotationForm({ options, record, busy, onSubmit, onCancel }) {
   }, 0)
   const submit = () => onSubmit({
     ...form,
+    customerId: targetType === "customer" ? (form.customerId || undefined) : undefined,
+    leadId: targetType === "lead" ? (form.leadId || undefined) : undefined,
     lines: form.lines.map((line) => ({
       productId: line.productId,
       quantity: Number(line.quantity),
@@ -218,8 +246,73 @@ function QuotationForm({ options, record, busy, onSubmit, onCancel }) {
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Field label="Quotation For">
+          <div className="flex h-10 items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 px-3">
+            <label className="flex items-center gap-1.5 text-xs font-black text-slate-700 cursor-pointer">
+              <input
+                type="radio"
+                name="targetType"
+                checked={targetType === "customer"}
+                onChange={() => {
+                  setTargetType("customer")
+                  setForm((current) => ({
+                    ...current,
+                    customerId: cleanId(availableCustomers[0]?._id),
+                    leadId: "",
+                    paymentTermsDays: availableCustomers[0]?.paymentTermsDays ?? 0,
+                  }))
+                }}
+              />
+              Existing Customer
+            </label>
+            <label className="flex items-center gap-1.5 text-xs font-black text-indigo-700 cursor-pointer">
+              <input
+                type="radio"
+                name="targetType"
+                checked={targetType === "lead"}
+                onChange={() => {
+                  setTargetType("lead")
+                  setForm((current) => ({
+                    ...current,
+                    leadId: cleanId(availableLeads[0]?._id || queryLeadId),
+                    customerId: "",
+                    paymentTermsDays: 0,
+                  }))
+                }}
+              />
+              CRM Lead
+            </label>
+          </div>
+        </Field>
         <Field label="Branch"><select className={inputClass} value={form.branchId} onChange={(event) => setForm({ ...form, branchId: event.target.value })}>{options.branches.map((item) => <option key={item._id} value={item._id}>{item.name} ({item.code})</option>)}</select></Field>
-        <Field label="Customer"><select className={inputClass} value={form.customerId} onChange={(event) => { const customer = availableCustomers.find((item) => String(item._id) === event.target.value); setForm({ ...form, customerId: event.target.value, paymentTermsDays: customer?.paymentTermsDays || 0 }) }}>{availableCustomers.map((item) => <option key={item._id} value={item._id}>{item.companyName || item.name}</option>)}</select></Field>
+        {targetType === "customer" ? (
+          <Field label="Customer">
+            <select
+              className={inputClass}
+              value={form.customerId}
+              onChange={(event) => {
+                const customer = availableCustomers.find((item) => String(item._id) === event.target.value)
+                setForm({ ...form, customerId: event.target.value, leadId: "", paymentTermsDays: customer?.paymentTermsDays || 0 })
+              }}
+            >
+              {availableCustomers.map((item) => <option key={item._id} value={item._id}>{item.companyName || item.name}</option>)}
+            </select>
+          </Field>
+        ) : (
+          <Field label="CRM Lead">
+            <select
+              className={inputClass}
+              value={form.leadId}
+              onChange={(event) => setForm({ ...form, leadId: event.target.value, customerId: "" })}
+            >
+              {availableLeads.length ? availableLeads.map((item) => (
+                <option key={item._id} value={item._id}>
+                  {item.contact?.companyName || item.contact?.name || item.leadNumber} ({item.pipelineStage})
+                </option>
+              )) : <option value="">No active unconverted leads</option>}
+            </select>
+          </Field>
+        )}
         <Field label="Salesperson"><select className={inputClass} value={form.salespersonId} onChange={(event) => setForm({ ...form, salespersonId: event.target.value })}>{options.salespeople.map((item) => <option key={item._id} value={item._id}>{item.name}</option>)}</select></Field>
         <Field label="Quotation date"><input className={inputClass} type="date" value={form.quotationDate} onChange={(event) => setForm({ ...form, quotationDate: event.target.value })} /></Field>
         <Field label="Valid until"><input className={inputClass} type="date" value={form.validUntil} onChange={(event) => setForm({ ...form, validUntil: event.target.value })} /></Field>
@@ -242,7 +335,7 @@ function QuotationForm({ options, record, busy, onSubmit, onCancel }) {
         <Field label="Notes"><textarea className={inputClass} rows="3" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></Field>
         <div className="min-w-52 rounded-2xl bg-indigo-50 p-4 text-right"><p className="text-xs font-extrabold uppercase tracking-wider text-indigo-500">Estimated total</p><p className="mt-1 text-2xl font-black text-indigo-950">{formatMoney(estimated)}</p></div>
       </div>
-      <div className="flex justify-end gap-3"><SecondaryButton onClick={onCancel}>Cancel</SecondaryButton><PrimaryButton disabled={busy || !form.customerId || !form.lines.every((line) => line.productId)} onClick={submit}>{busy ? "Saving…" : record ? "Update quotation" : "Create quotation"}</PrimaryButton></div>
+      <div className="flex justify-end gap-3"><SecondaryButton onClick={onCancel}>Cancel</SecondaryButton><PrimaryButton disabled={busy || (!form.customerId && !form.leadId) || !form.lines.every((line) => line.productId)} onClick={submit}>{busy ? "Saving…" : record ? "Update quotation" : "Create quotation"}</PrimaryButton></div>
     </div>
   )
 }
@@ -366,7 +459,7 @@ export default function SalesPage({ kind }) {
   const Icon = config.icon
   const currentUser = useSelector((state) => state.user?.currentUser)
   const [rows, setRows] = useState([])
-  const [options, setOptions] = useState({ customers: [], products: [], warehouses: [], branches: [], salespeople: [], cashAccounts: [], bankAccounts: [] })
+  const [options, setOptions] = useState({ customers: [], leads: [], products: [], warehouses: [], branches: [], salespeople: [], cashAccounts: [], bankAccounts: [] })
   const [lookups, setLookups] = useState({ orders: [], invoices: [] })
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -380,6 +473,14 @@ export default function SalesPage({ kind }) {
   const canManage = hasPermission(currentUser, config.managePermission)
   const canApproveOrders = hasPermission(currentUser, "sales-order:approve")
   const canPostDelivery = hasPermission(currentUser, "sales-delivery:post")
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("createQuotationForLead") && kind === "quotations" && canManage) {
+      setModal({ action: "createQuotation" })
+    }
+  }, [kind, canManage])
   const canPostInvoice = hasPermission(currentUser, "sales-invoice:post")
   const canManagePayment = hasPermission(currentUser, "sales-payment:manage")
   const canApproveReturn = hasPermission(currentUser, "sales-return:approve")
@@ -423,7 +524,7 @@ export default function SalesPage({ kind }) {
   const visibleRows = useMemo(() => {
     const normalized = query.trim().toLowerCase()
     if (!normalized) return rows
-    return rows.filter((row) => [row[config.number], row.status, customerName(row.customerId, maps)].some((value) => String(value || "").toLowerCase().includes(normalized)))
+    return rows.filter((row) => [row[config.number], row.status, customerName(row, maps)].some((value) => String(value || "").toLowerCase().includes(normalized)))
   }, [config.number, maps, query, rows])
 
   const openDetail = async (row) => {
@@ -508,7 +609,7 @@ export default function SalesPage({ kind }) {
     const actions = []
     if (kind === "quotations" && canManage && ["draft", "sent", "under_negotiation"].includes(record.status)) actions.push(["Edit quotation", FileText, () => setModal({ action: "editQuotation", record })])
     if (kind === "quotations" && canManage && ["draft", "sent", "viewed", "under_negotiation"].includes(record.status)) actions.push(["Update status", Send, () => setModal({ action: "quotationStatus", record })])
-    if (kind === "quotations" && record.status === "accepted" && hasPermission(currentUser, "sales-order:manage")) actions.push(["Convert to order", ArrowRight, () => setModal({ action: "convert", record })])
+    if (kind === "quotations" && record.status === "accepted" && !record.leadId && hasPermission(currentUser, "sales-order:manage")) actions.push(["Convert to order", ArrowRight, () => setModal({ action: "convert", record })])
     if (kind === "orders" && canManage && ["draft", "pending_approval"].includes(record.status)) actions.push(["Edit order", FileText, () => setModal({ action: "editOrder", record })])
     if (kind === "orders" && canManage && record.status === "draft") actions.push(["Submit", Send, () => setModal({ action: "submit", record })])
     if (kind === "orders" && canApproveOrders && record.status === "pending_approval") actions.push(["Approve", CheckCircle2, () => setModal({ action: "approve", record })], ["Reject", XCircle, () => setModal({ action: "reject", record })])
@@ -554,7 +655,7 @@ export default function SalesPage({ kind }) {
           <tbody className="divide-y divide-slate-100">
             {loading ? Array.from({ length: 5 }).map((_, index) => <tr key={index}>{Array.from({ length: 6 }).map((__, cell) => <td key={cell} className="px-6 py-5"><div className="h-4 animate-pulse rounded bg-slate-100" /></td>)}</tr>) : visibleRows.length ? visibleRows.map((row) => <tr key={row._id} className="transition hover:bg-indigo-50/30">
               <td className="px-6 py-4"><button type="button" onClick={() => openDetail(row)} className="font-black text-slate-900 hover:text-indigo-700">{row[config.number] || "—"}</button><p className="mt-1 text-xs text-slate-400">{row.currency || "BDT"}</p></td>
-              <td className="px-6 py-4 font-semibold text-slate-700">{customerName(row.customerId, maps)}</td>
+              <td className="px-6 py-4 font-semibold text-slate-700">{customerName(row, maps)}</td>
               <td className="px-6 py-4 text-slate-500">{formatDate(row[config.date] || row.createdAt)}</td>
               <td className="px-6 py-4"><StatusBadge value={row.status} /></td>
               <td className="px-6 py-4 text-right font-black text-slate-900">{formatMoney(row.totals?.grandTotal ?? row.totalAmount ?? 0, row.currency)}</td>

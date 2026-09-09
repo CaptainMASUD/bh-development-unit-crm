@@ -33,6 +33,12 @@ const successButton =
   "border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50"
 const dangerButton =
   "border border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
+const filledSuccessButton =
+  "bg-emerald-600 text-white shadow-sm shadow-emerald-600/10 hover:bg-emerald-700 focus-visible:ring-emerald-500/30"
+const filledDangerButton =
+  "bg-rose-600 text-white shadow-sm shadow-rose-600/10 hover:bg-rose-700 focus-visible:ring-rose-500/30"
+const tableDecisionButton =
+  "inline-flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl text-sm font-semibold text-white shadow-sm transition-[width,padding,background-color] duration-200 focus:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60"
 const input =
   "w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-300 focus:border-transparent focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
 
@@ -317,15 +323,13 @@ function ModalShell({
   if (!open || typeof document === "undefined") return null
 
   return createPortal(
-    <div className="fixed inset-0 z-[120]" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[90]" role="dialog" aria-modal="true">
       <div className="absolute inset-0 overflow-y-auto">
         <div className="flex min-h-full items-start justify-center p-4 sm:items-center sm:p-6">
-          <motion.button
-            type="button"
-            aria-label="Close modal"
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="fixed inset-0 cursor-default bg-black/40 backdrop-blur-md"
+            className="fixed inset-0 bg-black/40 backdrop-blur-md"
             onClick={onClose}
           />
 
@@ -338,7 +342,7 @@ function ModalShell({
               maxWidthClass
             )}
           >
-            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-100 bg-gray-50/90 p-4 backdrop-blur sm:p-5">
+            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-100 bg-gray-50/70 p-4 sm:p-5">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
                   {icon}
@@ -357,10 +361,10 @@ function ModalShell({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-xl p-2 text-gray-700 transition hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+                className="rounded-xl p-2 transition hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
                 aria-label="Close modal"
               >
-                <Icon icon={Cancel01Icon} className="h-5 w-5" />
+                <Icon icon={Cancel01Icon} className="h-5 w-5 text-gray-700" />
               </button>
             </div>
 
@@ -386,14 +390,54 @@ function FilterChip({ label, value, onClear }) {
     <button
       type="button"
       onClick={onClear}
-      className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+      className="inline-flex items-center gap-2 rounded-full border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
       title={`Remove ${label} filter`}
       aria-label={`Remove ${label} filter`}
     >
       <span className="text-indigo-400">{label}:</span>
       <span className="max-w-[180px] truncate sm:max-w-[220px]">{value}</span>
-      <Icon icon={Cancel01Icon} className="h-3.5 w-3.5 shrink-0" />
+      <Icon icon={Cancel01Icon} className="h-3.5 w-3.5 shrink-0 text-indigo-600" />
     </button>
+  )
+}
+
+function ActiveFilterChips({
+  query,
+  setQuery,
+  status,
+  setStatus,
+  purpose,
+  setPurpose,
+  activeFilterCount,
+}) {
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      {clean(query) ? (
+        <FilterChip label="Search" value={clean(query)} onClear={() => setQuery("")} />
+      ) : null}
+
+      {status !== "all" ? (
+        <FilterChip
+          label="Status"
+          value={pretty(status)}
+          onClear={() => setStatus("all")}
+        />
+      ) : null}
+
+      {purpose !== "all" ? (
+        <FilterChip
+          label="Purpose"
+          value={pretty(purpose)}
+          onClear={() => setPurpose("all")}
+        />
+      ) : null}
+
+      {!activeFilterCount ? (
+        <span className="text-sm font-semibold text-gray-500">
+          No active filter selected.
+        </span>
+      ) : null}
+    </div>
   )
 }
 
@@ -404,25 +448,25 @@ function SearchFilters({
   setStatus,
   purpose,
   setPurpose,
-  filterCount,
+  activeFilterCount,
   onOpenFilters,
   onReset,
 }) {
-  const hasAnything = Boolean(clean(query)) || filterCount > 0
-
   return (
     <div
       className={cn(
-        "w-full transition-[max-width,flex-basis] duration-200",
-        filterCount === 0
-          ? "lg:max-w-[50%] lg:flex-[0_1_50%]"
-          : filterCount <= 2
-            ? "lg:max-w-[64%] lg:flex-[0_1_64%]"
-            : "lg:max-w-[78%] lg:flex-[0_1_78%]"
+        "w-full transition-all duration-200",
+        activeFilterCount
+          ? "lg:min-w-[520px] lg:max-w-[72%] lg:flex-[0_1_72%]"
+          : "lg:max-w-[46%] lg:flex-[0_1_46%]"
       )}
     >
-      <div className="flex min-h-[40px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
+      <div className="flex min-h-[42px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
         <Icon icon={Search01Icon} className="h-4 w-4 shrink-0 text-gray-400" />
+
+        {clean(query) ? (
+          <FilterChip label="Search" value={clean(query)} onClear={() => setQuery("")} />
+        ) : null}
 
         {status !== "all" ? (
           <FilterChip
@@ -440,13 +484,16 @@ function SearchFilters({
           />
         ) : null}
 
-        <FocusPlaceholderInput
-          className="h-8 min-w-[150px] basis-[180px] flex-1 border-0 bg-transparent px-1 py-0 text-sm font-medium text-gray-800 outline-none ring-0 shadow-none placeholder:text-gray-400 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0"
-          style={{ outline: "none", boxShadow: "none" }}
+        <input
+          className="min-w-[110px] flex-1 border-0 bg-transparent px-1 py-1 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:outline-none focus:ring-0"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search reference, product or requester..."
-          type="search"
+          placeholder={
+            activeFilterCount
+              ? "Search..."
+              : "Search reference, product or requester..."
+          }
+          type="text"
           aria-label="Search purchase requests"
         />
 
@@ -455,21 +502,21 @@ function SearchFilters({
           onClick={onOpenFilters}
           className={cn(
             "inline-flex h-8 shrink-0 items-center gap-2 rounded-xl px-2.5 text-xs font-black transition",
-            filterCount
+            activeFilterCount
               ? "bg-indigo-600 text-white hover:bg-indigo-700"
               : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
           )}
         >
           <Icon icon={FilterIcon} className="h-3.5 w-3.5" />
           Filters
-          {filterCount ? (
+          {activeFilterCount ? (
             <span className="rounded-full bg-white/20 px-1.5 text-[10px]">
-              {filterCount}
+              {activeFilterCount}
             </span>
           ) : null}
         </button>
 
-        {hasAnything ? (
+        {activeFilterCount ? (
           <button
             type="button"
             onClick={onReset}
@@ -488,50 +535,66 @@ function SearchFilters({
 function FilterModal({
   open,
   onClose,
+  query,
+  setQuery,
   status,
   setStatus,
   statuses,
   purpose,
   setPurpose,
   purposes,
+  activeFilterCount,
   onReset,
 }) {
   return (
     <ModalShell
       open={open}
       onClose={onClose}
-      title="Purchase-request filters"
-      subtitle="Refine request status and purpose"
+      title="Purchase request filters"
+      subtitle="Filter requests by status and purpose."
       icon={<Icon icon={FilterIcon} className="h-5 w-5" />}
-      maxWidthClass="max-w-xl"
+      maxWidthClass="max-w-4xl"
       footer={
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            className={cn(button, ghostButton)}
-            onClick={onReset}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <span
+            className={cn(
+              "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-semibold ring-1",
+              activeFilterCount
+                ? "bg-indigo-50 text-indigo-700 ring-indigo-600/10"
+                : "bg-gray-100 text-gray-600 ring-gray-600/10"
+            )}
           >
-            Reset
-          </button>
-          <button
-            type="button"
-            className={cn(button, primaryButton)}
-            onClick={onClose}
-          >
-            <Icon icon={Tick02Icon} className="h-4 w-4" />
-            Apply Filters
-          </button>
+            {activeFilterCount} active filter{activeFilterCount === 1 ? "" : "s"}
+          </span>
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              className={cn(button, ghostButton)}
+              onClick={onReset}
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              className={cn(button, primaryButton)}
+              onClick={onClose}
+            >
+              <Icon icon={Tick02Icon} className="h-4 w-4" />
+              Apply filters
+            </button>
+          </div>
         </div>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2">
         <Field label="Status">
           <select
             className={input}
             value={status}
             onChange={(event) => setStatus(event.target.value)}
           >
-            <option value="all">All statuses</option>
+            <option value="all">All Status</option>
             {statuses.map((item) => (
               <option key={item} value={item}>
                 {pretty(item)}
@@ -546,7 +609,7 @@ function FilterModal({
             value={purpose}
             onChange={(event) => setPurpose(event.target.value)}
           >
-            <option value="all">All purposes</option>
+            <option value="all">All Purposes</option>
             {purposes.map((item) => (
               <option key={item} value={item}>
                 {pretty(item)}
@@ -554,16 +617,25 @@ function FilterModal({
             ))}
           </select>
         </Field>
+
+        <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
+          <p className="text-sm font-black text-gray-900">Active filters</p>
+          <ActiveFilterChips
+            query={query}
+            setQuery={setQuery}
+            status={status}
+            setStatus={setStatus}
+            purpose={purpose}
+            setPurpose={setPurpose}
+            activeFilterCount={activeFilterCount}
+          />
+        </div>
       </div>
     </ModalShell>
   )
 }
 
-function CreateRequestModal({
-  open,
-  onClose,
-  onCreated,
-}) {
+function CreateRequestModal({ open, onClose, onCreated }) {
   const [products, setProducts] = useState([])
   const [loadingProducts, setLoadingProducts] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -645,12 +717,12 @@ function CreateRequestModal({
       onClose={() => {
         if (!saving) onClose?.()
       }}
-      title="Create Purchase Request"
-      subtitle="Record demand for approval and commercial analysis"
+      title="Create purchase request"
+      subtitle="Record demand for approval and commercial analysis."
       icon={<Icon icon={Add01Icon} className="h-5 w-5" />}
-      maxWidthClass="max-w-3xl"
+      maxWidthClass="max-w-5xl"
       footer={
-        <div className="flex justify-end gap-3">
+        <div className="flex flex-col justify-end gap-2 sm:flex-row">
           <button
             type="button"
             className={cn(button, ghostButton)}
@@ -666,119 +738,102 @@ function CreateRequestModal({
             className={cn(button, primaryButton)}
             disabled={saving || loadingProducts}
           >
-            {saving ? (
-              <Spinner />
-            ) : (
-              <Icon icon={Tick02Icon} className="h-4 w-4" />
-            )}
-            {saving ? "Creating..." : "Create Request"}
+            {saving ? <Spinner /> : <Icon icon={Tick02Icon} className="h-4 w-4" />}
+            {saving ? "Creating..." : "Create request"}
           </button>
         </div>
       }
     >
-      <form
-        id="purchase-request-create-form"
-        onSubmit={submit}
-        className="space-y-5"
-      >
-        {formError ? (
-          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
-            {formError}
-          </div>
-        ) : null}
+      {formError ? (
+        <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">
+          {formError}
+        </div>
+      ) : null}
 
-        <SectionCard
-          title="Request information"
-          description="Select the required product and explain why the purchase is needed."
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <Field label="Product" required>
-                <select
-                  className={input}
-                  value={form.product}
-                  disabled={loadingProducts}
-                  onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      product: event.target.value,
-                    }))
-                  }
-                >
-                  <option value="">
-                    {loadingProducts
-                      ? "Loading active products..."
-                      : "Select active product"}
-                  </option>
-
-                  {products.map((product) => (
-                    <option key={product._id} value={product._id}>
-                      {product.name}
-                      {product.sku ? ` (${product.sku})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            </div>
-
-            <Field label="Purpose" required>
+      <form id="purchase-request-create-form" onSubmit={submit}>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <Field label="Product" required>
               <select
                 className={input}
-                value={form.purpose}
+                value={form.product}
+                disabled={loadingProducts}
                 onChange={(event) =>
                   setForm((previous) => ({
                     ...previous,
-                    purpose: event.target.value,
+                    product: event.target.value,
                   }))
                 }
               >
-                {["manual", "low_stock", "replacement", "general"].map(
-                  (purpose) => (
-                    <option key={purpose} value={purpose}>
-                      {pretty(purpose)}
-                    </option>
-                  )
-                )}
+                <option value="">
+                  {loadingProducts ? "Loading active products..." : "Select active product"}
+                </option>
+                {products.map((product) => (
+                  <option key={product._id} value={product._id}>
+                    {product.name}
+                    {product.sku ? ` (${product.sku})` : ""}
+                  </option>
+                ))}
               </select>
             </Field>
+          </div>
 
-            <Field label="Required Quantity" required>
-              <input
-                className={input}
-                type="number"
-                min="0.000001"
-                step="0.000001"
-                value={form.requiredQuantity}
+          <Field label="Purpose" required>
+            <select
+              className={input}
+              value={form.purpose}
+              onChange={(event) =>
+                setForm((previous) => ({
+                  ...previous,
+                  purpose: event.target.value,
+                }))
+              }
+            >
+              {["manual", "low_stock", "replacement", "general"].map((purpose) => (
+                <option key={purpose} value={purpose}>
+                  {pretty(purpose)}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Required Quantity" required>
+            <input
+              className={input}
+              type="number"
+              min="0.000001"
+              step="0.000001"
+              value={form.requiredQuantity}
+              onChange={(event) =>
+                setForm((previous) => ({
+                  ...previous,
+                  requiredQuantity: event.target.value,
+                }))
+              }
+              placeholder="Enter required quantity"
+            />
+          </Field>
+
+          <div className="lg:col-span-2">
+            <Field
+              label="Reason"
+              hint="Optional context for the reviewer and purchasing team."
+            >
+              <FocusPlaceholderTextarea
+                className={cn(input, "min-h-[110px] resize-none")}
+                value={form.reason}
                 onChange={(event) =>
                   setForm((previous) => ({
                     ...previous,
-                    requiredQuantity: event.target.value,
+                    reason: event.target.value,
                   }))
                 }
+                placeholder="Explain why this purchase is required..."
+                maxLength={1500}
               />
             </Field>
-
-            <div className="sm:col-span-2">
-              <Field
-                label="Reason"
-                hint="Optional context for the reviewer and purchasing team."
-              >
-                <FocusPlaceholderTextarea
-                  className={cn(input, "min-h-[120px] resize-none")}
-                  value={form.reason}
-                  onChange={(event) =>
-                    setForm((previous) => ({
-                      ...previous,
-                      reason: event.target.value,
-                    }))
-                  }
-                  placeholder="Explain why this purchase is required..."
-                  maxLength={1500}
-                />
-              </Field>
-            </div>
           </div>
-        </SectionCard>
+        </div>
       </form>
     </ModalShell>
   )
@@ -789,101 +844,85 @@ function DetailsModal({ item, open, onClose }) {
     <ModalShell
       open={open}
       onClose={onClose}
-      title={item?.requestReference || "Purchase-request details"}
+      title={item?.requestReference || "Purchase request details"}
       subtitle={
         item
-          ? `${item.product?.name || "Product"} · ${
-              item.requester?.name || "Requester"
-            }`
+          ? `${item.product?.name || "Product"} · ${item.requester?.name || "Requester"}`
           : ""
       }
       icon={<Icon icon={ViewIcon} className="h-5 w-5" />}
       maxWidthClass="max-w-5xl"
       footer={
         <div className="flex justify-end">
-          <button
-            type="button"
-            className={cn(button, ghostButton)}
-            onClick={onClose}
-          >
+          <button type="button" className={cn(button, ghostButton)} onClick={onClose}>
             Close
           </button>
         </div>
       }
     >
       {item ? (
-        <div className="space-y-5">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-gray-400">
-                Status
-              </p>
-              <div className="mt-2">
-                <StatusBadge value={item.status} />
-              </div>
+        <div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <p className="text-xs font-bold text-gray-400">Status</p>
+              <div className="mt-1.5"><StatusBadge value={item.status} /></div>
             </div>
-
-            <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-gray-400">
-                Purpose
-              </p>
-              <div className="mt-2">
-                <PurposeBadge value={item.purpose} />
-              </div>
+            <div>
+              <p className="text-xs font-bold text-gray-400">Purpose</p>
+              <div className="mt-1.5"><PurposeBadge value={item.purpose} /></div>
             </div>
-
-            <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-gray-400">
-                Quantity
-              </p>
-              <p className="mt-2 text-lg font-black text-gray-950">
+            <div>
+              <p className="text-xs font-bold text-gray-400">Quantity</p>
+              <p className="mt-1 text-sm font-bold text-gray-900">
                 {formatNumber(item.requiredQuantity)}
               </p>
             </div>
-
-            <div className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
-              <p className="text-xs font-black uppercase tracking-wide text-gray-400">
-                Department
-              </p>
-              <p className="mt-2 truncate text-sm font-black text-gray-950">
-                {relationLabel(item.department, "-")}
+            <div>
+              <p className="text-xs font-bold text-gray-400">Created</p>
+              <p className="mt-1 text-sm font-bold text-gray-900">
+                {formatDate(item.createdAt)}
               </p>
             </div>
           </div>
 
-          <SectionCard
-            title="Request information"
-            description="Demand and requester information recorded for purchasing review."
-          >
+          <div className="mt-5 border-t border-gray-100 pt-5">
+            <div className="mb-4">
+              <h3 className="text-sm font-black text-gray-900">Request information</h3>
+              <p className="mt-1 text-xs font-semibold text-gray-500">
+                Demand and requester information recorded for purchasing review.
+              </p>
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {[
                 ["Reference", item.requestReference || "-"],
                 ["Product", relationLabel(item.product, "-")],
-                ["Purpose", pretty(item.purpose)],
-                ["Quantity", formatNumber(item.requiredQuantity)],
                 ["Requester", relationLabel(item.requester, "-")],
                 ["Department", relationLabel(item.department, "-")],
+                ["Purpose", pretty(item.purpose)],
+                ["Quantity", formatNumber(item.requiredQuantity)],
                 ["Status", pretty(item.status)],
                 ["Created", formatDate(item.createdAt)],
               ].map(([label, value]) => (
-                <div key={label}>
+                <div key={label} className="min-w-0">
                   <p className="text-xs font-bold text-gray-400">{label}</p>
-                  <p className="mt-1 text-sm font-bold text-gray-900">{value}</p>
+                  <p className="mt-1 break-words text-sm font-bold text-gray-900">{value}</p>
                 </div>
               ))}
             </div>
-          </SectionCard>
+          </div>
 
           {item.reason ? (
-            <SectionCard title="Reason">
-              <p className="text-sm font-semibold leading-6 text-gray-700">
+            <div className="mt-5 border-t border-gray-100 pt-5">
+              <p className="text-sm font-black text-gray-900">Reason</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-gray-700">
                 {item.reason}
               </p>
-            </SectionCard>
+            </div>
           ) : null}
 
           {item.rejectionReason || item.reviewReason ? (
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold leading-6 text-rose-700">
+            <div className="mt-5 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold leading-6 text-rose-700">
               {item.rejectionReason || item.reviewReason}
             </div>
           ) : null}
@@ -893,13 +932,7 @@ function DetailsModal({ item, open, onClose }) {
   )
 }
 
-function ConfirmApproveModal({
-  item,
-  open,
-  working,
-  onClose,
-  onConfirm,
-}) {
+function ConfirmApproveModal({ item, open, working, onClose, onConfirm }) {
   return (
     <ModalShell
       open={open}
@@ -909,7 +942,7 @@ function ConfirmApproveModal({
       icon={<Icon icon={Tick02Icon} className="h-5 w-5" />}
       maxWidthClass="max-w-lg"
       footer={
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col justify-end gap-2 sm:flex-row">
           <button
             type="button"
             className={cn(button, ghostButton)}
@@ -918,19 +951,14 @@ function ConfirmApproveModal({
           >
             Cancel
           </button>
-
           <button
             type="button"
             className={cn(button, primaryButton)}
             onClick={onConfirm}
             disabled={working}
           >
-            {working ? (
-              <Spinner />
-            ) : (
-              <Icon icon={Tick02Icon} className="h-4 w-4" />
-            )}
-            {working ? "Approving..." : "Approve Request"}
+            {working ? <Spinner /> : <Icon icon={Tick02Icon} className="h-4 w-4" />}
+            {working ? "Approving..." : "Approve request"}
           </button>
         </div>
       }
@@ -938,20 +966,13 @@ function ConfirmApproveModal({
       <p className="text-sm font-medium leading-6 text-gray-600">
         Approve <strong className="font-black text-gray-900">
           {item?.requestReference || "this request"}
-        </strong>
-        ? It will move forward for purchasing and commercial analysis.
+        </strong>? It will move forward for purchasing and commercial analysis.
       </p>
     </ModalShell>
   )
 }
 
-function RejectModal({
-  item,
-  open,
-  working,
-  onClose,
-  onConfirm,
-}) {
+function RejectModal({ item, open, working, onClose, onConfirm }) {
   const [reason, setReason] = useState("")
   const [error, setError] = useState("")
 
@@ -981,7 +1002,7 @@ function RejectModal({
       icon={<Icon icon={Alert02Icon} className="h-5 w-5" />}
       maxWidthClass="max-w-lg"
       footer={
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-col justify-end gap-2 sm:flex-row">
           <button
             type="button"
             className={cn(button, ghostButton)}
@@ -990,19 +1011,14 @@ function RejectModal({
           >
             Cancel
           </button>
-
           <button
             type="button"
             className={cn(button, dangerButton)}
             onClick={submit}
             disabled={working}
           >
-            {working ? (
-              <Spinner />
-            ) : (
-              <Icon icon={Cancel01Icon} className="h-4 w-4" />
-            )}
-            {working ? "Rejecting..." : "Reject Request"}
+            {working ? <Spinner /> : <Icon icon={Cancel01Icon} className="h-4 w-4" />}
+            {working ? "Rejecting..." : "Reject request"}
           </button>
         </div>
       }
@@ -1026,9 +1042,9 @@ function RejectModal({
       </Field>
 
       {error ? (
-        <p className="mt-3 rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+        <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">
           {error}
-        </p>
+        </div>
       ) : null}
     </ModalShell>
   )
@@ -1167,6 +1183,8 @@ export default function PurchaseRequests() {
     (status !== "all" ? 1 : 0) +
     (purpose !== "all" ? 1 : 0)
 
+  const activeFilterCount = filterCount + (clean(query) ? 1 : 0)
+
   const filtered = useMemo(() => {
     const search = clean(query).toLowerCase()
 
@@ -1242,15 +1260,9 @@ export default function PurchaseRequests() {
 
   return (
     <div className={`${shell} p-4 sm:p-6 lg:p-8`}>
-      <Toaster
-        position="top-right"
-        toastOptions={{
-          duration: 3000,
-          style: { borderRadius: "14px", fontWeight: 700 },
-        }}
-      />
+      <Toaster position="top-right" />
 
-      <section className={cn(card, "mb-5 p-4 sm:p-5")}>
+      <section className={cn(card, "mb-6 p-4 sm:p-5")}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
@@ -1261,7 +1273,7 @@ export default function PurchaseRequests() {
               <h1 className="truncate text-2xl font-extrabold tracking-tight text-gray-900">
                 Purchase Requests
               </h1>
-              <p className="mt-1 text-sm font-medium text-gray-500">
+              <p className="mt-0.5 text-sm text-gray-500">
                 Record demand, review requests and move approved needs into purchasing.
               </p>
             </div>
@@ -1274,11 +1286,7 @@ export default function PurchaseRequests() {
               onClick={() => load({ showToast: true })}
               disabled={loading}
             >
-              {loading ? (
-                <Spinner />
-              ) : (
-                <Icon icon={RefreshIcon} className="h-4 w-4" />
-              )}
+              {loading ? <Spinner /> : <Icon icon={RefreshIcon} className="h-4 w-4" />}
               Refresh
             </button>
 
@@ -1293,7 +1301,7 @@ export default function PurchaseRequests() {
           </div>
         </div>
 
-        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <SearchFilters
             query={query}
             setQuery={setQuery}
@@ -1301,13 +1309,13 @@ export default function PurchaseRequests() {
             setStatus={setStatus}
             purpose={purpose}
             setPurpose={setPurpose}
-            filterCount={filterCount}
+            activeFilterCount={activeFilterCount}
             onOpenFilters={() => setFilterOpen(true)}
             onReset={resetFilters}
           />
 
-          <p className="shrink-0 text-sm font-semibold text-gray-500">
-            <span className="text-gray-900">{filtered.length}</span>{" "}
+          <p className="text-sm font-bold text-gray-500">
+            Showing <span className="text-gray-900">{filtered.length}</span>{" "}
             request{filtered.length === 1 ? "" : "s"}
           </p>
         </div>
@@ -1317,7 +1325,7 @@ export default function PurchaseRequests() {
         <motion.div
           initial={{ opacity: 0, y: -6 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mb-5 flex flex-col gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+          className="mb-6 flex flex-col gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
         >
           <div className="flex items-start gap-3">
             <Icon
@@ -1328,9 +1336,7 @@ export default function PurchaseRequests() {
               <p className="text-sm font-bold text-rose-800">
                 Could not load purchase requests
               </p>
-              <p className="mt-0.5 text-sm font-medium text-rose-700">
-                {error}
-              </p>
+              <p className="mt-0.5 text-sm font-medium text-rose-700">{error}</p>
             </div>
           </div>
 
@@ -1428,7 +1434,7 @@ export default function PurchaseRequests() {
                         <div className="flex justify-end gap-2">
                           <button
                             type="button"
-                            className={cn(button, ghostButton, "h-10 px-3")}
+                            className={cn(button, primaryButton, "h-10 px-3")}
                             onClick={() => setDetails({ open: true, item })}
                             disabled={working}
                           >
@@ -1440,26 +1446,46 @@ export default function PurchaseRequests() {
                             <>
                               <button
                                 type="button"
-                                className={cn(button, successButton, "h-10 px-3")}
+                                className={cn(
+                                  tableDecisionButton,
+                                  "group/accept bg-emerald-600 shadow-emerald-600/15 hover:w-[102px] hover:px-3 hover:bg-emerald-700 focus-visible:ring-emerald-500/30"
+                                )}
                                 onClick={() =>
                                   setApproveState({ open: true, item })
                                 }
                                 disabled={working}
+                                aria-label="Accept purchase request"
+                                title="Accept"
                               >
-                                <Icon icon={Tick02Icon} className="h-4 w-4" />
-                                Approve
+                                <Icon
+                                  icon={Tick02Icon}
+                                  className="h-4 w-4 shrink-0"
+                                />
+                                <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-[max-width,opacity,margin] duration-200 group-hover/accept:ml-2 group-hover/accept:max-w-[56px] group-hover/accept:opacity-100">
+                                  Accept
+                                </span>
                               </button>
 
                               <button
                                 type="button"
-                                className={cn(button, dangerButton, "h-10 px-3")}
+                                className={cn(
+                                  tableDecisionButton,
+                                  "group/reject bg-rose-600 shadow-rose-600/15 hover:w-[102px] hover:px-3 hover:bg-rose-700 focus-visible:ring-rose-500/30"
+                                )}
                                 onClick={() =>
                                   setRejectState({ open: true, item })
                                 }
                                 disabled={working}
+                                aria-label="Reject purchase request"
+                                title="Reject"
                               >
-                                <Icon icon={Cancel01Icon} className="h-4 w-4" />
-                                Reject
+                                <Icon
+                                  icon={Cancel01Icon}
+                                  className="h-4 w-4 shrink-0"
+                                />
+                                <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-[max-width,opacity,margin] duration-200 group-hover/reject:ml-2 group-hover/reject:max-w-[56px] group-hover/reject:opacity-100">
+                                  Reject
+                                </span>
                               </button>
                             </>
                           ) : null}
@@ -1548,7 +1574,7 @@ export default function PurchaseRequests() {
                       type="button"
                       className={cn(
                         button,
-                        ghostButton,
+                        primaryButton,
                         item.status === "pending" ? "flex-1" : "w-full"
                       )}
                       onClick={() => setDetails({ open: true, item })}
@@ -1562,19 +1588,19 @@ export default function PurchaseRequests() {
                       <>
                         <button
                           type="button"
-                          className={cn(button, successButton, "flex-1")}
+                          className={cn(button, filledSuccessButton, "flex-1")}
                           onClick={() =>
                             setApproveState({ open: true, item })
                           }
                           disabled={working}
                         >
                           <Icon icon={Tick02Icon} className="h-4 w-4" />
-                          Approve
+                          Accept
                         </button>
 
                         <button
                           type="button"
-                          className={cn(button, dangerButton, "w-full")}
+                          className={cn(button, filledDangerButton, "w-full")}
                           onClick={() =>
                             setRejectState({ open: true, item })
                           }
@@ -1617,16 +1643,16 @@ export default function PurchaseRequests() {
       <FilterModal
         open={filterOpen}
         onClose={() => setFilterOpen(false)}
+        query={query}
+        setQuery={setQuery}
         status={status}
         setStatus={setStatus}
         statuses={statuses}
         purpose={purpose}
         setPurpose={setPurpose}
         purposes={purposes}
-        onReset={() => {
-          setStatus("all")
-          setPurpose("all")
-        }}
+        activeFilterCount={activeFilterCount}
+        onReset={resetFilters}
       />
 
       <CreateRequestModal

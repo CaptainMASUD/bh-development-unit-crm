@@ -31,6 +31,8 @@ const deliveryNoteSchema = new Schema(
       ref: "SalesOrder",
       required: true,
     },
+    leadId: { type: Schema.Types.ObjectId, ref: "Lead" },
+    dealId: { type: Schema.Types.ObjectId, ref: "Deal" },
     customerId: {
       type: Schema.Types.ObjectId,
       ref: "Customer",
@@ -119,3 +121,5 @@ deliveryNoteSchema.index({ tenantId: 1, status: 1, createdAt: -1 });
 export const DeliveryNote =
   mongoose.models.DeliveryNote ||
   mongoose.model("DeliveryNote", deliveryNoteSchema);
+
+export default DeliveryNote;

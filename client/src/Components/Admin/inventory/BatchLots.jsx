@@ -6,6 +6,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Alert02Icon,
   Cancel01Icon,
+  Download01Icon,
   FilterIcon,
   FolderLibraryIcon,
   RefreshIcon,
@@ -807,7 +808,42 @@ export default function BatchLots() {
   const [qualityState, setQualityState] = useState("all")
   const [filterOpen, setFilterOpen] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
   const [error, setError] = useState("")
+
+  const handleExportCsv = async () => {
+    setExporting(true)
+    try {
+      const token = localStorage.getItem("token")
+      const whParam = warehouse !== "all" ? `?warehouse=${warehouse}` : ""
+      const res = await fetch(
+        `${API_BASE}/inventory/reports/batch-expiry?format=csv${whParam.replace("?", "&")}`,
+        {
+          credentials: "include",
+          headers: token
+            ? {
+                Authorization: `Bearer ${token}`,
+              }
+            : {},
+        }
+      )
+      if (!res.ok) throw new Error("CSV export failed")
+      const blob = await res.blob()
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `batch-tracking-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+      toast.success("Batch tracking CSV downloaded")
+    } catch (err) {
+      toast.error(err.message || "Failed to export CSV.")
+    } finally {
+      setExporting(false)
+    }
+  }
 
   const load = useCallback(
     async ({
@@ -1015,6 +1051,30 @@ export default function BatchLots() {
               </div>
 
               <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportCsv}
+                  disabled={exporting || loading}
+                  className={cn(
+                    button,
+                    ghostButton
+                  )}
+                  title="Download batch tracking report as CSV"
+                >
+                  <Icon
+                    icon={Download01Icon}
+                    className={cn(
+                      "h-4 w-4",
+                      exporting
+                        ? "animate-pulse"
+                        : ""
+                    )}
+                  />
+                  {exporting
+                    ? "Exporting..."
+                    : "Export CSV"}
+                </button>
+
                 <button
                   type="button"
                   onClick={() =>

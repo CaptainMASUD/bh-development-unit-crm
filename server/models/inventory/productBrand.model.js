@@ -4,6 +4,12 @@ const BRAND_STATUSES = ["active", "inactive", "archived"];
 
 const productBrandSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      required: true,
+      index: true,
+    },
     name: {
       type: String,
       required: true,
@@ -94,10 +100,10 @@ productBrandSchema.set("toObject", {
   },
 });
 
-productBrandSchema.index({ code: 1 }, { unique: true });
-productBrandSchema.index({ nameLower: 1 }, { unique: true });
-productBrandSchema.index({ status: 1, sortOrder: 1, nameLower: 1, _id: 1 });
-productBrandSchema.index({ country: 1, status: 1, sortOrder: 1, nameLower: 1, _id: 1 });
+productBrandSchema.index({ tenantId: 1, code: 1 }, { unique: true });
+productBrandSchema.index({ tenantId: 1, nameLower: 1 }, { unique: true });
+productBrandSchema.index({ tenantId: 1, status: 1, sortOrder: 1, nameLower: 1, _id: 1 });
+productBrandSchema.index({ tenantId: 1, country: 1, status: 1, sortOrder: 1, nameLower: 1, _id: 1 });
 
 const normalizeBrandPatch = (source = {}) => {
   const patch = source;

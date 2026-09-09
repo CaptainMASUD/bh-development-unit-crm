@@ -20,7 +20,7 @@ import { useDispatch } from "react-redux"
 import { signOut } from "../../Redux/UserSlice/UserSlice"
 
 import suitelogo from "../../assets/logo/suite.png"
-import jetsky from "../../../public/jetsky.svg"
+const jetsky = "/jetsky.svg"
 import JetskyModal from "./JetskyModal"
 import NotificationModal from "./NotificationModal"
 

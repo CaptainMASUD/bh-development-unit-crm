@@ -39,6 +39,10 @@ const MOVEMENT_DELETE_PERMISSION =
   PERMISSIONS?.INVENTORY_MOVEMENT_DELETE ||
   "inventory-movement:delete"
 
+const COST_VIEW_PERMISSION =
+  PERMISSIONS?.INVENTORY_REPORT_COST_VIEW ||
+  "inventory-report:cost-view"
+
 const MOVEMENT_TYPES = [
   ["opening_stock", "Opening Stock"],
   ["purchase_receipt", "Purchase Receipt"],
@@ -279,6 +283,7 @@ function formatNumber(value, maximumFractionDigits = 2) {
 }
 
 function formatMoney(value, currency = "BDT") {
+  if (value === null || value === undefined || value === "") return "—"
   return `${clean(currency || "BDT")} ${formatNumber(value, 2)}`
 }
 
@@ -918,7 +923,7 @@ function HeaderSearchFilters({
   )
 }
 
-function SummaryCards({ summary, onSelectTab }) {
+function SummaryCards({ summary, onSelectTab, canViewCost = true }) {
   const items = [
     {
       label: "Movements",
@@ -952,7 +957,7 @@ function SummaryCards({ summary, onSelectTab }) {
     },
     {
       label: "Total Value",
-      value: formatMoney(summary.totalValue),
+      value: canViewCost ? formatMoney(summary.totalValue) : "—",
       tab: "all",
       note: "Posted physical movement value",
     },
@@ -1018,6 +1023,9 @@ export default function StockMovements() {
   )
 
   const canCreate = canManage || canPost
+  const canViewCost =
+    hasPermission(currentUser, COST_VIEW_PERMISSION) ||
+    currentUser?.role === "admin"
 
   const [activeTab, setActiveTab] = useState("all")
   const [movements, setMovements] = useState([])
@@ -1030,6 +1038,7 @@ export default function StockMovements() {
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [exportingCsv, setExportingCsv] = useState(false)
   const [actionState, setActionState] = useState({
     id: "",
     type: "",
@@ -1333,6 +1342,53 @@ export default function StockMovements() {
       loadMovements(),
       loadSummary(),
     ])
+  }
+
+  const exportCsv = async () => {
+    setExportingCsv(true)
+    try {
+      const token = localStorage.getItem("token")
+      const params = new URLSearchParams()
+      if (activeTab !== "all") params.set("status", activeTab)
+      if (filters.movementType !== "all") {
+        params.set("movementType", filters.movementType)
+      }
+      if (filters.product !== "all") {
+        params.set("product", filters.product)
+      }
+      if (filters.warehouse !== "all") {
+        params.set("warehouse", filters.warehouse)
+      }
+      if (filters.from) params.set("from", filters.from)
+      if (filters.to) params.set("to", filters.to)
+      params.set("format", "csv")
+
+      const response = await fetch(
+        `${API_BASE}/inventory/reports/movements?${params.toString()}`,
+        {
+          credentials: "include",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        }
+      )
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}))
+        throw new Error(errJson.message || "Failed to export movements CSV")
+      }
+      const blob = await response.blob()
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `stock-movements-${new Date().toISOString().slice(0, 10)}.csv`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      toast.success("Movements CSV exported successfully")
+    } catch (err) {
+      toast.error(err.message || "Export failed")
+    } finally {
+      setExportingCsv(false)
+    }
   }
 
   const switchTab = (tab) => {
@@ -2036,6 +2092,22 @@ export default function StockMovements() {
           <div className="flex flex-wrap gap-2">
             <button
               className={cn(button, ghostButton)}
+              onClick={exportCsv}
+              disabled={exportingCsv}
+              type="button"
+            >
+              <Icon
+                icon={RefreshIcon}
+                className={cn(
+                  "h-4 w-4",
+                  exportingCsv ? "animate-spin" : "rotate-180"
+                )}
+              />
+              {exportingCsv ? "Exporting..." : "Export CSV"}
+            </button>
+
+            <button
+              className={cn(button, ghostButton)}
               onClick={refresh}
               disabled={loading}
               type="button"
@@ -2086,7 +2158,7 @@ export default function StockMovements() {
         </div>
       </section>
 
-      <SummaryCards summary={summary} onSelectTab={switchTab} />
+      <SummaryCards summary={summary} onSelectTab={switchTab} canViewCost={canViewCost} />
 
       {!canManage && !canPost ? (
         <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
@@ -2131,6 +2203,7 @@ export default function StockMovements() {
         openingMovementId={openingMovementId}
         loadingDetailsId={loadingDetailsId}
         actionState={actionState}
+        canViewCost={canViewCost}
         onView={openDetailsModal}
         onEdit={openEditModal}
         onPost={postMovement}
@@ -2192,6 +2265,7 @@ export default function StockMovements() {
 
       <MovementDetailsModal
         state={detailsModal}
+        canViewCost={canViewCost}
         onClose={() =>
           setDetailsModal({
             open: false,
@@ -2424,6 +2498,7 @@ function MovementList({
   openingMovementId,
   loadingDetailsId,
   actionState,
+  canViewCost = true,
   onView,
   onEdit,
   onPost,
@@ -2512,10 +2587,12 @@ function MovementList({
                   </td>
 
                   <td className="px-5 py-4 text-sm font-black text-gray-900">
-                    {formatMoney(
-                      movement.totalValue,
-                      movement.currency
-                    )}
+                    {canViewCost
+                      ? formatMoney(
+                          movement.totalValue,
+                          movement.currency
+                        )
+                      : "—"}
                   </td>
 
                   <td className="px-5 py-4 text-sm font-semibold text-gray-700">
@@ -2578,6 +2655,7 @@ function MovementList({
             <MovementMobileCard
               key={movement._id}
               movement={movement}
+              canViewCost={canViewCost}
               opening={
                 String(openingMovementId) === String(movement._id)
               }
@@ -2661,6 +2739,7 @@ function MovementMobileCard({
   opening,
   loadingDetails,
   actionState,
+  canViewCost = true,
   onView,
   onEdit,
   onPost,
@@ -2737,10 +2816,12 @@ function MovementMobileCard({
             <div className="col-span-2">
               <p className="font-bold text-gray-400">Value</p>
               <p className="mt-1 font-black text-gray-900">
-                {formatMoney(
-                  movement.totalValue,
-                  movement.currency
-                )}
+                {canViewCost
+                  ? formatMoney(
+                      movement.totalValue,
+                      movement.currency
+                    )
+                  : "—"}
               </p>
             </div>
           </div>
@@ -3714,7 +3795,7 @@ function PositionEditor({
   )
 }
 
-function MovementDetailsModal({ state, onClose }) {
+function MovementDetailsModal({ state, onClose, canViewCost = true }) {
   const movement = state.movement
 
   return (
@@ -3753,7 +3834,9 @@ function MovementDetailsModal({ state, onClose }) {
               ["Quantity", formatNumber(movement.totalQuantity)],
               [
                 "Value",
-                formatMoney(movement.totalValue, movement.currency),
+                canViewCost
+                  ? formatMoney(movement.totalValue, movement.currency)
+                  : "—",
               ],
               ["Reference", movement.reference || "-"],
               ["Source", pretty(movement.sourceType || "manual")],
@@ -3864,6 +3947,7 @@ function MovementDetailsModal({ state, onClose }) {
             <MovementDetailLines
               lines={movement.lines || []}
               currency={movement.currency}
+              canViewCost={canViewCost}
             />
           </SectionCard>
         </div>
@@ -3872,7 +3956,7 @@ function MovementDetailsModal({ state, onClose }) {
   )
 }
 
-function MovementDetailLines({ lines, currency }) {
+function MovementDetailLines({ lines, currency, canViewCost = true }) {
   return (
     <div>
       <div className="hidden overflow-auto xl:block">
@@ -3928,18 +4012,17 @@ function MovementDetailLines({ lines, currency }) {
                 </td>
 
                 <td className="px-4 py-4 text-sm font-black text-gray-700">
-                  {formatMoney(
-                    line.requestedUnitCost,
-                    currency
-                  )}
+                  {canViewCost
+                    ? formatMoney(line.requestedUnitCost, currency)
+                    : "—"}
                 </td>
 
                 <td className="px-4 py-4 text-sm font-black text-gray-700">
-                  {formatMoney(line.appliedUnitCost, currency)}
+                  {canViewCost ? formatMoney(line.appliedUnitCost, currency) : "—"}
                 </td>
 
                 <td className="px-4 py-4 text-sm font-black text-gray-900">
-                  {formatMoney(line.appliedValue, currency)}
+                  {canViewCost ? formatMoney(line.appliedValue, currency) : "—"}
                 </td>
 
                 <td className="px-4 py-4">
@@ -3993,7 +4076,7 @@ function MovementDetailLines({ lines, currency }) {
               />
               <ReadOnlyValue
                 label="Applied Value"
-                value={formatMoney(line.appliedValue, currency)}
+                value={canViewCost ? formatMoney(line.appliedValue, currency) : "—"}
               />
               <ReadOnlyValue
                 label="Source"

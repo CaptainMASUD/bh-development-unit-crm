@@ -19,6 +19,7 @@ import {
   FiPrinter,
   FiRefreshCcw,
   FiSearch,
+  FiShoppingCart,
   FiX,
 } from "react-icons/fi"
 
@@ -299,7 +300,7 @@ function SummaryMetric({ label, value, hint, icon, tone, glow }) {
   )
 }
 
-function DealDetailsModal({ dealId, onClose, onCreateInvoice, onViewInvoice, canManage = true }) {
+function DealDetailsModal({ dealId, onClose, onCreateSalesOrder, onViewInvoice, creatingOrderId = "", canManage = true }) {
   const [deal, setDeal] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -327,8 +328,17 @@ function DealDetailsModal({ dealId, onClose, onCreateInvoice, onViewInvoice, can
       footer={deal ? (
         <div className="flex flex-wrap justify-end gap-2">
           <button className={ghostButton} onClick={onClose}>Close</button>
-          {canManage && deal.invoice ? <button className={primaryButton} onClick={() => onViewInvoice(deal.invoice)}><FiFileText />View invoice</button> : null}
-          {canManage && !deal.invoice && deal.stage === "won" ? <button className={primaryButton} onClick={() => onCreateInvoice(deal)}><FiFileText />Invoice</button> : null}
+          {deal.salesOrderId ? (
+            <button className={primaryButton} onClick={() => { window.location.href = "/admin/sales?kind=orders" }}>
+              <FiShoppingCart />View Sales Order
+            </button>
+          ) : canManage && deal.stage === "won" ? (
+            <button className={primaryButton} disabled={creatingOrderId === deal._id || !deal.customerId} onClick={() => onCreateSalesOrder?.(deal)}>
+              {creatingOrderId === deal._id ? <FiLoader className="animate-spin" /> : <FiShoppingCart />}
+              Create Sales Order
+            </button>
+          ) : null}
+          {deal.invoice ? <button className={ghostButton} onClick={() => onViewInvoice(deal.invoice)}><FiFileText />View invoice</button> : null}
         </div>
       ) : null}
     >
@@ -712,12 +722,30 @@ export default function AdminDealsPage({ employeeMode = false }) {
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState("")
   const [viewDealId, setViewDealId] = useState("")
+  const [creatingOrderId, setCreatingOrderId] = useState("")
   const [invoiceDeal, setInvoiceDeal] = useState(null)
   const [invoiceView, setInvoiceView] = useState(null)
   const [paymentInvoice, setPaymentInvoice] = useState(null)
   const [columnsOpen, setColumnsOpen] = useState(false)
   const [selectedColumns, setSelectedColumns] = useState(DEFAULT_COLUMNS)
   const abortRef = useRef(null)
+
+  const handleCreateSalesOrder = async (deal) => {
+    if (!deal?._id) return
+    setCreatingOrderId(deal._id)
+    try {
+      const data = await apiJson(`/sales/orders/from-deal/${deal._id}`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      })
+      toast.success(`Sales Order ${data?.data?.orderNumber || ""} created! Manage fulfillment in Sales Operations.`)
+      loadDeals()
+    } catch (err) {
+      toast.error(err.message || "Failed to create sales order.")
+    } finally {
+      setCreatingOrderId("")
+    }
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search.trim()), 300)
@@ -876,7 +904,27 @@ export default function AdminDealsPage({ employeeMode = false }) {
                       <td className="sticky right-0 z-10 bg-white px-5 py-2.5 text-right shadow-[-14px_0_24px_-22px_rgba(15,23,42,0.45)] group-hover:bg-indigo-50/40">
                         <div className="flex justify-end gap-2">
                           <button className={ghostButton} onClick={() => setViewDealId(deal._id)}><FiEye />View</button>
-                          {!employeeMode ? <button className={primaryButton} disabled={!deal.customerId} onClick={() => deal.invoice ? viewInvoice(deal.invoice) : setInvoiceDeal(deal)}><FiFileText />Invoice</button> : null}
+                          {!employeeMode ? (
+                            deal.salesOrderId ? (
+                              <button className={primaryButton} onClick={() => { window.location.href = "/admin/sales?kind=orders" }} title="View in Sales Orders">
+                                <FiShoppingCart />Sales Order
+                              </button>
+                            ) : deal.stage === "won" ? (
+                              <button
+                                className={primaryButton}
+                                disabled={creatingOrderId === deal._id || !deal.customerId}
+                                onClick={() => handleCreateSalesOrder(deal)}
+                                title={!deal.customerId ? "Customer conversion required" : "Create Sales Order to reserve stock & deliver"}
+                              >
+                                {creatingOrderId === deal._id ? <FiLoader className="animate-spin" /> : <FiShoppingCart />}
+                                {creatingOrderId === deal._id ? "Creating..." : "Create Order"}
+                              </button>
+                            ) : deal.invoice ? (
+                              <button className={ghostButton} onClick={() => viewInvoice(deal.invoice)}>
+                                <FiFileText />Invoice
+                              </button>
+                            ) : null
+                          ) : null}
                         </div>
                       </td>
                     </tr>
@@ -893,7 +941,14 @@ export default function AdminDealsPage({ employeeMode = false }) {
         </div>
       </div>
 
-      <DealDetailsModal dealId={viewDealId} onClose={() => setViewDealId("")} onCreateInvoice={(deal) => { setViewDealId(""); setInvoiceDeal(deal) }} onViewInvoice={viewInvoice} canManage={!employeeMode} />
+      <DealDetailsModal
+        dealId={viewDealId}
+        onClose={() => setViewDealId("")}
+        onCreateSalesOrder={handleCreateSalesOrder}
+        onViewInvoice={viewInvoice}
+        creatingOrderId={creatingOrderId}
+        canManage={!employeeMode}
+      />
       {!employeeMode ? <InvoiceModal deal={invoiceDeal} onClose={() => setInvoiceDeal(null)} onCreated={handleInvoiceCreated} /> : null}
       {!employeeMode ? <InvoiceDetailsModal invoice={invoiceView} onClose={() => setInvoiceView(null)} onPayment={(invoice) => setPaymentInvoice(invoice)} /> : null}
       {!employeeMode ? <PaymentModal invoice={paymentInvoice} onClose={() => setPaymentInvoice(null)} onSaved={handlePaymentSaved} /> : null}

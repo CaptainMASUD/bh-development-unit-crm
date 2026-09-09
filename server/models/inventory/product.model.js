@@ -6,8 +6,31 @@ const TRACKING_TYPES = ["none", "batch", "serial", "expiry", "batch_expiry"];
 const COSTING_METHODS = ["weighted_average", "fifo", "standard"];
 const TAX_TYPES = ["none", "exclusive", "inclusive"];
 
+const uomConversionSchema = new mongoose.Schema(
+  {
+    unit: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "InventoryUnit",
+      required: true,
+    },
+    conversionFactor: {
+      type: Number,
+      required: true,
+      min: 0.000001,
+    },
+  },
+  { _id: false }
+);
+
 const productSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      required: true,
+      index: true,
+    },
+
     name: {
       type: String,
       required: true,
@@ -61,6 +84,23 @@ const productSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "InventoryUnit",
       default: null,
+    },
+
+    purchaseUnit: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "InventoryUnit",
+      default: null,
+    },
+
+    salesUnit: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "InventoryUnit",
+      default: null,
+    },
+
+    uomConversions: {
+      type: [uomConversionSchema],
+      default: [],
     },
 
     defaultSupplier: {
@@ -145,9 +185,39 @@ const productSchema = new mongoose.Schema(
       default: "weighted_average",
     },
 
+    standardCost: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+
+    inventoryAccount: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Account",
+      default: null,
+    },
+
+    cogsAccount: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Account",
+      default: null,
+    },
+
+    expenseAccount: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Account",
+      default: null,
+    },
+
     allowNegativeStock: {
       type: Boolean,
       default: false,
+      validate: {
+        validator: function (v) {
+          return v !== true;
+        },
+        message: "Negative stock is strictly disabled until GL variance accounting is implemented.",
+      },
     },
 
     reorderLevel: {
@@ -226,12 +296,10 @@ productSchema.set("toObject", {
    DATABASE INDEXES
 ========================================================= */
 
-// SKU must be globally unique.
-productSchema.index({ sku: 1 }, { unique: true });
+productSchema.index({ tenantId: 1, sku: 1 }, { unique: true });
 
-// Empty barcodes are allowed, but non-empty barcodes must be unique.
 productSchema.index(
-  { barcode: 1 },
+  { tenantId: 1, barcode: 1 },
   {
     unique: true,
     partialFilterExpression: {
@@ -243,53 +311,53 @@ productSchema.index(
   }
 );
 
-// General listing and prefix searching.
 productSchema.index({
+  tenantId: 1,
   nameLower: 1,
   _id: 1,
 });
 
-// Status-based product listing.
 productSchema.index({
+  tenantId: 1,
   status: 1,
   nameLower: 1,
   _id: 1,
 });
 
-// Category filtering.
 productSchema.index({
+  tenantId: 1,
   category: 1,
   status: 1,
   nameLower: 1,
   _id: 1,
 });
 
-// Brand filtering.
 productSchema.index({
+  tenantId: 1,
   brand: 1,
   status: 1,
   nameLower: 1,
   _id: 1,
 });
 
-// Supplier-based product sourcing and inventory filtering.
 productSchema.index({
+  tenantId: 1,
   defaultSupplier: 1,
   status: 1,
   nameLower: 1,
   _id: 1,
 });
 
-// Product-type filtering.
 productSchema.index({
+  tenantId: 1,
   productType: 1,
   status: 1,
   nameLower: 1,
   _id: 1,
 });
 
-// Inventory-tracking filtering.
 productSchema.index({
+  tenantId: 1,
   trackInventory: 1,
   status: 1,
   nameLower: 1,
@@ -354,6 +422,10 @@ const normalizeProductPatch = (source = {}) => {
     )
       .trim()
       .toLowerCase();
+  }
+
+  if (patch.allowNegativeStock === true) {
+    throw new Error("Negative stock is strictly disabled until GL variance accounting is implemented.");
   }
 
   if (patch.taxType !== undefined) {
@@ -458,6 +530,7 @@ export {
   TRACKING_TYPES,
   COSTING_METHODS,
   TAX_TYPES,
+  normalizeProductPatch,
 };
 
 export default mongoose.model("Product", productSchema);

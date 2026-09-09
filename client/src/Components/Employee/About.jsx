@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import logo from "../../../public/crm.png"
+const logo = "/crm.png"
 import {
   FiUsers,
   FiUserCheck,

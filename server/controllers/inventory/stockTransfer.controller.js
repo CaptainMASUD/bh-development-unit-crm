@@ -9,6 +9,14 @@ import StockTransfer, {
 } from "../../models/inventory/stockTransfer.model.js";
 import { roundMoney, roundQuantity } from "../../models/inventory/productStock.model.js";
 import { runMongoTransaction } from "../../utils/mongoTransaction.js";
+import {
+  dispatchTransferStock,
+  receiveTransferStock,
+  postDirectTransferStock,
+  closeShortTransferStock,
+} from "../../services/inventoryPosting.service.js";
+import { InventoryPreference } from "../../models/inventory/inventoryOperations.model.js";
+import { writeAudit } from "../../utils/audit.js";
 
 const LIST_FIELDS = [
   "transferNo",
@@ -170,7 +178,7 @@ const populateTransfer = (query) =>
     .populate("dispatchedBy", "name email")
     .populate("receivedBy", "name email");
 
-const validateTransferPayload = async (payload, { session = null } = {}) => {
+const validateTransferPayload = async (payload, { tenantId = null, session = null } = {}) => {
   if (!isId(payload.sourceWarehouse)) {
     throw Object.assign(new Error("A valid source warehouse is required."), { statusCode: 400 });
   }
@@ -204,10 +212,11 @@ const validateTransferPayload = async (payload, { session = null } = {}) => {
 
   const warehouseQuery = Warehouse.find({
     _id: { $in: [payload.sourceWarehouse, payload.destinationWarehouse] },
+    ...(tenantId ? { tenantId } : {}),
   })
     .select("name code status")
     .lean();
-  const productQuery = Product.find({ _id: { $in: productIds } })
+  const productQuery = Product.find({ _id: { $in: productIds }, ...(tenantId ? { tenantId } : {}) })
     .select("name sku status productType trackInventory trackingType purchasePrice")
     .lean();
   const locationIds = [
@@ -219,7 +228,7 @@ const validateTransferPayload = async (payload, { session = null } = {}) => {
     ),
   ];
   const locationQuery = locationIds.length
-    ? WarehouseLocation.find({ _id: { $in: locationIds } })
+    ? WarehouseLocation.find({ _id: { $in: locationIds }, ...(tenantId ? { tenantId } : {}) })
         .select("warehouse name code status")
         .lean()
     : Promise.resolve([]);
@@ -306,8 +315,9 @@ const validateTransferPayload = async (payload, { session = null } = {}) => {
   return { productMap, warehouseMap, locationMap };
 };
 
-const buildListFilter = (query = {}) => {
+const buildListFilter = (query = {}, tenantId = null) => {
   const filter = {};
+  if (tenantId) filter.tenantId = new mongoose.Types.ObjectId(String(tenantId));
   if (query.status && query.status !== "all") filter.status = clean(query.status).toLowerCase();
   if (query.transferMode && query.transferMode !== "all") filter.transferMode = clean(query.transferMode).toLowerCase();
   if (isId(query.sourceWarehouse)) filter.sourceWarehouse = query.sourceWarehouse;
@@ -355,7 +365,7 @@ export const listStockTransfers = async (req, res) => {
     const cursor = decodeCursor(req.query.cursor);
     if (req.query.cursor && !cursor) return res.status(400).json({ message: "Invalid pagination cursor." });
 
-    const filter = buildListFilter(req.query);
+    const filter = buildListFilter(req.query, req.tenantId);
     if (cursor) {
       filter.$and = [
         ...(filter.$and || []),
@@ -389,7 +399,7 @@ export const listStockTransfers = async (req, res) => {
 
 export const getStockTransferSummary = async (req, res) => {
   try {
-    const match = buildListFilter(req.query);
+    const match = buildListFilter(req.query, req.tenantId);
     delete match.$or;
     const [summary] = await StockTransfer.aggregate([
       { $match: match },
@@ -435,7 +445,9 @@ export const getStockTransferSummary = async (req, res) => {
 export const getStockTransfer = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock transfer ID." });
-    const transfer = await populateTransfer(StockTransfer.findById(req.params.id)).lean();
+    const transfer = await populateTransfer(
+      StockTransfer.findOne({ _id: req.params.id, ...(req.tenantId ? { tenantId: req.tenantId } : {}) })
+    ).lean();
     if (!transfer) return res.status(404).json({ message: "Stock transfer not found." });
     return res.json({ transfer });
   } catch (error) {
@@ -450,7 +462,8 @@ export const createStockTransfer = async (req, res) => {
     payload.transferMode = payload.transferMode || "two_step";
     payload.transferDate = payload.transferDate || new Date();
     payload.currency = payload.currency || "BDT";
-    await validateTransferPayload(payload);
+    if (req.tenantId) payload.tenantId = req.tenantId;
+    await validateTransferPayload(payload, { tenantId: req.tenantId });
 
     const transfer = await StockTransfer.create({
       ...payload,
@@ -468,7 +481,7 @@ export const updateStockTransfer = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock transfer ID." });
     const userId = req.user?._id || null;
-    const current = await StockTransfer.findOne({ _id: req.params.id, status: "draft" });
+    const current = await StockTransfer.findOne({ _id: req.params.id, status: "draft", ...(req.tenantId ? { tenantId: req.tenantId } : {}) });
     if (!current) return res.status(409).json({ message: "Only a draft stock transfer can be updated." });
 
     const patch = buildTransferPayload(req.body, userId);
@@ -480,7 +493,7 @@ export const updateStockTransfer = async (req, res) => {
       destinationWarehouse: patch.destinationWarehouse ?? current.destinationWarehouse,
       lines: patch.lines ?? current.lines.map((line) => line.toObject()),
     };
-    await validateTransferPayload(merged);
+    await validateTransferPayload(merged, { tenantId: req.tenantId });
     current.set(patch);
     current.updatedBy = userId;
     await current.save();
@@ -494,7 +507,7 @@ export const submitStockTransfer = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock transfer ID." });
     const transfer = await StockTransfer.findOneAndUpdate(
-      { _id: req.params.id, status: "draft" },
+      { _id: req.params.id, status: "draft", ...(req.tenantId ? { tenantId: req.tenantId } : {}) },
       {
         status: "submitted",
         submittedAt: new Date(),
@@ -513,8 +526,22 @@ export const submitStockTransfer = async (req, res) => {
 export const approveStockTransfer = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock transfer ID." });
-    const transfer = await StockTransfer.findOne({ _id: req.params.id, status: "submitted" });
+    const transfer = await StockTransfer.findOne({ _id: req.params.id, status: "submitted", ...(req.tenantId ? { tenantId: req.tenantId } : {}) });
     if (!transfer) return res.status(409).json({ message: "Only a submitted transfer can be approved." });
+
+    // Enterprise Control: Segregation of Duties
+    const preference = req.tenantId
+      ? await InventoryPreference.findOne({ tenantId: req.tenantId, key: "default" }).lean()
+      : null;
+
+    if (preference?.enforceSegregationOfDuties) {
+      if (transfer.createdBy && req.user?._id && String(transfer.createdBy) === String(req.user._id)) {
+        return res.status(403).json({
+          code: "CREATOR_CANNOT_APPROVE",
+          message: "Segregation of duties violation: The creator of a stock transfer cannot approve it.",
+        });
+      }
+    }
 
     const approvals = new Map(
       (Array.isArray(req.body.lines) ? req.body.lines : [])
@@ -523,7 +550,7 @@ export const approveStockTransfer = async (req, res) => {
     );
 
     const productIds = [...new Set(transfer.lines.map((line) => String(line.product)))];
-    const products = await Product.find({ _id: { $in: productIds } }).select("trackingType").lean();
+    const products = await Product.find({ _id: { $in: productIds }, ...(req.tenantId ? { tenantId: req.tenantId } : {}) }).select("trackingType").lean();
     const productMap = new Map(products.map((product) => [String(product._id), product]));
 
     for (let index = 0; index < transfer.lines.length; index += 1) {
@@ -546,8 +573,19 @@ export const approveStockTransfer = async (req, res) => {
     transfer.status = "approved";
     transfer.approvedAt = new Date();
     transfer.approvedBy = req.user?._id || null;
-    transfer.updatedBy = req.user?._id || null;
     await transfer.save();
+
+    if (req.user?._id) {
+      await writeAudit({
+        tenantId: req.tenantId || null,
+        actorId: req.user._id,
+        action: "approve",
+        entityType: "StockTransfer",
+        entityId: transfer._id,
+        meta: { transferNo: transfer.transferNo },
+      });
+    }
+
     return res.json({ message: "Stock transfer approved.", transfer });
   } catch (error) {
     return sendWriteError(res, error, "Failed to approve stock transfer.");
@@ -560,7 +598,7 @@ export const rejectStockTransfer = async (req, res) => {
     const reason = clean(req.body.reason);
     if (!reason) return res.status(400).json({ message: "Rejection reason is required." });
     const transfer = await StockTransfer.findOneAndUpdate(
-      { _id: req.params.id, status: "submitted" },
+      { _id: req.params.id, status: "submitted", ...(req.tenantId ? { tenantId: req.tenantId } : {}) },
       {
         status: "rejected",
         rejectedAt: new Date(),
@@ -582,35 +620,21 @@ export const postDirectStockTransfer = async (req, res) => {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock transfer ID." });
     const userId = req.user?._id || null;
     const transfer = await runMongoTransaction(async (session) => {
-      const doc = await StockTransfer.findById(req.params.id).session(session);
+      const doc = await StockTransfer.findOne({
+        _id: req.params.id,
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+      }).session(session);
       if (!doc) throw Object.assign(new Error("Stock transfer not found."), { statusCode: 404 });
       if (doc.status === "received" && doc.directMovement) return doc;
       if (doc.status !== "approved" || doc.transferMode !== "direct") {
         throw Object.assign(new Error("Only an approved direct transfer can be posted."), { statusCode: 409 });
       }
 
-      const movement = await createMovement({
+      const movement = await postDirectTransferStock({
+        tenantId: req.tenantId,
         transfer: doc,
-        idempotencyKey: `stock-transfer:${doc._id}:direct`,
-        reference: doc.transferNo,
-        notes: `Direct stock transfer ${doc.transferNo}.`,
         userId,
         session,
-        lines: doc.lines.map((line) => ({
-          product: line.product,
-          effect: "transfer",
-          sourceWarehouse: doc.sourceWarehouse,
-          sourceLocation: line.sourceLocation,
-          destinationWarehouse: doc.destinationWarehouse,
-          destinationLocation: line.destinationLocation,
-          quantity: line.approvedQuantity,
-          requestedUnitCost: line.unitCost,
-          lotNumber: line.lotNumber,
-          serialNumbers: line.serialNumbers,
-          manufactureDate: line.manufactureDate,
-          expiryDate: line.expiryDate,
-          note: line.note,
-        })),
       });
 
       for (let index = 0; index < doc.lines.length; index += 1) {
@@ -643,48 +667,21 @@ export const dispatchStockTransfer = async (req, res) => {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock transfer ID." });
     const userId = req.user?._id || null;
     const transfer = await runMongoTransaction(async (session) => {
-      const doc = await StockTransfer.findById(req.params.id).session(session);
+      const doc = await StockTransfer.findOne({
+        _id: req.params.id,
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+      }).session(session);
       if (!doc) throw Object.assign(new Error("Stock transfer not found."), { statusCode: 404 });
       if (doc.status === "dispatched" && doc.dispatchMovement) return doc;
       if (doc.status !== "approved" || doc.transferMode !== "two_step") {
         throw Object.assign(new Error("Only an approved two-step transfer can be dispatched."), { statusCode: 409 });
       }
 
-      const movementLines = [];
-      for (const line of doc.lines) {
-        movementLines.push({
-          product: line.product,
-          effect: "out",
-          sourceWarehouse: doc.sourceWarehouse,
-          sourceLocation: line.sourceLocation,
-          quantity: line.approvedQuantity,
-          requestedUnitCost: line.unitCost,
-          lotNumber: line.lotNumber,
-          serialNumbers: line.serialNumbers,
-          manufactureDate: line.manufactureDate,
-          expiryDate: line.expiryDate,
-          note: line.note,
-        });
-        movementLines.push({
-          product: line.product,
-          effect: "incoming",
-          destinationWarehouse: doc.destinationWarehouse,
-          destinationLocation: line.destinationLocation,
-          quantity: line.approvedQuantity,
-          requestedUnitCost: line.unitCost,
-          lotNumber: line.lotNumber,
-          note: `Incoming transfer commitment for ${doc.transferNo}.`,
-        });
-      }
-
-      const movement = await createMovement({
+      const movement = await dispatchTransferStock({
+        tenantId: req.tenantId,
         transfer: doc,
-        idempotencyKey: `stock-transfer:${doc._id}:dispatch`,
-        reference: doc.transferNo,
-        notes: `Dispatch for two-step stock transfer ${doc.transferNo}.`,
         userId,
         session,
-        lines: movementLines,
       });
 
       for (let index = 0; index < doc.lines.length; index += 1) {
@@ -718,14 +715,23 @@ export const receiveStockTransfer = async (req, res) => {
     const userId = req.user?._id || null;
     const fullKey = `stock-transfer:${req.params.id}:receipt:${requestKey}`;
 
-    const existingMovement = await StockMovement.findOne({ idempotencyKey: fullKey }).select("_id").lean();
+    const existingMovement = await StockMovement.findOne({
+      idempotencyKey: fullKey,
+      ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+    }).select("_id").lean();
     if (existingMovement) {
-      const existingTransfer = await StockTransfer.findById(req.params.id).lean();
+      const existingTransfer = await StockTransfer.findOne({
+        _id: req.params.id,
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+      }).lean();
       return res.json({ message: "This receipt was already posted.", transfer: existingTransfer });
     }
 
     const transfer = await runMongoTransaction(async (session) => {
-      const doc = await StockTransfer.findById(req.params.id).session(session);
+      const doc = await StockTransfer.findOne({
+        _id: req.params.id,
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+      }).session(session);
       if (!doc) throw Object.assign(new Error("Stock transfer not found."), { statusCode: 404 });
       if (!["dispatched", "partially_received"].includes(doc.status) || doc.transferMode !== "two_step") {
         throw Object.assign(new Error("Only a dispatched two-step transfer can be received."), { statusCode: 409 });
@@ -747,7 +753,10 @@ export const receiveStockTransfer = async (req, res) => {
       const receivedUpdates = [];
       let totalReceived = 0;
       const productIds = [...new Set(doc.lines.map((line) => String(line.product)))];
-      const products = await Product.find({ _id: { $in: productIds } })
+      const products = await Product.find({
+        _id: { $in: productIds },
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+      })
         .select("trackingType")
         .session(session)
         .lean();
@@ -811,14 +820,13 @@ export const receiveStockTransfer = async (req, res) => {
         throw Object.assign(new Error("No receivable transfer quantity was provided."), { statusCode: 400 });
       }
 
-      const movement = await createMovement({
+      const movement = await receiveTransferStock({
+        tenantId: req.tenantId,
         transfer: doc,
+        movementLines,
         idempotencyKey: fullKey,
-        reference: doc.transferNo,
-        notes: `Receipt for stock transfer ${doc.transferNo}.`,
         userId,
         session,
-        lines: movementLines,
       });
 
       for (const update of receivedUpdates) {
@@ -866,44 +874,28 @@ export const closeShortStockTransfer = async (req, res) => {
     const userId = req.user?._id || null;
 
     const transfer = await runMongoTransaction(async (session) => {
-      const doc = await StockTransfer.findById(req.params.id).session(session);
+      const doc = await StockTransfer.findOne({
+        _id: req.params.id,
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+      }).session(session);
       if (!doc) throw Object.assign(new Error("Stock transfer not found."), { statusCode: 404 });
       if (!["dispatched", "partially_received"].includes(doc.status) || doc.transferMode !== "two_step") {
         throw Object.assign(new Error("Only an in-transit transfer can be closed with a shortage."), { statusCode: 409 });
       }
 
-      const movementLines = [];
-      const updates = [];
-      for (const line of doc.lines) {
-        const remaining = roundQuantity(line.dispatchedQuantity - line.receivedQuantity - line.shortQuantity);
-        if (remaining <= 0) continue;
-        movementLines.push({
-          product: line.product,
-          effect: "incoming_clear",
-          destinationWarehouse: doc.destinationWarehouse,
-          destinationLocation: line.destinationLocation,
-          quantity: remaining,
-          requestedUnitCost: line.unitCost,
-          lotNumber: line.lotNumber,
-          note: `Transfer shortage close for ${doc.transferNo}.`,
-        });
-        updates.push({ line, remaining });
-      }
-      if (!movementLines.length) {
-        throw Object.assign(new Error("This transfer has no remaining in-transit quantity."), { statusCode: 409 });
-      }
-
-      const movement = await createMovement({
+      const movement = await closeShortTransferStock({
+        tenantId: req.tenantId,
         transfer: doc,
-        idempotencyKey: `stock-transfer:${doc._id}:close-short`,
-        reference: doc.transferNo,
-        notes: `Close remaining incoming quantity as shortage: ${reason}`,
+        reason,
         userId,
         session,
-        lines: movementLines,
       });
-      for (const update of updates) {
-        update.line.shortQuantity = roundQuantity(update.line.shortQuantity + update.remaining);
+
+      for (const line of doc.lines) {
+        const remaining = roundQuantity(line.dispatchedQuantity - line.receivedQuantity - line.shortQuantity);
+        if (remaining > 0) {
+          line.shortQuantity = roundQuantity(line.shortQuantity + remaining);
+        }
       }
       doc.closeMovement = movement._id;
       doc.status = "closed_short";
@@ -929,7 +921,10 @@ export const reverseStockTransfer = async (req, res) => {
     const userId = req.user?._id || null;
 
     const transfer = await runMongoTransaction(async (session) => {
-      const doc = await StockTransfer.findById(req.params.id).session(session);
+      const doc = await StockTransfer.findOne({
+        _id: req.params.id,
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+      }).session(session);
       if (!doc) throw Object.assign(new Error("Stock transfer not found."), { statusCode: 404 });
       if (doc.status === "reversed") return doc;
       if (!["dispatched", "partially_received", "received", "closed_short"].includes(doc.status)) {
@@ -996,7 +991,11 @@ export const cancelStockTransfer = async (req, res) => {
     const reason = clean(req.body.reason);
     if (!reason) return res.status(400).json({ message: "Cancellation reason is required." });
     const transfer = await StockTransfer.findOneAndUpdate(
-      { _id: req.params.id, status: { $in: ["draft", "submitted", "approved"] } },
+      {
+        _id: req.params.id,
+        status: { $in: ["draft", "submitted", "approved"] },
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+      },
       {
         status: "cancelled",
         cancelledAt: new Date(),
@@ -1016,7 +1015,11 @@ export const cancelStockTransfer = async (req, res) => {
 export const deleteStockTransfer = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock transfer ID." });
-    const transfer = await StockTransfer.findOneAndDelete({ _id: req.params.id, status: "draft" });
+    const transfer = await StockTransfer.findOneAndDelete({
+      _id: req.params.id,
+      status: "draft",
+      ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+    });
     if (!transfer) return res.status(409).json({ message: "Only a draft stock transfer can be deleted." });
     return res.json({ message: "Stock transfer deleted." });
   } catch (error) {

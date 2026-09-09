@@ -31,13 +31,11 @@ const stockAdjustmentLineSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Product",
       required: true,
-      index: true,
     },
     location: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "WarehouseLocation",
       default: null,
-      index: true,
     },
     systemQuantity: {
       type: Number,
@@ -91,6 +89,12 @@ const stockAdjustmentLineSchema = new mongoose.Schema(
 
 const stockAdjustmentSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tenant",
+      required: true,
+      index: true,
+    },
     adjustmentNo: {
       type: String,
       required: true,
@@ -102,19 +106,16 @@ const stockAdjustmentSchema = new mongoose.Schema(
       type: Date,
       required: true,
       default: Date.now,
-      index: true,
     },
     warehouse: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Warehouse",
       required: true,
-      index: true,
     },
     adjustmentType: {
       type: String,
       enum: ADJUSTMENT_TYPES,
       default: "physical_count",
-      index: true,
     },
     adjustmentMode: {
       type: String,
@@ -125,7 +126,6 @@ const stockAdjustmentSchema = new mongoose.Schema(
       type: String,
       enum: ADJUSTMENT_STATUSES,
       default: "draft",
-      index: true,
     },
     reference: {
       type: String,
@@ -188,7 +188,6 @@ const stockAdjustmentSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "StockMovement",
       default: null,
-      index: true,
     },
     cancelledAt: { type: Date, default: null },
     cancelledBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
@@ -200,9 +199,9 @@ const stockAdjustmentSchema = new mongoose.Schema(
       ref: "StockMovement",
       default: null,
     },
-    journalEntry: { type: mongoose.Schema.Types.ObjectId, ref: "JournalEntry", default: null, index: true },
+    journalEntry: { type: mongoose.Schema.Types.ObjectId, ref: "JournalEntry", default: null },
     reversalJournalEntry: { type: mongoose.Schema.Types.ObjectId, ref: "JournalEntry", default: null },
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null, index: true },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },
   {
@@ -212,24 +211,30 @@ const stockAdjustmentSchema = new mongoose.Schema(
   }
 );
 
-stockAdjustmentSchema.index({ adjustmentNo: 1 }, { unique: true });
+stockAdjustmentSchema.index({ tenantId: 1, adjustmentNo: 1 }, { unique: true });
 stockAdjustmentSchema.index(
-  { idempotencyKey: 1 },
+  { tenantId: 1, idempotencyKey: 1 },
   {
     unique: true,
     partialFilterExpression: { idempotencyKey: { $type: "string", $gt: "" } },
   }
 );
-stockAdjustmentSchema.index({ warehouse: 1, status: 1, adjustmentDate: -1, _id: -1 });
-stockAdjustmentSchema.index({ adjustmentType: 1, status: 1, adjustmentDate: -1, _id: -1 });
-stockAdjustmentSchema.index({ products: 1, adjustmentDate: -1, _id: -1 });
-stockAdjustmentSchema.index({ locations: 1, adjustmentDate: -1, _id: -1 });
-stockAdjustmentSchema.index({ createdBy: 1, adjustmentDate: -1, _id: -1 });
+stockAdjustmentSchema.index({ tenantId: 1, warehouse: 1, status: 1, adjustmentDate: -1, _id: -1 });
+stockAdjustmentSchema.index({ tenantId: 1, adjustmentType: 1, status: 1, adjustmentDate: -1, _id: -1 });
+stockAdjustmentSchema.index({ tenantId: 1, products: 1, adjustmentDate: -1, _id: -1 });
+stockAdjustmentSchema.index({ tenantId: 1, locations: 1, adjustmentDate: -1, _id: -1 });
+stockAdjustmentSchema.index({ tenantId: 1, createdBy: 1, adjustmentDate: -1, _id: -1 });
 stockAdjustmentSchema.index(
-  { movement: 1 },
+  { tenantId: 1, movement: 1 },
   { unique: true, partialFilterExpression: { movement: { $type: "objectId" } } }
 );
-stockAdjustmentSchema.index({ reference: 1, adjustmentDate: -1 });
+stockAdjustmentSchema.index({ tenantId: 1, reference: 1, adjustmentDate: -1 });
+stockAdjustmentSchema.index({ tenantId: 1, adjustmentDate: -1, _id: -1 });
+stockAdjustmentSchema.index({ tenantId: 1, status: 1, adjustmentDate: -1 });
+stockAdjustmentSchema.index(
+  { tenantId: 1, journalEntry: 1 },
+  { partialFilterExpression: { journalEntry: { $type: "objectId" } } }
+);
 
 const clean = (value) => String(value ?? "").trim();
 const idKey = (value) => String(value || "");
@@ -314,11 +319,15 @@ stockAdjustmentSchema.pre("validate", function (next) {
   this.decreaseValue = roundMoney(decreaseValue);
   this.netValue = roundMoney(increaseValue - decreaseValue);
 
-  if (this.status === "posted" && (!this.movement || !this.postedAt)) {
-    this.invalidate("movement", "A posted adjustment requires its posted stock movement.");
+  if (this.status === "posted" && !this.postedAt) {
+    this.invalidate("postedAt", "A posted adjustment requires a posting timestamp.");
   }
-  if (this.status === "reversed" && !this.reversalMovement) {
-    this.invalidate("reversalMovement", "A reversed adjustment requires its reversal movement.");
+  const hasVariance = this.increaseQuantity > 0 || this.decreaseQuantity > 0;
+  if (this.status === "posted" && hasVariance && !this.movement) {
+    this.invalidate("movement", "A posted adjustment with non-zero variance requires its posted stock movement.");
+  }
+  if (this.status === "reversed" && hasVariance && !this.reversalMovement) {
+    this.invalidate("reversalMovement", "A reversed adjustment with non-zero variance requires its reversal movement.");
   }
 
   next();

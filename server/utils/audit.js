@@ -2,15 +2,15 @@ import AuditLog from "../models/auditLog.model.js";
 import ActivityLog from "../models/activityLog.model.js";
 import ConversionLog from "../models/conversionLog.model.js";
 
-export const getReqMeta = (req) => {
+export const getReqMeta = (req = {}) => {
   return {
     ip:
-      req.headers["x-forwarded-for"]?.split(",")?.[0]?.trim() ||
-      req.socket?.remoteAddress ||
+      req?.headers?.["x-forwarded-for"]?.split(",")?.[0]?.trim() ||
+      req?.socket?.remoteAddress ||
       "",
-    userAgent: req.headers["user-agent"] || "",
-    method: req.method || "",
-    path: req.originalUrl || req.url || "",
+    userAgent: req?.headers?.["user-agent"] || "",
+    method: req?.method || "",
+    path: req?.originalUrl || req?.url || "",
   };
 };
 
@@ -47,6 +47,7 @@ const normalizeActivityType = (type = "") => {
 
 export const writeAudit = async ({
   session = null,
+  tenantId = null,
   actorId,
   action,
   entityType,
@@ -59,6 +60,7 @@ export const writeAudit = async ({
     if (!actorId || !action || !entityType || !entityId) return null;
 
     const payload = {
+      ...(tenantId ? { tenantId } : meta?.tenantId ? { tenantId: meta.tenantId } : {}),
       actorId,
       action: normalizeAuditAction(action),
       entityType,

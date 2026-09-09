@@ -18,6 +18,12 @@ const LOCATION_STATUSES = ["active", "inactive", "archived"];
 
 const warehouseLocationSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      required: true,
+      index: true,
+    },
     warehouse: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Warehouse",
@@ -94,20 +100,20 @@ warehouseLocationSchema.set("toObject", {
   },
 });
 
-warehouseLocationSchema.index({ warehouse: 1, code: 1 }, { unique: true });
+warehouseLocationSchema.index({ tenantId: 1, warehouse: 1, code: 1 }, { unique: true });
 warehouseLocationSchema.index(
-  { warehouse: 1, barcode: 1 },
+  { tenantId: 1, warehouse: 1, barcode: 1 },
   {
     unique: true,
     partialFilterExpression: { barcode: { $type: "string", $gt: "" } },
   }
 );
-warehouseLocationSchema.index({ warehouse: 1, parent: 1, sortOrder: 1, nameLower: 1, _id: 1 });
-warehouseLocationSchema.index({ warehouse: 1, status: 1, sortOrder: 1, nameLower: 1, _id: 1 });
-warehouseLocationSchema.index({ warehouse: 1, locationType: 1, status: 1, nameLower: 1, _id: 1 });
-warehouseLocationSchema.index({ warehouse: 1, ancestors: 1, status: 1 });
+warehouseLocationSchema.index({ tenantId: 1, warehouse: 1, parent: 1, sortOrder: 1, nameLower: 1, _id: 1 });
+warehouseLocationSchema.index({ tenantId: 1, warehouse: 1, status: 1, sortOrder: 1, nameLower: 1, _id: 1 });
+warehouseLocationSchema.index({ tenantId: 1, warehouse: 1, locationType: 1, status: 1, nameLower: 1, _id: 1 });
+warehouseLocationSchema.index({ tenantId: 1, warehouse: 1, ancestors: 1, status: 1 });
 warehouseLocationSchema.index(
-  { warehouse: 1, parent: 1, nameLower: 1 },
+  { tenantId: 1, warehouse: 1, parent: 1, nameLower: 1 },
   { unique: true }
 );
 

@@ -157,6 +157,7 @@ function qty(value, digits = 2) {
 }
 
 function money(value, currency = "BDT") {
+  if (value === null || value === undefined) return "—"
   return `${currency || "BDT"} ${qty(value, 2)}`
 }
 
@@ -517,6 +518,7 @@ export default function StockAdjustments() {
     post: hasPermission(user, PERMISSION.post),
     reverse: hasPermission(user, PERMISSION.reverse),
     delete: hasPermission(user, PERMISSION.delete),
+    costView: hasPermission(user, "inventory-report:cost-view") || user?.role === "admin" || user?.role === "superadmin",
   }
 
   const [tab, setTab] = useState("all")
@@ -1026,7 +1028,10 @@ export default function StockAdjustments() {
       toast.success(data.message || `${pretty(type)} completed`)
       await Promise.all([loadItems(), loadSummary()])
     } catch (error) {
-      if (error.data?.staleLines?.length) {
+      const msg = String(error.message || "")
+      if (type === "approve" && (msg.toLowerCase().includes("creator") || msg.toLowerCase().includes("own adjustment") || error.status === 403)) {
+        toast.error("You cannot approve an adjustment that you created.")
+      } else if (error.data?.staleLines?.length) {
         toast.error(`${error.message} ${error.data.staleLines.length} stale line(s).`)
       } else {
         toast.error(error.message || `Failed to ${type} adjustment`)
@@ -1097,6 +1102,32 @@ export default function StockAdjustments() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={cn(cls.button, cls.ghost)}
+              onClick={async () => {
+                try {
+                  const token = localStorage.getItem("token")
+                  const response = await fetch(`${API_BASE}/inventory/reports/adjustments?format=csv`, {
+                    credentials: "include",
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                  })
+                  if (!response.ok) throw new Error("CSV export failed")
+                  const blob = await response.blob()
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement("a")
+                  a.href = url
+                  a.download = `stock-adjustments-${new Date().toISOString().slice(0, 10)}.csv`
+                  a.click()
+                  URL.revokeObjectURL(url)
+                  toast.success("Adjustments exported to CSV")
+                } catch (e) {
+                  toast.error(e.message || "Failed to export CSV")
+                }
+              }}
+            >
+              Export CSV
+            </button>
             <button className={cn(cls.button, cls.ghost)} onClick={refreshAll} disabled={loading}>
               <Icon icon={RefreshIcon} className={cn("h-4 w-4", loading && "animate-spin")} />
               Refresh

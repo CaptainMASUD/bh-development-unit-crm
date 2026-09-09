@@ -60,8 +60,13 @@ async function fetchAll(path, key) {
   return rows
 }
 
+function sanitizeCsvCell(value) {
+  const text = String(value ?? "")
+  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text
+}
+
 function downloadCsv(rows) {
-  const escape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`
+  const escape = (value) => `"${sanitizeCsvCell(value).replace(/"/g, '""')}"`
   const data = [["Warehouse", "Location Code", "Zone", "Rack", "Shelf", "Current Product", "Quantity", "Status"], ...rows.map((row) => [row.warehouse?.name, row.code, row.zone, row.rack, row.shelf, row.currentProduct?.name || "—", row.quantity, statusLabel(row.availabilityStatus)])]
   const url = URL.createObjectURL(new Blob([`\uFEFF${data.map((row) => row.map(escape).join(",")).join("\n")}`], { type: "text/csv;charset=utf-8" }))
   const link = document.createElement("a"); link.href = url; link.download = `warehouse-locations-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(url)

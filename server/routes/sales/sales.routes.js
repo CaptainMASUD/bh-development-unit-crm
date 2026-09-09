@@ -21,6 +21,7 @@ import {
   confirmSalesOrder,
   cancelSalesOrder,
   closeSalesOrder,
+  createSalesOrderFromDeal,
 } from "../../controllers/sales/salesOrder.controller.js";
 
 import {
@@ -165,6 +166,11 @@ router.post("/returns/:id/refund", requirePermission(SALES_PERMISSIONS.PAYMENT_M
     "/orders/:id/close",
     requirePermission(SALES_PERMISSIONS.ORDER_APPROVE),
     asyncHandler(closeSalesOrder)
+  );
+  router.post(
+    "/orders/from-deal/:dealId",
+    requirePermission(SALES_PERMISSIONS.ORDER_MANAGE),
+    asyncHandler(createSalesOrderFromDeal)
   );
 
   // Delivery notes

@@ -4,6 +4,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { SalesInvoice } from "../../models/sales/salesInvoice.model.js";
 import { SalesOrder } from "../../models/sales/salesOrder.model.js";
 import { DeliveryNote } from "../../models/sales/deliveryNote.model.js";
+import Product from "../../models/inventory/product.model.js";
 import { calculateDocument, roundMoney } from "../../services/salesCalculation.service.js";
 import { nextSalesNumber } from "../../services/salesNumber.service.js";
 import {
@@ -61,12 +62,24 @@ export const createSalesInvoice = async (req, res) => {
         }
       }
 
+      const productIds = order.lines.map((l) => l.productId).filter(Boolean);
+      const products = await Product.find({ _id: { $in: productIds } }).select("productType trackInventory").session(session).lean();
+      const productMap = new Map(products.map((p) => [String(p._id), p]));
+
+      const isNonStockLine = (line) => {
+        const prod = productMap.get(String(line.productId));
+        return prod?.trackInventory === false || prod?.productType === "service" || req.body.allowAdvance === true;
+      };
+
       const requestedLines = Array.isArray(req.body.lines) && req.body.lines.length
         ? req.body.lines
         : order.lines
             .map((line) => {
-              const remaining = line.deliveredQty - line.invoicedQty;
-              const deliveryBased = sourceQuantities.size
+              const nonStock = isNonStockLine(line);
+              const remaining = nonStock
+                ? line.orderedQty - line.invoicedQty
+                : line.deliveredQty - line.invoicedQty;
+              const deliveryBased = (sourceQuantities.size && !nonStock)
                 ? Math.min(sourceQuantities.get(String(line._id)) || 0, remaining)
                 : remaining;
               return {
@@ -77,7 +90,7 @@ export const createSalesInvoice = async (req, res) => {
             .filter((line) => line.quantity > 0);
 
       if (!requestedLines.length) {
-        throw new SalesError("There is no delivered quantity left to invoice.", 409);
+        throw new SalesError("There is no quantity available to invoice.", 409);
       }
 
       const orderLineMap = new Map(
@@ -90,7 +103,10 @@ export const createSalesInvoice = async (req, res) => {
           throw new SalesError(`Invalid orderLineId: ${requested.orderLineId}`);
         }
 
-        const maxInvoiceQty = orderLine.deliveredQty - orderLine.invoicedQty;
+        const nonStock = isNonStockLine(orderLine);
+        const maxInvoiceQty = nonStock
+          ? orderLine.orderedQty - orderLine.invoicedQty
+          : orderLine.deliveredQty - orderLine.invoicedQty;
         const quantity = Number(requested.quantity);
 
         if (!Number.isFinite(quantity) || quantity <= 0 || quantity > maxInvoiceQty) {
@@ -148,6 +164,8 @@ export const createSalesInvoice = async (req, res) => {
             branchId: order.branchId,
             invoiceNumber,
             salesOrderId: order._id,
+            leadId: order.leadId || undefined,
+            dealId: order.dealId || undefined,
             deliveryNoteIds: req.body.deliveryNoteIds || [],
             customerId: order.customerId,
             salespersonId: order.salespersonId,

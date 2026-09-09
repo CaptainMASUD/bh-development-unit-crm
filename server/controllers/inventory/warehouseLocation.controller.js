@@ -5,7 +5,6 @@ import ProductStock from "../../models/inventory/productStock.model.js";
 import { runMongoTransaction } from "../../utils/mongoTransaction.js";
 
 const LIST_FIELDS = [
-  "warehouse",
   "name",
   "code",
   "locationType",
@@ -189,12 +188,15 @@ const validatePayload = (payload, { partial = false } = {}) => {
   return errors;
 };
 
-const loadWarehouse = async (warehouseId, { requireActive = false, session = null } = {}) => {
+const loadWarehouse = async (warehouseId, { requireActive = false, session = null, tenantId = null } = {}) => {
   if (!isId(warehouseId)) {
     throw Object.assign(new Error("Select a valid warehouse."), { statusCode: 400 });
   }
 
-  const query = Warehouse.findById(warehouseId).select("name code status");
+  const query = Warehouse.findOne({
+    _id: warehouseId,
+    ...(tenantId ? { tenantId } : {}),
+  }).select("name code status");
   if (session) query.session(session);
   const warehouse = await query.lean();
   if (!warehouse) throw Object.assign(new Error("Warehouse was not found."), { statusCode: 404 });
@@ -207,10 +209,13 @@ const loadWarehouse = async (warehouseId, { requireActive = false, session = nul
   return warehouse;
 };
 
-const resolveParent = async ({ parentId, warehouseId, requireActive = false, session = null }) => {
+const resolveParent = async ({ parentId, warehouseId, requireActive = false, session = null, tenantId = null }) => {
   if (!parentId) return { parent: null, ancestors: [], depth: 0 };
 
-  const query = WarehouseLocation.findById(parentId).select("warehouse name code parent ancestors depth status");
+  const query = WarehouseLocation.findOne({
+    _id: parentId,
+    ...(tenantId ? { tenantId } : {}),
+  }).select("warehouse name code parent ancestors depth status");
   if (session) query.session(session);
   const parent = await query.lean();
 
@@ -256,8 +261,8 @@ const sendWriteError = (res, error, fallbackMessage) => {
   });
 };
 
-const buildListFilter = (query = {}) => {
-  const filter = {};
+const buildListFilter = (query = {}, tenantId = null) => {
+  const filter = tenantId ? { tenantId } : {};
 
   if (isId(query.warehouse)) filter.warehouse = query.warehouse;
   if (query.status && query.status !== "all") filter.status = clean(query.status).toLowerCase();
@@ -288,10 +293,11 @@ const buildListFilter = (query = {}) => {
   return filter;
 };
 
-const hasNonZeroStock = async (locationId) =>
+const hasNonZeroStock = async (locationId, tenantId = null) =>
   Boolean(
     await ProductStock.exists({
       location: locationId,
+      ...(tenantId ? { tenantId } : {}),
       $or: [
         { onHandQuantity: { $ne: 0 } },
         { reservedQuantity: { $ne: 0 } },
@@ -304,11 +310,12 @@ const hasNonZeroStock = async (locationId) =>
 
 export const listWarehouseLocations = async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const limit = parseLimit(req.query.limit, 40, 150);
     const cursor = decodeCursor(req.query.cursor);
     if (req.query.cursor && !cursor) return res.status(400).json({ message: "Invalid pagination cursor." });
 
-    const filter = buildListFilter(req.query);
+    const filter = buildListFilter(req.query, tenantId);
     if (cursor) {
       filter.$and = [
         ...(filter.$and || []),
@@ -337,7 +344,11 @@ export const listWarehouseLocations = async (req, res) => {
     const nextCursor = hasMore && locations.length ? encodeCursor(locations.at(-1)) : null;
     const data = locations.map(({ nameLower, ...location }) => location);
     const stockRows = data.length
-      ? await ProductStock.find({ location: { $in: data.map((location) => location._id) }, status: { $ne: "archived" } })
+      ? await ProductStock.find({
+          ...(tenantId ? { tenantId } : {}),
+          location: { $in: data.map((location) => location._id) },
+          status: { $ne: "archived" },
+        })
           .select("location product onHandQuantity availableQuantity minimumStock status")
           .populate("product", "name sku minimumStock")
           .lean()
@@ -354,8 +365,13 @@ export const listWarehouseLocationOptions = async (req, res) => {
   try {
     if (!isId(req.query.warehouse)) return res.status(400).json({ message: "Warehouse is required." });
 
+    const tenantId = req.tenantId;
     const limit = parseLimit(req.query.limit, 50, 200);
-    const filter = { warehouse: req.query.warehouse, status: "active" };
+    const filter = {
+      warehouse: req.query.warehouse,
+      status: "active",
+      ...(tenantId ? { tenantId } : {}),
+    };
     const purpose = clean(req.query.purpose).toLowerCase();
     if (purpose === "pick") filter.isPickable = true;
     if (purpose === "receive") filter.isReceivable = true;
@@ -388,9 +404,11 @@ export const listWarehouseLocationTree = async (req, res) => {
   try {
     if (!isId(req.query.warehouse)) return res.status(400).json({ message: "Warehouse is required." });
 
+    const tenantId = req.tenantId;
     const locations = await WarehouseLocation.find({
       warehouse: req.query.warehouse,
       status: req.query.includeInactive === "true" ? { $in: ["active", "inactive"] } : "active",
+      ...(tenantId ? { tenantId } : {}),
     })
       .select(OPTION_FIELDS)
       .sort({ depth: 1, sortOrder: 1, nameLower: 1, _id: 1 })
@@ -427,7 +445,11 @@ export const getWarehouseLocation = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid warehouse location ID." });
 
-    const location = await WarehouseLocation.findById(req.params.id)
+    const tenantId = req.tenantId;
+    const location = await WarehouseLocation.findOne({
+      _id: req.params.id,
+      ...(tenantId ? { tenantId } : {}),
+    })
       .select("-nameLower")
       .populate("warehouse", "name code status")
       .populate("parent", "name code locationType status")
@@ -445,15 +467,18 @@ export const getWarehouseLocation = async (req, res) => {
 export const createWarehouseLocation = async (req, res) => {
   try {
     const userId = req.user?._id || null;
+    const tenantId = req.tenantId;
     const payload = buildLocationPayload(req.body, userId);
+    if (tenantId) payload.tenantId = tenantId;
     const errors = validatePayload(payload);
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
-    await loadWarehouse(payload.warehouse, { requireActive: payload.status !== "inactive" });
+    await loadWarehouse(payload.warehouse, { requireActive: payload.status !== "inactive", tenantId });
     const hierarchy = await resolveParent({
       parentId: payload.parent,
       warehouseId: payload.warehouse,
       requireActive: payload.status !== "inactive",
+      tenantId,
     });
 
     const location = await WarehouseLocation.create({
@@ -463,6 +488,7 @@ export const createWarehouseLocation = async (req, res) => {
       depth: hierarchy.depth,
       locationType: payload.locationType || "bin",
       status: payload.status || "active",
+      ...(tenantId ? { tenantId } : {}),
       createdBy: userId,
       updatedBy: userId,
     });
@@ -477,6 +503,7 @@ export const updateWarehouseLocation = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid warehouse location ID." });
 
+    const tenantId = req.tenantId;
     const payload = buildLocationPayload(req.body, req.user?._id || null);
     const editableKeys = Object.keys(payload).filter((key) => key !== "updatedBy");
     if (!editableKeys.length) return res.status(400).json({ message: "No valid warehouse location fields were provided." });
@@ -484,7 +511,10 @@ export const updateWarehouseLocation = async (req, res) => {
     const errors = validatePayload(payload, { partial: true });
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
-    const current = await WarehouseLocation.findById(req.params.id)
+    const current = await WarehouseLocation.findOne({
+      _id: req.params.id,
+      ...(tenantId ? { tenantId } : {}),
+    })
       .select("warehouse parent ancestors depth status")
       .lean();
     if (!current) return res.status(404).json({ message: "Warehouse location not found." });
@@ -504,8 +534,8 @@ export const updateWarehouseLocation = async (req, res) => {
       }
 
       const [hasChildren, hasStockRecord] = await Promise.all([
-        WarehouseLocation.exists({ parent: req.params.id }),
-        ProductStock.exists({ location: req.params.id }),
+        WarehouseLocation.exists({ parent: req.params.id, ...(tenantId ? { tenantId } : {}) }),
+        ProductStock.exists({ location: req.params.id, ...(tenantId ? { tenantId } : {}) }),
       ]);
       if (hasChildren || hasStockRecord) {
         return res.status(409).json({
@@ -519,25 +549,30 @@ export const updateWarehouseLocation = async (req, res) => {
       const hasActiveChildren = await WarehouseLocation.exists({
         parent: req.params.id,
         status: "active",
+        ...(tenantId ? { tenantId } : {}),
       });
       if (hasActiveChildren) {
         return res.status(409).json({ message: "Deactivate active child locations first." });
       }
     }
 
-    await loadWarehouse(nextWarehouse, { requireActive: nextStatus === "active" });
+    await loadWarehouse(nextWarehouse, { requireActive: nextStatus === "active", tenantId });
     const hierarchy = await resolveParent({
       parentId: nextParent,
       warehouseId: nextWarehouse,
       requireActive: nextStatus === "active",
+      tenantId,
     });
 
     if (hierarchy.ancestors.some((id) => String(id) === String(req.params.id))) {
       return res.status(409).json({ message: "The selected parent would create a hierarchy cycle." });
     }
 
-    const location = await WarehouseLocation.findByIdAndUpdate(
-      req.params.id,
+    const location = await WarehouseLocation.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+      },
       {
         ...payload,
         ...(hierarchyChanged
@@ -566,21 +601,28 @@ export const updateWarehouseLocationStatus = async (req, res) => {
       return res.status(400).json({ message: "Status must be active or inactive." });
     }
 
-    const current = await WarehouseLocation.findById(req.params.id)
+    const tenantId = req.tenantId;
+    const current = await WarehouseLocation.findOne({
+      _id: req.params.id,
+      ...(tenantId ? { tenantId } : {}),
+    })
       .select("warehouse parent status")
       .lean();
     if (!current) return res.status(404).json({ message: "Warehouse location not found." });
     if (current.status === "archived") return res.status(409).json({ message: "Restore the location before changing its status." });
 
     if (status === "active") {
-      await loadWarehouse(current.warehouse, { requireActive: true });
-      await resolveParent({ parentId: current.parent, warehouseId: current.warehouse, requireActive: true });
-    } else if (await WarehouseLocation.exists({ parent: req.params.id, status: "active" })) {
+      await loadWarehouse(current.warehouse, { requireActive: true, tenantId });
+      await resolveParent({ parentId: current.parent, warehouseId: current.warehouse, requireActive: true, tenantId });
+    } else if (await WarehouseLocation.exists({ parent: req.params.id, status: "active", ...(tenantId ? { tenantId } : {}) })) {
       return res.status(409).json({ message: "Deactivate active child locations first." });
     }
 
-    const location = await WarehouseLocation.findByIdAndUpdate(
-      req.params.id,
+    const location = await WarehouseLocation.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+      },
       { status, updatedBy: req.user?._id || null },
       { new: true, runValidators: true }
     ).select(LIST_FIELDS);
@@ -595,22 +637,29 @@ export const deleteWarehouseLocation = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid warehouse location ID." });
 
-    const current = await WarehouseLocation.findById(req.params.id).select("status").lean();
+    const tenantId = req.tenantId;
+    const current = await WarehouseLocation.findOne({
+      _id: req.params.id,
+      ...(tenantId ? { tenantId } : {}),
+    }).select("status").lean();
     if (!current) return res.status(404).json({ message: "Warehouse location not found." });
     if (current.status === "archived") return res.status(404).json({ message: "Warehouse location is already archived." });
 
-    if (await WarehouseLocation.exists({ parent: req.params.id, status: { $ne: "archived" } })) {
+    if (await WarehouseLocation.exists({ parent: req.params.id, status: { $ne: "archived" }, ...(tenantId ? { tenantId } : {}) })) {
       return res.status(409).json({ message: "Archive or move child locations first." });
     }
-    if (await hasNonZeroStock(req.params.id)) {
+    if (await hasNonZeroStock(req.params.id, tenantId)) {
       return res.status(409).json({ message: "A location with stock balances or pending quantities cannot be archived." });
     }
 
     let location;
     await runMongoTransaction(async (session) => {
       const now = new Date();
-      location = await WarehouseLocation.findByIdAndUpdate(
-        req.params.id,
+      location = await WarehouseLocation.findOneAndUpdate(
+        {
+          _id: req.params.id,
+          ...(tenantId ? { tenantId } : {}),
+        },
         {
           status: "archived",
           archivedAt: now,
@@ -623,7 +672,11 @@ export const deleteWarehouseLocation = async (req, res) => {
       ).select("name code status archivedAt");
 
       await ProductStock.updateMany(
-        { location: req.params.id, status: { $ne: "archived" } },
+        {
+          location: req.params.id,
+          status: { $ne: "archived" },
+          ...(tenantId ? { tenantId } : {}),
+        },
         { $set: { status: "archived", archivedAt: now, updatedBy: req.user?._id || null } },
         { session }
       );
@@ -639,16 +692,24 @@ export const restoreWarehouseLocation = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid warehouse location ID." });
 
-    const current = await WarehouseLocation.findOne({ _id: req.params.id, status: "archived" })
+    const tenantId = req.tenantId;
+    const current = await WarehouseLocation.findOne({
+      _id: req.params.id,
+      status: "archived",
+      ...(tenantId ? { tenantId } : {}),
+    })
       .select("warehouse parent")
       .lean();
     if (!current) return res.status(404).json({ message: "Archived warehouse location not found." });
 
-    await loadWarehouse(current.warehouse);
-    await resolveParent({ parentId: current.parent, warehouseId: current.warehouse });
+    await loadWarehouse(current.warehouse, { tenantId });
+    await resolveParent({ parentId: current.parent, warehouseId: current.warehouse, tenantId });
 
-    const location = await WarehouseLocation.findByIdAndUpdate(
-      req.params.id,
+    const location = await WarehouseLocation.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+      },
       {
         status: "inactive",
         archivedAt: null,

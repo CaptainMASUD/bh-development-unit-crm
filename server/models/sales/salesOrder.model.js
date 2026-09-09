@@ -12,6 +12,7 @@ const salesOrderSchema = new Schema(
     tenantId: { type: Schema.Types.ObjectId, required: true, index: true },
     branchId: { type: Schema.Types.ObjectId, ref: "Branch", required: true },
     orderNumber: { type: String, required: true, trim: true },
+    leadId: { type: Schema.Types.ObjectId, ref: "Lead", index: true },
     quotationId: { type: Schema.Types.ObjectId, ref: "SalesQuotation" },
     dealId: { type: Schema.Types.ObjectId, ref: "Deal" },
     customerId: {
@@ -119,9 +120,12 @@ const salesOrderSchema = new Schema(
 
 salesOrderSchema.index({ tenantId: 1, orderNumber: 1 }, { unique: true });
 salesOrderSchema.index({ tenantId: 1, customerId: 1, createdAt: -1 });
+salesOrderSchema.index({ tenantId: 1, leadId: 1, createdAt: -1 });
 salesOrderSchema.index({ tenantId: 1, status: 1, createdAt: -1 });
 salesOrderSchema.index({ tenantId: 1, warehouseId: 1, status: 1 });
 
 export const SalesOrder =
   mongoose.models.SalesOrder ||
   mongoose.model("SalesOrder", salesOrderSchema);
+
+export default SalesOrder;

@@ -5,8 +5,26 @@ import { Alert02Icon, ArrowDataTransferHorizontalIcon, DashboardSquare01Icon, Pa
 import { InventoryButton, InventoryPageHeader, InventoryPageShell } from "./InventoryUI"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
+const COST_VIEW_PERMISSION = "inventory-report:cost-view"
+function canUserViewCost() {
+  try {
+    const raw = localStorage.getItem("user")
+    if (!raw) return false
+    const user = JSON.parse(raw)
+    const role = String(user?.role || "").toLowerCase()
+    if (role === "admin" || role === "superadmin") return true
+    const permissions = Array.isArray(user?.permissions) ? user.permissions : []
+    return permissions.includes("*") || permissions.includes(COST_VIEW_PERMISSION)
+  } catch {
+    return false
+  }
+}
+
 const number = (value, digits = 2) => Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: digits })
-const money = (value) => `BDT ${number(value)}`
+const money = (value) => {
+  if (!canUserViewCost() || value === null || value === undefined) return "—"
+  return `BDT ${number(value)}`
+}
 const pretty = (value) => String(value || "-").replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())
 
 async function api(path) {

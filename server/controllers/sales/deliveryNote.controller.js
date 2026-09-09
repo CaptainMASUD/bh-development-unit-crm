@@ -1,7 +1,7 @@
 import { DeliveryNote } from "../../models/sales/deliveryNote.model.js";
 import { SalesOrder } from "../../models/sales/salesOrder.model.js";
 import { nextSalesNumber } from "../../services/salesNumber.service.js";
-import { issueInventory } from "../../services/salesIntegration.service.js";
+import { issueInventory, cancelDeliveryInventory } from "../../services/salesIntegration.service.js";
 import { runSalesTransaction } from "../../services/salesTransaction.service.js";
 import { SalesError, assertTenant } from "../../utils/salesError.js";
 import { getReqMeta, writeAudit } from "../../utils/audit.js";
@@ -83,6 +83,8 @@ export const createDeliveryNote = async (req, res) => {
             branchId: order.branchId,
             deliveryNumber,
             salesOrderId: order._id,
+            leadId: order.leadId || undefined,
+            dealId: order.dealId || undefined,
             customerId: order.customerId,
             warehouseId: req.body.warehouseId || order.warehouseId,
             status: "draft",
@@ -220,6 +222,39 @@ export const updateDeliveryStatus = async (req, res) => {
       order.fulfillmentStatus = allDispatched
         ? "dispatched"
         : "partially_dispatched";
+      order.updatedBy = req.user._id;
+      await order.save();
+    }
+  }
+
+  const wasDispatched = ["dispatched", "in_transit"].includes(delivery.status);
+  const isCancelledOrFailed = ["failed", "cancelled", "returned"].includes(nextStatus);
+
+  if (wasDispatched && isCancelledOrFailed && delivery.inventoryPosting?.stockMovementId && delivery.inventoryPosting?.status === "posted") {
+    await cancelDeliveryInventory(req, {
+      tenantId: delivery.tenantId,
+      stockMovementId: delivery.inventoryPosting.stockMovementId,
+      reason: req.body.reason || `Delivery ${nextStatus}`,
+      performedBy: req.user._id,
+    });
+    delivery.inventoryPosting.status = "reversed";
+    delivery.inventoryPosting.message = `Stock movement reversed due to delivery ${nextStatus}`;
+
+    const order = await SalesOrder.findOne({
+      _id: delivery.salesOrderId,
+      tenantId: delivery.tenantId,
+    });
+
+    if (order) {
+      const map = new Map(order.lines.map((line) => [String(line._id), line]));
+      delivery.lines.forEach((line) => {
+        const orderLine = map.get(String(line.orderLineId));
+        if (orderLine) {
+          orderLine.dispatchedQty = Math.max(0, orderLine.dispatchedQty - line.quantity);
+        }
+      });
+      const anyDispatched = order.lines.some((line) => line.dispatchedQty > 0);
+      order.fulfillmentStatus = anyDispatched ? "partially_dispatched" : "reserved";
       order.updatedBy = req.user._id;
       await order.save();
     }

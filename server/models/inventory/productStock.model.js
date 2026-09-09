@@ -7,6 +7,12 @@ const roundMoney = (value) => Math.round(Number(value || 0) * 10000) / 10000;
 
 const productStockSchema = new mongoose.Schema(
   {
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      required: true,
+      index: true,
+    },
     product: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Product",
@@ -70,12 +76,12 @@ const productStockSchema = new mongoose.Schema(
   }
 );
 
-productStockSchema.index({ product: 1, warehouse: 1, location: 1 }, { unique: true });
-productStockSchema.index({ warehouse: 1, status: 1, product: 1, _id: 1 });
-productStockSchema.index({ product: 1, status: 1, warehouse: 1, location: 1 });
-productStockSchema.index({ warehouse: 1, location: 1, status: 1, product: 1 });
-productStockSchema.index({ warehouse: 1, status: 1, availableQuantity: 1, product: 1 });
-productStockSchema.index({ status: 1, lastMovementAt: -1, _id: -1 });
+productStockSchema.index({ tenantId: 1, product: 1, warehouse: 1, location: 1 }, { unique: true });
+productStockSchema.index({ tenantId: 1, warehouse: 1, status: 1, product: 1, _id: 1 });
+productStockSchema.index({ tenantId: 1, product: 1, status: 1, warehouse: 1, location: 1 });
+productStockSchema.index({ tenantId: 1, warehouse: 1, location: 1, status: 1, product: 1 });
+productStockSchema.index({ tenantId: 1, warehouse: 1, status: 1, availableQuantity: 1, product: 1 });
+productStockSchema.index({ tenantId: 1, status: 1, lastMovementAt: -1, _id: -1 });
 
 const normalizeStockPatch = (source = {}) => {
   const patch = source;
@@ -145,10 +151,10 @@ productStockSchema.pre("findOneAndUpdate", function (next) {
 });
 
 /**
- * Atomic current-balance update for the future StockMovement service.
- * Do not expose this as an unrestricted client-side stock editor.
+ * Atomic current-balance update for InventoryPostingService.
  */
 productStockSchema.statics.applyQuantityDelta = async function ({
+  tenantId,
   product,
   warehouse,
   location = null,
@@ -163,7 +169,12 @@ productStockSchema.statics.applyQuantityDelta = async function ({
   userId = null,
   session = null,
 }) {
-  const key = { product, warehouse, location: location || null };
+  const key = {
+    ...(tenantId ? { tenantId } : {}),
+    product,
+    warehouse,
+    location: location || null,
+  };
   const deltas = {
     onHandDelta: roundQuantity(onHandDelta),
     reservedDelta: roundQuantity(reservedDelta),
@@ -177,6 +188,7 @@ productStockSchema.statics.applyQuantityDelta = async function ({
     {
       $setOnInsert: {
         ...key,
+        tenantId,
         onHandQuantity: 0,
         reservedQuantity: 0,
         quarantineQuantity: 0,
@@ -213,9 +225,9 @@ productStockSchema.statics.applyQuantityDelta = async function ({
     { $gte: [newOutgoing, 0] },
   ];
 
-  if (!allowNegativeStock) {
-    conditions.push({ $gte: [newOnHand, 0] }, { $gte: [newAvailable, 0] });
-  }
+  // Negative stock is strictly disabled across the entire system until GL variance accounting is implemented.
+  // On-hand and available quantity must never go negative.
+  conditions.push({ $gte: [newOnHand, 0] }, { $gte: [newAvailable, 0] });
 
   filter.$expr = { $and: conditions };
 
@@ -244,7 +256,7 @@ productStockSchema.statics.applyQuantityDelta = async function ({
 
   if (!stock) {
     throw Object.assign(
-      new Error("The stock update would create an invalid or unavailable quantity."),
+      new Error("Insufficient stock: transaction would reduce stock below zero. Negative inventory requires negative stock GL variance accounting which is currently disabled."),
       { statusCode: 409 }
     );
   }

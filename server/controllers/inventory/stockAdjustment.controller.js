@@ -13,7 +13,13 @@ import {
   postInventoryAdjustmentAccounting,
   reverseProcurementAccounting,
 } from "../../services/procurementAccounting.service.js";
+import {
+  postStockAdjustmentMovement,
+  reverseStockAdjustmentMovement,
+} from "../../services/inventoryPosting.service.js";
 import { runMongoTransaction } from "../../utils/mongoTransaction.js";
+import { InventoryPreference } from "../../models/inventory/inventoryOperations.model.js";
+import { writeAudit } from "../../utils/audit.js";
 
 const LIST_FIELDS = [
   "adjustmentNo",
@@ -193,7 +199,7 @@ const buildStockQuery = (warehouse, lines) => ({
   $or: lines.map((line) => ({ product: line.product, location: line.location || null })),
 });
 
-const resolveAdjustmentLines = async ({ warehouseId, mode, lines, session = null }) => {
+const resolveAdjustmentLines = async ({ tenantId = null, warehouseId, mode, lines, session = null }) => {
   if (!isId(warehouseId)) throw Object.assign(new Error("Select a valid warehouse."), { statusCode: 400 });
   if (!ADJUSTMENT_MODES.includes(mode)) {
     throw Object.assign(new Error("Adjustment mode must be count or delta."), { statusCode: 400 });
@@ -202,7 +208,7 @@ const resolveAdjustmentLines = async ({ warehouseId, mode, lines, session = null
     throw Object.assign(new Error("An adjustment must contain between 1 and 500 lines."), { statusCode: 400 });
   }
 
-  const warehouseQuery = Warehouse.findById(warehouseId)
+  const warehouseQuery = Warehouse.findOne({ _id: warehouseId, ...(tenantId ? { tenantId } : {}) })
     .select("name code status allowNegativeStock")
     .lean();
   if (session) warehouseQuery.session(session);
@@ -228,15 +234,15 @@ const resolveAdjustmentLines = async ({ warehouseId, mode, lines, session = null
 
   const productIds = uniqueIds(lines.map((line) => line.product));
   const locationIds = uniqueIds(lines.map((line) => line.location));
-  const productQuery = Product.find({ _id: { $in: productIds } })
+  const productQuery = Product.find({ _id: { $in: productIds }, ...(tenantId ? { tenantId } : {}) })
     .select("name sku productType trackInventory trackingType purchasePrice allowNegativeStock status")
     .lean();
   const locationQuery = locationIds.length
-    ? WarehouseLocation.find({ _id: { $in: locationIds } })
+    ? WarehouseLocation.find({ _id: { $in: locationIds }, ...(tenantId ? { tenantId } : {}) })
         .select("warehouse name code status isQuarantine")
         .lean()
     : Promise.resolve([]);
-  const stockQuery = ProductStock.find(buildStockQuery(warehouseId, lines))
+  const stockQuery = ProductStock.find({ ...buildStockQuery(warehouseId, lines), ...(tenantId ? { tenantId } : {}) })
     .select("product location onHandQuantity averageCost stockVersion status")
     .lean();
 
@@ -287,8 +293,11 @@ const resolveAdjustmentLines = async ({ warehouseId, mode, lines, session = null
       }
       varianceQuantity = roundQuantity(line.varianceQuantity);
       countedQuantity = roundQuantity(systemQuantity + varianceQuantity);
-      if (countedQuantity < 0 && !product.allowNegativeStock && !warehouse.allowNegativeStock) {
-        throw Object.assign(new Error(`${label}: adjustment would create negative stock.`), { statusCode: 409 });
+      if (countedQuantity < 0) {
+        throw Object.assign(
+          new Error(`${label}: adjustment would create negative stock. Negative inventory requires negative stock GL variance accounting which is currently disabled.`),
+          { statusCode: 409 }
+        );
       }
     }
 
@@ -329,8 +338,8 @@ const resolveAdjustmentLines = async ({ warehouseId, mode, lines, session = null
   });
 };
 
-const validateFreshness = async (adjustment, { session = null } = {}) => {
-  const query = ProductStock.find(buildStockQuery(adjustment.warehouse, adjustment.lines))
+const validateFreshness = async (adjustment, { tenantId = null, session = null } = {}) => {
+  const query = ProductStock.find({ ...buildStockQuery(adjustment.warehouse, adjustment.lines), ...(tenantId ? { tenantId } : {}) })
     .select("product location onHandQuantity stockVersion")
     .lean();
   if (session) query.session(session);
@@ -364,8 +373,9 @@ const validateFreshness = async (adjustment, { session = null } = {}) => {
   }
 };
 
-const buildListFilter = (query = {}) => {
+const buildListFilter = (query = {}, tenantId = null) => {
   const filter = {};
+  if (tenantId) filter.tenantId = new mongoose.Types.ObjectId(String(tenantId));
   if (query.status && query.status !== "all") filter.status = clean(query.status).toLowerCase();
   if (query.adjustmentType && query.adjustmentType !== "all") {
     filter.adjustmentType = clean(query.adjustmentType).toLowerCase();
@@ -417,7 +427,7 @@ export const listStockAdjustments = async (req, res) => {
     const cursor = decodeCursor(req.query.cursor);
     if (req.query.cursor && !cursor) return res.status(400).json({ message: "Invalid pagination cursor." });
 
-    const filter = buildListFilter(req.query);
+    const filter = buildListFilter(req.query, req.tenantId);
     if (cursor) {
       filter.$and = [
         ...(filter.$and || []),
@@ -450,7 +460,7 @@ export const listStockAdjustments = async (req, res) => {
 
 export const getStockAdjustmentSummary = async (req, res) => {
   try {
-    const filter = buildListFilter(req.query);
+    const filter = buildListFilter(req.query, req.tenantId);
     const summary = await StockAdjustment.aggregate([
       { $match: filter },
       {
@@ -489,7 +499,9 @@ export const getStockAdjustmentSummary = async (req, res) => {
 export const getStockAdjustment = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock adjustment ID." });
-    const adjustment = await populateAdjustment(StockAdjustment.findById(req.params.id)).maxTimeMS(5000).lean();
+    const adjustment = await populateAdjustment(
+      StockAdjustment.findOne({ _id: req.params.id, ...(req.tenantId ? { tenantId: req.tenantId } : {}) })
+    ).maxTimeMS(5000).lean();
     if (!adjustment) return res.status(404).json({ message: "Stock adjustment not found." });
     return res.json({ adjustment });
   } catch (error) {
@@ -505,16 +517,23 @@ export const createStockAdjustment = async (req, res) => {
     payload.adjustmentType = payload.adjustmentType || "physical_count";
     payload.adjustmentMode = payload.adjustmentMode || "count";
     payload.currency = payload.currency || "BDT";
+    if (req.tenantId) payload.tenantId = req.tenantId;
 
     const errors = validatePayload(payload);
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
     if (payload.idempotencyKey) {
-      const existing = await StockAdjustment.findOne({ idempotencyKey: payload.idempotencyKey }).select(LIST_FIELDS).lean();
+      const existing = await StockAdjustment.findOne({
+        idempotencyKey: payload.idempotencyKey,
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+      })
+        .select(LIST_FIELDS)
+        .lean();
       if (existing) return res.status(200).json({ message: "Stock adjustment request already exists.", adjustment: existing });
     }
 
     payload.lines = await resolveAdjustmentLines({
+      tenantId: req.tenantId,
       warehouseId: payload.warehouse,
       mode: payload.adjustmentMode,
       lines: payload.lines,
@@ -535,7 +554,7 @@ export const createStockAdjustment = async (req, res) => {
 export const updateStockAdjustment = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock adjustment ID." });
-    const current = await StockAdjustment.findById(req.params.id);
+    const current = await StockAdjustment.findOne({ _id: req.params.id, ...(req.tenantId ? { tenantId: req.tenantId } : {}) });
     if (!current) return res.status(404).json({ message: "Stock adjustment not found." });
     if (!["draft", "rejected"].includes(current.status)) {
       return res.status(409).json({ message: "Only a draft or rejected adjustment can be edited." });
@@ -560,7 +579,7 @@ export const updateStockAdjustment = async (req, res) => {
       note: line.note,
     }));
 
-    payload.lines = await resolveAdjustmentLines({ warehouseId, mode, lines: sourceLines });
+    payload.lines = await resolveAdjustmentLines({ tenantId: req.tenantId, warehouseId, mode, lines: sourceLines });
     payload.status = "draft";
     payload.rejectedAt = null;
     payload.rejectedBy = null;
@@ -577,7 +596,7 @@ export const updateStockAdjustment = async (req, res) => {
 export const refreshStockAdjustment = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock adjustment ID." });
-    const adjustment = await StockAdjustment.findById(req.params.id);
+    const adjustment = await StockAdjustment.findOne({ _id: req.params.id, ...(req.tenantId ? { tenantId: req.tenantId } : {}) });
     if (!adjustment) return res.status(404).json({ message: "Stock adjustment not found." });
     if (!["draft", "rejected"].includes(adjustment.status)) {
       return res.status(409).json({ message: "Only a draft or rejected adjustment can be refreshed." });
@@ -594,6 +613,7 @@ export const refreshStockAdjustment = async (req, res) => {
       note: line.note,
     }));
     adjustment.lines = await resolveAdjustmentLines({
+      tenantId: req.tenantId,
       warehouseId: adjustment.warehouse,
       mode: adjustment.adjustmentMode,
       lines: sourceLines,
@@ -615,12 +635,17 @@ export const submitStockAdjustment = async (req, res) => {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock adjustment ID." });
     let adjustment;
     await runMongoTransaction(async (session) => {
-      adjustment = await StockAdjustment.findOne({ _id: req.params.id, status: "draft" }).session(session);
+      adjustment = await StockAdjustment.findOne({
+        _id: req.params.id,
+        status: "draft",
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+      }).session(session);
       if (!adjustment) throw Object.assign(new Error("Only a draft adjustment can be submitted."), { statusCode: 409 });
-      if (!adjustment.lines.some((line) => Number(line.varianceQuantity || 0) !== 0)) {
+      const isCountAudit = ["physical_count", "cycle_count"].includes(adjustment.adjustmentType) || adjustment.adjustmentMode === "count";
+      if (!isCountAudit && !adjustment.lines.some((line) => Number(line.varianceQuantity || 0) !== 0)) {
         throw Object.assign(new Error("The adjustment has no quantity variance to submit."), { statusCode: 409 });
       }
-      await validateFreshness(adjustment, { session });
+      await validateFreshness(adjustment, { tenantId: req.tenantId, session });
       adjustment.status = "pending_approval";
       adjustment.submittedAt = new Date();
       adjustment.submittedBy = req.user?._id || null;
@@ -636,17 +661,48 @@ export const submitStockAdjustment = async (req, res) => {
 export const approveStockAdjustment = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock adjustment ID." });
-    const adjustment = await StockAdjustment.findOneAndUpdate(
-      { _id: req.params.id, status: "pending_approval" },
-      {
-        status: "approved",
-        approvedAt: new Date(),
-        approvedBy: req.user?._id || null,
-        updatedBy: req.user?._id || null,
-      },
-      { new: true, runValidators: true }
-    );
+    const adjustment = await StockAdjustment.findOne({
+      _id: req.params.id,
+      status: "pending_approval",
+      ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+    });
     if (!adjustment) return res.status(409).json({ message: "Only a pending adjustment can be approved." });
+
+    // Enterprise Control: Segregation of Duties
+    const preference = req.tenantId
+      ? await InventoryPreference.findOne({ tenantId: req.tenantId, key: "default" }).lean()
+      : null;
+
+    if (preference?.enforceSegregationOfDuties) {
+      const threshold = Number(preference.sodThresholdAmount || 0);
+      const varianceValue = Math.abs(Number(adjustment.totalCostVariance || adjustment.totalQuantityVariance || 0));
+      if (threshold === 0 || varianceValue >= threshold) {
+        if (adjustment.createdBy && req.user?._id && String(adjustment.createdBy) === String(req.user._id)) {
+          return res.status(403).json({
+            code: "CREATOR_CANNOT_APPROVE",
+            message: "Segregation of duties violation: The creator of a stock adjustment cannot approve it.",
+          });
+        }
+      }
+    }
+
+    adjustment.status = "approved";
+    adjustment.approvedAt = new Date();
+    adjustment.approvedBy = req.user?._id || null;
+    adjustment.updatedBy = req.user?._id || null;
+    await adjustment.save();
+
+    if (req.user?._id) {
+      await writeAudit({
+        tenantId: req.tenantId || null,
+        actorId: req.user._id,
+        action: "approve",
+        entityType: "StockAdjustment",
+        entityId: adjustment._id,
+        meta: { adjustmentNo: adjustment.adjustmentNo },
+      });
+    }
+
     return res.json({ message: "Stock adjustment approved.", adjustment });
   } catch (error) {
     return sendWriteError(res, error, "Failed to approve stock adjustment.");
@@ -659,7 +715,7 @@ export const rejectStockAdjustment = async (req, res) => {
     const reason = clean(req.body.reason);
     if (!reason) return res.status(400).json({ message: "Rejection reason is required." });
     const adjustment = await StockAdjustment.findOneAndUpdate(
-      { _id: req.params.id, status: "pending_approval" },
+      { _id: req.params.id, status: "pending_approval", ...(req.tenantId ? { tenantId: req.tenantId } : {}) },
       {
         status: "rejected",
         rejectedAt: new Date(),
@@ -685,46 +741,20 @@ export const postStockAdjustment = async (req, res) => {
     let journalEntry;
 
     await runMongoTransaction(async (session) => {
-      adjustment = await StockAdjustment.findOne({ _id: req.params.id, status: "approved" }).session(session);
+      adjustment = await StockAdjustment.findOne({
+        _id: req.params.id,
+        status: "approved",
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+      }).session(session);
       if (!adjustment) throw Object.assign(new Error("Only an approved adjustment can be posted."), { statusCode: 409 });
-      await validateFreshness(adjustment, { session });
+      await validateFreshness(adjustment, { tenantId: req.tenantId, session });
 
-      const movementLines = adjustment.lines
-        .filter((line) => Number(line.varianceQuantity || 0) !== 0)
-        .map((line) => {
-          const increase = Number(line.varianceQuantity) > 0;
-          return {
-            product: line.product,
-            effect: increase ? "in" : "out",
-            sourceWarehouse: increase ? null : adjustment.warehouse,
-            sourceLocation: increase ? null : line.location,
-            destinationWarehouse: increase ? adjustment.warehouse : null,
-            destinationLocation: increase ? line.location : null,
-            quantity: Math.abs(Number(line.varianceQuantity)),
-            requestedUnitCost: line.unitCost,
-            lotNumber: line.lotNumber,
-            serialNumbers: line.serialNumbers,
-            note: line.note || `Adjustment ${adjustment.adjustmentNo}`,
-          };
-        });
-
-      movement = new StockMovement({
-        movementDate: adjustment.adjustmentDate,
-        movementType: "stock_adjustment",
-        status: "draft",
-        reference: adjustment.adjustmentNo,
-        sourceType: "stock_adjustment",
-        sourceId: adjustment._id,
-        idempotencyKey: `stock-adjustment:${adjustment._id}`,
-        currency: adjustment.currency,
-        reason: adjustment.reason || `Stock adjustment ${adjustment.adjustmentNo}`,
-        notes: adjustment.notes,
-        lines: movementLines,
-        createdBy: userId,
-        updatedBy: userId,
+      movement = await postStockAdjustmentMovement({
+        tenantId: req.tenantId,
+        adjustment,
+        userId,
+        session,
       });
-      await movement.save({ session });
-      movement = await StockMovement.postMovementDocument({ movementId: movement._id, userId, session });
 
       journalEntry = await postInventoryAdjustmentAccounting({
         document: adjustment,
@@ -733,7 +763,7 @@ export const postStockAdjustment = async (req, res) => {
       });
 
       adjustment.status = "posted";
-      adjustment.movement = movement._id;
+      adjustment.movement = movement?._id || null;
       adjustment.journalEntry = journalEntry?._id || null;
       adjustment.postedAt = new Date();
       adjustment.postedBy = userId;
@@ -753,20 +783,27 @@ export const reverseStockAdjustment = async (req, res) => {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid stock adjustment ID." });
     const userId = req.user?._id || null;
     let adjustment;
-    let reversal;
+    let reversal = null;
     let reversalJournalEntry;
 
     await runMongoTransaction(async (session) => {
-      adjustment = await StockAdjustment.findOne({ _id: req.params.id, status: "posted" }).session(session);
+      adjustment = await StockAdjustment.findOne({
+        _id: req.params.id,
+        status: "posted",
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+      }).session(session);
       if (!adjustment) throw Object.assign(new Error("Only a posted adjustment can be reversed."), { statusCode: 409 });
-      if (!adjustment.movement) throw Object.assign(new Error("The posted movement for this adjustment is missing."), { statusCode: 409 });
 
-      reversal = await StockMovement.reverseMovementDocument({
-        movementId: adjustment.movement,
-        userId,
-        reason: clean(req.body.reason) || `Reversal of ${adjustment.adjustmentNo}`,
-        session,
-      });
+      if (adjustment.movement) {
+        reversal = await reverseStockAdjustmentMovement({
+          tenantId: req.tenantId,
+          adjustment,
+          userId,
+          reason: clean(req.body.reason) || `Reversal of ${adjustment.adjustmentNo}`,
+          session,
+        });
+      }
+
       reversalJournalEntry = await reverseProcurementAccounting({
         sourceType: "inventory_adjustment",
         sourceId: adjustment._id,
@@ -777,7 +814,7 @@ export const reverseStockAdjustment = async (req, res) => {
         session,
       });
       adjustment.status = "reversed";
-      adjustment.reversalMovement = reversal._id;
+      adjustment.reversalMovement = reversal?._id || null;
       adjustment.reversalJournalEntry = reversalJournalEntry?._id || null;
       adjustment.reversedAt = new Date();
       adjustment.reversedBy = userId;
@@ -807,6 +844,7 @@ export const cancelStockAdjustment = async (req, res) => {
         _id: req.params.id,
         status: { $in: ["draft", "pending_approval", "approved", "rejected"] },
         movement: null,
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
       },
       {
         status: "cancelled",
@@ -831,6 +869,7 @@ export const deleteStockAdjustment = async (req, res) => {
       _id: req.params.id,
       status: { $in: ["draft", "rejected", "cancelled"] },
       movement: null,
+      ...(req.tenantId ? { tenantId: req.tenantId } : {}),
     });
     if (!adjustment) {
       return res.status(409).json({ message: "Only an unposted draft, rejected, or cancelled adjustment can be deleted." });

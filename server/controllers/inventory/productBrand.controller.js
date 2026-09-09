@@ -115,8 +115,8 @@ const sendWriteError = (res, error, fallbackMessage) => {
   });
 };
 
-const buildListFilter = (query = {}) => {
-  const filter = {};
+const buildListFilter = (query = {}, tenantId = null) => {
+  const filter = tenantId ? { tenantId } : {};
 
   if (query.status && query.status !== "all") {
     filter.status = clean(query.status).toLowerCase();
@@ -141,9 +141,10 @@ const buildListFilter = (query = {}) => {
 
 export const listProductBrands = async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const limit = parseLimit(req.query.limit, 30, 100);
     const cursor = decodeCursor(req.query.cursor);
-    const filter = buildListFilter(req.query);
+    const filter = buildListFilter(req.query, tenantId);
 
     if (req.query.cursor && !cursor) {
       return res.status(400).json({ message: "Invalid pagination cursor." });
@@ -183,8 +184,12 @@ export const listProductBrands = async (req, res) => {
 
 export const listProductBrandOptions = async (req, res) => {
   try {
+    const tenantId = req.tenantId;
     const limit = parseLimit(req.query.limit, 50, 200);
-    const filter = { status: "active" };
+    const filter = {
+      ...(tenantId ? { tenantId } : {}),
+      status: "active",
+    };
 
     if (req.query.country) filter.country = clean(req.query.country);
 
@@ -215,7 +220,10 @@ export const getProductBrand = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid brand ID." });
 
-    const brand = await ProductBrand.findById(req.params.id)
+    const brand = await ProductBrand.findOne({
+      _id: req.params.id,
+      ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+    })
       .select("-nameLower")
       .maxTimeMS(3000)
       .lean();
@@ -232,7 +240,11 @@ export const lookupProductBrand = async (req, res) => {
     const code = clean(req.params.code).toUpperCase();
     if (!code) return res.status(400).json({ message: "Brand code is required." });
 
-    const brand = await ProductBrand.findOne({ code, status: { $ne: "archived" } })
+    const brand = await ProductBrand.findOne({
+      ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+      code,
+      status: { $ne: "archived" },
+    })
       .select(LIST_FIELDS)
       .maxTimeMS(3000)
       .lean();
@@ -247,13 +259,16 @@ export const lookupProductBrand = async (req, res) => {
 export const createProductBrand = async (req, res) => {
   try {
     const userId = req.user?._id || null;
+    const tenantId = req.tenantId;
     const payload = buildBrandPayload(req.body, userId);
+    if (tenantId) payload.tenantId = tenantId;
     const errors = validatePayload(payload);
 
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
     const brand = await ProductBrand.create({
       ...payload,
+      ...(tenantId ? { tenantId } : {}),
       createdBy: userId,
       updatedBy: userId,
     });
@@ -268,6 +283,7 @@ export const updateProductBrand = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid brand ID." });
 
+    const tenantId = req.tenantId;
     const payload = buildBrandPayload(req.body, req.user?._id || null);
     const editableKeys = Object.keys(payload).filter((key) => key !== "updatedBy");
     if (!editableKeys.length) return res.status(400).json({ message: "No valid brand fields were provided." });
@@ -275,7 +291,10 @@ export const updateProductBrand = async (req, res) => {
     const errors = validatePayload(payload, { partial: true });
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
-    const current = await ProductBrand.findById(req.params.id)
+    const current = await ProductBrand.findOne({
+      _id: req.params.id,
+      ...(tenantId ? { tenantId } : {}),
+    })
       .select("status")
       .maxTimeMS(3000)
       .lean();
@@ -285,11 +304,18 @@ export const updateProductBrand = async (req, res) => {
       return res.status(409).json({ message: "Restore the archived brand before editing it." });
     }
 
-    const brand = await ProductBrand.findByIdAndUpdate(req.params.id, payload, {
-      new: true,
-      runValidators: true,
-      context: "query",
-    }).select("-nameLower");
+    const brand = await ProductBrand.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+      },
+      payload,
+      {
+        new: true,
+        runValidators: true,
+        context: "query",
+      }
+    ).select("-nameLower");
 
     return res.json({ message: "Product brand updated.", brand });
   } catch (error) {
@@ -301,13 +327,18 @@ export const updateProductBrandStatus = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid brand ID." });
 
+    const tenantId = req.tenantId;
     const status = clean(req.body.status).toLowerCase();
     if (!["active", "inactive"].includes(status)) {
       return res.status(400).json({ message: "Status must be active or inactive." });
     }
 
     const brand = await ProductBrand.findOneAndUpdate(
-      { _id: req.params.id, status: { $ne: "archived" } },
+      {
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+        status: { $ne: "archived" },
+      },
       { status, archivedAt: null, updatedBy: req.user?._id || null },
       { new: true, runValidators: true }
     ).select(LIST_FIELDS);
@@ -323,7 +354,11 @@ export const deleteProductBrand = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid brand ID." });
 
-    const current = await ProductBrand.findById(req.params.id)
+    const tenantId = req.tenantId;
+    const current = await ProductBrand.findOne({
+      _id: req.params.id,
+      ...(tenantId ? { tenantId } : {}),
+    })
       .select("name code status")
       .maxTimeMS(3000)
       .lean();
@@ -332,13 +367,20 @@ export const deleteProductBrand = async (req, res) => {
       return res.status(404).json({ message: "Product brand not found or already archived." });
     }
 
-    const hasProducts = await Product.exists({ brand: req.params.id, status: { $ne: "archived" } });
+    const hasProducts = await Product.exists({
+      ...(tenantId ? { tenantId } : {}),
+      brand: req.params.id,
+      status: { $ne: "archived" },
+    });
     if (hasProducts) {
       return res.status(409).json({ message: "Move or archive products assigned to this brand first." });
     }
 
-    const brand = await ProductBrand.findByIdAndUpdate(
-      req.params.id,
+    const brand = await ProductBrand.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+      },
       { status: "archived", archivedAt: new Date(), updatedBy: req.user?._id || null },
       { new: true, runValidators: true }
     ).select("name code status archivedAt");
@@ -353,8 +395,13 @@ export const restoreProductBrand = async (req, res) => {
   try {
     if (!isId(req.params.id)) return res.status(400).json({ message: "Invalid brand ID." });
 
+    const tenantId = req.tenantId;
     const brand = await ProductBrand.findOneAndUpdate(
-      { _id: req.params.id, status: "archived" },
+      {
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+        status: "archived",
+      },
       { status: "inactive", archivedAt: null, updatedBy: req.user?._id || null },
       { new: true, runValidators: true }
     ).select(LIST_FIELDS);

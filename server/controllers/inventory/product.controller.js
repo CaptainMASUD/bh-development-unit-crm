@@ -11,6 +11,7 @@ import ProductCategory from "../../models/inventory/productCategory.model.js";
 import Supplier, {
   SupplierProduct,
 } from "../../models/supplier.model.js";
+import { assertCostingMethodCanBeChanged } from "../../services/inventoryCosting.service.js";
 
 /* =========================================================
    RESPONSE FIELD SELECTION
@@ -91,14 +92,18 @@ export const buildCategoryProductCode = (categoryCode, usedSkus = []) => {
   return `${prefix}${highest + 1}`;
 };
 
-const generateProductSku = async (categoryId) => {
+const generateProductSku = async (categoryId, tenantId = null) => {
   if (!isId(categoryId)) return "";
 
-  const category = await ProductCategory.findById(categoryId).select("code").lean();
+  const category = await ProductCategory.findOne({
+    _id: categoryId,
+    ...(tenantId ? { tenantId } : {}),
+  }).select("code").lean();
   if (!category?.code) return "";
 
   const prefix = clean(category.code).toUpperCase();
   const products = await Product.find({
+    ...(tenantId ? { tenantId } : {}),
     sku: new RegExp(`^${escapeRegex(prefix)}\\d+$`, "i"),
   }).select("sku").lean();
 
@@ -260,6 +265,9 @@ const buildProductPayload = (
     "brand",
     "baseUnit",
     "defaultSupplier",
+    "inventoryAccount",
+    "cogsAccount",
+    "expenseAccount",
   ]) {
     if (body[field] !== undefined) {
       payload[field] = nullableId(
@@ -269,6 +277,7 @@ const buildProductPayload = (
   }
 
   for (const field of [
+    "standardCost",
     "purchasePrice",
     "sellingPrice",
     "wholesalePrice",
@@ -362,6 +371,10 @@ const validatePayloadShape = (
         `${field} must be true or false.`
       );
     }
+  }
+
+  if (payload.allowNegativeStock === true) {
+    errors.push("Negative stock is strictly disabled until GL variance accounting is implemented.");
   }
 
   for (const field of [
@@ -539,8 +552,8 @@ const sendWriteError = (
    LIST FILTER
 ========================================================= */
 
-const buildListFilter = (query = {}) => {
-  const filter = {};
+const buildListFilter = (query = {}, tenantId = null) => {
+  const filter = tenantId ? { tenantId } : {};
 
   if (
     query.status &&
@@ -656,7 +669,8 @@ export const listProducts = async (
     );
 
     const filter = buildListFilter(
-      req.query
+      req.query,
+      req.tenantId
     );
 
     if (req.query.cursor && !cursor) {
@@ -760,6 +774,7 @@ export const listProductOptions = async (
     );
 
     const filter = {
+      ...(req.tenantId ? { tenantId: req.tenantId } : {}),
       status: "active",
     };
 
@@ -838,9 +853,10 @@ export const getProduct = async (
     }
 
     const product =
-      await Product.findById(
-        req.params.id
-      )
+      await Product.findOne({
+        _id: req.params.id,
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
+      })
         .select("-nameLower")
         .populate(
           "defaultSupplier",
@@ -889,6 +905,7 @@ export const lookupProduct = async (
 
     const product =
       await Product.findOne({
+        ...(req.tenantId ? { tenantId: req.tenantId } : {}),
         status: {
           $ne: "archived",
         },
@@ -939,17 +956,19 @@ export const createProduct = async (
   try {
     const userId =
       req.user?._id || null;
+    const tenantId = req.tenantId;
 
     const payload =
       buildProductPayload(
         req.body,
         userId
       );
+    if (tenantId) payload.tenantId = tenantId;
 
     const usesGeneratedSku = !clean(payload.sku);
 
     if (usesGeneratedSku && payload.category) {
-      payload.sku = await generateProductSku(payload.category);
+      payload.sku = await generateProductSku(payload.category, tenantId);
     }
 
     const errors = [
@@ -965,7 +984,8 @@ export const createProduct = async (
     }
 
     await assertSelectableSupplier(
-      payload.defaultSupplier
+      payload.defaultSupplier,
+      tenantId
     );
 
     for (const field of [
@@ -987,6 +1007,7 @@ export const createProduct = async (
       try {
         product = await Product.create({
           ...payload,
+          ...(tenantId ? { tenantId } : {}),
           createdBy: userId,
           updatedBy: userId,
         });
@@ -994,7 +1015,7 @@ export const createProduct = async (
       } catch (error) {
         const skuCollision = usesGeneratedSku && error?.code === 11000 && error?.keyPattern?.sku;
         if (!skuCollision || attempt === 4) throw error;
-        payload.sku = await generateProductSku(payload.category);
+        payload.sku = await generateProductSku(payload.category, tenantId);
       }
     }
 
@@ -1004,11 +1025,13 @@ export const createProduct = async (
       supplierProduct =
         await syncDefaultSupplierLink(
           product,
-          userId
+          userId,
+          tenantId
         );
     } catch (error) {
       await Product.deleteOne({
         _id: product._id,
+        ...(tenantId ? { tenantId } : {}),
       }).catch(() => {});
       throw error;
     }
@@ -1043,6 +1066,8 @@ export const updateProduct = async (
         message: "Invalid product ID.",
       });
     }
+
+    const tenantId = req.tenantId;
 
     const payload =
       buildProductPayload(
@@ -1081,7 +1106,8 @@ export const updateProduct = async (
       )
     ) {
       await assertSelectableSupplier(
-        payload.defaultSupplier
+        payload.defaultSupplier,
+        tenantId
       );
     }
 
@@ -1090,9 +1116,10 @@ export const updateProduct = async (
      * This keeps the validation read lightweight.
      */
     const current =
-      await Product.findById(
-        req.params.id
-      )
+      await Product.findOne({
+        _id: req.params.id,
+        ...(tenantId ? { tenantId } : {}),
+      })
         .select(PRODUCT_STATE_FIELDS)
         .lean();
 
@@ -1109,6 +1136,17 @@ export const updateProduct = async (
         message:
           "Restore the archived product before editing it.",
       });
+    }
+
+    if (
+      payload.costingMethod &&
+      current.costingMethod &&
+      payload.costingMethod !== current.costingMethod
+    ) {
+      await assertCostingMethodCanBeChanged(
+        tenantId || current.tenantId,
+        current._id
+      );
     }
 
     const stateErrors =
@@ -1138,8 +1176,11 @@ export const updateProduct = async (
     }
 
     const product =
-      await Product.findByIdAndUpdate(
-        req.params.id,
+      await Product.findOneAndUpdate(
+        {
+          _id: req.params.id,
+          ...(tenantId ? { tenantId } : {}),
+        },
         payload,
         {
           new: true,
@@ -1155,7 +1196,8 @@ export const updateProduct = async (
       )
         ? await syncDefaultSupplierLink(
             product,
-            req.user?._id || null
+            req.user?._id || null,
+            tenantId
           )
         : null;
 
@@ -1210,6 +1252,7 @@ export const updateProductStatus = async (
       await Product.findOneAndUpdate(
         {
           _id: req.params.id,
+          ...(req.tenantId ? { tenantId: req.tenantId } : {}),
           status: {
             $ne: "archived",
           },
@@ -1270,6 +1313,7 @@ export const deleteProduct = async (
       await Product.findOneAndUpdate(
         {
           _id: req.params.id,
+          ...(req.tenantId ? { tenantId: req.tenantId } : {}),
           status: {
             $ne: "archived",
           },
@@ -1328,6 +1372,7 @@ export const restoreProduct = async (
       await Product.findOneAndUpdate(
         {
           _id: req.params.id,
+          ...(req.tenantId ? { tenantId: req.tenantId } : {}),
           status: "archived",
         },
         {
@@ -1363,11 +1408,12 @@ export const restoreProduct = async (
   }
 };
 
-const assertSelectableSupplier = async (supplierId) => {
+const assertSelectableSupplier = async (supplierId, tenantId = null) => {
   if (!supplierId) return null;
 
   const supplier = await Supplier.findOne({
     _id: supplierId,
+    ...(tenantId ? { tenantId } : {}),
     status: "active",
   })
     .select("_id businessName status procurement.currency")
@@ -1387,7 +1433,8 @@ const assertSelectableSupplier = async (supplierId) => {
 
 const syncDefaultSupplierLink = async (
   product,
-  actorId = null
+  actorId = null,
+  tenantId = null
 ) => {
   const productId = product?._id;
   const supplierId = product?.defaultSupplier?._id || product?.defaultSupplier;
@@ -1396,6 +1443,7 @@ const syncDefaultSupplierLink = async (
 
   await SupplierProduct.updateMany(
     {
+      ...(tenantId ? { tenantId } : {}),
       product: productId,
       isPreferred: true,
       ...(supplierId ? { supplier: { $ne: supplierId } } : {}),
@@ -1412,6 +1460,7 @@ const syncDefaultSupplierLink = async (
 
   const link = await SupplierProduct.findOneAndUpdate(
     {
+      ...(tenantId ? { tenantId } : {}),
       supplier: supplierId,
       product: productId,
     },
@@ -1425,6 +1474,7 @@ const syncDefaultSupplierLink = async (
         updatedBy: actorId,
       },
       $setOnInsert: {
+        ...(tenantId ? { tenantId } : {}),
         purchaseUnit: product.baseUnit || null,
         supplierSku: product.sku || "",
         supplierProductName: product.name || "",

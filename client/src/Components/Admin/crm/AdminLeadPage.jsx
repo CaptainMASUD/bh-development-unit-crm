@@ -79,7 +79,6 @@ import {
   FiTarget,
   FiTrash2,
   FiTrendingUp,
-  FiUnlock,
   FiUser,
   FiUserCheck,
   FiUserPlus,
@@ -119,7 +118,7 @@ const STAGE_REQUIREMENTS = {
   discovery: "Collect requirements",
   proposal: "Send quotation/proposal",
   negotiation: "Discuss price and terms",
-  won: "Client accepted",
+  won: "Customer, Won Deal and Sales Order created",
   lost: "Client rejected or no fit",
 }
 function getStageIndex(stage) {
@@ -128,8 +127,7 @@ function getStageIndex(stage) {
 }
 function getNextPipelineStage(lead) {
   const current = String(lead?.pipelineStage || "new")
-  if (FINAL_PIPELINE_STAGES.includes(current)) return ""
-  if (current === "proposal") return ""
+  if (FINAL_PIPELINE_STAGES.includes(current) || current === "proposal") return ""
   const index = getStageIndex(current)
   return ACTIVE_PIPELINE_STAGES[index + 1] || ""
 }
@@ -1318,7 +1316,7 @@ function StageProgressController({ lead, onNextStage, onMoveStage, compact = fal
         {!compact ? (
           <div className="flex flex-wrap gap-2">
             <button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onMoveStage?.(lead)}>
-              <FiUnlock className="h-4 w-4" /> Manual jump
+              <FiSliders className="h-4 w-4" /> Update stage
             </button>
             <button className={cn(btn, btnPrimary, "px-3 py-2")} disabled={!nextStage || finalStage} onClick={() => onNextStage?.(lead)}>
               <FiArrowRight className="h-4 w-4" />
@@ -1355,7 +1353,6 @@ function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage 
   const nextStage = targetStage || getNextPipelineStage(lead)
   const initialStage = lockStage && nextStage ? nextStage : lead?.pipelineStage || "qualified"
   const [form, setForm] = useState({ pipelineStage: initialStage, status: "", reason: "", note: "", nextFollowUpAt: "" })
-  const [unlockedJump, setUnlockedJump] = useState(false)
   const currentStage = lead?.pipelineStage || "new"
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState("")
@@ -1365,7 +1362,6 @@ function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage 
     if (open) {
       const safeTarget = lockStage && nextStage ? nextStage : lead?.pipelineStage || "qualified"
       setErr("")
-      setUnlockedJump(false)
       setForm({
         pipelineStage: safeTarget,
         status: getSuggestedStatusForStage(safeTarget, lead?.status || ""),
@@ -1398,32 +1394,14 @@ function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage 
     return () => { ignore = true }
   }, [open, lead, lockStage, nextStage, refreshToken])
 
-  const isStageLocked = lockStage && !unlockedJump
-  const currentIndex = PIPELINE_STAGES.indexOf(String(currentStage || "new"))
-  const selectedIndex = PIPELINE_STAGES.indexOf(String(form.pipelineStage || ""))
-  const jumpCount = currentIndex >= 0 && selectedIndex >= 0 ? Math.abs(selectedIndex - currentIndex) : 0
-  const isJumpingMultipleStages = unlockedJump && jumpCount > 1
-
-  const handleToggleUnlock = (checked) => {
-    setUnlockedJump(checked)
-    setForm((p) => ({
-      ...p,
-      reason: checked
-        ? `Exceptional stage jump from ${STAGE_LABELS[currentStage] || currentStage} to ${STAGE_LABELS[p.pipelineStage] || p.pipelineStage}. Lead progress changed faster than the normal flow.`
-        : nextStage
-          ? `Completed ${STAGE_LABELS[currentStage] || currentStage} stage and moved to ${STAGE_LABELS[nextStage] || nextStage}.`
-          : p.reason,
-    }))
-  }
+  const isStageLocked = lockStage
 
   const handleStageChange = (value) => {
     setForm((p) => ({
       ...p,
       pipelineStage: value,
       status: getSuggestedStatusForStage(value, p.status),
-      reason: unlockedJump
-        ? `Exceptional stage jump from ${STAGE_LABELS[currentStage] || currentStage} to ${STAGE_LABELS[value] || value}. Lead progress changed faster than the normal flow.`
-        : p.reason,
+      reason: p.reason,
     }))
   }
 
@@ -1431,7 +1409,6 @@ function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage 
     setErr("")
     if (!form.pipelineStage) return setErr("Stage is required.")
     if (isStageLocked && !nextStage) return setErr("This lead has no next stage available.")
-    if (unlockedJump && form.pipelineStage === currentStage) return setErr("Select a different stage to update this lead.")
     if (stageBlocked) return setErr(stageBlockedText)
     if (!form.reason.trim()) return setErr("Reason is required.")
     setLoading(true)
@@ -1452,25 +1429,35 @@ function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage 
     }
   }
 
-  const title = mode === "next" ? (unlockedJump ? "Jump stage" : "Move to next stage") : "Update stage"
+  const title = mode === "next" ? "Move to next stage" : "Update stage"
   const subtitle = mode === "next" && nextStage ? `${STAGE_LABELS[currentStage] || currentStage} → ${STAGE_LABELS[nextStage] || nextStage}` : lead?.contact?.name || ""
   const selectedStage = String(form.pipelineStage || "")
   const gateLead = stageGate.fullLead || lead
   const requirementReady = hasRequirementDetails(gateLead)
   const requirementStarted = hasAnyRequirementDetails(gateLead)
-  const proposals = Array.isArray(stageGate.timeline?.proposals) ? stageGate.timeline.proposals : []
+  const proposals = Array.isArray(stageGate.timeline?.proposals)
+    ? stageGate.timeline.proposals
+    : Array.isArray(gateLead?.proposals)
+      ? gateLead.proposals
+      : []
   const latestProposal = proposals[0] || null
   const proposalReady = hasProposalWork(gateLead, stageGate.timeline)
-  const needsRequirementBeforeMove = selectedStage === "discovery" && !requirementReady
+  const hasAcceptedProposal = proposals.some((p) => p.status === "accepted")
+  const needsRequirementBeforeMove = (
+    (selectedStage === "discovery" && !requirementReady) ||
+    (currentStage === "discovery" && selectedStage === "proposal" && !requirementReady)
+  )
   const needsProposalBeforeMove = selectedStage === "proposal" && !proposalReady
-  const needsProposalBeforeNegotiation = currentStage === "proposal" && selectedStage === "negotiation" && !proposalReady
+  const needsAcceptedProposalBeforeNegotiation = selectedStage === "negotiation" && !hasAcceptedProposal
   const missingRequirements = getMissingRequirementLabels(gateLead)
-  const stageBlocked = needsRequirementBeforeMove || needsProposalBeforeMove || needsProposalBeforeNegotiation
+  const stageBlocked = needsRequirementBeforeMove || needsProposalBeforeMove || needsAcceptedProposalBeforeNegotiation
   const stageBlockedText = needsRequirementBeforeMove
-    ? `Before moving to Discovery, fill: ${missingRequirements.join(", ")}.`
-    : "Before continuing this stage flow, create the proposal from this lead so the backend can save proposal history and sync the stage properly."
+    ? `Before moving forward, fill: ${missingRequirements.join(", ")}.`
+    : needsAcceptedProposalBeforeNegotiation
+      ? "Before moving to Negotiation, a proposal must be accepted/approved."
+      : "Before continuing this stage flow, create the proposal from this lead so the backend can save proposal history and sync the stage properly."
   const showRequirementWork = selectedStage === "discovery"
-  const showProposalWork = selectedStage === "proposal"
+  const showProposalWork = selectedStage === "proposal" || selectedStage === "negotiation"
 
   return (
     <ModalShell
@@ -1484,7 +1471,7 @@ function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage 
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button>
           <button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading || stageGate.checking || stageBlocked || (isStageLocked && !nextStage)}>
-            {loading ? "Saving..." : stageGate.checking ? "Checking..." : stageBlocked ? "Complete required work first" : mode === "next" ? (unlockedJump ? "Update stage" : "Complete & move next") : "Move stage"}
+            {loading ? "Saving..." : stageGate.checking ? "Checking..." : stageBlocked ? "Complete required work first" : mode === "next" ? "Complete & move next" : "Move stage"}
           </button>
         </div>
       }
@@ -1505,38 +1492,19 @@ function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage 
             </div>
           </div>
 
-          {lockStage ? (
-            <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
-              <span className="text-sm font-bold text-gray-700">Manual stage</span>
-              <input
-                type="checkbox"
-                className="h-5 w-5 shrink-0 rounded border-gray-300 accent-indigo-600"
-                checked={unlockedJump}
-                onChange={(e) => handleToggleUnlock(e.target.checked)}
-              />
-            </label>
-          ) : (
-            <span className="rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 ring-1 ring-indigo-100">Manual update</span>
-          )}
+          <span className="rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-bold text-indigo-700 ring-1 ring-indigo-100">Sequential flow</span>
         </div>
 
         {!isStageLocked ? (
           <div className="mt-4 border-t border-gray-100 pt-4">
             <Field label="Choose stage">
               <select className={input} value={form.pipelineStage} onChange={(e) => handleStageChange(e.target.value)}>
-                {PIPELINE_STAGES.filter((x) => !["negotiation", "won"].includes(x)).map((x) => <option key={x} value={x}>{STAGE_LABELS[x] || x}</option>)}
+                {ACTIVE_PIPELINE_STAGES.filter((x) => x === lead?.pipelineStage || x === getNextPipelineStage(lead)).map((x) => <option key={x} value={x}>{STAGE_LABELS[x] || x}</option>)}
               </select>
             </Field>
           </div>
         ) : null}
       </div>
-
-      {isJumpingMultipleStages ? (
-        <div className="mt-3 flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-800">
-          <FiAlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>Multi-stage jump selected. Write a clear reason so the A-Z history explains why stages were skipped.</span>
-        </div>
-      ) : null}
 
       {showRequirementWork ? (
         <div className={cn("mt-3 flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between", requirementReady ? "border-emerald-200 bg-emerald-50/70" : "border-amber-200 bg-amber-50/70")}>
@@ -1556,18 +1524,26 @@ function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage 
       ) : null}
 
       {showProposalWork ? (
-        <div className={cn("mt-3 flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between", proposalReady ? "border-emerald-200 bg-emerald-50/70" : "border-amber-200 bg-amber-50/70")}>
+        <div className={cn("mt-3 flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between", (selectedStage === "negotiation" ? hasAcceptedProposal : proposalReady) ? "border-emerald-200 bg-emerald-50/70" : "border-amber-200 bg-amber-50/70")}>
           <div className="flex min-w-0 items-center gap-3">
-            <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm", proposalReady ? "text-emerald-700" : "text-amber-700")}>
-              {proposalReady ? <FiCheckCircle className="h-5 w-5" /> : <FiFileText className="h-5 w-5" />}
+            <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm", (selectedStage === "negotiation" ? hasAcceptedProposal : proposalReady) ? "text-emerald-700" : "text-amber-700")}>
+              {(selectedStage === "negotiation" ? hasAcceptedProposal : proposalReady) ? <FiCheckCircle className="h-5 w-5" /> : <FiFileText className="h-5 w-5" />}
             </div>
             <div className="min-w-0">
-              <p className={cn("text-sm font-black", proposalReady ? "text-emerald-950" : "text-amber-950")}>{proposalReady ? "Proposal saved" : "Proposal not created"}</p>
-              <p className={cn("mt-0.5 text-xs font-semibold", proposalReady ? "text-emerald-700" : "text-amber-700")}>{proposalReady ? `${latestProposal?.proposalNo || latestProposal?.title || "Proposal"} · ${latestProposal?.status || "draft"}` : "Create and save the proposal before moving."}</p>
+              <p className={cn("text-sm font-black", (selectedStage === "negotiation" ? hasAcceptedProposal : proposalReady) ? "text-emerald-950" : "text-amber-950")}>
+                {selectedStage === "negotiation"
+                  ? (hasAcceptedProposal ? "Proposal accepted" : "Proposal acceptance required")
+                  : (proposalReady ? "Proposal saved" : "Proposal not created")}
+              </p>
+              <p className={cn("mt-0.5 text-xs font-semibold", (selectedStage === "negotiation" ? hasAcceptedProposal : proposalReady) ? "text-emerald-700" : "text-amber-700")}>
+                {selectedStage === "negotiation"
+                  ? (hasAcceptedProposal ? `${latestProposal?.proposalNo || latestProposal?.title || "Proposal"} · Accepted. Ready for negotiation.` : "A proposal must be accepted to move to Negotiation.")
+                  : (proposalReady ? `${latestProposal?.proposalNo || latestProposal?.title || "Proposal"} · ${latestProposal?.status || "draft"}` : "Create and save the proposal before moving.")}
+              </p>
             </div>
           </div>
-          <button type="button" className={cn(btn, proposalReady ? btnGhost : btnPrimary, "shrink-0 px-4 py-2")} onClick={() => onOpenProposal?.(proposalReady && latestProposal ? { ...gateLead, _editingProposal: latestProposal } : gateLead)}>
-            <FiFileText className="h-4 w-4" /> {proposalReady ? "Edit Proposal" : "Create Proposal"}
+          <button type="button" className={cn(btn, (selectedStage === "negotiation" ? hasAcceptedProposal : proposalReady) ? btnGhost : btnPrimary, "shrink-0 px-4 py-2")} onClick={() => onOpenProposal?.(proposalReady && latestProposal ? { ...gateLead, _editingProposal: latestProposal } : gateLead)}>
+            <FiFileText className="h-4 w-4" /> {proposalReady ? (hasAcceptedProposal ? "View Proposal" : "Review / Edit Proposal") : "Create Proposal"}
           </button>
         </div>
       ) : null}
@@ -1866,7 +1842,7 @@ function DealModal({ open, onClose, lead, onSaved, users = [] }) {
   const submit = async () => { setErr(""); if (!proposal?._id) return setErr("Send or accept a proposal before creating a deal."); if (!form.title.trim()) return setErr("Title is required."); setLoading(true); try { await apiCreateDealFromProposal(proposal._id, { leadId: getLeadId(lead), title: form.title.trim(), stage: "negotiation", currency: form.currency.trim() || "BDT", items, probability: Number(form.probability || 60), expectedCloseDate: form.expectedCloseDate ? new Date(form.expectedCloseDate).toISOString() : null, ownerId: form.ownerId.trim() || undefined, notes: form.notes.trim(), nextDealAction: form.nextDealAction.trim(), nextDealActionAt: form.nextDealActionAt ? new Date(form.nextDealActionAt).toISOString() : null, stuckReason: form.stuckReason.trim(), requirementSnapshot: { summary: lead?.requirement?.summary || "", budgetMin: lead?.requirement?.budgetMin || 0, budgetMax: lead?.requirement?.budgetMax || 0, expectedValue: lead?.requirement?.expectedValue || 0, timeline: lead?.requirement?.timeline || "", decisionMaker: lead?.requirement?.decisionMaker || "" } }); onSaved?.(); onClose?.() } catch (e) { setErr(e?.message || "Deal create failed") } finally { setLoading(false) } }
   return <ModalShell open={open} onClose={onClose} title="Create deal" subtitle={lead?.contact?.name || ""} icon={<FiBriefcase className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Creating..." : "Create deal"}</button></div>}>
     {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
-    <div className={cn("mb-4 rounded-xl border p-3 text-sm font-semibold", proposal ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")}>{proposal ? `Creating from ${proposal.proposalNo || proposal.title} (${proposal.status}). Negotiation will continue inside this deal.` : "Send or accept a proposal before creating the deal."}</div>
+    <div className={cn("mb-4 rounded-xl border p-3 text-sm font-semibold", proposal ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")}>{proposal ? `Creating from ${proposal.proposalNo || proposal.title} (${proposal.status}). Deal record created for this lead.` : "Send or accept a proposal before creating the deal."}</div>
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <Field label="Source proposal"><input className={input} value={proposal?.proposalNo || proposal?.title || "No eligible proposal"} disabled readOnly /></Field>
       <Field label="Title *"><input className={input} value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} /></Field>
@@ -1981,14 +1957,18 @@ function RecordDetailsModal({ open, onClose, record, type, lead }) {
   </ModalShell>
 }
 
-function ReasonModal({ open, onClose, title, subtitle, icon, actionLabel, danger = false, onSubmit }) {
+function ReasonModal({ open, onClose, title, subtitle, icon, actionLabel, danger = false, salesWin = false, onSubmit }) {
+  const [salesOptions, setSalesOptions] = useState({ branches: [], warehouses: [] })
+  const [branchId, setBranchId] = useState("")
+  const [warehouseId, setWarehouseId] = useState("")
+  useEffect(() => { if (open && salesWin) { setBranchId(""); setWarehouseId(""); apiJson(`${API_BASE}/leads/conversion-options`).then((result) => setSalesOptions(result.data || result)).catch(() => setSalesOptions({ branches: [], warehouses: [] })) } }, [open, salesWin])
   const [reason, setReason] = useState("")
   const [note, setNote] = useState("")
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState("")
   useEffect(() => { if (open) { setReason(""); setNote(""); setErr("") } }, [open])
-  const submit = async () => { setErr(""); if (!reason.trim()) return setErr("Reason is required."); setLoading(true); try { await onSubmit?.({ reason: reason.trim(), note: note.trim() }); onClose?.() } catch (e) { setErr(e?.message || "Action failed") } finally { setLoading(false) } }
-  return <ModalShell open={open} onClose={onClose} title={title} subtitle={subtitle} icon={icon} maxWidthClass="max-w-xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, danger ? "bg-rose-600 text-white hover:bg-rose-700" : btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : actionLabel}</button></div>}>{err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}<div className="grid gap-4"><Field label="Reason *"><input className={input} value={reason} onChange={(e) => setReason(e.target.value)} /></Field><Field label="Extra note"><textarea className={cn(input, "min-h-[120px]")} value={note} onChange={(e) => setNote(e.target.value)} /></Field></div></ModalShell>
+  const submit = async () => { setErr(""); if (!reason.trim()) return setErr("Reason is required."); setLoading(true); try { await onSubmit?.({ reason: reason.trim(), note: note.trim(), ...(salesWin ? { branchId: branchId || undefined, warehouseId: warehouseId || undefined } : {}) }); onClose?.() } catch (e) { setErr(e?.message || "Action failed") } finally { setLoading(false) } }
+  return <ModalShell open={open} onClose={onClose} title={title} subtitle={subtitle} icon={icon} maxWidthClass="max-w-xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, danger ? "bg-rose-600 text-white hover:bg-rose-700" : btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : actionLabel}</button></div>}>{err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}<div className="grid gap-4">{salesWin ? <><p className="rounded-xl bg-indigo-50 p-3 text-sm text-indigo-800">Creates a Customer, Won Deal and draft Sales Order from the accepted offer. Then continue with confirmation, inventory, delivery, invoice and payment.</p><Field label="Sales branch"><select className={input} value={branchId} onChange={(e) => { setBranchId(e.target.value); setWarehouseId("") }}><option value="">Use quotation or assigned branch</option>{salesOptions.branches.map((branch) => <option key={branch._id} value={branch._id}>{branch.name}</option>)}</select></Field><Field label="Fulfillment warehouse"><select className={input} value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}><option value="">Use branch default warehouse</option>{salesOptions.warehouses.filter((warehouse) => !branchId || String(warehouse.branch?._id || warehouse.branch) === branchId).map((warehouse) => <option key={warehouse._id} value={warehouse._id}>{warehouse.name}</option>)}</select></Field></> : null}<Field label="Reason *"><input className={input} value={reason} onChange={(e) => setReason(e.target.value)} /></Field><Field label="Extra note"><textarea className={cn(input, "min-h-[120px]")} value={note} onChange={(e) => setNote(e.target.value)} /></Field></div></ModalShell>
 }
 
 function ConfirmDeleteModal({ open, leadName, loading, onClose, onConfirm }) {
@@ -2157,7 +2137,52 @@ function StageWorkGuide({ lead, onAction }) {
   const proposalCount = getProposalCount(lead)
   const guidance = getGuidedNextAction(stage)
 
-  if (!guidance && !["qualified", "discovery", "proposal"].includes(stage)) return null
+  if (!guidance && !["qualified", "discovery", "proposal", "negotiation"].includes(stage)) return null
+
+  if (stage === "negotiation") {
+    return (
+      <div className="rounded-2xl border border-emerald-100 bg-emerald-50/40 p-4">
+        <div className="flex flex-col gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-emerald-700 shadow-sm">
+              <FiMessageSquare className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-black text-gray-950">Negotiation started</p>
+                <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800">
+                  In Negotiation
+                </span>
+              </div>
+              <p className="mt-1 text-sm font-medium text-gray-600">
+                Proposal accepted internally. Complete the final client discussion, then mark Won or Lost. Won creates the Customer, Won Deal and draft Sales Order together.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 border-t border-emerald-100/70 pt-2">
+            <button type="button" className={cn(btn, btnGhost, "px-3 py-1.5 text-xs")} onClick={() => onAction?.("note", lead)}>
+              <FiFileText className="h-3.5 w-3.5" /> Add Note
+            </button>
+            <button type="button" className={cn(btn, btnGhost, "px-3 py-1.5 text-xs")} onClick={() => onAction?.("quick", lead)}>
+              <FiPhoneCall className="h-3.5 w-3.5" /> Log Call
+            </button>
+            <button type="button" className={cn(btn, btnGhost, "px-3 py-1.5 text-xs")} onClick={() => onAction?.("followup", lead)}>
+              <FiCalendar className="h-3.5 w-3.5" /> Schedule Follow-up
+            </button>
+            <button type="button" className={cn(btn, btnGhost, "px-3 py-1.5 text-xs")} onClick={() => onAction?.("activity", lead)}>
+              <FiActivity className="h-3.5 w-3.5" /> Create Activity
+            </button>
+            <button type="button" className={cn(btn, "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 px-3 py-1.5 text-xs")} onClick={() => onAction?.("won", lead)}>
+              <FiCheckCircle className="h-3.5 w-3.5" /> Mark Won
+            </button>
+            <button type="button" className={cn(btn, btnDanger, "px-3 py-1.5 text-xs")} onClick={() => onAction?.("lost", lead)}>
+              <FiXCircle className="h-3.5 w-3.5" /> Mark Lost
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const Icon = guidance?.icon || FiTarget
   let title = "Stage work"
@@ -2305,7 +2330,7 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
   const proposals = timeline.proposals || []
   const deals = timeline.deals || []
   const queueItems = timeline.queueItems || []
-  const showSalesTabs = getStageIndex(lead?.pipelineStage) >= getStageIndex("discovery")
+  const showSalesTabs = ["proposal", "negotiation", "won"].includes(String(lead?.pipelineStage || "")) || getStageIndex(lead?.pipelineStage) >= getStageIndex("discovery")
   const tabs = [
     ["overview", "Overview", FiInfo],
     ["timeline", "Timeline", FiClock],
@@ -2329,7 +2354,10 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
       toast.error(e?.message || "PDF export failed")
     }
   }
-  return <><ModalShell open={open} onClose={onClose} title="Lead A-Z History" subtitle={lead?.contact?.name || "Full timeline, activities, proposals, deals and work queue"} icon={<FiEye className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex flex-wrap justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load}><FiRefreshCcw className="h-4 w-4" />Refresh</button>{lead ? (() => { const proposalInfo = getProposalShortcutInfo(lead, timeline); const eligibleProposal = (timeline.proposals || []).find((proposal) => ["sent", "accepted"].includes(proposal.status) && !proposal.dealId); return <><button className={cn(btn, btnPrimary)} disabled={!getNextPipelineStage(lead)} onClick={() => onAction?.("nextStage", lead)}><FiArrowRight />Next Stage</button><button className={cn(btn, btnSoft)} onClick={() => onAction?.("quick", lead)}><FiZap />Quick action</button>{proposalInfo.show ? <button className={cn(btn, proposalInfo.action === "proposal" ? btnPrimary : btnGhost)} disabled={proposalInfo.disabled} onClick={() => proposalInfo.action === "manageProposal" ? setTab("proposals") : onAction?.(proposalInfo.action, lead)}><FiFileText />{proposalInfo.label}</button> : null}<button className={cn(btn, btnGhost)} disabled={!eligibleProposal} title={eligibleProposal ? "Create deal from proposal" : "Send or accept a proposal first"} onClick={() => onAction?.("deal", lead)}><FiBriefcase />Create Deal</button></> })() : null}</div>}>
+  return <><ModalShell open={open} onClose={onClose} title="Lead A-Z History" subtitle={lead?.contact?.name || "Full timeline, activities, proposals, deals and work queue"} icon={<FiEye className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex flex-wrap justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load}><FiRefreshCcw className="h-4 w-4" />Refresh</button>{lead ? (() => { const proposalInfo = getProposalShortcutInfo(lead, timeline); const eligibleProposal = (timeline.proposals || []).find((proposal) => ["sent", "accepted"].includes(proposal.status) && !proposal.dealId); return <><button className={cn(btn, btnPrimary)} disabled={!getNextPipelineStage(lead)} onClick={() => onAction?.("nextStage", lead)}><FiArrowRight />Next Stage</button><button className={cn(btn, btnSoft)} onClick={() => onAction?.("quick", lead)}><FiZap />Quick action</button>{proposalInfo.show ? <button className={cn(btn, proposalInfo.action === "proposal" ? btnPrimary : btnGhost)} disabled={proposalInfo.disabled} onClick={() => proposalInfo.action === "manageProposal" ? setTab("proposals") : onAction?.(proposalInfo.action, lead)}><FiFileText />{proposalInfo.label}</button> : null}{lead?.pipelineStage === "negotiation" ? <>
+  <button className={cn(btn, "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700")} onClick={() => onAction?.("won", lead)}><FiCheckCircle className="h-4 w-4" />Mark Won</button>
+  <button className={cn(btn, btnDanger)} onClick={() => onAction?.("lost", lead)}><FiXCircle className="h-4 w-4" />Mark Lost</button>
+</> : null}</> })() : null}</div>}>
     {loading ? <div className="flex justify-center p-10"><FiLoader className="h-6 w-6 animate-spin text-indigo-600" /></div> : err ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : lead ? <>
       <div className="mb-4 flex flex-wrap gap-2">{tabs.map(([k, name, Icon, count]) => <button key={k} className={cn(btn, tab === k ? btnPrimary : btnGhost, "px-3 py-2")} onClick={() => setTab(k)}><Icon className="h-4 w-4" />{name}{count ? <span className={cn("ml-1 rounded-full px-2 py-0.5 text-[10px] font-black", tab === k ? "bg-white/20 text-white" : "bg-indigo-600 text-white")}>{count > 99 ? "99+" : count}</span> : null}</button>)}</div>
       {tab === "overview" && (
@@ -2357,7 +2385,7 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
       )}
       {tab === "timeline" && <div className="space-y-3">{[...logs, ...activities, ...proposals, ...deals, ...queueItems].sort((a,b)=>new Date(b.createdAt||b.sentAt||0)-new Date(a.createdAt||a.sentAt||0)).map((x, i) => <TimelineCard key={`${x._id || i}`} item={x} />)}{!logs.length && !activities.length && !proposals.length && !deals.length && !queueItems.length ? <EmptyState icon={<FiClock />} title="No history yet" /> : null}</div>}
       {!isRestrictedLeadView && tab === "activities" && <RecordList items={activities} type="activity" onComplete={async (id) => { await apiCompleteActivity(id, { outcome: "Completed from UI" }); await load(); onAction?.("refresh") }} onCancel={async (id) => { await apiCancelActivity(id, { reason: "Cancelled from UI" }); await load(); onAction?.("refresh") }} />}
-      {showSalesTabs && tab === "proposals" && <RecordList items={proposals} type="proposal" onView={(record) => setRecordView({ open: true, type: "proposal", record })} onEdit={(record) => setRecordEdit({ type: "proposal", record })} onExport={exportTimelineProposal} onSend={async (id) => { await apiSendProposal(id); await load(); onAction?.("refresh") }} onAccept={async (id) => { await apiAcceptProposal(id); await load(); onAction?.("refresh") }} onReject={(id) => openReasonModal({ title: "Reject proposal", subtitle: lead?.contact?.name || "Add a clear reason before rejecting.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Reject proposal", danger: true, onSubmit: async ({ reason, note }) => { await apiRejectProposal(id, { rejectReason: reason, note }); await load(); onAction?.("refresh") } })} />}
+      {showSalesTabs && tab === "proposals" && <RecordList items={proposals} type="proposal" onView={(record) => setRecordView({ open: true, type: "proposal", record })} onEdit={(record) => setRecordEdit({ type: "proposal", record })} onExport={exportTimelineProposal} onSend={async (id) => { await apiSendProposal(id); await load(); onAction?.("refresh") }} onAccept={async (id) => { await apiAcceptProposal(id); toast.success("Proposal accepted. Lead moved to Negotiation stage."); await load(); onAction?.("refresh") }} onReject={(id) => openReasonModal({ title: "Reject proposal", subtitle: lead?.contact?.name || "Add a clear reason before rejecting.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Reject proposal", danger: true, onSubmit: async ({ reason, note }) => { await apiRejectProposal(id, { rejectReason: reason, note }); await load(); onAction?.("refresh") } })} />}
       {showSalesTabs && tab === "deals" && <RecordList items={deals} type="deal" onView={(record) => setRecordView({ open: true, type: "deal", record })} onEdit={(record) => setRecordEdit({ type: "deal", record })} onWon={(id) => openReasonModal({ title: "Mark deal as won", subtitle: "Winning the deal will automatically convert this lead to a customer.", icon: <FiCheckCircle className="h-5 w-5" />, actionLabel: "Win deal & convert", onSubmit: async ({ reason, note }) => { const data = await apiDealWon(id, { reason, note }); await load(); onAction?.("dealWon", data) } })} onLost={(id) => openReasonModal({ title: "Mark deal as lost", subtitle: lead?.contact?.name || "Add a clear loss reason.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Mark lost", danger: true, onSubmit: async ({ reason, note }) => { await apiDealLost(id, { reason, note }); await load(); onAction?.("refresh") } })} />}
       {tab === "queue" && <RecordList items={queueItems} type="queue" onDone={async (id) => { await apiQueueDone(id, { result: "Done from lead view" }); await load(); onAction?.("refresh") }} />}
       {tab === "notes" && <LeadNotesOverview lead={lead} onAction={onAction} />}
@@ -2385,8 +2413,8 @@ function RecordList({ items = [], type, onComplete, onCancel, onSend, onAccept, 
         {["proposal", "deal"].includes(type) ? <button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onView?.(it)}><FiEye className="h-4 w-4" />View</button> : null}
         {proposalEditable || dealEditable ? <button className={cn(btn, btnSoft, "px-3 py-2")} onClick={() => onEdit?.(it)}><FiEdit2 className="h-4 w-4" />Edit</button> : null}
         {type === "activity" ? <><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onComplete?.(it._id)}>Complete</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={() => onCancel?.(it._id)}>Cancel</button></> : null}
-        {type === "proposal" ? <><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onExport?.(it)}><FiDownload className="h-4 w-4" />PDF</button><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onSend?.(it._id)}>Send</button><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onAccept?.(it._id)}>Accept</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={() => onReject?.(it._id)}>Reject</button></> : null}
-        {type === "deal" && !["won", "lost"].includes(it.stage) ? <><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onWon?.(it._id)}>Won</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={() => onLost?.(it._id)}>Lost</button></> : null}
+        {type === "proposal" ? <><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onExport?.(it)}><FiDownload className="h-4 w-4" />PDF</button><button className={cn(btn, btnGhost, "px-3 py-2")} disabled={it.status !== "draft"} onClick={() => Promise.resolve(onSend?.(it._id)).catch((error) => toast.error(error.message))}>Send</button><button className={cn(btn, btnGhost, "px-3 py-2")} disabled={it.status !== "sent"} onClick={() => Promise.resolve(onAccept?.(it._id)).catch((error) => toast.error(error.message))}>Accept internally</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={() => onReject?.(it._id)}>Reject</button></> : null}
+        {type === "deal" && !["won", "lost"].includes(it.stage) ? <span className="inline-flex items-center rounded-xl bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700">Outcome managed from lead Negotiation</span> : null}
         {type === "queue" ? <button className={cn(btn, btnPrimary, "px-3 py-2")} onClick={() => onDone?.(it._id)}>Done</button> : null}
       </div>
     </div>
@@ -2478,7 +2506,7 @@ function RowActionsMenu({ lead, onAction, busy, converting, canConvert, canAdmin
     : null
   const isNegotiation = String(hydratedLead?.pipelineStage || "") === "negotiation"
   const manageItems = canManageLeads
-    ? [["quick", "Quick action", FiZap], ...(canAdminister ? [["assign", "Assign lead", FiUserCheck]] : []), ["edit", "Edit lead", FiEdit2], ["note", "Add note", FiFileText], ["nextStage", "Next stage", FiArrowRight], ["stage", "Manual stage", FiSliders], ["requirement", "Requirement", FiTarget], ["activity", "Create activity", FiActivity], ["followup", "Set follow-up", FiCalendar], ["contacted", "Mark contacted", FiPhoneCall], ...(proposalInfo.show ? [[proposalInfo.action, proposalInfo.label, FiFileText, proposalInfo.disabled, proposalInfo.helper]] : []), ["deal", "Create deal", FiBriefcase, checkingProposal || !eligibleProposal, checkingProposal ? "Checking proposals..." : "Send or accept a proposal first."], ...(isNegotiation ? [["dealWon", "Mark deal as won", FiCheckCircle, checkingProposal || !activeDeal, checkingProposal ? "Checking linked deal..." : activeDeal ? "This will convert the lead to a customer automatically." : "No active linked deal found."]] : []), ["lost", "Mark lost", FiXCircle]]
+    ? [["quick", "Quick action", FiZap], ...(canAdminister ? [["assign", "Assign lead", FiUserCheck]] : []), ["edit", "Edit lead", FiEdit2], ["note", "Add note", FiFileText], ["salesQuotation", "Create Quotation", FiFileText, false, "Create sales quotation in Sales module"], ["nextStage", "Next stage", FiArrowRight], ["stage", "Update stage", FiSliders], ["requirement", "Requirement", FiTarget], ["activity", "Create activity", FiActivity], ["followup", "Set follow-up", FiCalendar], ["contacted", "Mark contacted", FiPhoneCall], ...(proposalInfo.show ? [[proposalInfo.action, proposalInfo.label, FiFileText, proposalInfo.disabled, proposalInfo.helper]] : []), ...(isNegotiation ? [["won", "Mark Won", FiCheckCircle, false, "Mark lead as Won and convert to customer"], ["lost", "Mark lost", FiXCircle, false, "Close after final client discussion"]] : [])]
     : []
   const items = [["view", "View A-Z history", FiEye], ...manageItems]
 
@@ -2496,7 +2524,7 @@ function RowActionsMenu({ lead, onAction, busy, converting, canConvert, canAdmin
         <div className="max-h-[min(70vh,560px)] overflow-y-auto p-2">
           {items.map(([key, text, Icon, forceDisabled, helper]) => {
             const disabled = Boolean(forceDisabled) || (key === "convert" && (!canConvert || converted || converting)) || (key === "contacted" && busy) || (key === "won" && lead?.pipelineStage === "won") || (key === "lost" && lead?.pipelineStage === "lost") || (key === "nextStage" && !getNextPipelineStage(lead))
-            return <button key={key} disabled={disabled} className={cn("flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50", key === "proposal" ? "bg-indigo-50/60 text-indigo-800" : key === "dealWon" ? "bg-emerald-50 text-emerald-800" : key === "manageProposal" ? "bg-gray-50 text-gray-900" : "text-gray-800")} onClick={() => { setOpen(false); onAction(key, key === "dealWon" ? { lead: hydratedLead, deal: activeDeal } : ["proposal", "manageProposal", "requirement", "deal", "nextStage", "stage"].includes(key) ? hydratedLead : lead) }}>{key === "contacted" && busy ? <FiLoader className="mt-0.5 h-4 w-4 animate-spin" /> : key === "convert" && converting ? <FiLoader className="mt-0.5 h-4 w-4 animate-spin" /> : <Icon className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" />}<span><span className="block text-sm font-semibold">{text}</span>{helper ? <span className="mt-0.5 block text-xs font-medium text-gray-500">{helper}</span> : null}</span></button>
+            return <button key={key} disabled={disabled} className={cn("flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50", key === "proposal" ? "bg-indigo-50/60 text-indigo-800" : key === "won" ? "bg-emerald-50 text-emerald-800" : key === "manageProposal" ? "bg-gray-50 text-gray-900" : "text-gray-800")} onClick={() => { setOpen(false); onAction(key, ["proposal", "manageProposal", "requirement", "nextStage", "stage", "won", "lost"].includes(key) ? hydratedLead : lead) }}>{key === "contacted" && busy ? <FiLoader className="mt-0.5 h-4 w-4 animate-spin" /> : key === "convert" && converting ? <FiLoader className="mt-0.5 h-4 w-4 animate-spin" /> : <Icon className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" />}<span><span className="block text-sm font-semibold">{text}</span>{helper ? <span className="mt-0.5 block text-xs font-medium text-gray-500">{helper}</span> : null}</span></button>
           })}
           {canAdminister ? <>
             <div className="my-1 border-t border-gray-100" />
@@ -2863,7 +2891,12 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
       showToast("error", "You only have permission to view leads.")
       return
     }
-    if (type === "dealWon") return setModal({ type: "dealWon", lead: lead?.lead, deal: lead?.deal })
+    if (type === "salesQuotation") {
+      const targetLeadId = getLeadId(lead)
+      window.location.href = `/admin/sales?kind=quotations&createQuotationForLead=${encodeURIComponent(targetLeadId)}`
+      return
+    }
+    if (type === "dealWon") return setModal({ type: "leadWon", lead: lead?.lead || lead })
     if (type === "view" || type === "manageProposal") { setViewInitialTab(type === "manageProposal" ? "proposals" : "overview"); return setViewLeadId(getLeadId(lead)) }
     if (["requirement", "proposal", "deal", "stage", "nextStage"].includes(type)) {
       const freshLead = await getFreshLeadForAction(lead)
@@ -2871,7 +2904,8 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
         showToast("error", "Complete requirement first, then create proposal.")
         return setModal({ type: "requirement", lead: freshLead })
       }
-      if (type === "deal") {
+      if (type === "deal") { showToast("error", "Win the lead in Negotiation to create its deal and sales order."); return }
+    if (type === "legacyDeal") {
         const timelineData = await apiGetLeadTimeline(getLeadId(freshLead)).catch(() => null)
         const timeline = timelineData?.timeline || timelineData || {}
         const proposals = Array.isArray(timeline?.proposals) ? timeline.proposals : []
@@ -2891,7 +2925,8 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
     if (type === "won") return setModal({ type: "leadWon", lead })
     if (type === "lost") return setModal({ type: "leadLost", lead })
     if (type === "contacted") { setBusyId(getLeadId(lead)); try { await apiMarkContacted(getLeadId(lead), { note: "Marked contacted from list" }); showToast("success", "Lead marked contacted."); await refreshAll() } catch (e) { showToast("error", e.message) } finally { setBusyId("") } }
-    if (type === "convert") { setConvertingId(getLeadId(lead)); try { const data = await apiConvertLead(getLeadId(lead)); showToast("success", "Lead converted to customer."); onConvertedToCustomer?.(data?.customer || data); await refreshAll() } catch (e) { showToast("error", e.message) } finally { setConvertingId("") } }
+    if (type === "convert") { setModal({ type: "leadWon", lead }); return }
+    if (type === "legacyConvert") { setConvertingId(getLeadId(lead)); try { const data = await apiConvertLead(getLeadId(lead)); showToast("success", "Lead converted to customer."); onConvertedToCustomer?.(data?.customer || data); await refreshAll() } catch (e) { showToast("error", e.message) } finally { setConvertingId("") } }
     if (type === "refresh") return refreshAll()
     if (type === "dealWon") {
       showToast("success", "Deal won. Lead converted to customer automatically.")
@@ -3188,10 +3223,10 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
     <ActivityModal open={modal.type === "activity"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} users={assignees} onSaved={async () => { showToast("success", "Activity created."); await refreshAll() }} />
     <ProposalModal open={modal.type === "proposal"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} users={assignees} onSaved={async () => { showToast("success", "Proposal created."); await refreshAll() }} />
     <ProposalModal open={childModal.type === "proposal"} onClose={() => setChildModal({ type: "", lead: null })} lead={childModal.lead} users={assignees} onSaved={handleChildProposalSaved} />
-    <DealModal open={modal.type === "deal"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} users={assignees} onSaved={async () => { showToast("success", "Deal created. Continue negotiation inside the deal."); await refreshAll() }} />
+    <DealModal open={modal.type === "deal"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} users={assignees} onSaved={async () => { showToast("success", "Deal created."); await refreshAll() }} />
     <QuickActionModal open={modal.type === "quick"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Quick action saved."); await refreshAll() }} />
     {canAdminister ? <AssignLeadModal open={modal.type === "assign"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Lead assigned."); await refreshAll() }} /> : null}
-    <ReasonModal open={modal.type === "leadWon"} onClose={() => setModal({ type: "", lead: null })} title="Mark lead won" subtitle={modal.lead?.contact?.name || ""} icon={<FiCheckCircle className="h-5 w-5" />} actionLabel="Mark won" onSubmit={async (payload) => { await apiLeadWon(getLeadId(modal.lead), payload); showToast("success", "Lead marked as won."); await refreshAll() }} />
+    <ReasonModal open={modal.type === "leadWon"} onClose={() => setModal({ type: "", lead: null })} salesWin title="Win negotiation & create sales records" subtitle={modal.lead?.contact?.name ? `${modal.lead.contact.name}${modal.lead.contact.companyName ? ` (${modal.lead.contact.companyName})` : ""}` : "Mark lead as Won and convert to customer."} icon={<FiCheckCircle className="h-5 w-5" />} actionLabel="Win & Create Sales Order" onSubmit={async (payload) => { const result = await apiLeadWon(getLeadId(modal.lead), payload); onConvertedToCustomer?.(result.customer); showToast("success", `Won. Customer, deal and sales order ${result.salesOrder?.orderNumber || ""} created.`); setModal({ type: "", lead: null }); await refreshAll(); }} />
     <ReasonModal open={modal.type === "dealWon"} onClose={() => setModal({ type: "", lead: null, deal: null })} title="Mark deal as won" subtitle="The lead will be converted to a customer automatically." icon={<FiCheckCircle className="h-5 w-5" />} actionLabel="Win deal & convert" onSubmit={async (payload) => { const data = await apiDealWon(modal.deal?._id, payload); showToast("success", "Deal won. Lead converted to customer automatically."); onConvertedToCustomer?.(data?.customer || data); setModal({ type: "", lead: null, deal: null }); await refreshAll() }} />
     <ReasonModal open={modal.type === "leadLost"} onClose={() => setModal({ type: "", lead: null })} title="Mark lead lost" subtitle={modal.lead?.contact?.name || ""} icon={<FiXCircle className="h-5 w-5" />} actionLabel="Mark lost" danger onSubmit={async (payload) => { await apiLeadLost(getLeadId(modal.lead), payload); showToast("success", "Lead marked as lost."); await refreshAll() }} />
     {canAdminister ? <ConfirmDeleteModal open={deleteState.open} leadName={deleteState.lead?.contact?.name || ""} loading={deleteState.loading} onClose={() => setDeleteState({ open: false, lead: null, loading: false })} onConfirm={confirmDelete} /> : null}

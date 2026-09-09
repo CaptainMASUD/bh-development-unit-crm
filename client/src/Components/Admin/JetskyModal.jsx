@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { createPortal } from "react-dom"
 import { FaTimes, FaBolt, FaShieldAlt, FaTachometerAlt, FaFeatherAlt } from "react-icons/fa"
-import jetsky from "../../../public/jetsky.svg"
+const jetsky = "/jetsky.svg"
 
 export default function JetskyModal({ isOpen, onClose, isDarkMode }) {
   // 1) Always declare hooks in the same order

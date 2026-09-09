@@ -1,9 +1,15 @@
 import { SalesOrder } from "../../models/sales/salesOrder.model.js";
+import Deal from "../../models/deal.model.js";
+import Customer from "../../models/customer.model.js";
+import Warehouse from "../../models/inventory/warehouse.model.js";
+import Product from "../../models/inventory/product.model.js";
 import {
   reserveInventory,
   releaseInventory,
   logCrmActivity,
 } from "../../services/salesIntegration.service.js";
+import { nextSalesNumber } from "../../services/salesNumber.service.js";
+import { runSalesTransaction } from "../../services/salesTransaction.service.js";
 import { SalesError, assertTenant } from "../../utils/salesError.js";
 import { assertCustomerCreditAvailable, validateSalesWarehouse } from "../../services/salesReference.service.js";
 import { getReqMeta, writeAudit } from "../../utils/audit.js";
@@ -299,4 +305,138 @@ export const closeSalesOrder = async (req, res) => {
   await writeAudit({ actorId: req.user._id, action: "close", entityType: "SalesOrder", entityId: order._id, after: { status: order.status }, meta: getReqMeta(req) });
 
   res.json({ success: true, data: order });
+};
+
+export const createSalesOrderFromDeal = async (req, res) => {
+  const tenantId = assertTenant(req);
+  const dealId = req.params.dealId;
+
+  const deal = await Deal.findOne(tenantFilter(req, { _id: dealId }));
+  if (!deal) throw new SalesError("Deal not found.", 404);
+  if (deal.stage !== "won") throw new SalesError("Only won deals can be converted to a sales order.", 409);
+  if (!deal.customerId) throw new SalesError("This deal has no associated customer.", 409);
+
+  if (deal.salesOrderId) {
+    const existing = await SalesOrder.findOne(tenantFilter(req, { _id: deal.salesOrderId }));
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: "A sales order already exists for this deal.",
+        data: existing,
+      });
+    }
+  }
+
+  const branchId = req.body.branchId || req.membership?.defaultBranch || req.user.defaultBranch;
+  if (!branchId) throw new SalesError("branchId is required.");
+
+  let warehouseId = req.body.warehouseId;
+  if (!warehouseId) {
+    const defaultWh = await Warehouse.findOne({ branch: branchId, status: "active", isDefault: true }).lean()
+      || await Warehouse.findOne({ branch: branchId, status: "active" }).lean()
+      || await Warehouse.findOne({ status: "active" }).lean();
+    warehouseId = defaultWh?._id;
+  }
+  if (!warehouseId) throw new SalesError("warehouseId is required to create the sales order.", 400);
+
+  const customer = await Customer.findById(deal.customerId).lean();
+  if (!customer) throw new SalesError("Customer not found.", 404);
+
+  let createdOrder;
+  await runSalesTransaction(async (session) => {
+    const orderNumber = await nextSalesNumber({
+      tenantId,
+      documentType: "order",
+      session,
+    });
+
+    const dealLines = Array.isArray(deal.items) && deal.items.length ? deal.items : [];
+    const productIds = dealLines.map((item) => item.productId).filter(Boolean);
+    const products = await Product.find({ _id: { $in: productIds } }).lean();
+    const productMap = new Map(products.map((p) => [String(p._id), p]));
+
+    const lines = dealLines.map((item) => {
+      const prod = item.productId ? productMap.get(String(item.productId)) : null;
+      const orderedQty = Math.max(Number(item.qty || 1), 0.000001);
+      const unitPrice = Number(item.unitPrice || prod?.sellingPrice || 0);
+      const lineDiscount = Number(item.discount || 0);
+      const taxRate = Number(prod?.taxRate || 0);
+      const lineSubtotal = Math.round(orderedQty * unitPrice * 100) / 100;
+      const lineTax = Math.round((lineSubtotal - lineDiscount) * (taxRate / 100) * 100) / 100;
+      const lineTotal = Math.round((lineSubtotal - lineDiscount + lineTax) * 100) / 100;
+
+      return {
+        productId: item.productId || prod?._id,
+        name: item.nameSnapshot || prod?.name || "Item",
+        sku: prod?.sku || "",
+        warehouseId,
+        orderedQty,
+        reservedQty: 0,
+        dispatchedQty: 0,
+        deliveredQty: 0,
+        invoicedQty: 0,
+        returnedQty: 0,
+        unitPrice,
+        taxRate,
+        lineSubtotal,
+        lineDiscount,
+        lineTax,
+        lineTotal,
+      };
+    });
+
+    const subtotal = lines.reduce((acc, l) => acc + l.lineSubtotal, 0);
+    const taxTotal = lines.reduce((acc, l) => acc + l.lineTax, 0);
+    const discountTotal = lines.reduce((acc, l) => acc + l.lineDiscount, 0);
+    const grandTotal = Math.round((subtotal - discountTotal + taxTotal) * 100) / 100;
+
+    await assertCustomerCreditAvailable({ customerId: deal.customerId, orderAmount: grandTotal });
+
+    const [order] = await SalesOrder.create(
+      [
+        {
+          tenantId,
+          branchId,
+          orderNumber,
+          dealId: deal._id,
+          leadId: deal.leadId || undefined,
+          customerId: deal.customerId,
+          salespersonId: deal.ownerId || req.user._id,
+          warehouseId,
+          currency: deal.currency || "BDT",
+          status: "draft",
+          orderDate: new Date(),
+          lines,
+          totals: {
+            subtotal,
+            discountTotal,
+            taxTotal,
+            grandTotal,
+            roundOff: 0,
+          },
+          billingAddress: customer.billingAddress || {},
+          shippingAddress: customer.shippingAddress || {},
+          paymentTermsDays: customer.paymentTermsDays || 0,
+          createdBy: req.user._id,
+          updatedBy: req.user._id,
+        },
+      ],
+      { session }
+    );
+
+    deal.salesOrderId = order._id;
+    await deal.save({ session });
+    createdOrder = order;
+  });
+
+  await writeAudit({
+    actorId: req.user._id,
+    action: "create_from_deal",
+    entityType: "SalesOrder",
+    entityId: createdOrder._id,
+    after: createdOrder.toObject(),
+    meta: { ...getReqMeta(req), dealId: deal._id },
+  });
+
+  res.status(201).json({ success: true, data: createdOrder });
 };
