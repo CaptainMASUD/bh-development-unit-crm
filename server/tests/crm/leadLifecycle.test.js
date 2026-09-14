@@ -19,9 +19,11 @@ test("stage changes cannot skip discovery, accept a proposal, or reopen a won le
   assert.doesNotThrow(() => assertLeadTransition("discovery", "proposal"));
   assert.throws(() => assertLeadTransition("new", "proposal"));
   assert.throws(() => assertLeadTransition("proposal", "negotiation"));
-  assert.throws(() => assertLeadTransition("proposal", "lost"));
-  assert.doesNotThrow(() => assertLeadTransition("negotiation", "lost"));
+  for (const activeStage of ["new", "qualified", "discovery", "proposal", "negotiation"]) {
+    assert.doesNotThrow(() => assertLeadTransition(activeStage, "lost"));
+  }
   assert.throws(() => assertLeadTransition("won", "lost"));
+  assert.throws(() => assertLeadTransition("lost", "lost"));
 });
 
 test("proposal creation requires completed discovery details", () => {

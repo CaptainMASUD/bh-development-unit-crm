@@ -5,7 +5,7 @@ import Proposal from "../../models/proposal.model.js";
 import Customer from "../../models/customer.model.js";
 import WorkQueue from "../../models/workQueue.model.js";
 import Notification from "../../models/notification.model.js";
-import Invoice from "../../models/invoice.model.js";
+import SalesInvoice from "../../models/sales/salesInvoice.model.js";
 import { getReqMeta, writeAudit, writeActivity } from "../../utils/audit.js";
 
 const toObjectId = (v) => {
@@ -647,11 +647,11 @@ export const listDeals = async (req, res) => {
 
     const normalizedInvoiceState = normalizeLower(invoiceState);
     if (["paid", "due"].includes(normalizedInvoiceState)) {
-      const paidDealIds = await Invoice.distinct("dealId", {
+      const paidDealIds = await SalesInvoice.distinct("dealId", {
         dealId: { $ne: null },
-        status: { $ne: "void" },
-        total: { $gt: 0 },
-        dueTotal: { $lte: 0 },
+        status: { $nin: ["void", "cancelled"] },
+        "totals.grandTotal": { $gt: 0 },
+        dueAmount: { $lte: 0 },
       });
 
       queryFilter._id =
@@ -698,22 +698,22 @@ export const listDeals = async (req, res) => {
         { $match: accountingFilter },
         {
           $lookup: {
-            from: "invoices",
+            from: "salesinvoices",
             let: { dealId: "$_id" },
             pipeline: [
               {
                 $match: {
                   $expr: { $eq: ["$dealId", "$$dealId"] },
-                  status: { $ne: "void" },
+                  status: { $nin: ["void", "cancelled"] },
                 },
               },
               { $sort: { createdAt: -1, _id: -1 } },
               { $limit: 1 },
               {
                 $project: {
-                  total: 1,
-                  paidTotal: 1,
-                  dueTotal: 1,
+                  total: "$totals.grandTotal",
+                  paidTotal: "$paidAmount",
+                  dueTotal: "$dueAmount",
                 },
               },
             ],
@@ -783,21 +783,36 @@ export const listDeals = async (req, res) => {
 
     const dealIds = items.map((item) => item._id);
     const invoices = dealIds.length
-      ? await Invoice.find({
+      ? await SalesInvoice.find({
           dealId: { $in: dealIds },
-          status: { $ne: "void" },
+          status: { $nin: ["void", "cancelled"] },
         })
           .select(
-            "invoiceNo dealId status currency total paidTotal dueTotal issuedAt dueAt createdAt"
+            "invoiceNumber dealId status currency totals paidAmount dueAmount invoiceDate dueDate createdAt"
           )
           .sort({ createdAt: -1, _id: -1 })
           .lean()
       : [];
 
     const invoiceByDeal = new Map();
-    for (const invoice of invoices) {
-      const key = String(invoice.dealId);
-      if (!invoiceByDeal.has(key)) invoiceByDeal.set(key, invoice);
+    for (const inv of invoices) {
+      const key = String(inv.dealId);
+      if (!invoiceByDeal.has(key)) {
+        invoiceByDeal.set(key, {
+          _id: inv._id,
+          invoiceNo: inv.invoiceNumber,
+          invoiceNumber: inv.invoiceNumber,
+          dealId: inv.dealId,
+          status: inv.status,
+          currency: inv.currency,
+          total: inv.totals?.grandTotal || 0,
+          paidTotal: inv.paidAmount || 0,
+          dueTotal: inv.dueAmount || 0,
+          issuedAt: inv.invoiceDate,
+          dueAt: inv.dueDate,
+          createdAt: inv.createdAt,
+        });
+      }
     }
 
     const enrichedItems = items.map((item) => ({
@@ -882,17 +897,34 @@ export const getDealById = async (req, res) => {
       await assertLeadAccessOrThrow({ req, leadId: deal.leadId });
     }
 
-    const invoice = await Invoice.findOne({
+    const inv = await SalesInvoice.findOne({
       dealId: id,
-      status: { $ne: "void" },
+      status: { $nin: ["void", "cancelled"] },
     })
       .select(
-        "invoiceNo status currency total paidTotal dueTotal issuedAt dueAt createdAt"
+        "invoiceNumber dealId status currency totals paidAmount dueAmount invoiceDate dueDate createdAt"
       )
       .sort({ createdAt: -1, _id: -1 })
       .lean();
 
-    return res.json({ deal: { ...deal, invoice: invoice || null } });
+    const invoice = inv
+      ? {
+          _id: inv._id,
+          invoiceNo: inv.invoiceNumber,
+          invoiceNumber: inv.invoiceNumber,
+          dealId: inv.dealId,
+          status: inv.status,
+          currency: inv.currency,
+          total: inv.totals?.grandTotal || 0,
+          paidTotal: inv.paidAmount || 0,
+          dueTotal: inv.dueAmount || 0,
+          issuedAt: inv.invoiceDate,
+          dueAt: inv.dueDate,
+          createdAt: inv.createdAt,
+        }
+      : null;
+
+    return res.json({ deal: { ...deal, invoice } });
   } catch (err) {
     const code = err.statusCode || 500;
 

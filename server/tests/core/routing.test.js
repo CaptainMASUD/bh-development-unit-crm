@@ -60,6 +60,7 @@ test("explicit ERP route mounts preserve existing URLs", async (t) => {
     "/api/sales/dashboard",
     "/api/sales/returns",
     "/api/sales/invoices/000000000000000000000000/pdf",
+    "/api/inventory/revaluations",
   ];
 
   for (const path of paths) {

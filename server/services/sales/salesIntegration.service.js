@@ -435,13 +435,14 @@ export const markDealWon = async (_req, payload) => {
 };
 
 export const logCrmActivity = async (_req, payload) => {
-  if (!payload.dealId && !payload.customerId) return null;
+  if (!payload.dealId && !payload.customerId && !payload.leadId) return null;
   return Activity.create({
+    leadId: payload.leadId || null,
     dealId: payload.dealId || null,
     customerId: payload.customerId || null,
     type: "note",
     status: "completed",
-    title: payload.type === "sales_order_confirmed" ? "Sales order confirmed" : "Sales quotation updated",
+    title: payload.title || (payload.type === "sales_order_confirmed" ? "Sales order confirmed" : "Sales quotation updated"),
     body: payload.description || payload.type || "Sales activity",
     completedAt: new Date(),
     source: "system",

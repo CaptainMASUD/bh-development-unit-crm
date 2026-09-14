@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { useLocation } from "react-router-dom"
 import PropTypes from "prop-types"
 import toast, { Toaster } from "react-hot-toast"
 import {
@@ -192,14 +193,14 @@ function newLine(product = null) {
 }
 
 function QuotationForm({ options, record, busy, onSubmit, onCancel }) {
+  const location = useLocation()
   const availableCustomers = options.customers.filter((item) => !item.creditHold)
   const availableLeads = options.leads || []
 
   const queryLeadId = useMemo(() => {
-    if (typeof window === "undefined") return ""
-    const params = new URLSearchParams(window.location.search)
+    const params = new URLSearchParams(location.search)
     return params.get("createQuotationForLead") || ""
-  }, [])
+  }, [location.search])
 
   const initialTargetType = record?.leadId || (!record?.customerId && (queryLeadId || availableLeads.length > 0 && availableCustomers.length === 0)) ? "lead" : "customer"
   const [targetType, setTargetType] = useState(initialTargetType)
@@ -474,13 +475,13 @@ export default function SalesPage({ kind }) {
   const canApproveOrders = hasPermission(currentUser, "sales-order:approve")
   const canPostDelivery = hasPermission(currentUser, "sales-delivery:post")
 
+  const location = useLocation()
   useEffect(() => {
-    if (typeof window === "undefined") return
-    const params = new URLSearchParams(window.location.search)
+    const params = new URLSearchParams(location.search)
     if (params.get("createQuotationForLead") && kind === "quotations" && canManage) {
       setModal({ action: "createQuotation" })
     }
-  }, [kind, canManage])
+  }, [kind, canManage, location.search])
   const canPostInvoice = hasPermission(currentUser, "sales-invoice:post")
   const canManagePayment = hasPermission(currentUser, "sales-payment:manage")
   const canApproveReturn = hasPermission(currentUser, "sales-return:approve")

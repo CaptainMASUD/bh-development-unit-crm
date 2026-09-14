@@ -9,7 +9,8 @@ import User from "../../models/user.model.js";
 import { assertTenant } from "../../utils/salesError.js";
 
 export const getSalesOptions = async (req, res) => {
-  assertTenant(req);
+  const tenantId = assertTenant(req);
+  const tf = tenantId ? { tenantId } : {};
 
   const [customers, leads, products, warehouses, branches, salespeople, cashAccounts, bankAccounts] = await Promise.all([
     Customer.find({ lifecycleStage: { $ne: "churned" } })
@@ -26,12 +27,12 @@ export const getSalesOptions = async (req, res) => {
       .sort({ "contact.companyName": 1, "contact.name": 1, _id: 1 })
       .limit(500)
       .lean(),
-    Product.find({ status: "active" })
+    Product.find({ ...tf, status: "active" })
       .select("name sku sellingPrice minimumSellingPrice taxRate baseUnit currency productType trackInventory")
       .sort({ nameLower: 1, _id: 1 })
       .limit(500)
       .lean(),
-    Warehouse.find({ status: "active" })
+    Warehouse.find({ ...tf, status: "active" })
       .select("name code branch isDefault")
       .sort({ isDefault: -1, nameLower: 1, _id: 1 })
       .lean(),
@@ -44,11 +45,11 @@ export const getSalesOptions = async (req, res) => {
       .sort({ nameLower: 1, _id: 1 })
       .limit(500)
       .lean(),
-    CashAccount.find({ isActive: true })
+    CashAccount.find({ ...tf, isActive: true })
       .select("name type currency institution accountNo")
       .sort({ nameLower: 1, _id: 1 })
       .lean(),
-    BankAccount.find({ status: "active", ledgerAccount: { $ne: null } })
+    BankAccount.find({ ...tf, status: "active", ledgerAccount: { $ne: null } })
       .select("accountName accountNumber accountType currency bank")
       .populate("bank", "name shortName")
       .sort({ accountNameLower: 1, _id: 1 })

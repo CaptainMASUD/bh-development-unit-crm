@@ -20,7 +20,8 @@ export function assertLeadTransition(from, to) {
   if (["won", "lost"].includes(from)) fail("Closed leads cannot change stage.");
   if (to === from) return;
   if (to === "lost") {
-    if (from !== "negotiation") fail("A lead can be closed as Lost after the final Negotiation discussion.");
+    const activeStages = ["new", "qualified", "discovery", "proposal", "negotiation"];
+    if (!activeStages.includes(from)) fail("Only an active lead can be marked as Lost.");
     return;
   }
   const next = { new: "qualified", qualified: "discovery", discovery: "proposal" };

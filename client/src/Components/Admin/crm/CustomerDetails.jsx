@@ -10,10 +10,12 @@ import {
   FiMail,
   FiPhone,
   FiMapPin,
+  FiShoppingCart,
 } from "react-icons/fi"
 import toast, { Toaster } from "react-hot-toast"
 import CustomerOverview from "./CustomerOverview"
 import CustomerCRM from "./CustomerCRM"
+import CustomerCommercialHistory from "./CustomerCommercialHistory"
 
 // ✅ banner image import
 import bannerimg from "../../../images/banner/legacy.png"
@@ -325,6 +327,7 @@ export default function CustomerDetails({ customerId, onBack, initialTab = "over
                 <ContactCard icon={<FiMail />} label="Email" value={customer?.email || "—"} href={emailHref || undefined} />
                 <ContactCard icon={<FiPhone />} label="Phone" value={customer?.phone || "—"} href={phoneHref || undefined} />
                 <ContactCard icon={<FiMapPin />} label="Address" value={customer?.address || "—"} href={mapHref || undefined} />
+
               </div>
             </div>
 
@@ -342,12 +345,12 @@ export default function CustomerDetails({ customerId, onBack, initialTab = "over
               </div>
             ) : null}
 
-            {/* ✅ tabs renamed to Tasks + CRM */}
+            {/* ✅ tabs: overview, CRM, Sales & Commercial */}
             <div className="mt-6 flex flex-wrap gap-2">
               <TabBtn
                 active={tab === "overview"}
                 icon={<FiUsers />}
-                label="overview"
+                label="Overview"
                 onClick={() => selectTab("overview")}
               />
               <TabBtn
@@ -355,6 +358,12 @@ export default function CustomerDetails({ customerId, onBack, initialTab = "over
                 icon={<FiClipboard />}
                 label="CRM"
                 onClick={() => selectTab("crm")}
+              />
+              <TabBtn
+                active={tab === "commercial"}
+                icon={<FiShoppingCart />}
+                label="Sales & Commercial"
+                onClick={() => selectTab("commercial")}
               />
             </div>
 
@@ -380,6 +389,8 @@ export default function CustomerDetails({ customerId, onBack, initialTab = "over
               setPageError={setError}
               showToast={showToast}
             />
+          ) : tab === "commercial" ? (
+            <CustomerCommercialHistory customerId={customerId} />
           ) : (
             <CustomerCRM
               customerId={customerId}

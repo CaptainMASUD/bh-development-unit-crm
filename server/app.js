@@ -173,6 +173,7 @@ import stockMovementRoutes from "./routes/inventory/stockMovement.routes.js";
 import stockAdjustmentRoutes from "./routes/inventory/stockAdjustment.routes.js";
 import stockTransferRoutes from "./routes/inventory/stockTransfer.routes.js";
 import inventoryReportRoutes from "./routes/inventory/inventoryReport.routes.js";
+import inventoryRevaluationRoutes from "./routes/inventory/inventoryRevaluation.routes.js";
 import inventoryOperationsRoutes from "./routes/inventory/inventoryOperations.routes.js";
 
 // =========================
@@ -301,6 +302,8 @@ mountModuleRoutes("/api/inventory/stock-movements", "inventory", stockMovementRo
 mountModuleRoutes("/api/inventory/stock-adjustments", "inventory", stockAdjustmentRoutes);
 
 mountModuleRoutes("/api/inventory/stock-transfers", "inventory", stockTransferRoutes);
+
+mountModuleRoutes("/api/inventory/revaluations", "inventory", inventoryRevaluationRoutes);
 
 mountModuleRoutes("/api/inventory/reports", "inventory", inventoryReportRoutes);
 

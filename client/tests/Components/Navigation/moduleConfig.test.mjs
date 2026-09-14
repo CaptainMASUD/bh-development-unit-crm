@@ -34,7 +34,7 @@ test("Inventory exposes the approved sidebar hierarchy in order", async (t) => {
   assert.deepEqual(config.MODULES.inventory.subcategories, {
     "Product Management": ["Products", "Categories", "Units of Measure"],
     "Warehouse Management": ["Warehouses", "Scheduled Warehouse Checks", "Locations / Bins / Shelves"],
-    "Inventory Operations": ["Stock Requests", "Stock Issues", "Stock Transfers", "Stock Adjustments", "Stock Report"],
+    "Inventory Operations": ["Stock Requests", "Stock Issues", "Stock Transfers", "Stock Adjustments", "Inventory Revaluations", "Stock Report"],
     "Quality Management": ["Quality Inspection", "Stock Inspection"],
     "Batch, Serial & Expiry": ["Batches / Lots", "Serial Numbers", "Expiry Management", "Low Stock Requests"],
   })

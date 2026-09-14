@@ -10,12 +10,12 @@ const css = fs.readFileSync(path.join(inventoryDir, "inventory-theme.css"), "utf
 
 test("all current inventory page entries are covered by the shared theme system", () => {
   const pages = fs.readdirSync(inventoryDir).filter((name) => name.endsWith(".jsx") && name !== "InventoryUI.jsx")
-  assert.equal(pages.length, 35)
+  assert.equal(pages.length, 36)
 
   const routed = [
     "InventoryDashboard", "TotalInventory", "ItemProfiles", "Products", "ProductCategories",
     "InventoryUnits", "Warehouses", "WarehouseChecks", "WarehouseLocations", "StockRequests",
-    "StockIssues", "StockTransfers", "StockAdjustments", "StockBalanceReport", "PurchaseQualityInspections",
+    "StockIssues", "StockTransfers", "StockAdjustments", "InventoryRevaluations", "StockBalanceReport", "PurchaseQualityInspections",
     "StockInspection", "BatchLots", "SerialNumbers", "ExpiryTracking", "LowStock", "ConsumptionHistory",
     "InventoryValuation", "InventoryLossAnalysis", "InventoryReports",
   ]

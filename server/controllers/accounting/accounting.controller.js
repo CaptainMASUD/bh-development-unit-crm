@@ -996,7 +996,7 @@ export const bootstrapChartOfAccounts = async (req, res) => {
   }
 };
 
-const SETTINGS_ACCOUNT_FIELDS = [
+export const SETTINGS_ACCOUNT_FIELDS = [
   "defaultCashAccount",
   "defaultBankAccount",
   "salesAccount",
@@ -1008,6 +1008,7 @@ const SETTINGS_ACCOUNT_FIELDS = [
   "inventoryClearingAccount",
   "purchasePriceVarianceAccount",
   "inventoryAdjustmentAccount",
+  "inventoryRevaluationAccount",
   "furnitureAccount",
   "loanAccount",
   "payrollExpenseAccount",
@@ -1033,6 +1034,7 @@ const SETTINGS_ACCOUNT_LABELS = {
   inventoryClearingAccount: "Goods Received Not Invoiced",
   purchasePriceVarianceAccount: "Purchase Price Variance",
   inventoryAdjustmentAccount: "Inventory Adjustment Gain or Loss",
+  inventoryRevaluationAccount: "Inventory Revaluation Gain or Loss",
   furnitureAccount: "Furniture",
   loanAccount: "Loan",
   payrollExpenseAccount: "Payroll Expense",
@@ -1051,7 +1053,7 @@ const normalizedAccountText = (account) =>
     .map((value) => clean(value).toLowerCase())
     .join(" ");
 
-const matchesSettingsAccountPurpose = (field, account, links) => {
+export const matchesSettingsAccountPurpose = (field, account, links) => {
   if (!account || account.isGroup || account.isActive === false) return false;
 
   const id = String(account._id);
@@ -1099,6 +1101,8 @@ const matchesSettingsAccountPurpose = (field, account, links) => {
       return isType("expense") && (account.code === "5030" || hasText("purchase price variance"));
     case "inventoryAdjustmentAccount":
       return isType("expense") && (account.code === "5040" || hasText("inventory adjustment", "stock adjustment"));
+    case "inventoryRevaluationAccount":
+      return isType("expense") && (account.code === "5090" || hasText("inventory revaluation"));
     case "furnitureAccount":
       return (
         isType("asset") &&

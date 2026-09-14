@@ -238,6 +238,7 @@ export const confirmSalesOrder = async (req, res) => {
 
   await logCrmActivity(req, {
     tenantId: order.tenantId,
+    leadId: order.leadId,
     dealId: order.dealId,
     customerId: order.customerId,
     type: "sales_order_confirmed",

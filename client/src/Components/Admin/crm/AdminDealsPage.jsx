@@ -2,8 +2,10 @@
 /* eslint-disable react/prop-types */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { createPortal } from "react-dom"
 import toast, { Toaster } from "react-hot-toast"
+import { getModuleBasePath } from "../../Navigation/moduleConfig"
 import {
   FiAlertCircle,
   FiBriefcase,
@@ -20,6 +22,7 @@ import {
   FiRefreshCcw,
   FiSearch,
   FiShoppingCart,
+  FiTruck,
   FiX,
 } from "react-icons/fi"
 
@@ -301,6 +304,7 @@ function SummaryMetric({ label, value, hint, icon, tone, glow }) {
 }
 
 function DealDetailsModal({ dealId, onClose, onCreateSalesOrder, onViewInvoice, creatingOrderId = "", canManage = true }) {
+  const navigate = useNavigate()
   const [deal, setDeal] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -319,6 +323,9 @@ function DealDetailsModal({ dealId, onClose, onCreateSalesOrder, onViewInvoice, 
     return () => controller.abort()
   }, [dealId])
 
+  const directRole = typeof window !== "undefined" ? localStorage.getItem("role") : null
+  const role = directRole ? String(directRole).toLowerCase() : "admin"
+
   return (
     <Modal
       open={Boolean(dealId)}
@@ -329,7 +336,7 @@ function DealDetailsModal({ dealId, onClose, onCreateSalesOrder, onViewInvoice, 
         <div className="flex flex-wrap justify-end gap-2">
           <button className={ghostButton} onClick={onClose}>Close</button>
           {deal.salesOrderId ? (
-            <button className={primaryButton} onClick={() => { window.location.href = "/admin/sales?kind=orders" }}>
+            <button className={primaryButton} onClick={() => { navigate(`${getModuleBasePath(role, "sales")}/sales-orders?search=${encodeURIComponent(deal.dealNo || "")}`) }}>
               <FiShoppingCart />View Sales Order
             </button>
           ) : canManage && deal.stage === "won" ? (
@@ -338,7 +345,21 @@ function DealDetailsModal({ dealId, onClose, onCreateSalesOrder, onViewInvoice, 
               Create Sales Order
             </button>
           ) : null}
-          {deal.invoice ? <button className={ghostButton} onClick={() => onViewInvoice(deal.invoice)}><FiFileText />View invoice</button> : null}
+          {deal.salesOrderId ? (
+            <button className={ghostButton} onClick={() => { navigate(`${getModuleBasePath(role, "sales")}/deliveries?search=${encodeURIComponent(deal.dealNo || "")}`) }}>
+              <FiTruck />Deliveries
+            </button>
+          ) : null}
+          {deal.invoice ? (
+            <button className={ghostButton} onClick={() => { navigate(`${getModuleBasePath(role, "sales")}/invoices?search=${encodeURIComponent(deal.invoice?.invoiceNo || deal.invoice?.invoiceNumber || "")}`) }}>
+              <FiFileText />View invoice
+            </button>
+          ) : null}
+          {deal.salesOrderId ? (
+            <button className={ghostButton} onClick={() => { navigate(`${getModuleBasePath(role, "sales")}/payments?search=${encodeURIComponent(deal.dealNo || "")}`) }}>
+              <FiCreditCard />Payments
+            </button>
+          ) : null}
         </div>
       ) : null}
     >
@@ -392,122 +413,6 @@ function DealDetailsModal({ dealId, onClose, onCreateSalesOrder, onViewInvoice, 
           </div>
         </div>
       ) : null}
-    </Modal>
-  )
-}
-
-function InvoiceModal({ deal, onClose, onCreated }) {
-  const [fullDeal, setFullDeal] = useState(deal)
-  const [issuedAt, setIssuedAt] = useState(toDateInput())
-  const [dueAt, setDueAt] = useState(toDateInput(addDays(new Date(), 14)))
-  const [notes, setNotes] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [fetching, setFetching] = useState(false)
-  const [error, setError] = useState("")
-
-  useEffect(() => {
-    if (!deal?._id) return
-    setFullDeal(deal)
-    setIssuedAt(toDateInput())
-    setDueAt(toDateInput(addDays(new Date(), 14)))
-    setNotes("")
-    setError("")
-    if (Array.isArray(deal.items)) return
-    setFetching(true)
-    apiJson(`/deals/${deal._id}`)
-      .then((data) => setFullDeal(data?.deal || deal))
-      .catch((err) => setError(err.message))
-      .finally(() => setFetching(false))
-  }, [deal])
-
-  const submit = async () => {
-    setLoading(true)
-    setError("")
-    try {
-      const data = await apiJson(`/invoices/from-deal/${deal._id}`, {
-        method: "POST",
-        body: JSON.stringify({ issuedAt, dueAt, notes }),
-      })
-      toast.success("Invoice created.")
-      onCreated?.(data?.invoice)
-    } catch (err) {
-      if (err.status === 409 && err.data?.invoice) {
-        toast("Invoice already exists for this deal.")
-        onCreated?.(err.data.invoice)
-      } else {
-        setError(err.message)
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <Modal
-      open={Boolean(deal)}
-      onClose={onClose}
-      title="Create invoice"
-      subtitle={`${deal?.dealNo || deal?.title || "Deal"} • ${getClientName(deal)}`}
-      footer={
-        <div className="flex justify-end gap-2">
-          <button className={ghostButton} onClick={onClose} disabled={loading}>Cancel</button>
-          <button className={primaryButton} onClick={submit} disabled={loading || fetching || !dueAt}>
-            {loading ? <FiLoader className="animate-spin" /> : <FiFileText />}
-            {loading ? "Creating..." : "Create invoice"}
-          </button>
-        </div>
-      }
-    >
-      {error ? <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">{error}</div> : null}
-      {fetching ? <div className="flex justify-center p-8"><FiLoader className="h-6 w-6 animate-spin text-indigo-600" /></div> : (
-        <div className="space-y-5">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <label className="text-sm font-bold text-gray-800">
-              Issue date
-              <input type="date" className={`${input} mt-1.5`} value={issuedAt} onChange={(event) => setIssuedAt(event.target.value)} />
-            </label>
-            <label className="text-sm font-bold text-gray-800">
-              Due date
-              <input type="date" min={issuedAt} className={`${input} mt-1.5`} value={dueAt} onChange={(event) => setDueAt(event.target.value)} />
-            </label>
-          </div>
-          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-wide text-indigo-600">Invoice amount</p>
-                <p className="mt-1 text-2xl font-black text-indigo-950">{formatMoney(fullDeal?.grandTotal, fullDeal?.currency)}</p>
-              </div>
-              <FiDollarSign className="h-8 w-8 text-indigo-500" />
-            </div>
-          </div>
-          <div className="overflow-hidden rounded-2xl border border-gray-200">
-            <table className="w-full min-w-[600px] text-left">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-xs font-black text-gray-500">Item</th>
-                  <th className="px-4 py-3 text-right text-xs font-black text-gray-500">Qty</th>
-                  <th className="px-4 py-3 text-right text-xs font-black text-gray-500">Price</th>
-                  <th className="px-4 py-3 text-right text-xs font-black text-gray-500">Line total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {(fullDeal?.items || []).map((item) => (
-                  <tr key={item._id || item.nameSnapshot}>
-                    <td className="px-4 py-3 text-sm font-bold text-gray-900">{item.nameSnapshot || "Item"}</td>
-                    <td className="px-4 py-3 text-right text-sm text-gray-700">{item.qty}</td>
-                    <td className="px-4 py-3 text-right text-sm text-gray-700">{formatMoney(item.unitPrice, fullDeal?.currency)}</td>
-                    <td className="px-4 py-3 text-right text-sm font-black text-gray-950">{formatMoney(item.lineTotal, fullDeal?.currency)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <label className="block text-sm font-bold text-gray-800">
-            Notes <span className="font-medium text-gray-400">(optional)</span>
-            <textarea className={`${input} mt-1.5 min-h-[100px] resize-y`} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Payment terms or invoice note" />
-          </label>
-        </div>
-      )}
     </Modal>
   )
 }
@@ -712,6 +617,9 @@ function InvoiceDetailsModal({ invoice, onClose, onPayment }) {
 }
 
 export default function AdminDealsPage({ employeeMode = false }) {
+  const navigate = useNavigate()
+  const directRole = typeof window !== "undefined" ? localStorage.getItem("role") : null
+  const role = directRole ? String(directRole).toLowerCase() : (employeeMode ? "employee" : "admin")
   const [deals, setDeals] = useState([])
   const [accounting, setAccounting] = useState({ wonDeals: 0, wonValue: 0, invoicedAmount: 0, paidAmount: 0, invoiceDueAmount: 0, uninvoicedAmount: 0, outstandingAmount: 0, paidDeals: 0, dueDeals: 0 })
   const [pageInfo, setPageInfo] = useState({ page: 1, total: 0, hasNextPage: false })
@@ -723,7 +631,6 @@ export default function AdminDealsPage({ employeeMode = false }) {
   const [error, setError] = useState("")
   const [viewDealId, setViewDealId] = useState("")
   const [creatingOrderId, setCreatingOrderId] = useState("")
-  const [invoiceDeal, setInvoiceDeal] = useState(null)
   const [invoiceView, setInvoiceView] = useState(null)
   const [paymentInvoice, setPaymentInvoice] = useState(null)
   const [columnsOpen, setColumnsOpen] = useState(false)
@@ -800,11 +707,7 @@ export default function AdminDealsPage({ employeeMode = false }) {
     }
   }
 
-  const handleInvoiceCreated = (invoice) => {
-    setInvoiceDeal(null)
-    setInvoiceView(invoice)
-    loadDeals()
-  }
+
 
   const saveColumns = async (columns) => {
     const safeColumns = columns.length ? columns : DEFAULT_COLUMNS
@@ -906,7 +809,7 @@ export default function AdminDealsPage({ employeeMode = false }) {
                           <button className={ghostButton} onClick={() => setViewDealId(deal._id)}><FiEye />View</button>
                           {!employeeMode ? (
                             deal.salesOrderId ? (
-                              <button className={primaryButton} onClick={() => { window.location.href = "/admin/sales?kind=orders" }} title="View in Sales Orders">
+                              <button className={primaryButton} onClick={() => { navigate(`${getModuleBasePath(role, "sales")}/sales-orders?search=${encodeURIComponent(deal.dealNo || "")}`) }} title="View in Sales Orders">
                                 <FiShoppingCart />Sales Order
                               </button>
                             ) : deal.stage === "won" ? (
@@ -919,11 +822,12 @@ export default function AdminDealsPage({ employeeMode = false }) {
                                 {creatingOrderId === deal._id ? <FiLoader className="animate-spin" /> : <FiShoppingCart />}
                                 {creatingOrderId === deal._id ? "Creating..." : "Create Order"}
                               </button>
-                            ) : deal.invoice ? (
-                              <button className={ghostButton} onClick={() => viewInvoice(deal.invoice)}>
-                                <FiFileText />Invoice
-                              </button>
                             ) : null
+                          ) : null}
+                          {deal.invoice ? (
+                            <button className={ghostButton} onClick={() => navigate(`${getModuleBasePath(role, "sales")}/invoices?search=${encodeURIComponent(deal.invoice?.invoiceNo || deal.invoice?.invoiceNumber || "")}`)} title="View in Invoices">
+                              <FiFileText />Invoice
+                            </button>
                           ) : null}
                         </div>
                       </td>
@@ -949,7 +853,6 @@ export default function AdminDealsPage({ employeeMode = false }) {
         creatingOrderId={creatingOrderId}
         canManage={!employeeMode}
       />
-      {!employeeMode ? <InvoiceModal deal={invoiceDeal} onClose={() => setInvoiceDeal(null)} onCreated={handleInvoiceCreated} /> : null}
       {!employeeMode ? <InvoiceDetailsModal invoice={invoiceView} onClose={() => setInvoiceView(null)} onPayment={(invoice) => setPaymentInvoice(invoice)} /> : null}
       {!employeeMode ? <PaymentModal invoice={paymentInvoice} onClose={() => setPaymentInvoice(null)} onSaved={handlePaymentSaved} /> : null}
       <ColumnPickerModal open={columnsOpen} onClose={() => setColumnsOpen(false)} selected={selectedColumns} onSave={saveColumns} />

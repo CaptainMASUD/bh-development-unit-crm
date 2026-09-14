@@ -3,10 +3,23 @@ import mongoose from "mongoose";
 import Customer from "../../models/customer.model.js";
 import User from "../../models/user.model.js";
 import EngagementTemplate from "../../models/engagementTemplate.model.js";
+import Lead from "../../models/lead.model.js";
+import Deal from "../../models/deal.model.js";
+import { SalesQuotation } from "../../models/sales/salesQuotation.model.js";
+import { SalesOrder } from "../../models/sales/salesOrder.model.js";
+import { DeliveryNote } from "../../models/sales/deliveryNote.model.js";
+import { SalesInvoice } from "../../models/sales/salesInvoice.model.js";
 
 // ✅ Dashboard cache invalidation (fix counts after create/delete/update)
 import { dashboardCache } from "../../utils/cache.js";
 import { verifyAdminPassword } from "../../utils/verifyAdminPassword.js";
+
+const toObjectId = (v) => {
+  if (!v) return null;
+  return mongoose.Types.ObjectId.isValid(v)
+    ? new mongoose.Types.ObjectId(v)
+    : null;
+};
 
 /* ------------------ helpers ------------------ */
 
@@ -1561,5 +1574,128 @@ export const deleteCustomerJob = async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ message: "Server error in deleteCustomerJob.", error: err.message });
+  }
+};
+
+/* =========================
+   CUSTOMER COMMERCIAL HISTORY
+========================= */
+export const getCustomerCommercialHistory = async (req, res) => {
+  try {
+    const customerId = toObjectId(req.params.id);
+    if (!customerId) return res.status(400).json({ message: "Invalid customer id" });
+
+    const customer = await Customer.findById(customerId).lean();
+    if (!customer) return res.status(404).json({ message: "Customer not found" });
+
+    const tenantFilter = req.tenantId ? { tenantId: req.tenantId } : {};
+
+    // 1. Originating Lead
+    let originatingLead = null;
+    const leadId = customer.leadId || customer.originatingLeadId;
+    if (leadId) {
+      originatingLead = await Lead.findById(leadId)
+        .select("leadNumber contact pipelineStage status createdAt")
+        .lean();
+    } else {
+      originatingLead = await Lead.findOne({ customerId: customer._id })
+        .select("leadNumber contact pipelineStage status createdAt")
+        .lean();
+    }
+
+    // 2. Deals
+    const deals = await Deal.find({ customerId: customer._id })
+      .select("dealNo title stage grandTotal currency probability dealHealth expectedCloseDate wonAt lostAt createdAt")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // 3. Sales Quotations
+    const quotationFilter = {
+      $or: [{ customerId: customer._id }],
+      ...tenantFilter,
+    };
+    if (originatingLead?._id) {
+      quotationFilter.$or.push({ leadId: originatingLead._id });
+    }
+    const quotations = await SalesQuotation.find(quotationFilter)
+      .select("quotationNumber status totals currency validUntil quotationDate convertedOrderId dealId createdAt")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // 4. Sales Orders
+    const orders = await SalesOrder.find({ customerId: customer._id, ...tenantFilter })
+      .select("orderNumber status totals currency orderDate quotationId dealId createdAt")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // 5. Delivery Notes
+    const deliveries = await DeliveryNote.find({ customerId: customer._id, ...tenantFilter })
+      .select("deliveryNumber status deliveryDate orderId createdAt")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // 6. Sales Invoices
+    const invoices = await SalesInvoice.find({
+      customerId: customer._id,
+      status: { $nin: ["void", "cancelled"] },
+      ...tenantFilter,
+    })
+      .select("invoiceNumber status totals paidAmount dueAmount currency invoiceDate dueDate orderId createdAt")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // 7. AR & Commercial Summary
+    let totalOrderValue = 0;
+    for (const order of orders) {
+      totalOrderValue += Number(order.totals?.grandTotal || 0);
+    }
+
+    let totalInvoiced = 0;
+    let totalPaid = 0;
+    let totalDue = 0;
+    for (const inv of invoices) {
+      totalInvoiced += Number(inv.totals?.grandTotal || 0);
+      totalPaid += Number(inv.paidAmount || 0);
+      totalDue += Number(inv.dueAmount || 0);
+    }
+
+    const creditLimit = Number(customer.creditLimit || 0);
+    const availableCredit = Math.max(0, creditLimit - totalDue);
+
+    const summary = {
+      totalOrders: orders.length,
+      totalOrderValue,
+      totalInvoices: invoices.length,
+      totalInvoiced,
+      totalPaid,
+      totalDue,
+      creditLimit,
+      availableCredit,
+      creditHold: Boolean(customer.creditHold),
+    };
+
+    return res.json({
+      customer: {
+        _id: customer._id,
+        name: customer.name,
+        companyName: customer.companyName,
+        email: customer.email,
+        phone: customer.phone,
+        creditLimit,
+        creditHold: Boolean(customer.creditHold),
+      },
+      originatingLead,
+      deals,
+      quotations,
+      orders,
+      deliveries,
+      invoices,
+      summary,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Failed to get customer commercial history",
+      error: err.message,
+    });
   }
 };

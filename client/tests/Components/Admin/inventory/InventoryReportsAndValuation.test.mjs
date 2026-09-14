@@ -26,6 +26,48 @@ test("InventoryReports.jsx loads via Vite SSR and exports default hub component"
     "/src/Components/Admin/inventory/InventoryReports.jsx"
   )
   assert.equal(typeof reportsModule.default, "function")
+  assert.deepEqual(
+    reportsModule.getInventoryReportAccess({
+      role: "employee",
+      permissions: [
+        "inventory-report:view",
+        "inventory-reconciliation:view",
+      ],
+    }),
+    {
+      canViewCost: false,
+      canViewGlReconciliation: true,
+      canExport: false,
+    }
+  )
+  assert.equal(
+    reportsModule.canExportInventoryReport(
+      {
+        role: "employee",
+        permissions: [
+          "inventory-report:export",
+          "inventory-reconciliation:view",
+        ],
+      },
+      "gl-reconciliation"
+    ),
+    false,
+    "GL export must not expose monetary values without cost-view permission"
+  )
+})
+
+test("AccountingSettings exposes the inventory revaluation gain/loss account", async (t) => {
+  const server = await createTestServer(t)
+  const settingsModule = await server.ssrLoadModule(
+    "/src/Components/Admin/accounting/AccountingSettings.jsx"
+  )
+  assert.ok(
+    settingsModule.ACCOUNT_FIELDS.some(
+      ([key, label]) =>
+        key === "inventoryRevaluationAccount" &&
+        label === "Inventory Revaluation Gain / Loss"
+    )
+  )
 })
 
 test("InventoryDashboard.jsx loads via Vite SSR with cost view protection", async (t) => {

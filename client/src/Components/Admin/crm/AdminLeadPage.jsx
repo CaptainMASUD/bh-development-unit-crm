@@ -38,10 +38,12 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { AnimatePresence, motion } from "framer-motion"
 import { createPortal } from "react-dom"
 import toast, { Toaster } from "react-hot-toast"
 import { hasPermission, PERMISSIONS } from "../../Auth/permissions"
+import { canAccessModule, getModuleBasePath } from "../../Navigation/moduleConfig"
 import {
   FiActivity,
   FiAlertCircle,
@@ -76,6 +78,7 @@ import {
   FiSearch,
   FiSend,
   FiSliders,
+  FiShoppingBag,
   FiTarget,
   FiTrash2,
   FiTrendingUp,
@@ -160,14 +163,16 @@ function getMissingRequirementLabels(lead) {
 }
 function hasProposalWork(lead, timeline = null) {
   const proposals = Array.isArray(timeline?.proposals) ? timeline.proposals : []
-  if (proposals.length > 0) return true
+  const quotations = Array.isArray(timeline?.quotations) ? timeline.quotations : []
+  if (proposals.length > 0 || quotations.length > 0) return true
   if (Number(lead?.proposalCount || 0) > 0) return true
   return false
 }
 
 function getProposalCount(lead, timeline = null) {
   const proposals = Array.isArray(timeline?.proposals) ? timeline.proposals : []
-  return Math.max(Number(lead?.proposalCount || 0), proposals.length)
+  const quotations = Array.isArray(timeline?.quotations) ? timeline.quotations : []
+  return Math.max(Number(lead?.proposalCount || 0), proposals.length + quotations.length)
 }
 function getProposalShortcutInfo(lead, timeline = null) {
   const stage = String(lead?.pipelineStage || "new")
@@ -959,11 +964,30 @@ function AddPurchaseTypeModal({ open, onClose, onCreated }) {
   return <ModalShell open={open} onClose={onClose} title="Add Purchase Type" subtitle="This will show in lead create/edit." icon={<FiPlus className="h-5 w-5" />} maxWidthClass="max-w-xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Creating..." : "Create"}</button></div>}>{err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}<div className="grid gap-4"><Field label="Name *"><input value={name} onChange={(e) => setName(e.target.value)} className={input} placeholder="Service" /></Field><Field label="Key (optional)"><input value={key} onChange={(e) => setKey(e.target.value)} className={input} placeholder="service" /></Field></div></ModalShell>
 }
 
-function ItemEditor({ items, setItems, showDescription = false }) {
+function ItemEditor({ items, setItems, products = [], showDescription = false }) {
   const add = () => setItems((prev) => [...prev, { productId: "", nameSnapshot: "", description: "", qty: 1, unitPrice: 0, discount: 0 }])
   const update = (idx, key, value) => setItems((prev) => prev.map((it, i) => i === idx ? { ...it, [key]: value } : it))
   const remove = (idx) => setItems((prev) => prev.filter((_, i) => i !== idx))
   const total = items.reduce((sum, it) => sum + Math.max(Number(it.qty || 0) * Number(it.unitPrice || 0) - Number(it.discount || 0), 0), 0)
+
+  const handleProductSelect = (idx, productId) => {
+    if (!productId) {
+      update(idx, "productId", "")
+      return
+    }
+    const found = products.find((p) => String(p._id) === String(productId))
+    if (found) {
+      setItems((prev) => prev.map((it, i) => i === idx ? {
+        ...it,
+        productId: found._id,
+        nameSnapshot: found.name || it.nameSnapshot,
+        unitPrice: Number(found.sellingPrice ?? it.unitPrice ?? 0),
+      } : it))
+    } else {
+      update(idx, "productId", productId)
+    }
+  }
+
   return (
     <div className="rounded-2xl border border-gray-100">
       <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/70 px-4 py-3"><div><p className="text-sm font-bold text-gray-900">Items</p><p className="text-xs text-gray-500">Products/services included for amount calculation.</p></div><button type="button" onClick={add} className={cn(btn, btnGhost, "px-3 py-2")}><FiPlus className="h-4 w-4" />Add item</button></div>
@@ -971,7 +995,25 @@ function ItemEditor({ items, setItems, showDescription = false }) {
         {items.length ? items.map((it, idx) => (
           <div key={idx} className="rounded-2xl border border-gray-100 bg-white p-3">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-12">
-              <div className="md:col-span-4"><Field label="Name"><input value={it.nameSnapshot || ""} onChange={(e) => update(idx, "nameSnapshot", e.target.value)} className={input} placeholder="CRM setup" /></Field></div>
+              {products && products.length > 0 ? (
+                <div className="md:col-span-12">
+                  <Field label="Select Product (optional - auto-fills name & price)">
+                    <select
+                      className={input}
+                      value={it.productId || ""}
+                      onChange={(e) => handleProductSelect(idx, e.target.value)}
+                    >
+                      <option value="">-- Custom service / Manual item --</option>
+                      {products.map((p) => (
+                        <option key={p._id} value={p._id}>
+                          {p.name} {p.sku ? `(${p.sku})` : ""} — {formatMoney(p.sellingPrice, p.currency || "BDT")}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                </div>
+              ) : null}
+              <div className="md:col-span-4"><Field label="Name *"><input value={it.nameSnapshot || ""} onChange={(e) => update(idx, "nameSnapshot", e.target.value)} className={input} placeholder="Product or service name" /></Field></div>
               <div className="md:col-span-2"><Field label="Qty"><input type="number" min="0" value={it.qty} onChange={(e) => update(idx, "qty", e.target.value)} className={input} /></Field></div>
               <div className="md:col-span-2"><Field label="Unit price"><input type="number" min="0" value={it.unitPrice} onChange={(e) => update(idx, "unitPrice", e.target.value)} className={input} /></Field></div>
               <div className="md:col-span-2"><Field label="Discount"><input type="number" min="0" value={it.discount} onChange={(e) => update(idx, "discount", e.target.value)} className={input} /></Field></div>
@@ -1440,9 +1482,12 @@ function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage 
     : Array.isArray(gateLead?.proposals)
       ? gateLead.proposals
       : []
+  const quotations = Array.isArray(stageGate.timeline?.quotations)
+    ? stageGate.timeline.quotations
+    : []
   const latestProposal = proposals[0] || null
   const proposalReady = hasProposalWork(gateLead, stageGate.timeline)
-  const hasAcceptedProposal = proposals.some((p) => p.status === "accepted")
+  const hasAcceptedProposal = proposals.some((p) => p.status === "accepted") || quotations.some((q) => q.status === "accepted")
   const needsRequirementBeforeMove = (
     (selectedStage === "discovery" && !requirementReady) ||
     (currentStage === "discovery" && selectedStage === "proposal" && !requirementReady)
@@ -1760,11 +1805,56 @@ function ActivityModal({ open, onClose, lead, onSaved, users = [] }) {
 function ProposalModal({ open, onClose, lead, onSaved, users = [] }) {
   const editingProposal = lead?._editingProposal || null
   const [form, setForm] = useState({ title: "", currency: "BDT", validTill: "", terms: "", notes: "", ownerId: "" })
-  const [items, setItems] = useState([{ nameSnapshot: "", description: "", qty: 1, unitPrice: 0, discount: 0 }])
+  const [items, setItems] = useState([{ productId: "", nameSnapshot: "", description: "", qty: 1, unitPrice: 0, discount: 0 }])
+  const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [err, setErr] = useState("")
-  useEffect(() => { if (open) { setErr(""); setForm({ title: editingProposal?.title || (lead?.contact?.companyName ? `${lead.contact.companyName} Proposal` : ""), currency: editingProposal?.currency || "BDT", validTill: formatDateInput(editingProposal?.validTill, "date"), terms: editingProposal?.terms || "", notes: editingProposal?.notes || "", ownerId: editingProposal?.ownerId?._id || editingProposal?.ownerId || "" }); setItems(Array.isArray(editingProposal?.items) && editingProposal.items.length ? editingProposal.items.map((item) => ({ nameSnapshot: item.nameSnapshot || "", description: item.description || "", qty: item.qty || 1, unitPrice: item.unitPrice || 0, discount: item.discount || 0 })) : [{ nameSnapshot: lead?.purchaseType || "", description: "", qty: 1, unitPrice: lead?.requirement?.expectedValue || 0, discount: 0 }]) } }, [open, lead, editingProposal])
+
+  useEffect(() => {
+    if (open) {
+      apiJson(`${API_BASE}/leads/conversion-options`)
+        .then((result) => {
+          const data = result.data || result
+          setProducts(Array.isArray(data?.products) ? data.products : [])
+        })
+        .catch(() => setProducts([]))
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (open) {
+      setErr("")
+      setForm({
+        title: editingProposal?.title || (lead?.contact?.companyName ? `${lead.contact.companyName} Proposal` : ""),
+        currency: editingProposal?.currency || "BDT",
+        validTill: formatDateInput(editingProposal?.validTill, "date"),
+        terms: editingProposal?.terms || "",
+        notes: editingProposal?.notes || "",
+        ownerId: editingProposal?.ownerId?._id || editingProposal?.ownerId || ""
+      })
+      setItems(
+        Array.isArray(editingProposal?.items) && editingProposal.items.length
+          ? editingProposal.items.map((item) => ({
+              productId: item.productId?._id || item.productId || "",
+              nameSnapshot: item.nameSnapshot || "",
+              description: item.description || "",
+              qty: item.qty || 1,
+              unitPrice: item.unitPrice || 0,
+              discount: item.discount || 0
+            }))
+          : [{
+              productId: "",
+              nameSnapshot: lead?.purchaseType || "",
+              description: "",
+              qty: 1,
+              unitPrice: lead?.requirement?.expectedValue || 0,
+              discount: 0
+            }]
+      )
+    }
+  }, [open, lead, editingProposal])
+
   const saveProposal = async ({ closeAfter = true, exportAfter = false } = {}) => {
     setErr("")
     if (!form.title.trim()) {
@@ -1782,7 +1872,14 @@ function ProposalModal({ open, onClose, lead, onSaved, users = [] }) {
         terms: form.terms.trim(),
         notes: form.notes.trim(),
         ownerId: form.ownerId.trim() || undefined,
-        items,
+        items: items.map((it) => ({
+          productId: it.productId || undefined,
+          nameSnapshot: it.nameSnapshot,
+          description: it.description,
+          qty: it.qty,
+          unitPrice: it.unitPrice,
+          discount: it.discount,
+        })),
       }
       const data = editingProposal?._id ? await apiUpdateProposal(editingProposal._id, payload) : await apiCreateProposal(payload)
       const savedProposal = data?.proposal || data?.data?.proposal || data
@@ -1827,7 +1924,7 @@ function ProposalModal({ open, onClose, lead, onSaved, users = [] }) {
       <div className="md:col-span-2"><TemplateUseBox lead={lead} channel="proposal_note" purpose="proposal_sent" label="Insert proposal template" includeSubjectInText onApply={(text) => setForm((p) => ({ ...p, notes: appendTemplateText(p.notes, text) }))} /></div>
       <div className="md:col-span-2"><Field label="Terms"><textarea className={cn(input, "min-h-[80px]")} value={form.terms} onChange={(e) => setForm((p) => ({ ...p, terms: e.target.value }))} /></Field></div>
       <div className="md:col-span-2"><Field label="Notes"><textarea className={cn(input, "min-h-[80px]")} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></Field></div>
-      <div className="md:col-span-2"><ItemEditor items={items} setItems={setItems} showDescription /></div>
+      <div className="md:col-span-2"><ItemEditor items={items} setItems={setItems} products={products} showDescription /></div>
     </div>
   </ModalShell>
 }
@@ -1835,11 +1932,99 @@ function ProposalModal({ open, onClose, lead, onSaved, users = [] }) {
 function DealModal({ open, onClose, lead, onSaved, users = [] }) {
   const proposal = lead?._dealProposal || null
   const [form, setForm] = useState({ title: "", currency: "BDT", probability: 60, expectedCloseDate: "", ownerId: "", notes: "", nextDealAction: "", nextDealActionAt: "", stuckReason: "" })
-  const [items, setItems] = useState([{ nameSnapshot: "", qty: 1, unitPrice: 0, discount: 0 }])
+  const [items, setItems] = useState([{ productId: "", nameSnapshot: "", qty: 1, unitPrice: 0, discount: 0 }])
+  const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState("")
-  useEffect(() => { if (open) { setErr(""); setForm({ title: lead?.contact?.companyName ? `${lead.contact.companyName} Deal` : proposal?.title ? `${proposal.title} Deal` : "", currency: proposal?.currency || "BDT", probability: 60, expectedCloseDate: "", ownerId: "", notes: proposal?.notes || "", nextDealAction: "Negotiate with the client", nextDealActionAt: "", stuckReason: "" }); setItems(Array.isArray(proposal?.items) && proposal.items.length ? proposal.items.map((item) => ({ nameSnapshot: item.nameSnapshot || "", qty: item.qty || 1, unitPrice: item.unitPrice || 0, discount: item.discount || 0 })) : [{ nameSnapshot: lead?.purchaseType || "", qty: 1, unitPrice: proposal?.grandTotal || lead?.requirement?.expectedValue || 0, discount: 0 }]) } }, [open, lead, proposal])
-  const submit = async () => { setErr(""); if (!proposal?._id) return setErr("Send or accept a proposal before creating a deal."); if (!form.title.trim()) return setErr("Title is required."); setLoading(true); try { await apiCreateDealFromProposal(proposal._id, { leadId: getLeadId(lead), title: form.title.trim(), stage: "negotiation", currency: form.currency.trim() || "BDT", items, probability: Number(form.probability || 60), expectedCloseDate: form.expectedCloseDate ? new Date(form.expectedCloseDate).toISOString() : null, ownerId: form.ownerId.trim() || undefined, notes: form.notes.trim(), nextDealAction: form.nextDealAction.trim(), nextDealActionAt: form.nextDealActionAt ? new Date(form.nextDealActionAt).toISOString() : null, stuckReason: form.stuckReason.trim(), requirementSnapshot: { summary: lead?.requirement?.summary || "", budgetMin: lead?.requirement?.budgetMin || 0, budgetMax: lead?.requirement?.budgetMax || 0, expectedValue: lead?.requirement?.expectedValue || 0, timeline: lead?.requirement?.timeline || "", decisionMaker: lead?.requirement?.decisionMaker || "" } }); onSaved?.(); onClose?.() } catch (e) { setErr(e?.message || "Deal create failed") } finally { setLoading(false) } }
+
+  useEffect(() => {
+    if (open) {
+      apiJson(`${API_BASE}/leads/conversion-options`)
+        .then((result) => {
+          const data = result.data || result
+          setProducts(Array.isArray(data?.products) ? data.products : [])
+        })
+        .catch(() => setProducts([]))
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (open) {
+      setErr("")
+      setForm({
+        title: lead?.contact?.companyName ? `${lead.contact.companyName} Deal` : proposal?.title ? `${proposal.title} Deal` : "",
+        currency: proposal?.currency || "BDT",
+        probability: 60,
+        expectedCloseDate: "",
+        ownerId: "",
+        notes: proposal?.notes || "",
+        nextDealAction: "Negotiate with the client",
+        nextDealActionAt: "",
+        stuckReason: ""
+      })
+      setItems(
+        Array.isArray(proposal?.items) && proposal.items.length
+          ? proposal.items.map((item) => ({
+              productId: item.productId?._id || item.productId || "",
+              nameSnapshot: item.nameSnapshot || "",
+              qty: item.qty || 1,
+              unitPrice: item.unitPrice || 0,
+              discount: item.discount || 0
+            }))
+          : [{
+              productId: "",
+              nameSnapshot: lead?.purchaseType || "",
+              qty: 1,
+              unitPrice: proposal?.grandTotal || lead?.requirement?.expectedValue || 0,
+              discount: 0
+            }]
+      )
+    }
+  }, [open, lead, proposal])
+
+  const submit = async () => {
+    setErr("")
+    if (!proposal?._id) return setErr("Send or accept a proposal before creating a deal.")
+    if (!form.title.trim()) return setErr("Title is required.")
+    setLoading(true)
+    try {
+      await apiCreateDealFromProposal(proposal._id, {
+        leadId: getLeadId(lead),
+        title: form.title.trim(),
+        stage: "negotiation",
+        currency: form.currency.trim() || "BDT",
+        items: items.map((it) => ({
+          productId: it.productId || undefined,
+          nameSnapshot: it.nameSnapshot,
+          qty: it.qty,
+          unitPrice: it.unitPrice,
+          discount: it.discount,
+        })),
+        probability: Number(form.probability || 60),
+        expectedCloseDate: form.expectedCloseDate ? new Date(form.expectedCloseDate).toISOString() : null,
+        ownerId: form.ownerId.trim() || undefined,
+        notes: form.notes.trim(),
+        nextDealAction: form.nextDealAction.trim(),
+        nextDealActionAt: form.nextDealActionAt ? new Date(form.nextDealActionAt).toISOString() : null,
+        stuckReason: form.stuckReason.trim(),
+        requirementSnapshot: {
+          summary: lead?.requirement?.summary || "",
+          budgetMin: lead?.requirement?.budgetMin || 0,
+          budgetMax: lead?.requirement?.budgetMax || 0,
+          expectedValue: lead?.requirement?.expectedValue || 0,
+          timeline: lead?.requirement?.timeline || "",
+          decisionMaker: lead?.requirement?.decisionMaker || ""
+        }
+      })
+      onSaved?.()
+      onClose?.()
+    } catch (e) {
+      setErr(e?.message || "Deal create failed")
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return <ModalShell open={open} onClose={onClose} title="Create deal" subtitle={lead?.contact?.name || ""} icon={<FiBriefcase className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Creating..." : "Create deal"}</button></div>}>
     {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
     <div className={cn("mb-4 rounded-xl border p-3 text-sm font-semibold", proposal ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")}>{proposal ? `Creating from ${proposal.proposalNo || proposal.title} (${proposal.status}). Deal record created for this lead.` : "Send or accept a proposal before creating the deal."}</div>
@@ -1857,7 +2042,7 @@ function DealModal({ open, onClose, lead, onSaved, users = [] }) {
       <Field label="Next action at"><input type="datetime-local" className={input} value={form.nextDealActionAt} onChange={(e) => setForm((p) => ({ ...p, nextDealActionAt: e.target.value }))} /></Field>
       <div className="md:col-span-2"><Field label="Stuck reason"><input className={input} value={form.stuckReason} onChange={(e) => setForm((p) => ({ ...p, stuckReason: e.target.value }))} /></Field></div>
       <div className="md:col-span-2"><Field label="Notes"><textarea className={cn(input, "min-h-[90px]")} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></Field></div>
-      <div className="md:col-span-2"><ItemEditor items={items} setItems={setItems} /></div>
+      <div className="md:col-span-2"><ItemEditor items={items} setItems={setItems} products={products} /></div>
     </div>
   </ModalShell>
 }
@@ -1865,8 +2050,20 @@ function DealModal({ open, onClose, lead, onSaved, users = [] }) {
 function DealUpdateModal({ open, onClose, deal, onSaved, users = [] }) {
   const [form, setForm] = useState({ title: "", stage: "negotiation", currency: "BDT", probability: 60, expectedCloseDate: "", ownerId: "", notes: "", nextDealAction: "", nextDealActionAt: "", stuckReason: "" })
   const [items, setItems] = useState([])
+  const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState("")
+
+  useEffect(() => {
+    if (open) {
+      apiJson(`${API_BASE}/leads/conversion-options`)
+        .then((result) => {
+          const data = result.data || result
+          setProducts(Array.isArray(data?.products) ? data.products : [])
+        })
+        .catch(() => setProducts([]))
+    }
+  }, [open])
 
   useEffect(() => {
     if (!open || !deal) return
@@ -1883,7 +2080,17 @@ function DealUpdateModal({ open, onClose, deal, onSaved, users = [] }) {
       nextDealActionAt: formatDateInput(deal.nextDealActionAt),
       stuckReason: deal.stuckReason || "",
     })
-    setItems(Array.isArray(deal.items) ? deal.items.map((item) => ({ nameSnapshot: item.nameSnapshot || "", qty: item.qty || 1, unitPrice: item.unitPrice || 0, discount: item.discount || 0 })) : [])
+    setItems(
+      Array.isArray(deal.items)
+        ? deal.items.map((item) => ({
+            productId: item.productId?._id || item.productId || "",
+            nameSnapshot: item.nameSnapshot || "",
+            qty: item.qty || 1,
+            unitPrice: item.unitPrice || 0,
+            discount: item.discount || 0
+          }))
+        : []
+    )
   }, [open, deal])
 
   const submit = async () => {
@@ -1902,7 +2109,13 @@ function DealUpdateModal({ open, onClose, deal, onSaved, users = [] }) {
         nextDealAction: form.nextDealAction.trim(),
         nextDealActionAt: form.nextDealActionAt ? new Date(form.nextDealActionAt).toISOString() : null,
         stuckReason: form.stuckReason.trim(),
-        items,
+        items: items.map((it) => ({
+          productId: it.productId || undefined,
+          nameSnapshot: it.nameSnapshot,
+          qty: it.qty,
+          unitPrice: it.unitPrice,
+          discount: it.discount,
+        })),
       })
       await onSaved?.()
       onClose?.()
@@ -1926,7 +2139,7 @@ function DealUpdateModal({ open, onClose, deal, onSaved, users = [] }) {
       <Field label="Next action at"><input type="datetime-local" className={input} value={form.nextDealActionAt} onChange={(e) => setForm((p) => ({ ...p, nextDealActionAt: e.target.value }))} /></Field>
       <div className="md:col-span-2"><Field label="Stuck reason (optional)"><input className={input} value={form.stuckReason} onChange={(e) => setForm((p) => ({ ...p, stuckReason: e.target.value }))} /></Field></div>
       <div className="md:col-span-2"><Field label="Notes (optional)"><textarea className={cn(input, "min-h-[90px]")} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></Field></div>
-      <div className="md:col-span-2"><ItemEditor items={items} setItems={setItems} /></div>
+      <div className="md:col-span-2"><ItemEditor items={items} setItems={setItems} products={products} /></div>
     </div>
   </ModalShell>
 }
@@ -1969,6 +2182,93 @@ function ReasonModal({ open, onClose, title, subtitle, icon, actionLabel, danger
   useEffect(() => { if (open) { setReason(""); setNote(""); setErr("") } }, [open])
   const submit = async () => { setErr(""); if (!reason.trim()) return setErr("Reason is required."); setLoading(true); try { await onSubmit?.({ reason: reason.trim(), note: note.trim(), ...(salesWin ? { branchId: branchId || undefined, warehouseId: warehouseId || undefined } : {}) }); onClose?.() } catch (e) { setErr(e?.message || "Action failed") } finally { setLoading(false) } }
   return <ModalShell open={open} onClose={onClose} title={title} subtitle={subtitle} icon={icon} maxWidthClass="max-w-xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, danger ? "bg-rose-600 text-white hover:bg-rose-700" : btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : actionLabel}</button></div>}>{err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}<div className="grid gap-4">{salesWin ? <><p className="rounded-xl bg-indigo-50 p-3 text-sm text-indigo-800">Creates a Customer, Won Deal and draft Sales Order from the accepted offer. Then continue with confirmation, inventory, delivery, invoice and payment.</p><Field label="Sales branch"><select className={input} value={branchId} onChange={(e) => { setBranchId(e.target.value); setWarehouseId("") }}><option value="">Use quotation or assigned branch</option>{salesOptions.branches.map((branch) => <option key={branch._id} value={branch._id}>{branch.name}</option>)}</select></Field><Field label="Fulfillment warehouse"><select className={input} value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}><option value="">Use branch default warehouse</option>{salesOptions.warehouses.filter((warehouse) => !branchId || String(warehouse.branch?._id || warehouse.branch) === branchId).map((warehouse) => <option key={warehouse._id} value={warehouse._id}>{warehouse.name}</option>)}</select></Field></> : null}<Field label="Reason *"><input className={input} value={reason} onChange={(e) => setReason(e.target.value)} /></Field><Field label="Extra note"><textarea className={cn(input, "min-h-[120px]")} value={note} onChange={(e) => setNote(e.target.value)} /></Field></div></ModalShell>
+}
+
+function ConversionSummaryModal({ open, onClose, data, role, onNavigateSalesOrder, onNavigateDeal, onNavigateCustomer }) {
+  if (!open || !data) return null
+  const { customer, deal, salesOrder } = data
+  return (
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      title="Lead Converted & Won"
+      subtitle="Customer, Won Deal, and Draft Sales Order created successfully."
+      icon={<FiCheckCircle className="h-5 w-5 text-emerald-600" />}
+      maxWidthClass="max-w-xl"
+      footer={
+        <div className="flex flex-wrap justify-end gap-2">
+          <button className={cn(btn, btnGhost)} onClick={onClose}>Close</button>
+          {salesOrder?.orderNumber ? (
+            <button
+              className={cn(btn, "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700")}
+              onClick={() => onNavigateSalesOrder?.(salesOrder.orderNumber)}
+            >
+              <FiShoppingBag className="h-4 w-4" /> Open Sales Order
+            </button>
+          ) : null}
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-600 shadow-sm">
+              <FiCheckCircle className="h-6 w-6" />
+            </div>
+            <div>
+              <p className="font-black text-emerald-950">Commercial Lifecycle Initiated</p>
+              <p className="text-xs text-emerald-700">The lead is closed-won. Proceed with order confirmation, reservation, fulfillment and invoicing in Sales.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-gray-100 bg-gray-50/50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Customer</p>
+            <p className="mt-1 font-bold text-gray-900 truncate">{customer?.contact?.name || customer?.companyName || "Created"}</p>
+            <p className="text-[11px] text-gray-500 truncate">{customer?.customerCode || customer?.contact?.phone || "Customer record"}</p>
+            {customer?._id ? (
+              <button
+                type="button"
+                className="mt-2 text-xs font-bold text-indigo-600 hover:underline"
+                onClick={() => onNavigateCustomer?.(customer._id)}
+              >
+                View Customer →
+              </button>
+            ) : null}
+          </div>
+          <div className="rounded-2xl border border-gray-100 bg-gray-50/50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Won Deal</p>
+            <p className="mt-1 font-bold text-gray-900 truncate">{deal?.dealNo || deal?.title || "Created"}</p>
+            <p className="text-[11px] font-semibold text-emerald-600">Won</p>
+            {deal?.dealNo ? (
+              <button
+                type="button"
+                className="mt-2 text-xs font-bold text-indigo-600 hover:underline"
+                onClick={() => onNavigateDeal?.(deal.dealNo)}
+              >
+                View Deal →
+              </button>
+            ) : null}
+          </div>
+          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-indigo-500">Draft Order</p>
+            <p className="mt-1 font-bold text-indigo-900 truncate">{salesOrder?.orderNumber || "Created"}</p>
+            <p className="text-[11px] font-semibold text-indigo-600">Status: Draft</p>
+            {salesOrder?.orderNumber ? (
+              <button
+                type="button"
+                className="mt-2 text-xs font-bold text-indigo-600 hover:underline"
+                onClick={() => onNavigateSalesOrder?.(salesOrder.orderNumber)}
+              >
+                Open Order →
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </ModalShell>
+  )
 }
 
 function ConfirmDeleteModal({ open, leadName, loading, onClose, onConfirm }) {
@@ -2301,8 +2601,22 @@ function LeadNotesOverview({ lead, onAction }) {
 }
 
 function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initialTab = "overview", isRestrictedLeadView = false, showToast }) {
+  const navigate = useNavigate()
+  const currentUser = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("user") || "null")
+    } catch {
+      return null
+    }
+  }, [])
+  const role = useMemo(() => {
+    const directRole = localStorage.getItem("role")
+    if (directRole) return String(directRole).toLowerCase()
+    return String(currentUser?.role || "").toLowerCase()
+  }, [currentUser])
+
   const [lead, setLead] = useState(null)
-  const [timeline, setTimeline] = useState({ logs: [], activities: [], proposals: [], deals: [], queueItems: [] })
+  const [timeline, setTimeline] = useState({ logs: [], activities: [], proposals: [], deals: [], queueItems: [], quotations: [] })
   const [tab, setTab] = useState(initialTab || "overview")
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState("")
@@ -2330,6 +2644,7 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
   const proposals = timeline.proposals || []
   const deals = timeline.deals || []
   const queueItems = timeline.queueItems || []
+  const quotations = timeline.quotations || []
   const showSalesTabs = ["proposal", "negotiation", "won"].includes(String(lead?.pipelineStage || "")) || getStageIndex(lead?.pipelineStage) >= getStageIndex("discovery")
   const tabs = [
     ["overview", "Overview", FiInfo],
@@ -2354,10 +2669,12 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
       toast.error(e?.message || "PDF export failed")
     }
   }
-  return <><ModalShell open={open} onClose={onClose} title="Lead A-Z History" subtitle={lead?.contact?.name || "Full timeline, activities, proposals, deals and work queue"} icon={<FiEye className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex flex-wrap justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load}><FiRefreshCcw className="h-4 w-4" />Refresh</button>{lead ? (() => { const proposalInfo = getProposalShortcutInfo(lead, timeline); const eligibleProposal = (timeline.proposals || []).find((proposal) => ["sent", "accepted"].includes(proposal.status) && !proposal.dealId); return <><button className={cn(btn, btnPrimary)} disabled={!getNextPipelineStage(lead)} onClick={() => onAction?.("nextStage", lead)}><FiArrowRight />Next Stage</button><button className={cn(btn, btnSoft)} onClick={() => onAction?.("quick", lead)}><FiZap />Quick action</button>{proposalInfo.show ? <button className={cn(btn, proposalInfo.action === "proposal" ? btnPrimary : btnGhost)} disabled={proposalInfo.disabled} onClick={() => proposalInfo.action === "manageProposal" ? setTab("proposals") : onAction?.(proposalInfo.action, lead)}><FiFileText />{proposalInfo.label}</button> : null}{lead?.pipelineStage === "negotiation" ? <>
-  <button className={cn(btn, "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700")} onClick={() => onAction?.("won", lead)}><FiCheckCircle className="h-4 w-4" />Mark Won</button>
-  <button className={cn(btn, btnDanger)} onClick={() => onAction?.("lost", lead)}><FiXCircle className="h-4 w-4" />Mark Lost</button>
-</> : null}</> })() : null}</div>}>
+  return <><ModalShell open={open} onClose={onClose} title="Lead A-Z History" subtitle={lead?.contact?.name || "Full timeline, activities, proposals, deals and work queue"} icon={<FiEye className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex flex-wrap justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load}><FiRefreshCcw className="h-4 w-4" />Refresh</button>{lead ? (() => { const proposalInfo = getProposalShortcutInfo(lead, timeline); const eligibleProposal = (timeline.proposals || []).find((proposal) => ["sent", "accepted"].includes(proposal.status) && !proposal.dealId); return <><button className={cn(btn, btnPrimary)} disabled={!getNextPipelineStage(lead)} onClick={() => onAction?.("nextStage", lead)}><FiArrowRight />Next Stage</button><button className={cn(btn, btnSoft)} onClick={() => onAction?.("quick", lead)}><FiZap />Quick action</button>{proposalInfo.show ? <button className={cn(btn, proposalInfo.action === "proposal" ? btnPrimary : btnGhost)} disabled={proposalInfo.disabled} onClick={() => proposalInfo.action === "manageProposal" ? setTab("proposals") : onAction?.(proposalInfo.action, lead)}><FiFileText />{proposalInfo.label}</button> : null}{!["won", "lost"].includes(lead?.pipelineStage) ? <>
+          {lead?.pipelineStage === "negotiation" ? (
+            <button className={cn(btn, "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700")} onClick={() => onAction?.("won", lead)}><FiCheckCircle className="h-4 w-4" />Mark Won</button>
+          ) : null}
+          <button className={cn(btn, btnDanger)} onClick={() => onAction?.("lost", lead)}><FiXCircle className="h-4 w-4" />Mark Lost</button>
+        </> : null}</> })() : null}</div>}>
     {loading ? <div className="flex justify-center p-10"><FiLoader className="h-6 w-6 animate-spin text-indigo-600" /></div> : err ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : lead ? <>
       <div className="mb-4 flex flex-wrap gap-2">{tabs.map(([k, name, Icon, count]) => <button key={k} className={cn(btn, tab === k ? btnPrimary : btnGhost, "px-3 py-2")} onClick={() => setTab(k)}><Icon className="h-4 w-4" />{name}{count ? <span className={cn("ml-1 rounded-full px-2 py-0.5 text-[10px] font-black", tab === k ? "bg-white/20 text-white" : "bg-indigo-600 text-white")}>{count > 99 ? "99+" : count}</span> : null}</button>)}</div>
       {tab === "overview" && (
@@ -2383,9 +2700,112 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
           <RequirementOverview lead={lead} onAction={onAction} />
         </div>
       )}
-      {tab === "timeline" && <div className="space-y-3">{[...logs, ...activities, ...proposals, ...deals, ...queueItems].sort((a,b)=>new Date(b.createdAt||b.sentAt||0)-new Date(a.createdAt||a.sentAt||0)).map((x, i) => <TimelineCard key={`${x._id || i}`} item={x} />)}{!logs.length && !activities.length && !proposals.length && !deals.length && !queueItems.length ? <EmptyState icon={<FiClock />} title="No history yet" /> : null}</div>}
+      {tab === "timeline" && (
+        <div className="space-y-3">
+          {[...logs, ...activities, ...proposals, ...deals, ...queueItems, ...quotations]
+            .sort((a, b) => new Date(b.createdAt || b.sentAt || b.quotationDate || 0) - new Date(a.createdAt || a.sentAt || a.quotationDate || 0))
+            .map((x, i) => (
+              <TimelineCard key={`${x._id || i}`} item={x} />
+            ))}
+          {!logs.length && !activities.length && !proposals.length && !deals.length && !queueItems.length && !quotations.length ? (
+            <EmptyState icon={<FiClock />} title="No history yet" />
+          ) : null}
+        </div>
+      )}
       {!isRestrictedLeadView && tab === "activities" && <RecordList items={activities} type="activity" onComplete={async (id) => { await apiCompleteActivity(id, { outcome: "Completed from UI" }); await load(); onAction?.("refresh") }} onCancel={async (id) => { await apiCancelActivity(id, { reason: "Cancelled from UI" }); await load(); onAction?.("refresh") }} />}
-      {showSalesTabs && tab === "proposals" && <RecordList items={proposals} type="proposal" onView={(record) => setRecordView({ open: true, type: "proposal", record })} onEdit={(record) => setRecordEdit({ type: "proposal", record })} onExport={exportTimelineProposal} onSend={async (id) => { await apiSendProposal(id); await load(); onAction?.("refresh") }} onAccept={async (id) => { await apiAcceptProposal(id); toast.success("Proposal accepted. Lead moved to Negotiation stage."); await load(); onAction?.("refresh") }} onReject={(id) => openReasonModal({ title: "Reject proposal", subtitle: lead?.contact?.name || "Add a clear reason before rejecting.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Reject proposal", danger: true, onSubmit: async ({ reason, note }) => { await apiRejectProposal(id, { rejectReason: reason, note }); await load(); onAction?.("refresh") } })} />}
+      {showSalesTabs && tab === "proposals" && (
+        <div className="space-y-6">
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <h4 className="text-sm font-bold uppercase tracking-wider text-gray-500">Proposals</h4>
+            </div>
+            <RecordList
+              items={proposals}
+              type="proposal"
+              onView={(record) => setRecordView({ open: true, type: "proposal", record })}
+              onEdit={(record) => setRecordEdit({ type: "proposal", record })}
+              onExport={exportTimelineProposal}
+              onSend={async (id) => { await apiSendProposal(id); await load(); onAction?.("refresh") }}
+              onAccept={async (id) => { await apiAcceptProposal(id); toast.success("Proposal accepted. Lead moved to Negotiation stage."); await load(); onAction?.("refresh") }}
+              onReject={(id) => openReasonModal({
+                title: "Reject proposal",
+                subtitle: lead?.contact?.name || "Add a clear reason before rejecting.",
+                icon: <FiXCircle className="h-5 w-5" />,
+                actionLabel: "Reject proposal",
+                danger: true,
+                onSubmit: async ({ reason, note }) => {
+                  await apiRejectProposal(id, { rejectReason: reason, note });
+                  await load();
+                  onAction?.("refresh")
+                }
+              })}
+            />
+          </div>
+          {quotations.length > 0 ? (
+            <div>
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-bold uppercase tracking-wider text-gray-500">Linked Sales Quotations</h4>
+                  <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-bold text-indigo-700">{quotations.length}</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                {quotations.map((quotation) => (
+                  <div key={quotation._id} className="rounded-2xl border border-indigo-100 bg-indigo-50/20 p-4">
+                    <div className="flex flex-wrap justify-between gap-2">
+                      <div>
+                        <p className="font-bold text-gray-900">{quotation.quotationNumber}</p>
+                        <p className="text-xs text-gray-500">{formatDate(quotation.quotationDate || quotation.createdAt, true)}</p>
+                      </div>
+                      <Badge value={quotation.status} />
+                    </div>
+                    {quotation.grandTotal !== undefined ? (
+                      <div className="mt-3">
+                        <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>
+                          {formatMoney(quotation.grandTotal, quotation.currency)}
+                        </span>
+                      </div>
+                    ) : null}
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {["sent", "viewed", "under_negotiation"].includes(quotation.status) ? (
+                        <button
+                          type="button"
+                          className={cn(btn, "bg-emerald-600 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700")}
+                          onClick={async () => {
+                            try {
+                              await apiJson(`${API_BASE}/sales/quotations/${quotation._id}/status`, {
+                                method: "PATCH",
+                                body: JSON.stringify({ status: "accepted", confirmationMethod: "direct_crm" }),
+                              })
+                              toast.success("Quotation accepted. Lead moved to Negotiation.")
+                              await load()
+                              onAction?.("refresh")
+                            } catch (e) {
+                              toast.error(e?.message || "Failed to accept quotation")
+                            }
+                          }}
+                        >
+                          <FiCheckCircle className="h-4 w-4" /> Accept Quotation
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className={cn(btn, btnGhost, "px-3 py-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50")}
+                        onClick={() => {
+                          onClose?.()
+                          navigate(`${getModuleBasePath(role, "sales")}/sales-quotations`)
+                        }}
+                      >
+                        <FiArrowRight className="h-4 w-4" /> View in Sales
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
       {showSalesTabs && tab === "deals" && <RecordList items={deals} type="deal" onView={(record) => setRecordView({ open: true, type: "deal", record })} onEdit={(record) => setRecordEdit({ type: "deal", record })} onWon={(id) => openReasonModal({ title: "Mark deal as won", subtitle: "Winning the deal will automatically convert this lead to a customer.", icon: <FiCheckCircle className="h-5 w-5" />, actionLabel: "Win deal & convert", onSubmit: async ({ reason, note }) => { const data = await apiDealWon(id, { reason, note }); await load(); onAction?.("dealWon", data) } })} onLost={(id) => openReasonModal({ title: "Mark deal as lost", subtitle: lead?.contact?.name || "Add a clear loss reason.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Mark lost", danger: true, onSubmit: async ({ reason, note }) => { await apiDealLost(id, { reason, note }); await load(); onAction?.("refresh") } })} />}
       {tab === "queue" && <RecordList items={queueItems} type="queue" onDone={async (id) => { await apiQueueDone(id, { result: "Done from lead view" }); await load(); onAction?.("refresh") }} />}
       {tab === "notes" && <LeadNotesOverview lead={lead} onAction={onAction} />}
@@ -2400,7 +2820,47 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
 }
 
 function DetailRow({ label: labelText, value }) { return <div className="rounded-2xl border border-gray-100 bg-gray-50/50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{labelText}</p><div className="mt-1 break-words text-sm font-semibold text-gray-900">{value || "—"}</div></div> }
-function TimelineCard({ item }) { const title = item?.message || item?.title || item?.type || item?.status || item?.stage || item?.proposalNo || item?.dealNo || "Timeline item"; return <div className="relative pl-7"><span className="absolute left-0 top-1.5 h-3 w-3 rounded-full bg-indigo-600 ring-4 ring-indigo-50" /><div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-bold text-gray-900">{title}</p><p className="text-xs text-gray-500">{item?.createdBy?.name || item?.assignedTo?.name || "System"} • {formatDate(item?.createdAt || item?.scheduledAt || item?.sentAt, true)}</p></div>{item?.status || item?.stage || item?.priority ? <Badge value={item.status || item.stage || item.priority} /> : null}</div>{item?.body || item?.description || item?.result ? <p className="mt-2 text-sm text-gray-600">{item.body || item.description || item.result}</p> : null}</div></div> }
+function TimelineCard({ item }) {
+  const isQuotation = Boolean(item?.quotationNumber)
+  const title = item?.quotationNumber
+    ? `Quotation: ${item.quotationNumber}`
+    : item?.message || item?.title || item?.type || item?.status || item?.stage || item?.proposalNo || item?.dealNo || "Timeline item"
+  return (
+    <div className="relative pl-7">
+      <span className={cn("absolute left-0 top-1.5 h-3 w-3 rounded-full ring-4", isQuotation ? "bg-emerald-600 ring-emerald-50" : "bg-indigo-600 ring-indigo-50")} />
+      <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-bold text-gray-900">{title}</p>
+              {isQuotation ? (
+                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700">
+                  Sales Quotation
+                </span>
+              ) : null}
+            </div>
+            <p className="text-xs text-gray-500">
+              {item?.createdBy?.name || item?.assignedTo?.name || "System"} • {formatDate(item?.createdAt || item?.scheduledAt || item?.sentAt || item?.quotationDate, true)}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {item?.grandTotal !== undefined ? (
+              <span className="text-xs font-bold text-gray-900">
+                {formatMoney(item.grandTotal, item.currency)}
+              </span>
+            ) : null}
+            {item?.status || item?.stage || item?.priority ? (
+              <Badge value={item.status || item.stage || item.priority} />
+            ) : null}
+          </div>
+        </div>
+        {item?.body || item?.description || item?.result || item?.notes ? (
+          <p className="mt-2 text-sm text-gray-600">{item.body || item.description || item.result || item.notes}</p>
+        ) : null}
+      </div>
+    </div>
+  )
+}
 function RecordList({ items = [], type, onComplete, onCancel, onSend, onAccept, onReject, onWon, onLost, onDone, onView, onEdit, onExport }) {
   if (!items.length) return <EmptyState icon={<FiInfo className="h-5 w-5" />} title={`No ${type} records`} />
   return <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">{items.map((it) => {
@@ -2421,7 +2881,17 @@ function RecordList({ items = [], type, onComplete, onCancel, onSend, onAccept, 
   })}</div>
 }
 
-function RowActionsMenu({ lead, onAction, busy, converting, canConvert, canAdminister, canManageLeads }) {
+function RowActionsMenu({
+  lead,
+  onAction,
+  busy,
+  converting,
+  canConvert,
+  canAdminister,
+  canManageLeads,
+  canManageSalesQuotation = true,
+  salesQuotationAccessReason = "",
+}) {
   const [open, setOpen] = useState(false)
   const [menuStyle, setMenuStyle] = useState({ top: 0, left: 0, transformOrigin: "top right" })
   const ref = useRef(null)
@@ -2505,8 +2975,30 @@ function RowActionsMenu({ lead, onAction, busy, converting, canConvert, canAdmin
     ? menuTimeline.deals.find((deal) => !["won", "lost"].includes(deal.stage))
     : null
   const isNegotiation = String(hydratedLead?.pipelineStage || "") === "negotiation"
+  const isClosed = ["won", "lost"].includes(String(hydratedLead?.pipelineStage || ""))
   const manageItems = canManageLeads
-    ? [["quick", "Quick action", FiZap], ...(canAdminister ? [["assign", "Assign lead", FiUserCheck]] : []), ["edit", "Edit lead", FiEdit2], ["note", "Add note", FiFileText], ["salesQuotation", "Create Quotation", FiFileText, false, "Create sales quotation in Sales module"], ["nextStage", "Next stage", FiArrowRight], ["stage", "Update stage", FiSliders], ["requirement", "Requirement", FiTarget], ["activity", "Create activity", FiActivity], ["followup", "Set follow-up", FiCalendar], ["contacted", "Mark contacted", FiPhoneCall], ...(proposalInfo.show ? [[proposalInfo.action, proposalInfo.label, FiFileText, proposalInfo.disabled, proposalInfo.helper]] : []), ...(isNegotiation ? [["won", "Mark Won", FiCheckCircle, false, "Mark lead as Won and convert to customer"], ["lost", "Mark lost", FiXCircle, false, "Close after final client discussion"]] : [])]
+    ? [
+        ["quick", "Quick action", FiZap],
+        ...(canAdminister ? [["assign", "Assign lead", FiUserCheck]] : []),
+        ["edit", "Edit lead", FiEdit2],
+        ["note", "Add note", FiFileText],
+        [
+          "salesQuotation",
+          "Create Quotation",
+          FiFileText,
+          !canManageSalesQuotation,
+          salesQuotationAccessReason || "Create sales quotation in Sales module"
+        ],
+        ["nextStage", "Next stage", FiArrowRight],
+        ["stage", "Update stage", FiSliders],
+        ["requirement", "Requirement", FiTarget],
+        ["activity", "Create activity", FiActivity],
+        ["followup", "Set follow-up", FiCalendar],
+        ["contacted", "Mark contacted", FiPhoneCall],
+        ...(proposalInfo.show ? [[proposalInfo.action, proposalInfo.label, FiFileText, proposalInfo.disabled, proposalInfo.helper]] : []),
+        ...(isNegotiation ? [["won", "Mark Won", FiCheckCircle, false, "Mark lead as Won and convert to customer"]] : []),
+        ...(!isClosed ? [["lost", "Mark lost", FiXCircle, false, "Close lead as lost with required reason"]] : [])
+      ]
     : []
   const items = [["view", "View A-Z history", FiEye], ...manageItems]
 
@@ -2806,6 +3298,7 @@ function NotificationsPanel({ open, onClose, onToast, onChanged }) {
 }
 
 export default function AdminLeadsPage({ onConvertedToCustomer }) {
+  const navigate = useNavigate()
   const PAGE_SIZE = 25
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(false)
@@ -2828,6 +3321,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
   const [viewTick, setViewTick] = useState(0)
   const [busyId, setBusyId] = useState("")
   const [convertingId, setConvertingId] = useState("")
+  const [conversionResult, setConversionResult] = useState(null)
   const [deleteState, setDeleteState] = useState({ open: false, lead: null, loading: false })
   const [notifications, setNotifications] = useState(0)
   const [assignees, setAssignees] = useState([])
@@ -2850,6 +3344,21 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
     hasPermission(currentUser, PERMISSIONS.LEADS_MANAGE)
   const canConvert = canManageLeads
   const isRestrictedLeadView = role === "employee" && !canManageLeads
+
+  const canAccessSales = canAccessModule(currentUser, "sales", role)
+  const canViewSalesQuotation =
+    ["admin", "superadmin"].includes(role) ||
+    hasPermission(currentUser, PERMISSIONS.SALES_QUOTATION_VIEW)
+  const canManageSalesQuotation =
+    canAccessSales &&
+    (["admin", "superadmin"].includes(role) ||
+      hasPermission(currentUser, PERMISSIONS.SALES_QUOTATION_MANAGE))
+  const salesQuotationAccessReason = !canAccessSales
+    ? "Sales module is disabled for your role or plan."
+    : !canManageSalesQuotation
+      ? "Requires sales-quotation:manage permission."
+      : ""
+
   const showToast = (type, message) => {
     const safeMessage = message || "Something went wrong."
     if (type === "error") toast.error(safeMessage)
@@ -2892,8 +3401,12 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
       return
     }
     if (type === "salesQuotation") {
+      if (!canManageSalesQuotation) {
+        showToast("error", salesQuotationAccessReason || "You do not have permission to create sales quotations.")
+        return
+      }
       const targetLeadId = getLeadId(lead)
-      window.location.href = `/admin/sales?kind=quotations&createQuotationForLead=${encodeURIComponent(targetLeadId)}`
+      navigate(`${getModuleBasePath(role, "sales")}/sales-quotations?createQuotationForLead=${encodeURIComponent(targetLeadId)}`)
       return
     }
     if (type === "dealWon") return setModal({ type: "leadWon", lead: lead?.lead || lead })
@@ -3167,6 +3680,8 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
                         canConvert={canConvert}
                         canAdminister={canAdminister}
                         canManageLeads={canManageLeads}
+                        canManageSalesQuotation={canManageSalesQuotation}
+                        salesQuotationAccessReason={salesQuotationAccessReason}
                       />
                     </td>
                   </tr>
@@ -3226,7 +3741,47 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
     <DealModal open={modal.type === "deal"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} users={assignees} onSaved={async () => { showToast("success", "Deal created."); await refreshAll() }} />
     <QuickActionModal open={modal.type === "quick"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Quick action saved."); await refreshAll() }} />
     {canAdminister ? <AssignLeadModal open={modal.type === "assign"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Lead assigned."); await refreshAll() }} /> : null}
-    <ReasonModal open={modal.type === "leadWon"} onClose={() => setModal({ type: "", lead: null })} salesWin title="Win negotiation & create sales records" subtitle={modal.lead?.contact?.name ? `${modal.lead.contact.name}${modal.lead.contact.companyName ? ` (${modal.lead.contact.companyName})` : ""}` : "Mark lead as Won and convert to customer."} icon={<FiCheckCircle className="h-5 w-5" />} actionLabel="Win & Create Sales Order" onSubmit={async (payload) => { const result = await apiLeadWon(getLeadId(modal.lead), payload); onConvertedToCustomer?.(result.customer); showToast("success", `Won. Customer, deal and sales order ${result.salesOrder?.orderNumber || ""} created.`); setModal({ type: "", lead: null }); await refreshAll(); }} />
+    <ReasonModal
+      open={modal.type === "leadWon"}
+      onClose={() => setModal({ type: "", lead: null })}
+      salesWin
+      title="Win negotiation & create sales records"
+      subtitle={modal.lead?.contact?.name ? `${modal.lead.contact.name}${modal.lead.contact.companyName ? ` (${modal.lead.contact.companyName})` : ""}` : "Mark lead as Won and convert to customer."}
+      icon={<FiCheckCircle className="h-5 w-5" />}
+      actionLabel="Win & Create Sales Order"
+      onSubmit={async (payload) => {
+        const result = await apiLeadWon(getLeadId(modal.lead), payload);
+        onConvertedToCustomer?.(result?.customer);
+        showToast("success", `Won. Customer, deal and sales order ${result?.salesOrder?.orderNumber || ""} created.`);
+        setModal({ type: "", lead: null });
+        if (result?.salesOrder || result?.customer || result?.deal) {
+          setConversionResult({
+            customer: result.customer,
+            deal: result.deal,
+            salesOrder: result.salesOrder,
+          });
+        }
+        await refreshAll();
+      }}
+    />
+    <ConversionSummaryModal
+      open={Boolean(conversionResult)}
+      onClose={() => setConversionResult(null)}
+      data={conversionResult}
+      role={role}
+      onNavigateSalesOrder={(orderNumber) => {
+        setConversionResult(null);
+        navigate(`${getModuleBasePath(role, "sales")}/sales-orders?search=${encodeURIComponent(orderNumber || "")}`);
+      }}
+      onNavigateDeal={(dealNo) => {
+        setConversionResult(null);
+        navigate(`${getModuleBasePath(role, "crm")}/deals?search=${encodeURIComponent(dealNo || "")}`);
+      }}
+      onNavigateCustomer={(customerId) => {
+        setConversionResult(null);
+        navigate(`${getModuleBasePath(role, "crm")}/clients/${customerId}`);
+      }}
+    />
     <ReasonModal open={modal.type === "dealWon"} onClose={() => setModal({ type: "", lead: null, deal: null })} title="Mark deal as won" subtitle="The lead will be converted to a customer automatically." icon={<FiCheckCircle className="h-5 w-5" />} actionLabel="Win deal & convert" onSubmit={async (payload) => { const data = await apiDealWon(modal.deal?._id, payload); showToast("success", "Deal won. Lead converted to customer automatically."); onConvertedToCustomer?.(data?.customer || data); setModal({ type: "", lead: null, deal: null }); await refreshAll() }} />
     <ReasonModal open={modal.type === "leadLost"} onClose={() => setModal({ type: "", lead: null })} title="Mark lead lost" subtitle={modal.lead?.contact?.name || ""} icon={<FiXCircle className="h-5 w-5" />} actionLabel="Mark lost" danger onSubmit={async (payload) => { await apiLeadLost(getLeadId(modal.lead), payload); showToast("success", "Lead marked as lost."); await refreshAll() }} />
     {canAdminister ? <ConfirmDeleteModal open={deleteState.open} leadName={deleteState.lead?.contact?.name || ""} loading={deleteState.loading} onClose={() => setDeleteState({ open: false, lead: null, loading: false })} onConfirm={confirmDelete} /> : null}

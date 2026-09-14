@@ -1,14 +1,13 @@
+/* eslint-disable react/prop-types, react-refresh/only-export-components -- report helpers are exported for permission-contract tests */
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { motion } from "framer-motion"
 import toast, { Toaster } from "react-hot-toast"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Alert02Icon,
   ArrowDataTransferHorizontalIcon,
   Clock01Icon,
-  DashboardSquare01Icon,
   Download01Icon,
   FileChartColumnIcon,
   FilterIcon,
@@ -16,7 +15,6 @@ import {
   Layers01Icon,
   Package01Icon,
   RefreshIcon,
-  Search01Icon,
   Tick02Icon,
 } from "@hugeicons/core-free-icons"
 import { hasPermission } from "../../Auth/permissions"
@@ -24,6 +22,7 @@ import { hasPermission } from "../../Auth/permissions"
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const COST_VIEW_PERMISSION = "inventory-report:cost-view"
 const RECONCILIATION_PERMISSION = "inventory-reconciliation:view"
+const EXPORT_PERMISSION = "inventory-report:export"
 
 const CARD =
   "rounded-2xl border border-gray-100 bg-white shadow-[0_10px_28px_-16px_rgba(0,0,0,0.22)]"
@@ -74,6 +73,30 @@ function pretty(value) {
   return String(value || "—")
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+export function getInventoryReportAccess(rawUser) {
+  const user = rawUser?.user || rawUser
+  const role = String(user?.role || "").toLowerCase()
+  const privileged = role === "admin" || role === "superadmin"
+  const permissions = user?.permissions || []
+  const wildcard = permissions.includes("*")
+  const allowed = (permission) =>
+    privileged || wildcard || permissions.includes(permission) || hasPermission(user, permission)
+  return {
+    canViewCost: allowed(COST_VIEW_PERMISSION),
+    canViewGlReconciliation: allowed(RECONCILIATION_PERMISSION),
+    canExport: allowed(EXPORT_PERMISSION),
+  }
+}
+
+export function canExportInventoryReport(user, reportType) {
+  const access = getInventoryReportAccess(user)
+  if (!access.canExport) return false
+  if (reportType === "gl-reconciliation") {
+    return access.canViewGlReconciliation && access.canViewCost
+  }
+  return true
 }
 
 async function api(path) {
@@ -206,25 +229,12 @@ export default function InventoryReports() {
     }
   }, [])
 
-  const canViewCost = useMemo(() => {
-    if (!currentUser) return false
-    const role = String(currentUser?.role || "").toLowerCase()
-    if (role === "admin" || role === "superadmin") return true
-    return (
-      hasPermission(currentUser, COST_VIEW_PERMISSION) ||
-      (currentUser?.permissions || []).includes("*")
-    )
-  }, [currentUser])
-
-  const canViewGlReconciliation = useMemo(() => {
-    if (!currentUser) return false
-    const role = String(currentUser?.role || "").toLowerCase()
-    if (role === "admin" || role === "superadmin") return true
-    return (
-      hasPermission(currentUser, RECONCILIATION_PERMISSION) ||
-      (currentUser?.permissions || []).includes("*")
-    )
-  }, [currentUser])
+  const reportAccess = useMemo(
+    () => getInventoryReportAccess(currentUser),
+    [currentUser]
+  )
+  const { canViewCost, canViewGlReconciliation } = reportAccess
+  const canExportActiveReport = canExportInventoryReport(currentUser, activeTab)
 
   // Load warehouse options
   useEffect(() => {
@@ -335,6 +345,10 @@ export default function InventoryReports() {
 
   // Export CSV handler
   const handleExportCsv = async () => {
+    if (!canExportActiveReport) {
+      toast.error("You do not have permission to export this report.")
+      return
+    }
     setExporting(true)
     try {
       const currentTab = REPORT_TABS.find((t) => t.id === activeTab)
@@ -420,19 +434,21 @@ export default function InventoryReports() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2.5 self-start lg:self-auto">
-              <button
-                type="button"
-                onClick={handleExportCsv}
-                disabled={exporting || loading}
-                className={cn(BUTTON, GHOST_BUTTON)}
-                title="Download active report as CSV"
-              >
-                <Icon
-                  icon={Download01Icon}
-                  className={cn("h-4 w-4", exporting ? "animate-pulse" : "")}
-                />
-                {exporting ? "Exporting..." : "Export CSV"}
-              </button>
+              {canExportActiveReport ? (
+                <button
+                  type="button"
+                  onClick={handleExportCsv}
+                  disabled={exporting || loading}
+                  className={cn(BUTTON, GHOST_BUTTON)}
+                  title="Download active report as CSV"
+                >
+                  <Icon
+                    icon={Download01Icon}
+                    className={cn("h-4 w-4", exporting ? "animate-pulse" : "")}
+                  />
+                  {exporting ? "Exporting..." : "Export CSV"}
+                </button>
+              ) : null}
 
               <button
                 type="button"

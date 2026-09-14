@@ -69,6 +69,7 @@ const TrialBalance = lazy(() => import("./accounting/TrialBalance"))
 const BalanceSheet = lazy(() => import("./accounting/BalanceSheet"))
 const CashFlowStatement = lazy(() => import("./accounting/CashFlowStatement"))
 const ProfileSettings = lazy(() => import("./system/ProfileSettings"))
+const InventoryRevaluations = lazy(() => import("./inventory/InventoryRevaluations"))
 const AdminCompanySetupPage = lazy(() => import("./CompanySetup/AdminCompanySetupPage"))
 const TitlesAdd = lazy(() => import("./workflow/TittlesAdd"))
 const EngagementTemplatePage = lazy(() => import("./workflow/EngagementTemplatePage"))
@@ -212,6 +213,7 @@ const sections = {
       "Stock Issues": withInventoryTheme(<StockIssues />),
       "Stock Transfers": withInventoryTheme(<StockTransfers />),
       "Stock Adjustments": withInventoryTheme(<StockAdjustments />),
+      "Inventory Revaluations": withInventoryTheme(<InventoryRevaluations />),
       "Stock Report": withInventoryTheme(<StockBalanceReport />),
     },
     subcategoryPermissions: {
@@ -219,6 +221,7 @@ const sections = {
       "Stock Issues": "inventory-movement:view",
       "Stock Transfers": "inventory-transfer:view",
       "Stock Adjustments": "inventory-adjustment:view",
+      "Inventory Revaluations": "inventory-adjustment:view",
       "Stock Report": "inventory-report:view",
     },
   },

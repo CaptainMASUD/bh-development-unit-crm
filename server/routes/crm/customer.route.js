@@ -17,6 +17,7 @@ import {
   addCustomerJob,
   updateCustomerJob,
   deleteCustomerJob,
+  getCustomerCommercialHistory,
 } from "../../controllers/customer.controller.js";
 
 import {
@@ -70,6 +71,7 @@ router.patch("/:id", requirePermission("customers:manage"), updateCustomer);
 router.patch("/:id/assign", requirePermission("customers:manage"), assignCustomer);
 router.delete("/:id", requirePermission("customers:manage"), deleteCustomer);
 
+router.get("/:id/commercial-history", getCustomerCommercialHistory);
 router.get("/:id", getCustomerById);
 
 export default router;

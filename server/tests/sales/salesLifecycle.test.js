@@ -8,6 +8,7 @@ import DeliveryNote from "../../models/sales/deliveryNote.model.js";
 import SalesInvoice from "../../models/sales/salesInvoice.model.js";
 import SalesReturn from "../../models/sales/salesReturn.model.js";
 import Deal from "../../models/crm/deal.model.js";
+import Proposal from "../../models/crm/proposal.model.js";
 import Lead from "../../models/crm/lead.model.js";
 import Customer from "../../models/customer.model.js";
 import Product from "../../models/inventory/product.model.js";
@@ -15,6 +16,7 @@ import Product from "../../models/inventory/product.model.js";
 import { calculateDocument } from "../../services/salesCalculation.service.js";
 import { validateSalesPartyContext } from "../../services/salesReference.service.js";
 import { createInvoiceFromDeal } from "../../controllers/crm/invoice.controller.js";
+import { proposalOrderLines } from "../../services/crm/leadLifecycle.service.js";
 
 test("sales schema lineage fields: quotations, orders, deliveries, invoices and returns contain required lineage and tenant fields", () => {
   assert.ok(SalesQuotation.schema.path("leadId"), "SalesQuotation must have leadId path");
@@ -172,3 +174,56 @@ test("mixed product calculation preserves proper subtotal, tax, and grandTotal l
   assert.equal(calculated.totals.taxTotal, 292.5);
   assert.equal(calculated.totals.grandTotal, 2542.5);
 });
+
+test("proposal and deal schemas support productId on items for seamless conversion to sales orders", () => {
+  const proposalItemPath = Proposal.schema.path("items");
+  assert.ok(proposalItemPath, "Proposal schema must have items");
+  assert.equal(proposalItemPath.schema.path("productId").options.ref, "Product");
+
+  const dealItemPath = Deal.schema.path("items");
+  assert.ok(dealItemPath, "Deal schema must have items");
+  assert.equal(dealItemPath.schema.path("productId").options.ref, "Product");
+
+  // Valid proposal line with productId generates valid order lines
+  const prodId = new mongoose.Types.ObjectId();
+  const validProposalItems = [
+    {
+      productId: prodId,
+      nameSnapshot: "ERP Subscription",
+      qty: 5,
+      unitPrice: 200,
+      discount: 50,
+    },
+  ];
+
+  const orderLines = proposalOrderLines(validProposalItems);
+  assert.equal(orderLines.length, 1);
+  assert.equal(orderLines[0].productId, prodId);
+  assert.equal(orderLines[0].name, "ERP Subscription");
+  assert.equal(orderLines[0].orderedQty, 5);
+  assert.equal(orderLines[0].unitPrice, 200);
+  assert.equal(orderLines[0].lineTotal, 950);
+
+  // Proposal line missing productId is strictly rejected with 409
+  assert.throws(
+    () => {
+      proposalOrderLines([
+        {
+          nameSnapshot: "No product specified",
+          qty: 1,
+          unitPrice: 100,
+        },
+      ]);
+    },
+    (err) => err.statusCode === 409 && err.message.includes("product")
+  );
+});
+
+test("sales options isolation queries products and sales quotations with tenant isolation", () => {
+  const productTenant = Product.schema.path("tenantId");
+  assert.ok(productTenant, "Product schema must support tenantId isolation");
+
+  const quotationTenant = SalesQuotation.schema.path("tenantId");
+  assert.ok(quotationTenant, "SalesQuotation schema must support tenantId isolation");
+});
+

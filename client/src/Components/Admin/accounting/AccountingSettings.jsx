@@ -1,5 +1,5 @@
 "use client"
-/* eslint-disable react/prop-types -- internal settings primitives receive local component props */
+/* eslint-disable react/prop-types, react-refresh/only-export-components -- internal settings primitives and exported settings contract coexist */
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import toast, { Toaster } from "react-hot-toast"
@@ -69,6 +69,7 @@ const emptyForm = {
   inventoryClearingAccount: "",
   purchasePriceVarianceAccount: "",
   inventoryAdjustmentAccount: "",
+  inventoryRevaluationAccount: "",
   furnitureAccount: "",
   loanAccount: "",
   payrollExpenseAccount: "",
@@ -113,7 +114,7 @@ const sectionTitles = {
   "Period Locking": "Global posting lock",
 }
 
-const accountFields = [
+export const ACCOUNT_FIELDS = [
   ["defaultCashAccount", "Default Cash"],
   ["defaultBankAccount", "Default Bank"],
   ["salesAccount", "Sales / Income"],
@@ -125,6 +126,7 @@ const accountFields = [
   ["inventoryClearingAccount", "Goods Received Not Invoiced"],
   ["purchasePriceVarianceAccount", "Purchase Price Variance"],
   ["inventoryAdjustmentAccount", "Inventory Adjustment Gain / Loss"],
+  ["inventoryRevaluationAccount", "Inventory Revaluation Gain / Loss"],
   ["furnitureAccount", "Furniture"],
   ["loanAccount", "Loan"],
   ["payrollExpenseAccount", "Payroll Expense"],
@@ -136,6 +138,8 @@ const accountFields = [
   ["vatPayableAccount", "VAT Payable"],
   ["vatReceivableAccount", "VAT Receivable"],
 ]
+
+const accountFields = ACCOUNT_FIELDS
 
 function cn(...classes) {
   return classes.filter(Boolean).join(" ")

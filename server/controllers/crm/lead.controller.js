@@ -12,7 +12,11 @@ import WorkQueue from "../../models/workQueue.model.js";
 import Notification from "../../models/notification.model.js";
 import Branch from "../../models/branch.model.js";
 import Warehouse from "../../models/inventory/warehouse.model.js";
+import Product from "../../models/inventory/product.model.js";
 import { SalesQuotation } from "../../models/sales/salesQuotation.model.js";
+import { SalesOrder } from "../../models/sales/salesOrder.model.js";
+import { DeliveryNote } from "../../models/sales/deliveryNote.model.js";
+import { SalesInvoice } from "../../models/sales/salesInvoice.model.js";
 
 import { dashboardCache } from "../../utils/cache.js";
 import {
@@ -106,11 +110,19 @@ const assertLeadAccessOrThrow = async ({ req, leadId, session = null }) => {
 
 export const getLeadConversionOptions = async (req, res) => {
   try {
-    const [branches, warehouses] = await Promise.all([
+    const productFilter = { status: "active" };
+    if (req.tenantId) productFilter.tenantId = req.tenantId;
+
+    const [branches, warehouses, products] = await Promise.all([
       Branch.find({ isActive: true }).select("name code isDefault isMain").sort({ isDefault: -1, isMain: -1, name: 1 }).lean(),
-      Warehouse.find({ tenantId: req.tenantId, status: "active" }).select("name code branch isDefault").sort({ isDefault: -1, name: 1 }).lean(),
+      Warehouse.find({ ...(req.tenantId ? { tenantId: req.tenantId } : {}), status: "active" }).select("name code branch isDefault").sort({ isDefault: -1, name: 1 }).lean(),
+      Product.find(productFilter)
+        .select("name sku sellingPrice minimumSellingPrice taxRate baseUnit currency productType trackInventory")
+        .sort({ nameLower: 1, name: 1, _id: 1 })
+        .limit(500)
+        .lean(),
     ]);
-    return res.json({ branches, warehouses });
+    return res.json({ branches, warehouses, products });
   } catch (error) {
     return res.status(500).json({ message: "Unable to load lead conversion options." });
   }
@@ -157,7 +169,7 @@ const validatePurchaseTypeOrThrow = async (purchaseType) => {
   return pt;
 };
 
-const pushStageNote = ({
+export const pushStageNote = ({
   note,
   type = "general",
   oldStage = "",
@@ -1953,44 +1965,54 @@ export const convertLead = async (req, res) => {
       await assertLeadAccessOrThrow({ req, leadId: id, session });
       lead = await Lead.findById(id).session(session);
       if (!lead) throw Object.assign(new Error("Lead not found"), { statusCode: 404 });
-      if (lead.convertedCustomer || lead.customerId) {
-        throw Object.assign(new Error("Lead already converted"), { statusCode: 400 });
+      if (lead.convertedCustomer || lead.customerId || lead.pipelineStage === "won") {
+        customer = await Customer.findById(lead.customerId || lead.convertedCustomer).session(session);
+        deal = await Deal.findOne({ $or: [{ leadId: lead._id }, { customerId: customer?._id }] }).session(session);
+        salesOrder = await SalesOrder.findOne({ $or: [{ leadId: lead._id }, { dealId: deal?._id }] }).session(session);
+        return;
       }
 
       assertLeadCanWin(lead, req.body?.reason);
       const prepared = await prepareLeadOrder(req, lead, session);
 
-      [customer] = await Customer.create(
-        [
-          {
-            name: lead.contact?.name,
-            email: lead.contact?.email,
-            phone: lead.contact?.phone,
-            companyName: lead.contact?.companyName,
-            contactPerson: {
+      customer = await Customer.findOne({ leadId: lead._id }).session(session);
+      if (!customer && lead.contact?.email) {
+        customer = await Customer.findOne({ email: lead.contact.email }).session(session);
+      }
+
+      if (!customer) {
+        [customer] = await Customer.create(
+          [
+            {
               name: lead.contact?.name || "Customer",
               email: lead.contact?.email || "",
               phone: lead.contact?.phone || "",
+              companyName: lead.contact?.companyName || "",
+              contactPerson: {
+                name: lead.contact?.name || "Customer",
+                email: lead.contact?.email || "",
+                phone: lead.contact?.phone || "",
+              },
+              origin: "lead",
+              source: lead.source || "",
+              tags: lead.tags || [],
+              createdBy: req.user._id,
+              assignedTo: lead.assignedTo || req.user._id,
+              leadId: lead._id,
             },
-            origin: "lead",
-            source: lead.source || "",
-            tags: lead.tags || [],
-            createdBy: req.user._id,
-            assignedTo: lead.assignedTo || req.user._id,
-            leadId: lead._id,
-          },
-        ],
-        sessionOptions(session)
-      );
+          ],
+          sessionOptions(session)
+        );
+      }
 
       const before = lead.toObject();
 
     lead.customerId = customer._id;
     lead.convertedCustomer = customer._id;
-    lead.convertedAt = new Date();
+    lead.convertedAt = lead.convertedAt || new Date();
     lead.pipelineStage = "won";
     lead.wonReason = normalizeString(req.body.reason);
-    lead.wonAt = new Date();
+    lead.wonAt = lead.wonAt || new Date();
     lead.status = "confirmed";
     lead.isOverdue = false;
     lead.overdueSince = null;
@@ -2023,7 +2045,11 @@ export const convertLead = async (req, res) => {
 
       // Ensure a Won deal exists for the converted lead / customer
       deal = await Deal.findOne({
-        $or: [{ leadId: lead._id }, { customerId: customer._id }],
+        $or: [
+          { leadId: lead._id },
+          { customerId: customer._id },
+          ...(prepared.quotation?._id ? [{ quotationId: prepared.quotation._id }] : []),
+        ],
       }).session(session);
 
       if (!deal) {
@@ -2037,10 +2063,11 @@ export const convertLead = async (req, res) => {
               title,
               leadId: lead._id,
               customerId: customer._id,
+              quotationId: prepared.quotation?._id || null,
               stage: "won",
               probability: 100,
               wonAt: new Date(),
-              wonReason: "Lead converted to customer",
+              wonReason: normalizeString(req.body.reason) || "Lead converted to customer",
               ownerId: lead.assignedTo || req.user._id,
               createdBy: req.user._id,
             },
@@ -2052,12 +2079,22 @@ export const convertLead = async (req, res) => {
         deal.stage = "won";
         deal.probability = 100;
         deal.wonAt = deal.wonAt || new Date();
-        deal.wonReason = deal.wonReason || "Lead converted to customer";
+        deal.wonReason = deal.wonReason || normalizeString(req.body.reason) || "Lead converted to customer";
         if (!deal.customerId) deal.customerId = customer._id;
+        if (!deal.quotationId && prepared.quotation?._id) deal.quotationId = prepared.quotation._id;
         await deal.save(sessionOptions(session));
       }
 
-      salesOrder = await createLeadOrder({ prepared, customer, deal, session });
+      salesOrder = await SalesOrder.findOne({
+        $or: [
+          ...(prepared.quotation?._id ? [{ quotationId: prepared.quotation._id }] : []),
+          { leadId: lead._id, status: { $ne: "cancelled" } },
+        ],
+      }).session(session);
+
+      if (!salesOrder) {
+        salesOrder = await createLeadOrder({ prepared, customer, deal, session });
+      }
 
       await writeConversionLog({
         session,
@@ -2122,7 +2159,10 @@ export const getLeadTimeline = async (req, res) => {
 
     await assertLeadAccessOrThrow({ req, leadId: id });
 
-    const [logs, activities, proposals, deals, queueItems] = await Promise.all([
+    const commonSalesFilter = { leadId: id };
+    if (req.tenantId) commonSalesFilter.tenantId = req.tenantId;
+
+    const [logs, activities, proposals, quotations, deals, orders, deliveries, invoices, queueItems] = await Promise.all([
       ActivityLog.find({ leadId: id })
         .populate("createdBy", "name email role avatarUrl")
         .sort({ createdAt: -1 })
@@ -2141,8 +2181,28 @@ export const getLeadTimeline = async (req, res) => {
         .sort({ createdAt: -1 })
         .lean(),
 
+      SalesQuotation.find(commonSalesFilter)
+        .select("quotationNumber status totals currency validUntil quotationDate leadContact convertedOrderId dealId createdAt items")
+        .sort({ createdAt: -1 })
+        .lean(),
+
       Deal.find({ leadId: id })
         .select("dealNo title stage items subtotal discountTotal grandTotal currency probability expectedRevenue dealHealth expectedCloseDate proposalStatus proposalSentAt quotationValidTill requirementSnapshot ownerId notes nextDealAction nextDealActionAt stuckReason wonReason lostReason wonAt lostAt createdAt")
+        .sort({ createdAt: -1 })
+        .lean(),
+
+      SalesOrder.find(commonSalesFilter)
+        .select("orderNumber status totals currency orderDate quotationId dealId customerId createdAt")
+        .sort({ createdAt: -1 })
+        .lean(),
+
+      DeliveryNote.find(commonSalesFilter)
+        .select("deliveryNumber status deliveryDate orderId createdAt")
+        .sort({ createdAt: -1 })
+        .lean(),
+
+      SalesInvoice.find(commonSalesFilter)
+        .select("invoiceNumber status totals paidAmount dueAmount invoiceDate dueDate orderId createdAt")
         .sort({ createdAt: -1 })
         .lean(),
 
@@ -2158,7 +2218,11 @@ export const getLeadTimeline = async (req, res) => {
         logs,
         activities,
         proposals,
+        quotations,
         deals,
+        orders,
+        deliveries,
+        invoices,
         queueItems,
       },
     });

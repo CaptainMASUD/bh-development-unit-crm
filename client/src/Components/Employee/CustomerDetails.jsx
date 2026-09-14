@@ -1,4 +1,5 @@
 "use client"
+/* eslint-disable react/prop-types */
 
 import { useEffect, useMemo, useState, useCallback } from "react"
 import {
@@ -10,10 +11,12 @@ import {
   FiMail,
   FiPhone,
   FiMapPin,
+  FiShoppingCart,
 } from "react-icons/fi"
 import toast, { Toaster } from "react-hot-toast"
 import CustomerOverview from "./CustomerOverview"
 import CustomerCRM from "./CustomerCRM"
+import CustomerCommercialHistory from "../Admin/crm/CustomerCommercialHistory"
 import { hasPermission, PERMISSIONS } from "../Auth/permissions"
 
 // ✅ banner image import
@@ -348,6 +351,7 @@ export default function CustomerDetails({ customerId, onBack }) {
             <div className="mt-6 flex flex-wrap gap-2">
               <TabBtn active={tab === "overview"} icon={<FiUsers />} label="Overview" onClick={() => setTab("overview")} />
               {canViewTasks ? <TabBtn active={tab === "crm"} icon={<FiClipboard />} label="CRM" onClick={() => setTab("crm")} /> : null}
+              <TabBtn active={tab === "commercial"} icon={<FiShoppingCart />} label="Sales & Commercial" onClick={() => setTab("commercial")} />
             </div>
 
             {error ? (
@@ -363,7 +367,9 @@ export default function CustomerDetails({ customerId, onBack }) {
       {/* Body */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-10">
         <div className="mt-2">
-          {tab === "overview" || !canViewTasks ? (
+          {tab === "commercial" ? (
+            <CustomerCommercialHistory customerId={customerId} />
+          ) : tab === "overview" || !canViewTasks ? (
             <CustomerOverview
               customerId={customerId}
               customer={customer}

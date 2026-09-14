@@ -261,10 +261,12 @@ export const changeQuotationStatus = async (req, res) => {
 
   await logCrmActivity(req, {
     tenantId: quotation.tenantId,
+    leadId: quotation.leadId,
     dealId: quotation.dealId,
     customerId: quotation.customerId,
     type: "quotation_status_changed",
-    description: `${quotation.quotationNumber} changed to ${nextStatus}`,
+    title: nextStatus === "accepted" ? "Quotation accepted - Lead moved to Negotiation" : `Quotation status changed to ${nextStatus}`,
+    description: `${quotation.quotationNumber} status changed to ${nextStatus}`,
     performedBy: req.user._id,
   });
 
@@ -290,13 +292,11 @@ export const convertQuotationToOrder = async (req, res) => {
       }
 
       if (quotation.leadId) {
-        const lead = await Lead.findById(quotation.leadId).session(session);
-        if (!lead || lead.pipelineStage !== "won" || !lead.customerId) throw new SalesError("Win the lead in Negotiation first. Winning creates its sales order automatically.", 409);
+        throw new SalesError("Lead quotations convert automatically when the lead is won in Negotiation. Use Mark Won in CRM.", 409);
       }
-      if (!quotation.customerId || !quotation.dealId) {
-        const conversion = await convertLeadAndGenerateWonDeal(req, { quotation, session });
-        if (conversion?.customerId) quotation.customerId = conversion.customerId;
-        if (conversion?.dealId) quotation.dealId = conversion.dealId;
+
+      if (!quotation.customerId) {
+        throw new SalesError("A customer is required to convert this quotation to a sales order.", 400);
       }
 
       if (!req.body.warehouseId) {
