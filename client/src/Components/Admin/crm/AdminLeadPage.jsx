@@ -44,54 +44,112 @@ import { createPortal } from "react-dom"
 import toast, { Toaster } from "react-hot-toast"
 import { hasPermission, PERMISSIONS } from "../../Auth/permissions"
 import { canAccessModule, getModuleBasePath } from "../../Navigation/moduleConfig"
+import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  FiActivity,
-  FiAlertCircle,
-  FiAlertTriangle,
-  FiArrowRight,
-  FiBarChart2,
-  FiBell,
-  FiBriefcase,
-  FiCalendar,
-  FiCheck,
-  FiCheckCircle,
-  FiChevronDown,
-  FiClock,
-  FiColumns,
-  FiDownload,
-  FiEdit2,
-  FiEye,
-  FiEyeOff,
-  FiFileText,
-  FiFilter,
-  FiFlag,
-  FiGrid,
-  FiInfo,
-  FiLoader,
-  FiLock,
-  FiMail,
-  FiMessageSquare,
-  FiMoreVertical,
-  FiPhoneCall,
-  FiPlus,
-  FiRefreshCcw,
-  FiSearch,
-  FiSend,
-  FiSliders,
-  FiShoppingBag,
-  FiTarget,
-  FiTrash2,
-  FiTrendingUp,
-  FiUser,
-  FiUserCheck,
-  FiUserPlus,
-  FiX,
-  FiXCircle,
-  FiZap,
-} from "react-icons/fi"
-import { SiMicrosoftexcel } from "react-icons/si"
+  Activity01Icon,
+  Add01Icon,
+  Agreement01Icon,
+  Alert02Icon,
+  AlertCircleIcon,
+  ArrowDown01Icon,
+  ArrowRight01Icon,
+  Briefcase01Icon,
+  Calendar03Icon,
+  Call02Icon,
+  Cancel01Icon,
+  CancelCircleIcon,
+  Chart01Icon,
+  ChartBarIncreasingIcon,
+  CheckmarkCircle02Icon,
+  Clock01Icon,
+  Delete02Icon,
+  Download04Icon,
+  Edit02Icon,
+  File02Icon,
+  FileExportIcon,
+  FilterIcon,
+  Flag01Icon,
+  FlashIcon,
+  InformationCircleIcon,
+  InsertColumnIcon,
+  Loading03Icon,
+  LockIcon,
+  Mail01Icon,
+  MoreVerticalIcon,
+  Notification03Icon,
+  RefreshIcon,
+  Search01Icon,
+  SentIcon,
+  Settings02Icon,
+  ShoppingBag01Icon,
+  Target01Icon,
+  UserAdd01Icon,
+  UserCheck01Icon,
+  UserGroupIcon,
+  UserIcon,
+  ViewIcon,
+  ViewOffIcon,
+} from "@hugeicons/core-free-icons"
 import * as XLSX from "xlsx"
-import LeadInboxPanel from "../../LeadInbox/LeadInboxPanel"
+import {
+  DEFAULT_PROPOSAL_THEME_ID,
+  ProposalThemePicker,
+  decodeProposalContent,
+  encodeProposalContent,
+  getProposalTheme,
+} from "./ProposalThemes"
+
+function createHugeIcon(icon) {
+  return function HugeIconAdapter({ className, ...props }) {
+    return <HugeiconsIcon icon={icon} className={className} strokeWidth={1.8} {...props} />
+  }
+}
+
+const HActivityIcon = createHugeIcon(Activity01Icon)
+const HAlertCircleIcon = createHugeIcon(AlertCircleIcon)
+const HAlertTriangleIcon = createHugeIcon(Alert02Icon)
+const HArrowRightIcon = createHugeIcon(ArrowRight01Icon)
+const HBarChartIcon = createHugeIcon(Chart01Icon)
+const HBellIcon = createHugeIcon(Notification03Icon)
+const HBriefcaseIcon = createHugeIcon(Briefcase01Icon)
+const HCalendarIcon = createHugeIcon(Calendar03Icon)
+const HCheckIcon = createHugeIcon(CheckmarkCircle02Icon)
+const HCheckCircleIcon = createHugeIcon(CheckmarkCircle02Icon)
+const HChevronDownIcon = createHugeIcon(ArrowDown01Icon)
+const HClockIcon = createHugeIcon(Clock01Icon)
+const HColumnsIcon = createHugeIcon(InsertColumnIcon)
+const HDownloadIcon = createHugeIcon(Download04Icon)
+const HEditIcon = createHugeIcon(Edit02Icon)
+const HEyeIcon = createHugeIcon(ViewIcon)
+const HEyeOffIcon = createHugeIcon(ViewOffIcon)
+const HFileTextIcon = createHugeIcon(File02Icon)
+const HFilterIcon = createHugeIcon(FilterIcon)
+const HFlagIcon = createHugeIcon(Flag01Icon)
+const HGridIcon = createHugeIcon(Settings02Icon)
+const HInfoIcon = createHugeIcon(InformationCircleIcon)
+const HLoaderIcon = createHugeIcon(Loading03Icon)
+const HLockIcon = createHugeIcon(LockIcon)
+const HMailIcon = createHugeIcon(Mail01Icon)
+const HConversationIcon = createHugeIcon(Agreement01Icon)
+const HMoreVerticalIcon = createHugeIcon(MoreVerticalIcon)
+const HPhoneCallIcon = createHugeIcon(Call02Icon)
+const HPlusIcon = createHugeIcon(Add01Icon)
+const HRefreshIcon = createHugeIcon(RefreshIcon)
+const HSearchIcon = createHugeIcon(Search01Icon)
+const HSendIcon = createHugeIcon(SentIcon)
+const HSettingsIcon = createHugeIcon(Settings02Icon)
+const HShoppingBagIcon = createHugeIcon(ShoppingBag01Icon)
+const HTargetIcon = createHugeIcon(Target01Icon)
+const HTrashIcon = createHugeIcon(Delete02Icon)
+const HTrendingUpIcon = createHugeIcon(ChartBarIncreasingIcon)
+const HUserIcon = createHugeIcon(UserIcon)
+const HUserCheckIcon = createHugeIcon(UserCheck01Icon)
+const HUserGroupIcon = createHugeIcon(UserGroupIcon)
+const HUserPlusIcon = createHugeIcon(UserAdd01Icon)
+const HCloseIcon = createHugeIcon(Cancel01Icon)
+const HCloseCircleIcon = createHugeIcon(CancelCircleIcon)
+const HFlashIcon = createHugeIcon(FlashIcon)
+const HExportIcon = createHugeIcon(FileExportIcon)
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -198,8 +256,8 @@ function getLatestLeadNotes(lead, limit = 4) {
     .slice(0, limit)
 }
 function getGuidedNextAction(stage) {
-  if (stage === "discovery") return { type: "requirement", label: "Fill requirement", icon: FiTarget, text: "Discovery needs client requirement, budget, pain points and expected solution." }
-  if (stage === "proposal") return { type: "proposal", label: "Create proposal", icon: FiFileText, text: "Proposal stage should create/send a quotation from this lead." }
+  if (stage === "discovery") return { type: "requirement", label: "Fill requirement", icon: HTargetIcon, text: "Discovery needs client requirement, budget, pain points and expected solution." }
+  if (stage === "proposal") return { type: "proposal", label: "Create proposal", icon: HFileTextIcon, text: "Proposal stage should create/send a quotation from this lead." }
   return null
 }
 
@@ -278,16 +336,16 @@ const ACTIVITY_TYPES = ["note", "call", "email", "meeting", "whatsapp", "task_fo
 const ACTIVITY_STATUSES = ["pending", "completed", "cancelled"]
 const ACTIVITY_RESULTS = ["", "positive", "neutral", "negative", "no_response", "interested", "not_interested", "callback_requested", "proposal_requested"]
 const QUICK_ACTIONS = [
-  ["call_done", "Call Done", FiPhoneCall],
-  ["whatsapp_sent", "WhatsApp Sent", FiSend],
-  ["email_sent", "Email Sent", FiMail],
-  ["meeting_scheduled", "Meeting Scheduled", FiCalendar],
-  ["followup_tomorrow", "Follow-up Tomorrow", FiClock],
-  ["client_interested", "Client Interested", FiTrendingUp],
-  ["client_not_interested", "Not Interested", FiXCircle],
-  ["proposal_requested", "Proposal Requested", FiFileText],
-  ["proposal_sent", "Proposal Sent", FiSend],
-  ["deal_discussed", "Deal Discussed", FiBriefcase],
+  ["call_done", "Call Done", HPhoneCallIcon],
+  ["whatsapp_sent", "WhatsApp Sent", HSendIcon],
+  ["email_sent", "Email Sent", HMailIcon],
+  ["meeting_scheduled", "Meeting Scheduled", HCalendarIcon],
+  ["followup_tomorrow", "Follow-up Tomorrow", HClockIcon],
+  ["client_interested", "Client Interested", HTrendingUpIcon],
+  ["client_not_interested", "Not Interested", HCloseCircleIcon],
+  ["proposal_requested", "Proposal Requested", HFileTextIcon],
+  ["proposal_sent", "Proposal Sent", HSendIcon],
+  ["deal_discussed", "Deal Discussed", HBriefcaseIcon],
 ]
 const PROPOSAL_STATUSES = ["draft", "sent", "accepted", "rejected", "expired", "cancelled"]
 const DEAL_STAGES = ["new", "qualified", "proposal", "negotiation", "won", "lost"]
@@ -301,23 +359,10 @@ const DEFAULT_COLUMNS = [
   "leadNumber",
   "contact.name",
   "contact.companyName",
-  "status",
   "pipelineStage",
   "priority",
-  "leadTemperature",
-  "leadScore",
-  "workQueuePriority",
-  "workQueueScore",
   "nextAction",
-  "nextActionAt",
-  "isOverdue",
-  "purchaseType",
   "nextFollowUpAt",
-  "lastContactedAt",
-  "lastActivityAt",
-  "source",
-  "convertedAt",
-  "createdAt",
 ]
 
 const FALLBACK_ALLOWED_COLUMNS = [
@@ -481,6 +526,18 @@ function getLeadClientName(lead = {}) {
   return lead?.contact?.companyName || lead?.company?.name || lead?.contact?.name || "Client"
 }
 
+function buildLeadRequirementText(lead = {}) {
+  const requirement = lead?.requirement || {}
+  const lines = [
+    requirement.summary ? `Requirement: ${requirement.summary}` : "",
+    requirement.expectedSolution ? `Expected outcome: ${requirement.expectedSolution}` : "",
+    requirement.timeline ? `Timeline: ${requirement.timeline}` : "",
+    requirement.decisionMaker ? `Decision maker: ${requirement.decisionMaker}` : "",
+    Number(requirement.expectedValue || 0) > 0 ? `Expected budget/value: ${formatMoney(requirement.expectedValue)}` : "",
+  ].filter(Boolean)
+  return lines.join("\n") || lead?.purchaseType || "Client requirements will be finalized with the client before delivery."
+}
+
 function proposalFileName(proposal = {}, lead = {}) {
   const base = proposal.proposalNo || proposal.title || getLeadClientName(lead) || "quotation"
   return `${String(base).replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "quotation"}-proposal.pdf`
@@ -499,9 +556,16 @@ function buildProposalPdfHtml(proposal = {}, lead = {}) {
   const contactName = lead?.contact?.name || ""
   const contactEmail = lead?.contact?.email || ""
   const contactPhone = lead?.contact?.phone || ""
-  const requirement = lead?.requirement || {}
   const issuedDate = formatDate(proposal.createdAt || new Date())
   const validTill = formatDate(proposal.validTill)
+  const proposalContent = decodeProposalContent(proposal.notes, {
+    clientRequirements: buildLeadRequirementText(lead),
+  })
+  const theme = getProposalTheme(proposalContent.themeId)
+  const clientRequirements = proposalContent.clientRequirements || buildLeadRequirementText(lead)
+  const proposedSolution = proposalContent.solution || theme.defaultSolution
+  const implementationPlan = proposalContent.implementationPlan || theme.defaultImplementation
+
   const rows = items.length
     ? items.map((item, index) => {
         const qty = Math.max(Number(item.qty || 0), 0)
@@ -522,48 +586,59 @@ function buildProposalPdfHtml(proposal = {}, lead = {}) {
           </tr>
         `
       }).join("")
-    : `<tr><td colspan="6" class="empty">No line items added.</td></tr>`
+    : `<tr><td colspan="6" class="empty">No products or services added.</td></tr>`
 
   return `
     <div class="proposal-pdf">
       <style>
-        .proposal-pdf { width: 794px; min-height: 1123px; box-sizing: border-box; padding: 42px; color: #111827; background: #ffffff; font-family: Inter, Arial, sans-serif; }
+        .proposal-pdf {
+          --accent: ${theme.accent};
+          --accent-soft: ${theme.accentSoft};
+          --accent-border: ${theme.accentBorder};
+          --ink: ${theme.ink};
+          --muted: ${theme.muted};
+          width: 794px; min-height: 1123px; box-sizing: border-box; padding: 42px;
+          color: var(--ink); background: #ffffff; font-family: Inter, Arial, sans-serif;
+        }
         .proposal-pdf * { box-sizing: border-box; }
-        .brand-bar { height: 8px; border-radius: 999px; background: linear-gradient(90deg, #2563eb, #14b8a6 52%, #f59e0b); margin-bottom: 28px; }
+        .brand-bar { height: 7px; border-radius: 999px; background: var(--accent); margin-bottom: 28px; }
         .top { display: flex; justify-content: space-between; gap: 28px; align-items: flex-start; }
         .brand { display: flex; gap: 14px; align-items: center; }
-        .logo { width: 54px; height: 54px; border-radius: 16px; background: #111827; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 18px; letter-spacing: .5px; }
-        h1 { margin: 0; font-size: 30px; line-height: 1.1; color: #0f172a; letter-spacing: 0; }
-        .muted { color: #64748b; }
+        .logo { width: 54px; height: 54px; border-radius: 16px; background: var(--ink); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 18px; }
+        h1 { margin: 0; font-size: 29px; line-height: 1.1; color: var(--ink); }
+        .muted { color: var(--muted); }
         .small { font-size: 11px; line-height: 1.55; }
         .meta { min-width: 220px; border: 1px solid #e5e7eb; border-radius: 14px; padding: 14px; background: #f8fafc; }
         .meta-row { display: flex; justify-content: space-between; gap: 12px; margin-top: 7px; font-size: 12px; }
-        .meta-row strong { color: #0f172a; text-align: right; }
-        .title { margin: 34px 0 16px; padding: 20px; border-radius: 18px; background: #eff6ff; border: 1px solid #bfdbfe; }
-        .title p { margin: 0 0 6px; font-size: 12px; font-weight: 800; color: #2563eb; text-transform: uppercase; }
-        .title h2 { margin: 0; font-size: 24px; line-height: 1.25; color: #0f172a; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
-        .box { border: 1px solid #e5e7eb; border-radius: 14px; padding: 14px; min-height: 108px; }
-        .box h3 { margin: 0 0 9px; font-size: 12px; letter-spacing: 0; text-transform: uppercase; color: #475569; }
-        .box p { margin: 3px 0; font-size: 12px; line-height: 1.45; }
-        table { width: 100%; border-collapse: collapse; margin-top: 12px; overflow: hidden; border-radius: 14px; }
-        thead th { background: #0f172a; color: #fff; font-size: 11px; text-align: left; padding: 11px 10px; }
-        tbody td { border-bottom: 1px solid #e5e7eb; padding: 11px 10px; font-size: 12px; vertical-align: top; }
-        tbody td span { display: block; margin-top: 4px; color: #64748b; font-size: 11px; line-height: 1.45; }
+        .meta-row:first-child { margin-top: 0; }
+        .meta-row strong { color: var(--ink); text-align: right; }
+        .hero { margin: 30px 0 18px; padding: 22px; border-radius: 18px; background: var(--accent-soft); border: 1px solid var(--accent-border); }
+        .eyebrow { margin: 0 0 7px; font-size: 11px; font-weight: 900; color: var(--accent); text-transform: uppercase; letter-spacing: .12em; }
+        .hero h2 { margin: 0; font-size: 24px; line-height: 1.25; color: var(--ink); }
+        .hero .theme-name { margin-top: 7px; color: var(--muted); font-size: 11px; font-weight: 700; }
+        .client-card { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px; }
+        .box { border: 1px solid #e5e7eb; border-radius: 14px; padding: 14px; min-height: 100px; }
+        .box h3, .section h3 { margin: 0 0 9px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); }
+        .box p { margin: 3px 0; font-size: 12px; line-height: 1.5; }
+        .section { margin-top: 22px; }
+        .section-copy { margin: 0; color: #475569; font-size: 12px; line-height: 1.72; white-space: pre-wrap; }
+        .section-number { display: inline-flex; width: 24px; height: 24px; border-radius: 999px; align-items: center; justify-content: center; margin-right: 8px; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 900; vertical-align: middle; }
+        table { width: 100%; border-collapse: collapse; margin-top: 12px; border: 1px solid #e5e7eb; }
+        thead th { background: var(--ink); color: #fff; font-size: 10px; text-align: left; padding: 11px 9px; }
+        tbody td { border-bottom: 1px solid #e5e7eb; padding: 11px 9px; font-size: 11px; vertical-align: top; }
+        tbody tr:last-child td { border-bottom: 0; }
+        tbody td span { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; line-height: 1.45; }
         .right { text-align: right; white-space: nowrap; }
         .center { text-align: center; }
-        .total-cell { font-weight: 800; color: #0f172a; }
-        .empty { text-align: center; color: #64748b; padding: 24px; }
-        .summary { display: flex; justify-content: flex-end; margin-top: 18px; }
-        .summary-card { width: 310px; border: 1px solid #e5e7eb; border-radius: 16px; overflow: hidden; }
-        .summary-row { display: flex; justify-content: space-between; padding: 11px 14px; font-size: 12px; border-bottom: 1px solid #e5e7eb; }
-        .summary-row:last-child { border-bottom: 0; background: #ecfdf5; color: #065f46; font-size: 16px; font-weight: 900; }
-        .section { margin-top: 22px; }
-        .section h3 { margin: 0 0 8px; font-size: 13px; color: #0f172a; }
-        .section p { margin: 0; color: #475569; font-size: 12px; line-height: 1.65; white-space: pre-wrap; }
+        .total-cell { font-weight: 900; color: var(--ink); }
+        .empty { text-align: center; color: var(--muted); padding: 24px; }
+        .summary { display: flex; justify-content: flex-end; margin-top: 16px; }
+        .summary-card { width: 310px; border: 1px solid #e5e7eb; border-radius: 14px; overflow: hidden; }
+        .summary-row { display: flex; justify-content: space-between; padding: 10px 14px; font-size: 11px; border-bottom: 1px solid #e5e7eb; }
+        .summary-row:last-child { border-bottom: 0; background: var(--accent-soft); color: var(--accent); font-size: 15px; font-weight: 900; }
         .signature { display: flex; justify-content: space-between; gap: 24px; margin-top: 46px; }
-        .sign-box { width: 44%; padding-top: 12px; border-top: 1px solid #94a3b8; font-size: 12px; color: #475569; }
-        .footer { margin-top: 34px; padding-top: 12px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; gap: 16px; color: #64748b; font-size: 10px; line-height: 1.5; }
+        .sign-box { width: 44%; padding-top: 12px; border-top: 1px solid #94a3b8; font-size: 11px; color: #475569; }
+        .footer { margin-top: 30px; padding-top: 12px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; gap: 16px; color: var(--muted); font-size: 9px; line-height: 1.5; }
       </style>
       <div class="brand-bar"></div>
       <div class="top">
@@ -571,7 +646,7 @@ function buildProposalPdfHtml(proposal = {}, lead = {}) {
           <div class="logo">BH</div>
           <div>
             <h1>BusinessHub</h1>
-            <div class="muted small">CRM Proposal & Quotation<br/>Prepared with care for your client workflow</div>
+            <div class="muted small">Business technology & digital solutions<br/>Prepared for ${escapeHtml(clientName)}</div>
           </div>
         </div>
         <div class="meta">
@@ -582,51 +657,68 @@ function buildProposalPdfHtml(proposal = {}, lead = {}) {
         </div>
       </div>
 
-      <div class="title">
-        <p>Commercial Proposal</p>
+      <div class="hero">
+        <p class="eyebrow">${escapeHtml(theme.eyebrow)}</p>
         <h2>${escapeHtml(proposal.title || "Proposal / Quotation")}</h2>
+        <div class="theme-name">${escapeHtml(theme.name)} · ${escapeHtml(theme.category)}</div>
       </div>
 
-      <div class="grid">
+      <div class="client-card">
         <div class="box">
-          <h3>Prepared For</h3>
+          <h3>Prepared for</h3>
           <p><strong>${escapeHtml(clientName)}</strong></p>
           ${contactName && contactName !== clientName ? `<p>${escapeHtml(contactName)}</p>` : ""}
           ${contactEmail ? `<p>${escapeHtml(contactEmail)}</p>` : ""}
           ${contactPhone ? `<p>${escapeHtml(contactPhone)}</p>` : ""}
         </div>
         <div class="box">
-          <h3>Requirement Snapshot</h3>
-          <p>${escapeHtml(requirement.summary || lead?.purchaseType || "Requirement details will be finalized during confirmation.")}</p>
-          ${requirement.timeline ? `<p><strong>Timeline:</strong> ${escapeHtml(requirement.timeline)}</p>` : ""}
-          ${requirement.decisionMaker ? `<p><strong>Decision maker:</strong> ${escapeHtml(requirement.decisionMaker)}</p>` : ""}
+          <h3>Proposal focus</h3>
+          <p>${escapeHtml(lead?.purchaseType || theme.category)}</p>
+          ${lead?.requirement?.timeline ? `<p><strong>Target timeline:</strong> ${escapeHtml(lead.requirement.timeline)}</p>` : ""}
+          ${lead?.requirement?.decisionMaker ? `<p><strong>Decision maker:</strong> ${escapeHtml(lead.requirement.decisionMaker)}</p>` : ""}
         </div>
       </div>
 
-      <table>
-        <thead>
-          <tr>
-            <th class="center">#</th>
-            <th>Item</th>
-            <th class="right">Qty</th>
-            <th class="right">Unit Price</th>
-            <th class="right">Discount</th>
-            <th class="right">Line Total</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
+      <div class="section">
+        <h3><span class="section-number">01</span>${escapeHtml(theme.requirementTitle)}</h3>
+        <p class="section-copy">${escapeHtml(clientRequirements)}</p>
+      </div>
 
-      <div class="summary">
-        <div class="summary-card">
-          <div class="summary-row"><span>Subtotal</span><strong>${escapeHtml(formatMoney(totals.subtotal, currency))}</strong></div>
-          <div class="summary-row"><span>Discount</span><strong>${escapeHtml(formatMoney(totals.discountTotal, currency))}</strong></div>
-          <div class="summary-row"><span>Grand Total</span><strong>${escapeHtml(formatMoney(totals.grandTotal, currency))}</strong></div>
+      <div class="section">
+        <h3><span class="section-number">02</span>${escapeHtml(theme.solutionTitle)}</h3>
+        <p class="section-copy">${escapeHtml(proposedSolution)}</p>
+      </div>
+
+      <div class="section">
+        <h3><span class="section-number">03</span>${escapeHtml(theme.itemsTitle)}</h3>
+        <table>
+          <thead>
+            <tr>
+              <th class="center">#</th>
+              <th>Product / service</th>
+              <th class="right">Qty</th>
+              <th class="right">Unit price</th>
+              <th class="right">Discount</th>
+              <th class="right">Total</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="summary">
+          <div class="summary-card">
+            <div class="summary-row"><span>Subtotal</span><strong>${escapeHtml(formatMoney(totals.subtotal, currency))}</strong></div>
+            <div class="summary-row"><span>Discount</span><strong>${escapeHtml(formatMoney(totals.discountTotal, currency))}</strong></div>
+            <div class="summary-row"><span>${escapeHtml(theme.investmentTitle)}</span><strong>${escapeHtml(formatMoney(totals.grandTotal, currency))}</strong></div>
+          </div>
         </div>
       </div>
 
-      ${proposal.terms ? `<div class="section"><h3>Terms & Conditions</h3><p>${escapeHtml(proposal.terms)}</p></div>` : ""}
-      ${proposal.notes ? `<div class="section"><h3>Notes</h3><p>${escapeHtml(proposal.notes)}</p></div>` : ""}
+      <div class="section">
+        <h3><span class="section-number">04</span>${escapeHtml(theme.timelineTitle)}</h3>
+        <p class="section-copy">${escapeHtml(implementationPlan)}</p>
+      </div>
+
+      ${proposal.terms ? `<div class="section"><h3><span class="section-number">05</span>Terms & conditions</h3><p class="section-copy">${escapeHtml(proposal.terms)}</p></div>` : ""}
 
       <div class="signature">
         <div class="sign-box">Authorized Signature<br/><strong>BusinessHub</strong></div>
@@ -634,7 +726,7 @@ function buildProposalPdfHtml(proposal = {}, lead = {}) {
       </div>
 
       <div class="footer">
-        <span>This quotation is valid until the date shown above unless revised in writing.</span>
+        <span>This proposal is valid until the date shown above unless revised in writing.</span>
         <span>${escapeHtml(proposal.proposalNo || proposal.title || "Proposal")}</span>
       </div>
     </div>
@@ -668,6 +760,172 @@ async function exportProposalPdf(proposal, lead = {}) {
   }
 }
 
+function buildProposalDraftForPreview(form = {}, items = [], editingProposal = null) {
+  const normalizedItems = (Array.isArray(items) ? items : []).map((item) => ({
+    productId: item.productId || undefined,
+    nameSnapshot: String(item.nameSnapshot || "").trim(),
+    description: String(item.description || "").trim(),
+    qty: Number(item.qty || 0),
+    unitPrice: Number(item.unitPrice || 0),
+    discount: Number(item.discount || 0),
+  }))
+  const totals = getProposalTotals(normalizedItems)
+
+  return {
+    ...(editingProposal || {}),
+    proposalNo: editingProposal?.proposalNo || "PREVIEW",
+    title: String(form.title || editingProposal?.title || "Proposal / Quotation").trim() || "Proposal / Quotation",
+    status: editingProposal?.status || "draft",
+    currency: String(form.currency || editingProposal?.currency || "BDT").trim() || "BDT",
+    validTill: form.validTill || editingProposal?.validTill || null,
+    createdAt: editingProposal?.createdAt || new Date().toISOString(),
+    terms: String(form.terms || "").trim(),
+    notes: encodeProposalContent({
+      themeId: form.themeId || DEFAULT_PROPOSAL_THEME_ID,
+      clientRequirements: form.clientRequirements || "",
+      solution: form.solution || "",
+      implementationPlan: form.implementationPlan || "",
+    }),
+    items: normalizedItems,
+    subtotal: totals.subtotal,
+    discountTotal: totals.discountTotal,
+    grandTotal: totals.grandTotal,
+  }
+}
+
+function ProposalPreviewModal({ open, onClose, lead, form, items, editingProposal, onThemeChange }) {
+  const selectedTheme = getProposalTheme(form?.themeId)
+  const previewProposal = useMemo(
+    () => buildProposalDraftForPreview(form, items, editingProposal),
+    [form, items, editingProposal]
+  )
+  const previewHtml = useMemo(() => {
+    const body = buildProposalPdfHtml(previewProposal, lead)
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html, body { margin: 0; min-height: 100%; background: #e5e7eb; }
+      body { padding: 24px; display: flex; justify-content: center; align-items: flex-start; font-family: Inter, Arial, sans-serif; }
+      .proposal-pdf { box-shadow: 0 24px 70px rgba(15, 23, 42, .18); }
+      @media (max-width: 860px) { body { justify-content: flex-start; padding: 16px; } }
+    </style>
+  </head>
+  <body>${body}</body>
+</html>`
+  }, [previewProposal, lead])
+
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (event) => {
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      onClose?.()
+    }
+    window.addEventListener("keydown", onKeyDown, true)
+    return () => window.removeEventListener("keydown", onKeyDown, true)
+  }, [open, onClose])
+
+  if (!open) return null
+
+  return createPortal(
+    <div className="fixed inset-0 z-[140]" role="dialog" aria-modal="true" aria-label="Proposal preview">
+      <button type="button" aria-label="Close proposal preview" className="absolute inset-0 bg-gray-950/65 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 flex h-full w-full flex-col bg-gray-100 xl:mx-auto xl:my-4 xl:h-[calc(100%-2rem)] xl:max-w-[1500px] xl:overflow-hidden xl:rounded-3xl xl:border xl:border-white/20 xl:shadow-2xl">
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-gray-200 bg-white px-4 py-3 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl" style={{ background: selectedTheme.accentSoft, color: selectedTheme.accent }}>
+              <HEyeIcon className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <h3 className="truncate text-base font-black text-gray-950 sm:text-lg">Proposal preview</h3>
+              <p className="truncate text-xs font-semibold text-gray-500 sm:text-sm">{getLeadClientName(lead)} · {selectedTheme.name}</p>
+            </div>
+          </div>
+          <button type="button" className={iconBtn} onClick={onClose} aria-label="Close preview">
+            <HCloseIcon className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="shrink-0 border-b border-gray-200 bg-white px-4 py-4 sm:px-6">
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <p className="text-sm font-black text-gray-950">Choose a theme</p>
+              <p className="mt-0.5 text-xs font-medium text-gray-500">Switch themes here and the client preview updates instantly.</p>
+            </div>
+            <span className="rounded-full border px-3 py-1 text-xs font-black" style={{ borderColor: selectedTheme.accentBorder, background: selectedTheme.accentSoft, color: selectedTheme.accent }}>
+              Selected: {selectedTheme.name}
+            </span>
+          </div>
+          <ProposalThemePicker value={form?.themeId} onChange={onThemeChange} compact />
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-hidden bg-gray-200 p-2 sm:p-4">
+          <iframe
+            key={`${form?.themeId}-${form?.title}-${items?.length || 0}`}
+            title="Client proposal preview"
+            srcDoc={previewHtml}
+            className="h-full min-h-[560px] w-full rounded-2xl border border-gray-300 bg-gray-200 shadow-inner"
+          />
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+function SavedProposalPreviewModal({ open, onClose, proposal, lead }) {
+  const [form, setForm] = useState({
+    title: "",
+    currency: "BDT",
+    validTill: "",
+    terms: "",
+    themeId: DEFAULT_PROPOSAL_THEME_ID,
+    clientRequirements: "",
+    solution: "",
+    implementationPlan: "",
+  })
+
+  useEffect(() => {
+    if (!open || !proposal) return
+    const decoded = decodeProposalContent(proposal?.notes, { clientRequirements: buildLeadRequirementText(lead) })
+    setForm({
+      title: proposal?.title || "Proposal / Quotation",
+      currency: proposal?.currency || "BDT",
+      validTill: formatDateInput(proposal?.validTill, "date"),
+      terms: proposal?.terms || "",
+      themeId: decoded.themeId || DEFAULT_PROPOSAL_THEME_ID,
+      clientRequirements: decoded.clientRequirements || buildLeadRequirementText(lead),
+      solution: decoded.solution || "",
+      implementationPlan: decoded.implementationPlan || "",
+    })
+  }, [open, proposal, lead])
+
+  if (!proposal) return null
+
+  const previewItems = Array.isArray(proposal?.items) ? proposal.items.map((item) => ({
+    productId: item?.productId?._id || item?.productId || "",
+    nameSnapshot: item?.nameSnapshot || "",
+    description: item?.description || "",
+    qty: item?.qty || 1,
+    unitPrice: item?.unitPrice || 0,
+    discount: item?.discount || 0,
+  })) : []
+
+  return <ProposalPreviewModal
+    open={open}
+    onClose={onClose}
+    lead={lead}
+    form={form}
+    items={previewItems}
+    editingProposal={proposal}
+    onThemeChange={(themeId) => setForm((current) => ({ ...current, themeId }))}
+  />
+}
+
 function initials(name = "") {
   const parts = String(name || "").trim().split(/\s+/).filter(Boolean)
   if (!parts.length) return "?"
@@ -678,6 +936,11 @@ function initials(name = "") {
 
 function getLeadId(lead) {
   return lead?._id || lead?.id || ""
+}
+
+export function resolveLeadDetailTab(tab, loadedLead, leadId, allowedTabs) {
+  if (!loadedLead || String(getLeadId(loadedLead)) !== String(leadId)) return tab
+  return allowedTabs.includes(tab) ? tab : "overview"
 }
 
 function isConvertedLead(lead) {
@@ -703,7 +966,7 @@ function Badge({ value }) {
   )
 }
 
-function ModalShell({ open, onClose, title, subtitle, icon, children, footer, maxWidthClass = "max-w-3xl" }) {
+function ModalShell({ open, onClose, title, subtitle, icon, children, footer, headerContent = null, compactHeader = false, maxWidthClass = "max-w-3xl" }) {
   useEffect(() => {
     if (!open) return
     const prev = document.body.style.overflow
@@ -726,15 +989,24 @@ function ModalShell({ open, onClose, title, subtitle, icon, children, footer, ma
         <div className="flex min-h-full items-start justify-center p-4 sm:items-center sm:p-6">
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="fixed inset-0 bg-black/40 backdrop-blur-md" onClick={onClose} />
           <motion.div initial={{ opacity: 0, y: 14, scale: 0.99 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ type: "spring", stiffness: 260, damping: 24 }} className={cn("relative w-full overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_30px_70px_-30px_rgba(0,0,0,0.65)]", maxWidthClass)}>
-            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-100 bg-white p-4 sm:p-5">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">{icon}</div>
-                <div className="min-w-0">
-                  <h2 className="truncate text-base font-bold text-gray-900 sm:text-lg">{title}</h2>
-                  {subtitle ? <p className="truncate text-sm text-gray-600">{subtitle}</p> : null}
+            <div className={cn(
+              "sticky top-0 z-30 border-b border-gray-100 bg-white",
+              compactHeader ? "px-4 pb-2.5 pt-3 sm:px-5 sm:pb-2.5 sm:pt-3" : "p-4 sm:p-5"
+            )}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className={cn(
+                    "flex shrink-0 items-center justify-center bg-indigo-600 text-white shadow-sm",
+                    compactHeader ? "h-9 w-9 rounded-xl" : "h-10 w-10 rounded-2xl"
+                  )}>{icon}</div>
+                  <div className="min-w-0">
+                    <h2 className={cn("truncate font-bold text-gray-900", compactHeader ? "text-base" : "text-base sm:text-lg")}>{title}</h2>
+                    {subtitle ? <p className={cn("truncate text-gray-600", compactHeader ? "text-xs" : "text-sm")}>{subtitle}</p> : null}
+                  </div>
                 </div>
+                <button onClick={onClose} className={cn("rounded-xl transition hover:bg-gray-100", compactHeader ? "p-1.5" : "p-2")}><HCloseIcon className="h-5 w-5 text-gray-700" /></button>
               </div>
-              <button onClick={onClose} className="rounded-xl p-2 transition hover:bg-gray-100"><FiX className="h-5 w-5 text-gray-700" /></button>
+              {headerContent ? <div className={compactHeader ? "mt-2" : "mt-3"}>{headerContent}</div> : null}
             </div>
             <div className="max-h-[calc(100vh-14rem)] overflow-y-auto bg-white p-4 sm:p-5">{children}</div>
             {footer ? <div className="sticky bottom-0 z-20 border-t border-gray-100 bg-white p-4 sm:p-5">{footer}</div> : null}
@@ -742,6 +1014,101 @@ function ModalShell({ open, onClose, title, subtitle, icon, children, footer, ma
         </div>
       </div>
     </div>
+  )
+}
+
+function PortalDropdown({
+  label,
+  icon,
+  children,
+  placement = "bottom",
+  align = "right",
+  buttonClassName = "",
+  menuClassName = "w-56",
+  ariaLabel,
+}) {
+  const [open, setOpen] = useState(false)
+  const [position, setPosition] = useState({ top: 0, left: 0 })
+  const buttonRef = useRef(null)
+  const menuRef = useRef(null)
+
+  const close = useCallback(() => setOpen(false), [])
+  const updatePosition = useCallback(() => {
+    const rect = buttonRef.current?.getBoundingClientRect?.()
+    if (!rect) return
+    setPosition({
+      top: placement === "top" ? rect.top - 8 : rect.bottom + 8,
+      left: align === "right" ? rect.right : rect.left,
+    })
+  }, [align, placement])
+
+  useEffect(() => {
+    if (!open) return
+    updatePosition()
+    const onPointerDown = (event) => {
+      const target = event.target
+      if (buttonRef.current?.contains(target) || menuRef.current?.contains(target)) return
+      close()
+    }
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation()
+        close()
+        buttonRef.current?.focus?.()
+      }
+    }
+    const onViewportChange = () => updatePosition()
+    document.addEventListener("pointerdown", onPointerDown)
+    document.addEventListener("keydown", onKeyDown, true)
+    window.addEventListener("resize", onViewportChange)
+    window.addEventListener("scroll", onViewportChange, true)
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown)
+      document.removeEventListener("keydown", onKeyDown, true)
+      window.removeEventListener("resize", onViewportChange)
+      window.removeEventListener("scroll", onViewportChange, true)
+    }
+  }, [close, open, updatePosition])
+
+  const menu = open && typeof document !== "undefined"
+    ? createPortal(
+      <div
+        ref={menuRef}
+        role="menu"
+        style={{ top: position.top, left: position.left }}
+        className={cn(
+          "fixed z-[160] overflow-hidden rounded-2xl border border-gray-200 bg-white p-1.5 shadow-[0_24px_60px_-20px_rgba(15,23,42,0.45)]",
+          align === "right" ? "-translate-x-full" : "",
+          placement === "top" ? "-translate-y-full" : "",
+          menuClassName
+        )}
+      >
+        {typeof children === "function" ? children({ close }) : children}
+      </div>,
+      document.body
+    )
+    : null
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        className={buttonClassName}
+        aria-label={ariaLabel || label}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={(event) => {
+          event.stopPropagation()
+          setOpen((current) => !current)
+        }}
+      >
+        {icon}
+        {label ? <span>{label}</span> : null}
+        {label ? <HChevronDownIcon className={cn("h-4 w-4 transition", open ? "rotate-180" : "")} /> : null}
+      </button>
+      {menu}
+    </>
   )
 }
 
@@ -878,9 +1245,9 @@ function ColumnPickerModal({ open, onClose, allowed = [], selected = [], onSave 
     try { await onSave?.(cols); onClose?.() } catch (e) { setErr(e?.message || "Failed to save columns") } finally { setSaving(false) }
   }
   return (
-    <ModalShell open={open} onClose={onClose} title="Choose columns" subtitle="Show, hide and arrange lead list columns. Actions stays visible." icon={<FiColumns className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div className="flex gap-2"><button className={cn(btn, btnGhost, "px-3 py-2")} disabled={saving} onClick={() => setLocal(allowed)}>Show all</button><button className={cn(btn, btnGhost, "px-3 py-2")} disabled={saving} onClick={() => setLocal(DEFAULT_COLUMNS)}>Default</button></div><div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} disabled={saving} onClick={onClose}>Cancel</button><button className={cn(btn, btnPrimary)} disabled={saving || !local.length} onClick={() => save(local)}>{saving ? "Saving..." : "Apply"}</button></div></div>}>
+    <ModalShell open={open} onClose={onClose} title="Choose columns" subtitle="Show, hide and arrange lead list columns. Actions stays visible." icon={<HColumnsIcon className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div className="flex gap-2"><button className={cn(btn, btnGhost, "px-3 py-2")} disabled={saving} onClick={() => setLocal(allowed)}>Show all</button><button className={cn(btn, btnGhost, "px-3 py-2")} disabled={saving} onClick={() => setLocal(DEFAULT_COLUMNS)}>Default</button></div><div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} disabled={saving} onClick={onClose}>Cancel</button><button className={cn(btn, btnPrimary)} disabled={saving || !local.length} onClick={() => save(local)}>{saving ? "Saving..." : "Apply"}</button></div></div>}>
       {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
-      <div className="mb-4 flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 py-2"><FiSearch className="h-4 w-4 text-gray-400" /><input value={q} onChange={(e) => setQ(e.target.value)} className="flex-1 border-0 bg-transparent text-sm outline-none" placeholder="Search columns..." /><span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>{local.length} selected</span></div>
+      <div className="mb-4 flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 py-2"><HSearchIcon className="h-4 w-4 text-gray-400" /><input value={q} onChange={(e) => setQ(e.target.value)} className="flex-1 border-0 bg-transparent text-sm outline-none" placeholder="Search columns..." /><span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>{local.length} selected</span></div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm lg:col-span-7">
           <div className="border-b border-gray-100 bg-gray-50/70 px-4 py-3">
@@ -905,7 +1272,7 @@ function ColumnPickerModal({ open, onClose, allowed = [], selected = [], onSave 
                     <span className="block truncate text-[11px] text-gray-400">{c}</span>
                   </div>
                   <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border", checked ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-200 bg-white text-transparent")}>
-                    <FiCheck className="h-4 w-4" />
+                    <HCheckIcon className="h-4 w-4" />
                   </span>
                 </button>
               )
@@ -930,13 +1297,13 @@ function ColumnPickerModal({ open, onClose, allowed = [], selected = [], onSave 
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
                     <button type="button" onClick={() => move(c, "up")} disabled={index === 0} className="rounded-xl border border-gray-200 bg-white p-2 transition hover:bg-gray-50 disabled:opacity-40" title="Move up" aria-label={`Move ${COLUMN_LABELS[c] || c} up`}>
-                      <FiChevronDown className="h-4 w-4 rotate-180 text-gray-700" />
+                      <HChevronDownIcon className="h-4 w-4 rotate-180 text-gray-700" />
                     </button>
                     <button type="button" onClick={() => move(c, "down")} disabled={index === local.length - 1} className="rounded-xl border border-gray-200 bg-white p-2 transition hover:bg-gray-50 disabled:opacity-40" title="Move down" aria-label={`Move ${COLUMN_LABELS[c] || c} down`}>
-                      <FiChevronDown className="h-4 w-4 text-gray-700" />
+                      <HChevronDownIcon className="h-4 w-4 text-gray-700" />
                     </button>
                     <button type="button" onClick={() => toggle(c)} className="rounded-xl border border-gray-200 bg-white p-2 transition hover:bg-gray-50" title="Remove" aria-label={`Remove ${COLUMN_LABELS[c] || c}`}>
-                      <FiX className="h-4 w-4 text-gray-700" />
+                      <HCloseIcon className="h-4 w-4 text-gray-700" />
                     </button>
                   </div>
                 </div>
@@ -961,7 +1328,7 @@ function AddPurchaseTypeModal({ open, onClose, onCreated }) {
     setLoading(true)
     try { const created = await apiCreatePurchaseType({ name: name.trim(), key: key.trim() || undefined }); onCreated?.(created); onClose?.() } catch (e) { setErr(e?.message || "Failed to create purchase type") } finally { setLoading(false) }
   }
-  return <ModalShell open={open} onClose={onClose} title="Add Purchase Type" subtitle="This will show in lead create/edit." icon={<FiPlus className="h-5 w-5" />} maxWidthClass="max-w-xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Creating..." : "Create"}</button></div>}>{err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}<div className="grid gap-4"><Field label="Name *"><input value={name} onChange={(e) => setName(e.target.value)} className={input} placeholder="Service" /></Field><Field label="Key (optional)"><input value={key} onChange={(e) => setKey(e.target.value)} className={input} placeholder="service" /></Field></div></ModalShell>
+  return <ModalShell open={open} onClose={onClose} title="Add Purchase Type" subtitle="This will show in lead create/edit." icon={<HPlusIcon className="h-5 w-5" />} maxWidthClass="max-w-xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Creating..." : "Create"}</button></div>}>{err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}<div className="grid gap-4"><Field label="Name *"><input value={name} onChange={(e) => setName(e.target.value)} className={input} placeholder="Service" /></Field><Field label="Key (optional)"><input value={key} onChange={(e) => setKey(e.target.value)} className={input} placeholder="service" /></Field></div></ModalShell>
 }
 
 function ItemEditor({ items, setItems, products = [], showDescription = false }) {
@@ -990,7 +1357,7 @@ function ItemEditor({ items, setItems, products = [], showDescription = false })
 
   return (
     <div className="rounded-2xl border border-gray-100">
-      <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/70 px-4 py-3"><div><p className="text-sm font-bold text-gray-900">Items</p><p className="text-xs text-gray-500">Products/services included for amount calculation.</p></div><button type="button" onClick={add} className={cn(btn, btnGhost, "px-3 py-2")}><FiPlus className="h-4 w-4" />Add item</button></div>
+      <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/70 px-4 py-3"><div><p className="text-sm font-bold text-gray-900">Items</p><p className="text-xs text-gray-500">Products/services included for amount calculation.</p></div><button type="button" onClick={add} className={cn(btn, btnGhost, "px-3 py-2")}><HPlusIcon className="h-4 w-4" />Add item</button></div>
       <div className="space-y-3 p-4">
         {items.length ? items.map((it, idx) => (
           <div key={idx} className="rounded-2xl border border-gray-100 bg-white p-3">
@@ -1017,12 +1384,97 @@ function ItemEditor({ items, setItems, products = [], showDescription = false })
               <div className="md:col-span-2"><Field label="Qty"><input type="number" min="0" value={it.qty} onChange={(e) => update(idx, "qty", e.target.value)} className={input} /></Field></div>
               <div className="md:col-span-2"><Field label="Unit price"><input type="number" min="0" value={it.unitPrice} onChange={(e) => update(idx, "unitPrice", e.target.value)} className={input} /></Field></div>
               <div className="md:col-span-2"><Field label="Discount"><input type="number" min="0" value={it.discount} onChange={(e) => update(idx, "discount", e.target.value)} className={input} /></Field></div>
-              <div className="flex items-end md:col-span-2"><button type="button" onClick={() => remove(idx)} className={cn(btn, btnDanger, "w-full")}><FiTrash2 className="h-4 w-4" />Remove</button></div>
+              <div className="flex items-end md:col-span-2"><button type="button" onClick={() => remove(idx)} className={cn(btn, btnDanger, "w-full")}><HTrashIcon className="h-4 w-4" />Remove</button></div>
               {showDescription ? <div className="md:col-span-12"><Field label="Description"><textarea value={it.description || ""} onChange={(e) => update(idx, "description", e.target.value)} className={cn(input, "min-h-[80px]")} /></Field></div> : null}
             </div>
           </div>
-        )) : <EmptyState icon={<FiFileText className="h-5 w-5" />} title="No items added" subtitle="Add items if you need proposal/deal amount calculation." />}
+        )) : <EmptyState icon={<HFileTextIcon className="h-5 w-5" />} title="No items added" subtitle="Add items if you need proposal/deal amount calculation." />}
         <div className="flex justify-end"><span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>Estimated total: {formatMoney(total)}</span></div>
+      </div>
+    </div>
+  )
+}
+
+
+function ProposalItemsTable({ items, setItems, products = [], currency = "BDT" }) {
+  const safeItems = Array.isArray(items) ? items : []
+  const update = (index, key, value) => setItems((prev) => prev.map((item, i) => i === index ? { ...item, [key]: value } : item))
+  const add = () => setItems((prev) => [...prev, { productId: "", nameSnapshot: "", description: "", qty: 1, unitPrice: 0, discount: 0 }])
+  const remove = (index) => setItems((prev) => prev.filter((_, i) => i !== index))
+  const totals = getProposalTotals(safeItems)
+
+  const selectProduct = (index, productId) => {
+    if (!productId) {
+      update(index, "productId", "")
+      return
+    }
+    const product = products.find((item) => String(item?._id) === String(productId))
+    if (!product) return update(index, "productId", productId)
+    setItems((prev) => prev.map((item, i) => i === index ? {
+      ...item,
+      productId: product._id,
+      nameSnapshot: product.name || item.nameSnapshot,
+      description: item.description || product.description || "",
+      unitPrice: Number(product.sellingPrice ?? item.unitPrice ?? 0),
+    } : item))
+  }
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
+      <div className="flex flex-col gap-3 border-b border-gray-100 bg-gray-50/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-black text-gray-950">Products / services</p>
+          <p className="mt-0.5 text-xs font-medium text-gray-500">Show the client exactly what is included, in what quantity and at what price.</p>
+        </div>
+        <button type="button" onClick={add} className={cn(btn, btnGhost, "shrink-0 px-3 py-2")}><HPlusIcon className="h-4 w-4" />Add row</button>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="min-w-[980px] w-full border-collapse text-left">
+          <thead>
+            <tr className="border-b border-gray-200 bg-white text-[11px] font-black uppercase tracking-[0.08em] text-gray-500">
+              <th className="w-[270px] px-4 py-3">Product / service</th>
+              <th className="min-w-[260px] px-3 py-3">Description</th>
+              <th className="w-[90px] px-3 py-3 text-right">Qty</th>
+              <th className="w-[140px] px-3 py-3 text-right">Unit price</th>
+              <th className="w-[120px] px-3 py-3 text-right">Discount</th>
+              <th className="w-[135px] px-3 py-3 text-right">Total</th>
+              <th className="w-[56px] px-3 py-3"><span className="sr-only">Remove</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {safeItems.map((item, index) => {
+              const lineTotal = Math.max(Number(item.qty || 0) * Number(item.unitPrice || 0) - Number(item.discount || 0), 0)
+              return (
+                <tr key={index} className="border-b border-gray-100 align-top last:border-b-0">
+                  <td className="px-4 py-3">
+                    {products.length ? (
+                      <select className={cn(input, "mb-2 py-2 text-xs")} value={item.productId || ""} onChange={(e) => selectProduct(index, e.target.value)} aria-label={`Select product for row ${index + 1}`}>
+                        <option value="">Custom item</option>
+                        {products.map((product) => <option key={product._id} value={product._id}>{product.name}{product.sku ? ` · ${product.sku}` : ""}</option>)}
+                      </select>
+                    ) : null}
+                    <input className={cn(input, "py-2")} value={item.nameSnapshot || ""} onChange={(e) => update(index, "nameSnapshot", e.target.value)} placeholder="Product or service" aria-label={`Item name ${index + 1}`} />
+                  </td>
+                  <td className="px-3 py-3"><textarea className={cn(input, "min-h-[72px] resize-y py-2")} value={item.description || ""} onChange={(e) => update(index, "description", e.target.value)} placeholder="Scope, specification or deliverable" aria-label={`Item description ${index + 1}`} /></td>
+                  <td className="px-3 py-3"><input type="number" min="0" className={cn(input, "py-2 text-right")} value={item.qty} onChange={(e) => update(index, "qty", e.target.value)} aria-label={`Quantity ${index + 1}`} /></td>
+                  <td className="px-3 py-3"><input type="number" min="0" className={cn(input, "py-2 text-right")} value={item.unitPrice} onChange={(e) => update(index, "unitPrice", e.target.value)} aria-label={`Unit price ${index + 1}`} /></td>
+                  <td className="px-3 py-3"><input type="number" min="0" className={cn(input, "py-2 text-right")} value={item.discount} onChange={(e) => update(index, "discount", e.target.value)} aria-label={`Discount ${index + 1}`} /></td>
+                  <td className="px-3 py-5 text-right text-sm font-black text-gray-950">{formatMoney(lineTotal, currency)}</td>
+                  <td className="px-3 py-3"><button type="button" onClick={() => remove(index)} disabled={safeItems.length === 1} className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 text-gray-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:cursor-not-allowed disabled:opacity-35" aria-label={`Remove row ${index + 1}`}><HTrashIcon className="h-4 w-4" /></button></td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex justify-end border-t border-gray-100 bg-gray-50/60 px-4 py-4">
+        <div className="w-full max-w-sm space-y-2 text-sm">
+          <div className="flex items-center justify-between text-gray-600"><span>Subtotal</span><strong className="text-gray-900">{formatMoney(totals.subtotal, currency)}</strong></div>
+          <div className="flex items-center justify-between text-gray-600"><span>Discount</span><strong className="text-gray-900">{formatMoney(totals.discountTotal, currency)}</strong></div>
+          <div className="flex items-center justify-between rounded-xl bg-indigo-50 px-3 py-2.5 font-black text-indigo-800"><span>Proposal total</span><span>{formatMoney(totals.grandTotal, currency)}</span></div>
+        </div>
       </div>
     </div>
   )
@@ -1192,7 +1644,7 @@ function TemplateUseBox({ lead, channel = "general", purpose = "general", label:
           {templates.map((t) => <option key={t._id || t.id} value={t._id || t.id}>{t.name || t.key || "Untitled template"}</option>)}
         </select>
         <button type="button" className={cn(btn, btnSoft, "shrink-0")} onClick={apply} disabled={loading || usingTemplate || !selectedTemplate}>
-          {usingTemplate ? <FiLoader className="h-4 w-4 animate-spin" /> : <FiFileText className="h-4 w-4" />}
+          {usingTemplate ? <HLoaderIcon className="h-4 w-4 animate-spin" /> : <HFileTextIcon className="h-4 w-4" />}
           Insert template
         </button>
       </div>
@@ -1238,12 +1690,12 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved, use
   }
   return (
     <>
-      <ModalShell open={open} onClose={onClose} title={mode === "edit" ? "Edit Lead" : "Create Lead"} subtitle="Contact, score, source, discovery and assignment fields" icon={mode === "edit" ? <FiEdit2 className="h-5 w-5" /> : <FiPlus className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex flex-col justify-end gap-2 sm:flex-row"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : mode === "edit" ? "Update lead" : "Create lead"}</button></div>}>
+      <ModalShell open={open} onClose={onClose} title={mode === "edit" ? "Edit Lead" : "Create Lead"} subtitle="Contact, score, source, discovery and assignment fields" icon={mode === "edit" ? <HEditIcon className="h-5 w-5" /> : <HPlusIcon className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex flex-col justify-end gap-2 sm:flex-row"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : mode === "edit" ? "Update lead" : "Create lead"}</button></div>}>
         {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Field label="Contact name *"><input className={input} value={form.name} onChange={update("name")} /></Field><Field label="Company name *"><input className={input} value={form.companyName} onChange={update("companyName")} /></Field><Field label="Email"><input className={input} value={form.email} onChange={update("email")} /></Field><Field label="Phone"><input className={input} value={form.phone} onChange={update("phone")} /></Field>
           <Field label="Priority"><select className={input} value={form.priority} onChange={update("priority")}>{PRIORITIES.map((x) => <option key={x} value={x}>{x}</option>)}</select></Field><Field label="Lead temperature"><select className={input} value={form.leadTemperature} onChange={update("leadTemperature")}>{TEMPERATURES.map((x) => <option key={x} value={x}>{x}</option>)}</select></Field><Field label="Lead score"><input className={input} type="number" min="0" max="100" value={form.leadScore} onChange={update("leadScore")} /></Field>
-          <Field label="Purchase type"><div className="flex gap-2"><select className={cn(input, "flex-1")} value={form.purchaseType} onChange={update("purchaseType")}><option value="">Select purchase type</option>{purchaseTypes.map((pt) => <option key={pt.key || pt._id} value={pt.key || pt.name}>{pt.name || pt.key}</option>)}</select><button type="button" className={cn(btn, btnGhost, "px-3")} onClick={() => setAddPtOpen(true)}><FiPlus className="h-4 w-4" /></button></div></Field>
+          <Field label="Purchase type"><div className="flex gap-2"><select className={cn(input, "flex-1")} value={form.purchaseType} onChange={update("purchaseType")}><option value="">Select purchase type</option>{purchaseTypes.map((pt) => <option key={pt.key || pt._id} value={pt.key || pt.name}>{pt.name || pt.key}</option>)}</select><button type="button" className={cn(btn, btnGhost, "px-3")} onClick={() => setAddPtOpen(true)}><HPlusIcon className="h-4 w-4" /></button></div></Field>
           <Field label="Source"><input className={input} value={form.source} onChange={update("source")} /></Field><Field label="Next follow-up"><input type="datetime-local" className={input} value={form.nextFollowUpAt} onChange={update("nextFollowUpAt")} /></Field><Field label="Tags"><input className={input} value={form.tags} onChange={update("tags")} /></Field>{canAssignOwner ? <UserSelect label="Assign owner" value={form.assignedTo} users={users} onChange={(val) => setForm((p) => ({ ...p, assignedTo: val }))} placeholder="Use current user" /> : null}
           <div className="md:col-span-2 rounded-2xl border border-gray-100 p-4"><p className="mb-3 text-sm font-bold text-gray-900">Company info</p><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><Field label="Website"><input className={input} value={form.website} onChange={update("website")} /></Field><Field label="Industry"><input className={input} value={form.industry} onChange={update("industry")} /></Field><div className="md:col-span-2"><Field label="Address"><input className={input} value={form.address} onChange={update("address")} /></Field></div></div></div>
           <div className="md:col-span-2 rounded-2xl border border-indigo-100 bg-indigo-50/30 p-4"><p className="mb-3 text-sm font-bold text-gray-900">Requirement / discovery</p><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><div className="md:col-span-2"><Field label="Requirement summary"><textarea className={cn(input, "min-h-[90px]")} value={form.requirementSummary} onChange={update("requirementSummary")} /></Field></div><div className="md:col-span-2"><Field label="Expected solution"><textarea className={cn(input, "min-h-[80px]")} value={form.expectedSolution} onChange={update("expectedSolution")} /></Field></div><Field label="Pain points"><input className={input} value={form.painPoints} onChange={update("painPoints")} /></Field><Field label="Decision maker"><input className={input} value={form.decisionMaker} onChange={update("decisionMaker")} /></Field><Field label="Budget min"><input className={input} type="number" value={form.budgetMin} onChange={update("budgetMin")} /></Field><Field label="Budget max"><input className={input} type="number" value={form.budgetMax} onChange={update("budgetMax")} /></Field><Field label="Expected value"><input className={input} type="number" value={form.expectedValue} onChange={update("expectedValue")} /></Field><Field label="Timeline"><input className={input} value={form.timeline} onChange={update("timeline")} /></Field></div></div>
@@ -1260,7 +1712,7 @@ function NoteModal({ open, onClose, lead, onSaved }) {
   const [err, setErr] = useState("")
   useEffect(() => { if (open) { setForm({ note: "", type: "general", reason: "" }); setErr("") } }, [open])
   const submit = async () => { setErr(""); if (!form.note.trim()) return setErr("Note is required."); setLoading(true); try { await apiAddLeadNote(getLeadId(lead), form); onSaved?.(); onClose?.() } catch (e) { setErr(e?.message || "Failed") } finally { setLoading(false) } }
-  return <ModalShell open={open} onClose={onClose} title="Add note" subtitle={lead?.contact?.name || ""} icon={<FiFileText className="h-5 w-5" />} maxWidthClass="max-w-xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : "Add note"}</button></div>}>
+  return <ModalShell open={open} onClose={onClose} title="Add note" subtitle={lead?.contact?.name || ""} icon={<HFileTextIcon className="h-5 w-5" />} maxWidthClass="max-w-xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : "Add note"}</button></div>}>
     {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
     <div className="grid gap-4">
       <Field label="Type"><select className={input} value={form.type} onChange={(e) => setForm((p) => ({ ...p, type: e.target.value }))}>{["general", "call", "email", "meeting", "whatsapp", "follow_up", "stage_change", "quick_action", "lost_reason", "won_reason"].map((x) => <option key={x}>{x}</option>)}</select></Field>
@@ -1298,7 +1750,7 @@ function StageProgressController({ lead, onNextStage, onMoveStage, compact = fal
                     : "border-gray-200 bg-white text-gray-400"
             )}
           >
-            {completed ? <FiCheck className="h-4 w-4" /> : index + 1}
+            {completed ? <HCheckIcon className="h-4 w-4" /> : index + 1}
           </div>
           <div className="min-w-0">
             <p className={cn("truncate text-xs font-black", active || selectedDot ? "text-indigo-700" : completed ? "text-emerald-700" : "text-gray-500")}>{STAGE_LABELS[stage] || stage}</p>
@@ -1358,10 +1810,10 @@ function StageProgressController({ lead, onNextStage, onMoveStage, compact = fal
         {!compact ? (
           <div className="flex flex-wrap gap-2">
             <button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onMoveStage?.(lead)}>
-              <FiSliders className="h-4 w-4" /> Update stage
+              <HSettingsIcon className="h-4 w-4" /> Update stage
             </button>
             <button className={cn(btn, btnPrimary, "px-3 py-2")} disabled={!nextStage || finalStage} onClick={() => onNextStage?.(lead)}>
-              <FiArrowRight className="h-4 w-4" />
+              <HArrowRightIcon className="h-4 w-4" />
               {nextStage ? `Next: ${STAGE_LABELS[nextStage] || nextStage}` : finalStage ? "Final stage" : "No next stage"}
             </button>
           </div>
@@ -1510,7 +1962,7 @@ function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage 
       onClose={onClose}
       title={title}
       subtitle={subtitle}
-      icon={<FiArrowRight className="h-5 w-5" />}
+      icon={<HArrowRightIcon className="h-5 w-5" />}
       maxWidthClass="max-w-3xl"
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -1530,7 +1982,7 @@ function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage 
               <p className="text-[10px] font-black uppercase tracking-wider text-gray-400">Current</p>
               <p className="truncate text-sm font-black text-gray-800">{STAGE_LABELS[currentStage] || currentStage}</p>
             </div>
-            <FiArrowRight className="h-5 w-5 shrink-0 text-gray-300" />
+            <HArrowRightIcon className="h-5 w-5 shrink-0 text-gray-300" />
             <div className="min-w-0 rounded-xl bg-indigo-50 px-3 py-2 ring-1 ring-indigo-100">
               <p className="text-[10px] font-black uppercase tracking-wider text-indigo-400">Moving to</p>
               <p className="truncate text-sm font-black text-indigo-700">{STAGE_LABELS[form.pipelineStage] || form.pipelineStage || "No next stage"}</p>
@@ -1555,7 +2007,7 @@ function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage 
         <div className={cn("mt-3 flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between", requirementReady ? "border-emerald-200 bg-emerald-50/70" : "border-amber-200 bg-amber-50/70")}>
           <div className="flex min-w-0 items-center gap-3">
             <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm", requirementReady ? "text-emerald-700" : "text-amber-700")}>
-              {requirementReady ? <FiCheckCircle className="h-5 w-5" /> : <FiTarget className="h-5 w-5" />}
+              {requirementReady ? <HCheckCircleIcon className="h-5 w-5" /> : <HTargetIcon className="h-5 w-5" />}
             </div>
             <div className="min-w-0">
               <p className={cn("text-sm font-black", requirementReady ? "text-emerald-950" : "text-amber-950")}>{requirementReady ? "Requirement saved" : requirementStarted ? "Requirement needs completion" : "Requirement not added"}</p>
@@ -1563,7 +2015,7 @@ function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage 
             </div>
           </div>
           <button type="button" className={cn(btn, requirementReady || requirementStarted ? btnGhost : btnPrimary, "shrink-0 px-4 py-2")} onClick={() => onOpenRequirement?.(gateLead)}>
-            <FiTarget className="h-4 w-4" /> {requirementReady || requirementStarted ? "Edit Requirement" : "Complete Requirement"}
+            <HTargetIcon className="h-4 w-4" /> {requirementReady || requirementStarted ? "Edit Requirement" : "Complete Requirement"}
           </button>
         </div>
       ) : null}
@@ -1572,7 +2024,7 @@ function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage 
         <div className={cn("mt-3 flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between", (selectedStage === "negotiation" ? hasAcceptedProposal : proposalReady) ? "border-emerald-200 bg-emerald-50/70" : "border-amber-200 bg-amber-50/70")}>
           <div className="flex min-w-0 items-center gap-3">
             <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white shadow-sm", (selectedStage === "negotiation" ? hasAcceptedProposal : proposalReady) ? "text-emerald-700" : "text-amber-700")}>
-              {(selectedStage === "negotiation" ? hasAcceptedProposal : proposalReady) ? <FiCheckCircle className="h-5 w-5" /> : <FiFileText className="h-5 w-5" />}
+              {(selectedStage === "negotiation" ? hasAcceptedProposal : proposalReady) ? <HCheckCircleIcon className="h-5 w-5" /> : <HFileTextIcon className="h-5 w-5" />}
             </div>
             <div className="min-w-0">
               <p className={cn("text-sm font-black", (selectedStage === "negotiation" ? hasAcceptedProposal : proposalReady) ? "text-emerald-950" : "text-amber-950")}>
@@ -1588,7 +2040,7 @@ function StageModal({ open, onClose, lead, onSaved, targetStage = "", lockStage 
             </div>
           </div>
           <button type="button" className={cn(btn, (selectedStage === "negotiation" ? hasAcceptedProposal : proposalReady) ? btnGhost : btnPrimary, "shrink-0 px-4 py-2")} onClick={() => onOpenProposal?.(proposalReady && latestProposal ? { ...gateLead, _editingProposal: latestProposal } : gateLead)}>
-            <FiFileText className="h-4 w-4" /> {proposalReady ? (hasAcceptedProposal ? "View Proposal" : "Review / Edit Proposal") : "Create Proposal"}
+            <HFileTextIcon className="h-4 w-4" /> {proposalReady ? (hasAcceptedProposal ? "View Proposal" : "Review / Edit Proposal") : "Create Proposal"}
           </button>
         </div>
       ) : null}
@@ -1662,7 +2114,7 @@ function RequirementModal({ open, onClose, lead, onSaved }) {
   }
 
   const invalidInput = "border-rose-300 bg-rose-50/40 focus-visible:ring-rose-400/40"
-  const InlineError = ({ message }) => message ? <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-rose-600"><FiAlertCircle className="h-3.5 w-3.5 shrink-0" />{message}</p> : null
+  const InlineError = ({ message }) => message ? <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-rose-600"><HAlertCircleIcon className="h-3.5 w-3.5 shrink-0" />{message}</p> : null
   const OptionalLabel = ({ children }) => <>{children} <span className="font-medium text-gray-400">(optional)</span></>
 
   const submit = async () => {
@@ -1682,7 +2134,7 @@ function RequirementModal({ open, onClose, lead, onSaved }) {
     }
   }
   return (
-    <ModalShell open={open} onClose={onClose} title="Requirement / Discovery" subtitle={lead?.contact?.name || ""} icon={<FiTarget className="h-5 w-5" />} maxWidthClass="max-w-3xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : "Save requirement"}</button></div>}>
+    <ModalShell open={open} onClose={onClose} title="Requirement / Discovery" subtitle={lead?.contact?.name || ""} icon={<HTargetIcon className="h-5 w-5" />} maxWidthClass="max-w-3xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : "Save requirement"}</button></div>}>
       {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="md:col-span-2">
@@ -1766,7 +2218,7 @@ function FollowUpModal({ open, onClose, lead, onSaved }) {
   const [err, setErr] = useState("")
   useEffect(() => { if (open) { setErr(""); setForm({ nextFollowUpAt: formatDateInput(lead?.nextFollowUpAt), note: "", nextAction: lead?.nextAction || "Follow up with this lead" }) } }, [open, lead])
   const submit = async () => { setErr(""); if (!form.nextFollowUpAt) return setErr("Follow-up date is required."); setLoading(true); try { await apiSetFollowUp(getLeadId(lead), { nextFollowUpAt: new Date(form.nextFollowUpAt).toISOString(), note: form.note.trim(), nextAction: form.nextAction.trim() }); onSaved?.(); onClose?.() } catch (e) { setErr(e?.message || "Follow-up failed") } finally { setLoading(false) } }
-  return <ModalShell open={open} onClose={onClose} title="Set follow-up" subtitle={lead?.contact?.name || ""} icon={<FiCalendar className="h-5 w-5" />} maxWidthClass="max-w-xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : "Save follow-up"}</button></div>}>
+  return <ModalShell open={open} onClose={onClose} title="Set follow-up" subtitle={lead?.contact?.name || ""} icon={<HCalendarIcon className="h-5 w-5" />} maxWidthClass="max-w-xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : "Save follow-up"}</button></div>}>
     {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
     <div className="grid gap-4">
       <Field label="Date & time *"><input type="datetime-local" className={input} value={form.nextFollowUpAt} onChange={(e) => setForm((p) => ({ ...p, nextFollowUpAt: e.target.value }))} /></Field>
@@ -1783,7 +2235,7 @@ function ActivityModal({ open, onClose, lead, onSaved, users = [] }) {
   const [err, setErr] = useState("")
   useEffect(() => { if (open) { setErr(""); setForm({ type: "call", status: "pending", priority: lead?.priority || "medium", title: "", body: "", scheduledAt: "", outcome: "", nextAction: "", nextActionDate: "", quickActionKey: "", activityResult: "", assignedTo: typeof lead?.assignedTo === "string" ? lead.assignedTo : lead?.assignedTo?._id || "" }) } }, [open, lead])
   const submit = async () => { setLoading(true); setErr(""); try { await apiCreateActivity({ leadId: getLeadId(lead), ...form, scheduledAt: form.scheduledAt ? new Date(form.scheduledAt).toISOString() : null, nextActionDate: form.nextActionDate ? new Date(form.nextActionDate).toISOString() : null, assignedTo: form.assignedTo || undefined }); onSaved?.(); onClose?.() } catch (e) { setErr(e?.message || "Activity create failed") } finally { setLoading(false) } }
-  return <ModalShell open={open} onClose={onClose} title="Create activity" subtitle={lead?.contact?.name || ""} icon={<FiActivity className="h-5 w-5" />} maxWidthClass="max-w-3xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Creating..." : "Create activity"}</button></div>}>
+  return <ModalShell open={open} onClose={onClose} title="Create activity" subtitle={lead?.contact?.name || ""} icon={<HActivityIcon className="h-5 w-5" />} maxWidthClass="max-w-3xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Creating..." : "Create activity"}</button></div>}>
     {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <Field label="Type"><select className={input} value={form.type} onChange={(e) => setForm((p) => ({ ...p, type: e.target.value }))}>{ACTIVITY_TYPES.map((x) => <option key={x}>{x}</option>)}</select></Field>
@@ -1804,63 +2256,95 @@ function ActivityModal({ open, onClose, lead, onSaved, users = [] }) {
 
 function ProposalModal({ open, onClose, lead, onSaved, users = [] }) {
   const editingProposal = lead?._editingProposal || null
-  const [form, setForm] = useState({ title: "", currency: "BDT", validTill: "", terms: "", notes: "", ownerId: "" })
+  const baseRequirementText = buildLeadRequirementText(lead)
+  const [form, setForm] = useState({
+    title: "",
+    currency: "BDT",
+    validTill: "",
+    terms: "",
+    ownerId: "",
+    themeId: DEFAULT_PROPOSAL_THEME_ID,
+    clientRequirements: "",
+    solution: "",
+    implementationPlan: "",
+  })
   const [items, setItems] = useState([{ productId: "", nameSnapshot: "", description: "", qty: 1, unitPrice: 0, discount: 0 }])
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [err, setErr] = useState("")
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   useEffect(() => {
-    if (open) {
-      apiJson(`${API_BASE}/leads/conversion-options`)
-        .then((result) => {
-          const data = result.data || result
-          setProducts(Array.isArray(data?.products) ? data.products : [])
-        })
-        .catch(() => setProducts([]))
-    }
+    if (!open) setPreviewOpen(false)
   }, [open])
 
   useEffect(() => {
-    if (open) {
-      setErr("")
-      setForm({
-        title: editingProposal?.title || (lead?.contact?.companyName ? `${lead.contact.companyName} Proposal` : ""),
-        currency: editingProposal?.currency || "BDT",
-        validTill: formatDateInput(editingProposal?.validTill, "date"),
-        terms: editingProposal?.terms || "",
-        notes: editingProposal?.notes || "",
-        ownerId: editingProposal?.ownerId?._id || editingProposal?.ownerId || ""
+    if (!open) return
+    apiJson(`${API_BASE}/leads/conversion-options`)
+      .then((result) => {
+        const data = result.data || result
+        setProducts(Array.isArray(data?.products) ? data.products : [])
       })
-      setItems(
-        Array.isArray(editingProposal?.items) && editingProposal.items.length
-          ? editingProposal.items.map((item) => ({
-              productId: item.productId?._id || item.productId || "",
-              nameSnapshot: item.nameSnapshot || "",
-              description: item.description || "",
-              qty: item.qty || 1,
-              unitPrice: item.unitPrice || 0,
-              discount: item.discount || 0
-            }))
-          : [{
-              productId: "",
-              nameSnapshot: lead?.purchaseType || "",
-              description: "",
-              qty: 1,
-              unitPrice: lead?.requirement?.expectedValue || 0,
-              discount: 0
-            }]
-      )
-    }
-  }, [open, lead, editingProposal])
+      .catch(() => setProducts([]))
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const decoded = decodeProposalContent(editingProposal?.notes, { clientRequirements: baseRequirementText })
+    const theme = getProposalTheme(decoded.themeId)
+    setErr("")
+    setForm({
+      title: editingProposal?.title || (lead?.contact?.companyName ? `${lead.contact.companyName} Proposal` : `${getLeadClientName(lead)} Proposal`),
+      currency: editingProposal?.currency || "BDT",
+      validTill: formatDateInput(editingProposal?.validTill, "date"),
+      terms: editingProposal?.terms || theme.defaultTerms,
+      ownerId: editingProposal?.ownerId?._id || editingProposal?.ownerId || "",
+      themeId: decoded.themeId || DEFAULT_PROPOSAL_THEME_ID,
+      clientRequirements: decoded.clientRequirements || baseRequirementText,
+      solution: decoded.solution || theme.defaultSolution,
+      implementationPlan: decoded.implementationPlan || theme.defaultImplementation,
+    })
+    setItems(
+      Array.isArray(editingProposal?.items) && editingProposal.items.length
+        ? editingProposal.items.map((item) => ({
+            productId: item.productId?._id || item.productId || "",
+            nameSnapshot: item.nameSnapshot || "",
+            description: item.description || "",
+            qty: item.qty || 1,
+            unitPrice: item.unitPrice || 0,
+            discount: item.discount || 0,
+          }))
+        : [{
+            productId: "",
+            nameSnapshot: lead?.purchaseType || "",
+            description: lead?.requirement?.expectedSolution || "",
+            qty: 1,
+            unitPrice: lead?.requirement?.expectedValue || 0,
+            discount: 0,
+          }]
+    )
+  }, [open, lead, editingProposal, baseRequirementText])
+
+  const selectTheme = (themeId) => {
+    const previousTheme = getProposalTheme(form.themeId)
+    const nextTheme = getProposalTheme(themeId)
+    setForm((current) => ({
+      ...current,
+      themeId,
+      solution: !current.solution.trim() || current.solution.trim() === previousTheme.defaultSolution.trim() ? nextTheme.defaultSolution : current.solution,
+      implementationPlan: !current.implementationPlan.trim() || current.implementationPlan.trim() === previousTheme.defaultImplementation.trim() ? nextTheme.defaultImplementation : current.implementationPlan,
+      terms: !current.terms.trim() || current.terms.trim() === previousTheme.defaultTerms.trim() ? nextTheme.defaultTerms : current.terms,
+    }))
+  }
 
   const saveProposal = async ({ closeAfter = true, exportAfter = false } = {}) => {
     setErr("")
-    if (!form.title.trim()) {
-      setErr("Title is required.")
-      return null
-    }
+    if (!form.title.trim()) return setErr("Title is required."), null
+    if (!form.clientRequirements.trim()) return setErr("Client requirements are required."), null
+    if (!form.solution.trim()) return setErr("Proposed solution is required."), null
+    if (!items.some((item) => String(item.nameSnapshot || "").trim())) return setErr("Add at least one product or service."), null
+
     setLoading(true)
     try {
       const payload = {
@@ -1870,15 +2354,20 @@ function ProposalModal({ open, onClose, lead, onSaved, users = [] }) {
         currency: form.currency.trim() || "BDT",
         validTill: form.validTill ? new Date(form.validTill).toISOString() : null,
         terms: form.terms.trim(),
-        notes: form.notes.trim(),
+        notes: encodeProposalContent({
+          themeId: form.themeId,
+          clientRequirements: form.clientRequirements,
+          solution: form.solution,
+          implementationPlan: form.implementationPlan,
+        }),
         ownerId: form.ownerId.trim() || undefined,
-        items: items.map((it) => ({
-          productId: it.productId || undefined,
-          nameSnapshot: it.nameSnapshot,
-          description: it.description,
-          qty: it.qty,
-          unitPrice: it.unitPrice,
-          discount: it.discount,
+        items: items.map((item) => ({
+          productId: item.productId || undefined,
+          nameSnapshot: String(item.nameSnapshot || "").trim(),
+          description: String(item.description || "").trim(),
+          qty: item.qty,
+          unitPrice: item.unitPrice,
+          discount: item.discount,
         })),
       }
       const data = editingProposal?._id ? await apiUpdateProposal(editingProposal._id, payload) : await apiCreateProposal(payload)
@@ -1902,31 +2391,105 @@ function ProposalModal({ open, onClose, lead, onSaved, users = [] }) {
       setLoading(false)
     }
   }
-  const exportSavedProposal = async () => {
-    setErr("")
-    setExporting(true)
-    try {
-      await exportProposalPdf(editingProposal, lead)
-      toast.success("Proposal PDF exported.")
-    } catch (e) {
-      setErr(e?.message || "PDF export failed")
-    } finally {
-      setExporting(false)
-    }
-  }
-  return <ModalShell open={open} onClose={onClose} title={editingProposal ? "Edit proposal / quotation" : "Create proposal / quotation"} subtitle={lead?.contact?.name || ""} icon={<FiFileText className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex flex-col justify-end gap-2 sm:flex-row"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading || exporting}>Cancel</button>{editingProposal ? <button className={cn(btn, btnGhost)} onClick={exportSavedProposal} disabled={loading || exporting}><FiDownload className="h-4 w-4" />{exporting ? "Exporting..." : "Export PDF"}</button> : null}<button className={cn(btn, btnSoft)} onClick={() => saveProposal({ exportAfter: true })} disabled={loading || exporting}>{exporting ? "Exporting..." : "Save & export PDF"}</button><button className={cn(btn, btnPrimary)} onClick={() => saveProposal()} disabled={loading || exporting}>{loading && !exporting ? "Saving..." : editingProposal ? "Save changes" : "Create proposal"}</button></div>}>
-    {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      <Field label="Title *"><input className={input} value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} /></Field>
-      <Field label="Currency"><input className={input} value={form.currency} onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value }))} /></Field>
-      <Field label="Valid till"><input type="date" className={input} value={form.validTill} onChange={(e) => setForm((p) => ({ ...p, validTill: e.target.value }))} /></Field>
-      <UserSelect label="Proposal owner" value={form.ownerId} users={users} onChange={(val) => setForm((p) => ({ ...p, ownerId: val }))} placeholder="Current logged-in user" />
-      <div className="md:col-span-2"><TemplateUseBox lead={lead} channel="proposal_note" purpose="proposal_sent" label="Insert proposal template" includeSubjectInText onApply={(text) => setForm((p) => ({ ...p, notes: appendTemplateText(p.notes, text) }))} /></div>
-      <div className="md:col-span-2"><Field label="Terms"><textarea className={cn(input, "min-h-[80px]")} value={form.terms} onChange={(e) => setForm((p) => ({ ...p, terms: e.target.value }))} /></Field></div>
-      <div className="md:col-span-2"><Field label="Notes"><textarea className={cn(input, "min-h-[80px]")} value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} /></Field></div>
-      <div className="md:col-span-2"><ItemEditor items={items} setItems={setItems} products={products} showDescription /></div>
+
+
+
+  const theme = getProposalTheme(form.themeId)
+
+  return <>
+  <ModalShell
+    open={open}
+    onClose={onClose}
+    title={editingProposal ? "Edit proposal" : "Create proposal"}
+    subtitle={getLeadClientName(lead)}
+    icon={<HFileTextIcon className="h-5 w-5" />}
+    maxWidthClass="max-w-6xl"
+    footer={<div className="flex flex-col justify-end gap-2 sm:flex-row">
+      <button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading || exporting}>Cancel</button>
+      <button className={cn(btn, btnGhost)} onClick={() => setPreviewOpen(true)} disabled={loading || exporting}><HEyeIcon className="h-4 w-4" />Preview</button>
+      <button className={cn(btn, btnSoft)} onClick={() => saveProposal({ exportAfter: true })} disabled={loading || exporting}>{exporting ? "Exporting..." : "Save & PDF"}</button>
+      <button className={cn(btn, btnPrimary)} onClick={() => saveProposal()} disabled={loading || exporting}>{loading && !exporting ? "Saving..." : editingProposal ? "Save changes" : "Save draft"}</button>
+    </div>}
+  >
+    {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{err}</div> : null}
+
+    <div className="space-y-4">
+      <section className="rounded-2xl border border-gray-200 bg-gray-50/70 p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-black text-gray-950">Theme</h3>
+              <span className="rounded-full border px-2.5 py-1 text-[11px] font-black" style={{ borderColor: theme.accentBorder, background: theme.accentSoft, color: theme.accent }}>{theme.name}</span>
+            </div>
+            <p className="mt-0.5 text-xs font-semibold text-gray-500">Choose the client-facing proposal style.</p>
+          </div>
+          <button type="button" className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => setPreviewOpen(true)} disabled={loading || exporting}><HEyeIcon className="h-4 w-4" />Preview theme</button>
+        </div>
+        <ProposalThemePicker value={form.themeId} onChange={selectTheme} compact />
+      </section>
+
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-sm font-black text-gray-950">Proposal details</h3>
+          <span className="text-xs font-bold text-gray-400">{theme.category}</span>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <div className="md:col-span-2"><Field label="Title *"><input className={input} value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} /></Field></div>
+          <Field label="Currency"><input className={input} value={form.currency} onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value }))} /></Field>
+          <Field label="Valid till"><input type="date" className={input} value={form.validTill} onChange={(e) => setForm((p) => ({ ...p, validTill: e.target.value }))} /></Field>
+          <div className="md:col-span-2 xl:col-span-4"><UserSelect label="Owner" value={form.ownerId} users={users} onChange={(value) => setForm((p) => ({ ...p, ownerId: value }))} placeholder="Current logged-in user" /></div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-sm font-black text-gray-950">Requirement & solution</h3>
+          <span className="text-xs font-bold text-gray-400">Client context</span>
+        </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Field label={theme.requirementTitle || "Client requirements"}>
+            <textarea className={cn(input, "min-h-[150px] resize-y leading-6")} value={form.clientRequirements} onChange={(e) => setForm((p) => ({ ...p, clientRequirements: e.target.value }))} placeholder="What the client needs..." />
+          </Field>
+          <Field label={theme.solutionTitle || "Our proposed solution"}>
+            <textarea className={cn(input, "min-h-[150px] resize-y leading-6")} value={form.solution} onChange={(e) => setForm((p) => ({ ...p, solution: e.target.value }))} placeholder="How we will solve it..." />
+          </Field>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-sm font-black text-gray-950">Products / services</h3>
+          <span className="text-xs font-bold text-gray-400">Scope & pricing</span>
+        </div>
+        <ProposalItemsTable items={items} setItems={setItems} products={products} currency={form.currency || "BDT"} />
+      </section>
+
+      <section className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-sm font-black text-gray-950">Commercial details</h3>
+          <span className="text-xs font-bold text-gray-400">Delivery & terms</span>
+        </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Field label={theme.timelineTitle || "Implementation plan"}>
+            <textarea className={cn(input, "min-h-[150px] resize-y leading-6")} value={form.implementationPlan} onChange={(e) => setForm((p) => ({ ...p, implementationPlan: e.target.value }))} />
+          </Field>
+          <Field label="Terms & conditions">
+            <textarea className={cn(input, "min-h-[150px] resize-y leading-6")} value={form.terms} onChange={(e) => setForm((p) => ({ ...p, terms: e.target.value }))} />
+          </Field>
+        </div>
+      </section>
     </div>
   </ModalShell>
+  <ProposalPreviewModal
+    open={previewOpen}
+    onClose={() => setPreviewOpen(false)}
+    lead={lead}
+    form={form}
+    items={items}
+    editingProposal={editingProposal}
+    onThemeChange={selectTheme}
+  />
+  </>
 }
 
 function DealModal({ open, onClose, lead, onSaved, users = [] }) {
@@ -2025,7 +2588,7 @@ function DealModal({ open, onClose, lead, onSaved, users = [] }) {
     }
   }
 
-  return <ModalShell open={open} onClose={onClose} title="Create deal" subtitle={lead?.contact?.name || ""} icon={<FiBriefcase className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Creating..." : "Create deal"}</button></div>}>
+  return <ModalShell open={open} onClose={onClose} title="Create deal" subtitle={lead?.contact?.name || ""} icon={<HBriefcaseIcon className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Creating..." : "Create deal"}</button></div>}>
     {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
     <div className={cn("mb-4 rounded-xl border p-3 text-sm font-semibold", proposal ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")}>{proposal ? `Creating from ${proposal.proposalNo || proposal.title} (${proposal.status}). Deal record created for this lead.` : "Send or accept a proposal before creating the deal."}</div>
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -2126,7 +2689,7 @@ function DealUpdateModal({ open, onClose, deal, onSaved, users = [] }) {
     }
   }
 
-  return <ModalShell open={open} onClose={onClose} title="Update deal" subtitle={deal?.dealNo || deal?.title || ""} icon={<FiBriefcase className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : "Save deal"}</button></div>}>
+  return <ModalShell open={open} onClose={onClose} title="Update deal" subtitle={deal?.dealNo || deal?.title || ""} icon={<HBriefcaseIcon className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : "Save deal"}</button></div>}>
     {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <Field label="Title *"><input className={input} value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} /></Field>
@@ -2147,8 +2710,10 @@ function DealUpdateModal({ open, onClose, deal, onSaved, users = [] }) {
 function RecordDetailsModal({ open, onClose, record, type, lead }) {
   const isProposal = type === "proposal"
   const [exporting, setExporting] = useState(false)
+  const proposalContent = isProposal ? decodeProposalContent(record?.notes, { clientRequirements: buildLeadRequirementText(lead) }) : null
+  const proposalTheme = isProposal ? getProposalTheme(proposalContent?.themeId) : null
   const details = isProposal
-    ? [["Proposal no", record?.proposalNo], ["Status", record?.status], ["Amount", record ? formatMoney(record.grandTotal, record.currency) : ""], ["Valid till", formatDate(record?.validTill)], ["Sent at", formatDate(record?.sentAt, true)], ["Terms", record?.terms], ["Notes", record?.notes]]
+    ? [["Proposal no", record?.proposalNo], ["Status", record?.status], ["Theme", proposalTheme?.name], ["Amount", record ? formatMoney(record.grandTotal, record.currency) : ""], ["Valid till", formatDate(record?.validTill)], ["Sent at", formatDate(record?.sentAt, true)], ["Client requirements", proposalContent?.clientRequirements], ["Our proposed solution", proposalContent?.solution], ["Implementation plan", proposalContent?.implementationPlan], ["Terms", record?.terms]]
     : [["Deal no", record?.dealNo], ["Stage", record?.stage], ["Amount", record ? formatMoney(record.grandTotal, record.currency) : ""], ["Probability", record?.probability !== undefined ? `${record.probability}%` : ""], ["Health", record?.dealHealth], ["Expected close", formatDate(record?.expectedCloseDate)], ["Next action", record?.nextDealAction], ["Next action at", formatDate(record?.nextDealActionAt, true)], ["Notes", record?.notes]]
   const runExport = async () => {
     setExporting(true)
@@ -2162,7 +2727,7 @@ function RecordDetailsModal({ open, onClose, record, type, lead }) {
     }
   }
 
-  return <ModalShell open={open} onClose={onClose} title={isProposal ? "Proposal details" : "Deal details"} subtitle={record?.proposalNo || record?.dealNo || record?.title || ""} icon={isProposal ? <FiFileText className="h-5 w-5" /> : <FiBriefcase className="h-5 w-5" />} maxWidthClass="max-w-3xl" footer={<div className="flex flex-col justify-end gap-2 sm:flex-row">{isProposal ? <button className={cn(btn, btnGhost)} onClick={runExport} disabled={!record || exporting}><FiDownload className="h-4 w-4" />{exporting ? "Exporting..." : "Export PDF"}</button> : null}<button className={cn(btn, btnPrimary)} onClick={onClose}>Close</button></div>}>
+  return <ModalShell open={open} onClose={onClose} title={isProposal ? "Proposal details" : "Deal details"} subtitle={record?.proposalNo || record?.dealNo || record?.title || ""} icon={isProposal ? <HFileTextIcon className="h-5 w-5" /> : <HBriefcaseIcon className="h-5 w-5" />} maxWidthClass="max-w-3xl" footer={<div className="flex flex-col justify-end gap-2 sm:flex-row">{isProposal ? <button className={cn(btn, btnGhost)} onClick={runExport} disabled={!record || exporting}><HDownloadIcon className="h-4 w-4" />{exporting ? "Exporting..." : "Export PDF"}</button> : null}<button className={cn(btn, btnPrimary)} onClick={onClose}>Close</button></div>}>
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
       <div className="md:col-span-2"><DetailRow label="Title" value={record?.title} /></div>
       {details.map(([labelText, value]) => <DetailRow key={labelText} label={labelText} value={value} />)}
@@ -2193,7 +2758,7 @@ function ConversionSummaryModal({ open, onClose, data, role, onNavigateSalesOrde
       onClose={onClose}
       title="Lead Converted & Won"
       subtitle="Customer, Won Deal, and Draft Sales Order created successfully."
-      icon={<FiCheckCircle className="h-5 w-5 text-emerald-600" />}
+      icon={<HCheckCircleIcon className="h-5 w-5 text-emerald-600" />}
       maxWidthClass="max-w-xl"
       footer={
         <div className="flex flex-wrap justify-end gap-2">
@@ -2203,7 +2768,7 @@ function ConversionSummaryModal({ open, onClose, data, role, onNavigateSalesOrde
               className={cn(btn, "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700")}
               onClick={() => onNavigateSalesOrder?.(salesOrder.orderNumber)}
             >
-              <FiShoppingBag className="h-4 w-4" /> Open Sales Order
+              <HShoppingBagIcon className="h-4 w-4" /> Open Sales Order
             </button>
           ) : null}
         </div>
@@ -2213,7 +2778,7 @@ function ConversionSummaryModal({ open, onClose, data, role, onNavigateSalesOrde
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-600 shadow-sm">
-              <FiCheckCircle className="h-6 w-6" />
+              <HCheckCircleIcon className="h-6 w-6" />
             </div>
             <div>
               <p className="font-black text-emerald-950">Commercial Lifecycle Initiated</p>
@@ -2290,13 +2855,13 @@ function ConfirmDeleteModal({ open, leadName, loading, onClose, onConfirm }) {
       setError(err?.message || "Delete failed")
     }
   }
-  return <ModalShell open={open} onClose={onClose} title={`Delete ${leadName || "lead"}?`} subtitle="" icon={<FiAlertTriangle className="h-5 w-5" />} maxWidthClass="max-w-md" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, "bg-rose-600 text-white hover:bg-rose-700")} onClick={confirm} disabled={loading || password.length < 6}>{loading ? "Deleting..." : "Delete"}</button></div>}>
+  return <ModalShell open={open} onClose={onClose} title={`Delete ${leadName || "lead"}?`} subtitle="" icon={<HAlertTriangleIcon className="h-5 w-5" />} maxWidthClass="max-w-md" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, "bg-rose-600 text-white hover:bg-rose-700")} onClick={confirm} disabled={loading || password.length < 6}>{loading ? "Deleting..." : "Delete"}</button></div>}>
     <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
-      <div className="flex items-center gap-2 text-sm font-bold text-gray-900"><FiLock className="h-4 w-4 text-indigo-600" />Admin password</div>
+      <div className="flex items-center gap-2 text-sm font-bold text-gray-900"><HLockIcon className="h-4 w-4 text-indigo-600" />Admin password</div>
       {error ? <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-xs font-semibold text-rose-700">{error}</p> : null}
       <div className="relative mt-3">
         <input type={showPassword ? "text" : "password"} value={password} onChange={(event) => { setPassword(event.target.value); setError("") }} placeholder="Admin password" autoComplete="current-password" className={cn(input, "pr-11")} />
-        <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-gray-500 hover:bg-gray-100" aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? <FiEyeOff className="h-4 w-4" /> : <FiEye className="h-4 w-4" />}</button>
+        <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-gray-500 hover:bg-gray-100" aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? <HEyeOffIcon className="h-4 w-4" /> : <HEyeIcon className="h-4 w-4" />}</button>
       </div>
     </div>
   </ModalShell>
@@ -2308,7 +2873,7 @@ function QuickActionModal({ open, onClose, lead, onSaved }) {
   const [err, setErr] = useState("")
   useEffect(() => { if (open) { setErr(""); setForm({ action: "call_done", note: "", outcome: "", nextAction: lead?.nextAction || "", nextActionDate: "" }) } }, [open, lead])
   const submit = async () => { setErr(""); setLoading(true); try { await apiQuickAction({ leadId: getLeadId(lead), ...form, nextActionDate: form.nextActionDate ? new Date(form.nextActionDate).toISOString() : null }); onSaved?.(); onClose?.() } catch (e) { setErr(e?.message || "Quick action failed") } finally { setLoading(false) } }
-  return <ModalShell open={open} onClose={onClose} title="Quick action" subtitle={lead?.contact?.name || ""} icon={<FiZap className="h-5 w-5" />} maxWidthClass="max-w-3xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : "Run action"}</button></div>}>
+  return <ModalShell open={open} onClose={onClose} title="Quick action" subtitle={lead?.contact?.name || ""} icon={<HFlashIcon className="h-5 w-5" />} maxWidthClass="max-w-3xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : "Run action"}</button></div>}>
     {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
     <div className="grid gap-3">
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{QUICK_ACTIONS.map(([key, text, Icon]) => {
@@ -2378,7 +2943,7 @@ function AssignLeadModal({ open, onClose, lead, onSaved }) {
     }
   }
 
-  return <ModalShell open={open} onClose={onClose} title="Assign employee" subtitle={lead?.contact?.name || "Choose who will handle this lead"} icon={<FiUserCheck className="h-5 w-5" />} maxWidthClass="max-w-2xl" footer={<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading || !assignedTo}>{loading ? "Assigning..." : "Assign lead"}</button></div>}>
+  return <ModalShell open={open} onClose={onClose} title="Assign employee" subtitle={lead?.contact?.name || "Choose who will handle this lead"} icon={<HUserCheckIcon className="h-5 w-5" />} maxWidthClass="max-w-2xl" footer={<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading || !assignedTo}>{loading ? "Assigning..." : "Assign lead"}</button></div>}>
     {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
 
     <div className="grid gap-4">
@@ -2412,7 +2977,7 @@ function AssignLeadModal({ open, onClose, lead, onSaved }) {
             const userId = String(user._id || user.id)
             const selected = selectedUsers.includes(userId)
             return <button key={userId} type="button" onClick={() => toggleUser(userId)} className={cn("flex items-center gap-3 rounded-2xl border p-3 text-left transition", selected ? "border-indigo-200 bg-indigo-50" : "border-gray-100 bg-white hover:bg-gray-50")}>
-              <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border", selected ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-200 bg-white text-transparent")}><FiCheck className="h-4 w-4" /></span>
+              <span className={cn("flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border", selected ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-200 bg-white text-transparent")}><HCheckIcon className="h-4 w-4" /></span>
               <span className="min-w-0 flex-1"><span className="block truncate text-sm font-bold text-gray-900">{user.name || user.email}</span><span className="block truncate text-xs text-gray-500">{primaryOwner === userId ? "Primary owner" : user.email || "Lead access"}</span></span>
             </button>
           })}
@@ -2425,7 +2990,7 @@ function AssignLeadModal({ open, onClose, lead, onSaved }) {
         <span><span className="block font-bold text-gray-900">Lock this lead to selected person</span><span className="mt-1 block text-xs text-gray-500">Recommended for manual assignment, so the lead does not move to another owner accidentally.</span></span>
       </label>
 
-      {!users.length ? <EmptyState icon={<FiUserCheck className="h-5 w-5" />} title="No available lead assignees" subtitle="Only active, available employees with lead access are shown here." /> : null}
+      {!users.length ? <EmptyState icon={<HUserCheckIcon className="h-5 w-5" />} title="No available lead assignees" subtitle="Only active, available employees with lead access are shown here." /> : null}
     </div>
   </ModalShell>
 }
@@ -2445,7 +3010,7 @@ function StageWorkGuide({ lead, onAction }) {
         <div className="flex flex-col gap-3">
           <div className="flex min-w-0 items-start gap-3">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-emerald-700 shadow-sm">
-              <FiMessageSquare className="h-5 w-5" />
+              <HConversationIcon className="h-5 w-5" />
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -2461,22 +3026,22 @@ function StageWorkGuide({ lead, onAction }) {
           </div>
           <div className="flex flex-wrap items-center gap-2 border-t border-emerald-100/70 pt-2">
             <button type="button" className={cn(btn, btnGhost, "px-3 py-1.5 text-xs")} onClick={() => onAction?.("note", lead)}>
-              <FiFileText className="h-3.5 w-3.5" /> Add Note
+              <HFileTextIcon className="h-3.5 w-3.5" /> Add Note
             </button>
             <button type="button" className={cn(btn, btnGhost, "px-3 py-1.5 text-xs")} onClick={() => onAction?.("quick", lead)}>
-              <FiPhoneCall className="h-3.5 w-3.5" /> Log Call
+              <HPhoneCallIcon className="h-3.5 w-3.5" /> Log Call
             </button>
             <button type="button" className={cn(btn, btnGhost, "px-3 py-1.5 text-xs")} onClick={() => onAction?.("followup", lead)}>
-              <FiCalendar className="h-3.5 w-3.5" /> Schedule Follow-up
+              <HCalendarIcon className="h-3.5 w-3.5" /> Schedule Follow-up
             </button>
             <button type="button" className={cn(btn, btnGhost, "px-3 py-1.5 text-xs")} onClick={() => onAction?.("activity", lead)}>
-              <FiActivity className="h-3.5 w-3.5" /> Create Activity
+              <HActivityIcon className="h-3.5 w-3.5" /> Create Activity
             </button>
             <button type="button" className={cn(btn, "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 px-3 py-1.5 text-xs")} onClick={() => onAction?.("won", lead)}>
-              <FiCheckCircle className="h-3.5 w-3.5" /> Mark Won
+              <HCheckCircleIcon className="h-3.5 w-3.5" /> Mark Won
             </button>
             <button type="button" className={cn(btn, btnDanger, "px-3 py-1.5 text-xs")} onClick={() => onAction?.("lost", lead)}>
-              <FiXCircle className="h-3.5 w-3.5" /> Mark Lost
+              <HCloseCircleIcon className="h-3.5 w-3.5" /> Mark Lost
             </button>
           </div>
         </div>
@@ -2484,7 +3049,7 @@ function StageWorkGuide({ lead, onAction }) {
     )
   }
 
-  const Icon = guidance?.icon || FiTarget
+  const Icon = guidance?.icon || HTargetIcon
   let title = "Stage work"
   let text = "Keep this lead moving with the next required action."
   let actionType = guidance?.type || "activity"
@@ -2548,9 +3113,9 @@ function RequirementOverview({ lead, onAction }) {
           <p className="text-sm font-black text-gray-950">Requirement / Discovery</p>
           <p className="text-xs font-semibold text-gray-500">Client need, budget and decision info</p>
         </div>
-        <button className={cn(btn, ready ? btnGhost : btnPrimary, "px-3 py-2")} onClick={() => onAction?.("requirement", lead)}>
+        {onAction ? <button className={cn(btn, ready ? btnGhost : btnPrimary, "px-3 py-2")} onClick={() => onAction?.("requirement", lead)}>
           {ready ? "Edit" : "Add"}
-        </button>
+        </button> : null}
       </div>
       {ready ? (
         <div className="grid gap-3 md:grid-cols-2">
@@ -2563,7 +3128,7 @@ function RequirementOverview({ lead, onAction }) {
           <div className="md:col-span-2"><DetailRow label="Pain points" value={Array.isArray(r.painPoints) && r.painPoints.length ? r.painPoints.join(", ") : "—"} /></div>
         </div>
       ) : (
-        <EmptyState icon={<FiTarget className="h-5 w-5" />} title="No requirement captured yet" subtitle="When the lead reaches Discovery, add requirement details from here." />
+        <EmptyState icon={<HTargetIcon className="h-5 w-5" />} title="No requirement captured yet" subtitle="When the lead reaches Discovery, add requirement details from here." />
       )}
     </div>
   )
@@ -2578,7 +3143,7 @@ function LeadNotesOverview({ lead, onAction }) {
           <p className="text-sm font-black text-gray-950">Latest Notes</p>
           <p className="text-xs font-semibold text-gray-500">Stage reason, activity notes and manual notes</p>
         </div>
-        <button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onAction?.("note", lead)}>Add Note</button>
+        {onAction ? <button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onAction?.("note", lead)}>Add Note</button> : null}
       </div>
       {notes.length ? (
         <div className="space-y-2">
@@ -2594,13 +3159,155 @@ function LeadNotesOverview({ lead, onAction }) {
           ))}
         </div>
       ) : (
-        <EmptyState icon={<FiFileText className="h-5 w-5" />} title="No notes yet" subtitle="Add notes or update stages to build the lead history." />
+        <EmptyState icon={<HFileTextIcon className="h-5 w-5" />} title="No notes yet" subtitle="Add notes or update stages to build the lead history." />
       )}
     </div>
   )
 }
 
-function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initialTab = "overview", isRestrictedLeadView = false, showToast }) {
+function normalizeLeadViewTab(value = "overview") {
+  const tab = String(value || "overview")
+  if (["timeline", "activities", "notes"].includes(tab)) return "activity"
+  if (["proposals", "deals"].includes(tab)) return "sales"
+  if (tab === "queue") return "overview"
+  return tab
+}
+
+function getLeadPrimaryAction(lead, timeline = null) {
+  if (!lead || isFinalPipelineStage(lead?.pipelineStage)) return null
+
+  const stage = String(lead?.pipelineStage || "new")
+  if (stage === "new") return { type: "nextStage", label: "Qualify lead", icon: HArrowRightIcon }
+  if (stage === "qualified") return { type: "nextStage", label: "Start discovery", icon: HArrowRightIcon }
+  if (stage === "discovery") {
+    return hasRequirementDetails(lead)
+      ? { type: "nextStage", label: "Move to Proposal", icon: HArrowRightIcon }
+      : { type: "requirement", label: "Complete requirement", icon: HTargetIcon }
+  }
+  if (stage === "proposal") {
+    const proposalInfo = getProposalShortcutInfo(lead, timeline)
+    return proposalInfo.action === "manageProposal"
+      ? { type: "manageProposal", label: "Review proposals", icon: HFileTextIcon }
+      : { type: "proposal", label: "Create proposal", icon: HFileTextIcon, disabled: proposalInfo.disabled }
+  }
+  if (stage === "negotiation") return { type: "won", label: "Mark Won", icon: HCheckCircleIcon, success: true }
+
+  const nextStage = getNextPipelineStage(lead)
+  return nextStage ? { type: "nextStage", label: `Next: ${STAGE_LABELS[nextStage] || nextStage}`, icon: HArrowRightIcon } : null
+}
+
+function LeadIdentitySummary({ lead }) {
+  const name = lead?.contact?.name || "Unnamed lead"
+  const company = lead?.contact?.companyName || lead?.company?.name || "No company"
+  const assigned = lead?.assignedTo
+  const ownerName = typeof assigned === "object" ? (assigned?.name || assigned?.fullName || assigned?.email || "") : ""
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gray-950 text-sm font-black text-white">
+            {initials(name)}
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-lg font-black text-gray-950">{name}</h3>
+              <Badge value={lead?.pipelineStage || "new"} />
+              {lead?.priority ? <Badge value={lead.priority} /> : null}
+            </div>
+            <p className="mt-1 truncate text-sm font-semibold text-gray-600">{company}</p>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-gray-500">
+              {lead?.contact?.email ? <span className="inline-flex items-center gap-1.5"><HMailIcon className="h-3.5 w-3.5" />{lead.contact.email}</span> : null}
+              {lead?.contact?.phone ? <span className="inline-flex items-center gap-1.5"><HPhoneCallIcon className="h-3.5 w-3.5" />{lead.contact.phone}</span> : null}
+              {ownerName ? <span className="inline-flex items-center gap-1.5"><HUserIcon className="h-3.5 w-3.5" />{ownerName}</span> : null}
+            </div>
+          </div>
+        </div>
+        <div className="shrink-0 text-left sm:text-right">
+          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-gray-400">Lead</p>
+          <p className="mt-1 text-sm font-black text-gray-800">{lead?.leadNumber || "—"}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LeadStageStrip({ lead }) {
+  const current = String(lead?.pipelineStage || "new")
+  const currentIndex = getStageIndex(current)
+  const final = isFinalPipelineStage(current)
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-black text-gray-950">Pipeline progress</p>
+          <p className="mt-0.5 text-xs font-semibold text-gray-500">Keep the stage visible without turning it into another action panel.</p>
+        </div>
+        <Badge value={final ? `Closed: ${STAGE_LABELS[current] || current}` : `Current: ${STAGE_LABELS[current] || current}`} />
+      </div>
+      <div className="flex items-start">
+        {ACTIVE_PIPELINE_STAGES.map((stage, index) => {
+          const done = final || index < currentIndex
+          const active = stage === current
+          return (
+            <div key={stage} className="flex min-w-0 flex-1 items-start">
+              <div className="flex min-w-0 flex-1 flex-col items-center text-center">
+                <div className={cn(
+                  "flex h-8 w-8 items-center justify-center rounded-full border text-xs font-black",
+                  done ? "border-emerald-600 bg-emerald-600 text-white" : active ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-200 bg-white text-gray-400"
+                )}>
+                  {done ? <HCheckIcon className="h-4 w-4" /> : index + 1}
+                </div>
+                <p className={cn("mt-2 truncate text-[11px] font-bold sm:text-xs", active ? "text-indigo-700" : done ? "text-emerald-700" : "text-gray-400")}>{STAGE_LABELS[stage] || stage}</p>
+              </div>
+              {index < ACTIVE_PIPELINE_STAGES.length - 1 ? <div className={cn("mt-4 h-0.5 flex-1 rounded-full", done ? "bg-emerald-300" : "bg-gray-200")} /> : null}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function LeadNextActionCard({ lead, timeline }) {
+  const primary = getLeadPrimaryAction(lead, timeline)
+  const dueAt = lead?.nextActionAt || lead?.nextFollowUpAt
+  const stage = String(lead?.pipelineStage || "new")
+  const fallbackText = stage === "negotiation"
+    ? "Close the final client discussion and record the outcome."
+    : STAGE_REQUIREMENTS[stage] || "Review the lead and continue the next required step."
+  const actionText = lead?.nextAction || fallbackText
+  const Icon = primary?.icon || HTargetIcon
+
+  return (
+    <div className={cn(
+      "rounded-2xl border p-4 sm:p-5",
+      lead?.isOverdue ? "border-rose-200 bg-rose-50/50" : "border-indigo-100 bg-indigo-50/40"
+    )}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className={cn(
+            "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white shadow-sm",
+            lead?.isOverdue ? "text-rose-700" : "text-indigo-700"
+          )}>
+            <Icon className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-black text-gray-950">Next action</p>
+              {lead?.isOverdue ? <Badge value="Overdue" /> : dueAt ? <Badge value="Scheduled" /> : null}
+            </div>
+            <p className="mt-1 text-sm font-semibold text-gray-700">{actionText}</p>
+            <p className="mt-1 text-xs font-semibold text-gray-500">{dueAt ? `Due ${formatDate(dueAt, true)}` : "No follow-up time set"}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initialTab = "overview", isRestrictedLeadView = false }) {
   const navigate = useNavigate()
   const currentUser = useMemo(() => {
     try {
@@ -2617,48 +3324,51 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
 
   const [lead, setLead] = useState(null)
   const [timeline, setTimeline] = useState({ logs: [], activities: [], proposals: [], deals: [], queueItems: [], quotations: [] })
-  const [tab, setTab] = useState(initialTab || "overview")
+  const [tab, setTab] = useState(normalizeLeadViewTab(initialTab))
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState("")
   const [reasonModal, setReasonModal] = useState({ open: false })
   const [recordView, setRecordView] = useState({ open: false, type: "", record: null })
   const [recordEdit, setRecordEdit] = useState({ type: "", record: null })
-  const [inboxUnreadCount, setInboxUnreadCount] = useState(0)
+  const [savedPreviewProposal, setSavedPreviewProposal] = useState(null)
   const load = useCallback(async () => {
     if (!open || !leadId) return
-    setLoading(true); setErr("")
-    try { const [a, b] = await Promise.all([apiGetLead(leadId), apiGetLeadTimeline(leadId)]); setLead(a?.lead || a?.data || a); setTimeline(b?.timeline || b || {}) } catch (e) { setErr(e?.message || "Failed to load lead details") } finally { setLoading(false) }
+    setLoading(true)
+    setErr("")
+    setLead((current) => String(getLeadId(current)) === String(leadId) ? current : null)
+    try {
+      const [a, b] = await Promise.all([apiGetLead(leadId), apiGetLeadTimeline(leadId)])
+      setLead(a?.lead || a?.data || a)
+      setTimeline(b?.timeline || b || {})
+    } catch (e) {
+      setErr(e?.message || "Failed to load lead details")
+    } finally {
+      setLoading(false)
+    }
   }, [open, leadId])
-  useEffect(() => { if (open) setTab(initialTab || "overview") }, [open, initialTab, leadId])
-  useEffect(() => { load() }, [load, refreshTick])
+
   useEffect(() => {
-    if (!open || !leadId) return
-    let alive = true
-    apiJson(`${API_BASE}/lead-messages/unread-count?leadId=${encodeURIComponent(leadId)}`)
-      .then((data) => { if (alive) setInboxUnreadCount(Number(data?.unreadCount || 0)) })
-      .catch(() => { if (alive) setInboxUnreadCount(0) })
-    return () => { alive = false }
-  }, [open, leadId, refreshTick])
+    if (open) setTab(normalizeLeadViewTab(initialTab))
+  }, [open, initialTab, leadId])
+  useEffect(() => { load() }, [load, refreshTick])
   const logs = timeline.logs || []
   const activities = timeline.activities || []
   const proposals = timeline.proposals || []
   const deals = timeline.deals || []
   const queueItems = timeline.queueItems || []
   const quotations = timeline.quotations || []
-  const showSalesTabs = ["proposal", "negotiation", "won"].includes(String(lead?.pipelineStage || "")) || getStageIndex(lead?.pipelineStage) >= getStageIndex("discovery")
+  const showSalesTab = ["proposal", "negotiation", "won"].includes(String(lead?.pipelineStage || "")) || getStageIndex(lead?.pipelineStage) >= getStageIndex("discovery")
   const tabs = [
-    ["overview", "Overview", FiInfo],
-    ["timeline", "Timeline", FiClock],
-    ...(!isRestrictedLeadView ? [["activities", "Activities", FiActivity]] : []),
-    ...(showSalesTabs ? [["proposals", "Proposals", FiFileText], ["deals", "Deals", FiBriefcase]] : []),
-    ["notes", "Notes", FiFileText],
-    ["inbox", "Inbox", FiMessageSquare, inboxUnreadCount],
-    ["queue", "Queue", FiZap],
+    ["overview", "Overview", HInfoIcon],
+    ["activity", "Activity", HActivityIcon],
+    ...(showSalesTab ? [["sales", "Sales", HBriefcaseIcon]] : []),
   ]
+
   useEffect(() => {
-    if (!lead) return
-    if (!tabs.some(([key]) => key === tab)) setTab("overview")
-  }, [lead, tab, isRestrictedLeadView, showSalesTabs])
+    const validTab = resolveLeadDetailTab(tab, lead, leadId, tabs.map(([key]) => key))
+    if (validTab !== tab) setTab(validTab)
+  }, [lead, leadId, tab, isRestrictedLeadView, showSalesTab])
+
   const openReasonModal = (config) => setReasonModal({ open: true, ...config })
   const closeReasonModal = () => setReasonModal({ open: false })
   const exportTimelineProposal = async (proposal) => {
@@ -2669,157 +3379,308 @@ function LeadFullViewModal({ open, onClose, leadId, refreshTick, onAction, initi
       toast.error(e?.message || "PDF export failed")
     }
   }
-  return <><ModalShell open={open} onClose={onClose} title="Lead A-Z History" subtitle={lead?.contact?.name || "Full timeline, activities, proposals, deals and work queue"} icon={<FiEye className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex flex-wrap justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load}><FiRefreshCcw className="h-4 w-4" />Refresh</button>{lead ? (() => { const proposalInfo = getProposalShortcutInfo(lead, timeline); const eligibleProposal = (timeline.proposals || []).find((proposal) => ["sent", "accepted"].includes(proposal.status) && !proposal.dealId); return <><button className={cn(btn, btnPrimary)} disabled={!getNextPipelineStage(lead)} onClick={() => onAction?.("nextStage", lead)}><FiArrowRight />Next Stage</button><button className={cn(btn, btnSoft)} onClick={() => onAction?.("quick", lead)}><FiZap />Quick action</button>{proposalInfo.show ? <button className={cn(btn, proposalInfo.action === "proposal" ? btnPrimary : btnGhost)} disabled={proposalInfo.disabled} onClick={() => proposalInfo.action === "manageProposal" ? setTab("proposals") : onAction?.(proposalInfo.action, lead)}><FiFileText />{proposalInfo.label}</button> : null}{!["won", "lost"].includes(lead?.pipelineStage) ? <>
-          {lead?.pipelineStage === "negotiation" ? (
-            <button className={cn(btn, "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700")} onClick={() => onAction?.("won", lead)}><FiCheckCircle className="h-4 w-4" />Mark Won</button>
-          ) : null}
-          <button className={cn(btn, btnDanger)} onClick={() => onAction?.("lost", lead)}><FiXCircle className="h-4 w-4" />Mark Lost</button>
-        </> : null}</> })() : null}</div>}>
-    {loading ? <div className="flex justify-center p-10"><FiLoader className="h-6 w-6 animate-spin text-indigo-600" /></div> : err ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : lead ? <>
-      <div className="mb-4 flex flex-wrap gap-2">{tabs.map(([k, name, Icon, count]) => <button key={k} className={cn(btn, tab === k ? btnPrimary : btnGhost, "px-3 py-2")} onClick={() => setTab(k)}><Icon className="h-4 w-4" />{name}{count ? <span className={cn("ml-1 rounded-full px-2 py-0.5 text-[10px] font-black", tab === k ? "bg-white/20 text-white" : "bg-indigo-600 text-white")}>{count > 99 ? "99+" : count}</span> : null}</button>)}</div>
-      {tab === "overview" && (
-        <div className="space-y-4">
-          <StageProgressController lead={lead} onNextStage={(item) => onAction?.("nextStage", item)} onMoveStage={(item) => onAction?.("stage", item)} />
-          <StageWorkGuide lead={lead} onAction={onAction} />
+  const onPreviewProposal = (proposal) => setSavedPreviewProposal(proposal)
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <DetailRow label="Lead no" value={lead.leadNumber} />
-            <DetailRow label="Company" value={lead.contact?.companyName} />
-            <DetailRow label="Contact" value={lead.contact?.name} />
-            <DetailRow label="Phone" value={lead.contact?.phone} />
-            <DetailRow label="Email" value={lead.contact?.email} />
-            <DetailRow label="Stage" value={<Badge value={lead.pipelineStage} />} />
-            <DetailRow label="Status" value={<Badge value={lead.status} />} />
-            <DetailRow label="Queue" value={<Badge value={lead.workQueuePriority} />} />
-            <DetailRow label="Score" value={lead.workQueueScore || lead.leadScore || 0} />
-            <DetailRow label="Next action" value={lead.nextAction} />
-            <DetailRow label="Next action at" value={formatDate(lead.nextActionAt, true)} />
-            <DetailRow label="Overdue" value={<Badge value={lead.isOverdue ? "yes" : "no"} />} />
+  const primaryAction = getLeadPrimaryAction(lead, timeline)
+  const PrimaryActionIcon = primaryAction?.icon || HArrowRightIcon
+  const runPrimaryAction = () => {
+    if (!lead || !primaryAction || primaryAction.disabled) return
+    if (primaryAction.type === "manageProposal") return setTab("sales")
+    onAction?.(primaryAction.type, lead)
+  }
+
+  const activityTimeline = [...logs, ...activities]
+    .sort((a, b) => new Date(b.createdAt || b.completedAt || 0) - new Date(a.createdAt || a.completedAt || 0))
+
+  return <>
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      title="Lead Details"
+      subtitle={lead?.contact?.companyName || lead?.contact?.name || "Focused lead workspace"}
+      icon={<HUserIcon className="h-5 w-5" />}
+      maxWidthClass="max-w-6xl"
+      compactHeader
+      headerContent={
+        <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex min-w-max w-fit gap-0.5 rounded-lg bg-gray-100 p-0.5" role="tablist" aria-label="Lead detail sections">
+            {tabs.map(([k, name, Icon, count]) => {
+              const active = tab === k
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className={cn(
+                    "inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30",
+                    active
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "text-gray-600 hover:bg-white hover:text-gray-950"
+                  )}
+                  onClick={() => setTab(k)}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  <span>{name}</span>
+                  {count ? (
+                    <span className={cn(
+                      "rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none",
+                      active ? "bg-white/20 text-white" : "bg-white text-gray-600"
+                    )}>
+                      {count > 99 ? "99+" : count}
+                    </span>
+                  ) : null}
+                </button>
+              )
+            })}
           </div>
-
-          <RequirementOverview lead={lead} onAction={onAction} />
         </div>
-      )}
-      {tab === "timeline" && (
-        <div className="space-y-3">
-          {[...logs, ...activities, ...proposals, ...deals, ...queueItems, ...quotations]
-            .sort((a, b) => new Date(b.createdAt || b.sentAt || b.quotationDate || 0) - new Date(a.createdAt || a.sentAt || a.quotationDate || 0))
-            .map((x, i) => (
-              <TimelineCard key={`${x._id || i}`} item={x} />
-            ))}
-          {!logs.length && !activities.length && !proposals.length && !deals.length && !queueItems.length && !quotations.length ? (
-            <EmptyState icon={<FiClock />} title="No history yet" />
+      }
+      footer={
+        <div className="flex items-center justify-end gap-2">
+          <PortalDropdown
+            label="More"
+            placement="top"
+            buttonClassName={cn(btn, btnGhost, "px-3")}
+            menuClassName="w-60"
+          >
+            {({ close }) => (
+              <>
+                <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50" onClick={() => { close(); load() }}><HRefreshIcon className="h-4 w-4" />Refresh data</button>
+                {!isRestrictedLeadView && lead ? <>
+                  <div className="my-1 border-t border-gray-100" />
+                  <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50" onClick={() => { close(); onAction?.("quick", lead) }}><HFlashIcon className="h-4 w-4" />Quick action</button>
+                  <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50" onClick={() => { close(); onAction?.("note", lead) }}><HFileTextIcon className="h-4 w-4" />Add note</button>
+                  <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50" onClick={() => { close(); onAction?.("followup", lead) }}><HCalendarIcon className="h-4 w-4" />Schedule follow-up</button>
+                  <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50" onClick={() => { close(); onAction?.("activity", lead) }}><HActivityIcon className="h-4 w-4" />Create activity</button>
+                  <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50" onClick={() => { close(); onAction?.("edit", lead) }}><HEditIcon className="h-4 w-4" />Edit lead</button>
+                  {!isFinalPipelineStage(lead?.pipelineStage) ? <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50" onClick={() => { close(); onAction?.("stage", lead) }}><HSettingsIcon className="h-4 w-4" />Update stage</button> : null}
+                  {!isFinalPipelineStage(lead?.pipelineStage) ? <>
+                    <div className="my-1 border-t border-gray-100" />
+                    <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-rose-700 hover:bg-rose-50" onClick={() => { close(); onAction?.("lost", lead) }}><HCloseCircleIcon className="h-4 w-4" />Mark Lost</button>
+                  </> : null}
+                </> : null}
+              </>
+            )}
+          </PortalDropdown>
+          {!isRestrictedLeadView && lead && primaryAction ? (
+            <button
+              type="button"
+              className={cn(btn, primaryAction.success ? "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700" : btnPrimary)}
+              disabled={primaryAction.disabled}
+              onClick={runPrimaryAction}
+            >
+              <PrimaryActionIcon className="h-4 w-4" />{primaryAction.label}
+            </button>
           ) : null}
         </div>
-      )}
-      {!isRestrictedLeadView && tab === "activities" && <RecordList items={activities} type="activity" onComplete={async (id) => { await apiCompleteActivity(id, { outcome: "Completed from UI" }); await load(); onAction?.("refresh") }} onCancel={async (id) => { await apiCancelActivity(id, { reason: "Cancelled from UI" }); await load(); onAction?.("refresh") }} />}
-      {showSalesTabs && tab === "proposals" && (
-        <div className="space-y-6">
-          <div>
-            <div className="mb-3 flex items-center justify-between">
-              <h4 className="text-sm font-bold uppercase tracking-wider text-gray-500">Proposals</h4>
+      }
+    >
+      {loading ? <div className="flex justify-center p-10"><HLoaderIcon className="h-6 w-6 animate-spin text-indigo-600" /></div> : err ? <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : lead ? <>
+        <LeadIdentitySummary lead={lead} />
+
+        {tab === "overview" && (
+          <div className="mt-4 space-y-4">
+            <LeadNextActionCard lead={lead} timeline={timeline} />
+            <LeadStageStrip lead={lead} />
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <DetailRow label="Status" value={<Badge value={lead.status} />} />
+              <DetailRow label="Lead score" value={lead.leadScore ?? 0} />
+              <DetailRow label="Source" value={lead.source} />
+              <DetailRow label="Next follow-up" value={formatDate(lead.nextFollowUpAt, true)} />
             </div>
-            <RecordList
-              items={proposals}
-              type="proposal"
-              onView={(record) => setRecordView({ open: true, type: "proposal", record })}
-              onEdit={(record) => setRecordEdit({ type: "proposal", record })}
-              onExport={exportTimelineProposal}
-              onSend={async (id) => { await apiSendProposal(id); await load(); onAction?.("refresh") }}
-              onAccept={async (id) => { await apiAcceptProposal(id); toast.success("Proposal accepted. Lead moved to Negotiation stage."); await load(); onAction?.("refresh") }}
-              onReject={(id) => openReasonModal({
-                title: "Reject proposal",
-                subtitle: lead?.contact?.name || "Add a clear reason before rejecting.",
-                icon: <FiXCircle className="h-5 w-5" />,
-                actionLabel: "Reject proposal",
-                danger: true,
-                onSubmit: async ({ reason, note }) => {
-                  await apiRejectProposal(id, { rejectReason: reason, note });
-                  await load();
-                  onAction?.("refresh")
-                }
-              })}
-            />
-          </div>
-          {quotations.length > 0 ? (
-            <div>
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-bold uppercase tracking-wider text-gray-500">Linked Sales Quotations</h4>
-                  <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-bold text-indigo-700">{quotations.length}</span>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                {quotations.map((quotation) => (
-                  <div key={quotation._id} className="rounded-2xl border border-indigo-100 bg-indigo-50/20 p-4">
-                    <div className="flex flex-wrap justify-between gap-2">
-                      <div>
-                        <p className="font-bold text-gray-900">{quotation.quotationNumber}</p>
-                        <p className="text-xs text-gray-500">{formatDate(quotation.quotationDate || quotation.createdAt, true)}</p>
-                      </div>
-                      <Badge value={quotation.status} />
-                    </div>
-                    {quotation.grandTotal !== undefined ? (
-                      <div className="mt-3">
-                        <span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>
-                          {formatMoney(quotation.grandTotal, quotation.currency)}
-                        </span>
-                      </div>
-                    ) : null}
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {["sent", "viewed", "under_negotiation"].includes(quotation.status) ? (
-                        <button
-                          type="button"
-                          className={cn(btn, "bg-emerald-600 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700")}
-                          onClick={async () => {
-                            try {
-                              await apiJson(`${API_BASE}/sales/quotations/${quotation._id}/status`, {
-                                method: "PATCH",
-                                body: JSON.stringify({ status: "accepted", confirmationMethod: "direct_crm" }),
-                              })
-                              toast.success("Quotation accepted. Lead moved to Negotiation.")
-                              await load()
-                              onAction?.("refresh")
-                            } catch (e) {
-                              toast.error(e?.message || "Failed to accept quotation")
-                            }
-                          }}
-                        >
-                          <FiCheckCircle className="h-4 w-4" /> Accept Quotation
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className={cn(btn, btnGhost, "px-3 py-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50")}
-                        onClick={() => {
-                          onClose?.()
-                          navigate(`${getModuleBasePath(role, "sales")}/sales-quotations`)
-                        }}
-                      >
-                        <FiArrowRight className="h-4 w-4" /> View in Sales
-                      </button>
+
+            <RequirementOverview lead={lead} onAction={isRestrictedLeadView ? undefined : onAction} />
+
+            {queueItems.length ? (
+              <details className="group overflow-hidden rounded-2xl border border-gray-200 bg-white">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 [&::-webkit-details-marker]:hidden">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 text-amber-700"><HFlashIcon className="h-4 w-4" /></div>
+                    <div>
+                      <p className="text-sm font-black text-gray-950">Tasks & queue</p>
+                      <p className="text-xs font-semibold text-gray-500">{queueItems.length} linked work item{queueItems.length === 1 ? "" : "s"}</p>
                     </div>
                   </div>
-                ))}
+                  <HChevronDownIcon className="h-4 w-4 text-gray-400 transition group-open:rotate-180" />
+                </summary>
+                <div className="border-t border-gray-100 p-4">
+                  <RecordList items={queueItems} type="queue" onDone={async (id) => { await apiQueueDone(id, { result: "Done from lead view" }); await load(); onAction?.("refresh") }} />
+                </div>
+              </details>
+            ) : null}
+          </div>
+        )}
+
+        {tab === "activity" && (
+          <div className="mt-4 space-y-4">
+            {!isRestrictedLeadView ? (
+              <div className="flex flex-wrap justify-end gap-2">
+                <button type="button" className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onAction?.("note", lead)}><HFileTextIcon className="h-4 w-4" />Add note</button>
+                <button type="button" className={cn(btn, btnPrimary, "px-3 py-2")} onClick={() => onAction?.("activity", lead)}><HPlusIcon className="h-4 w-4" />Create activity</button>
+              </div>
+            ) : null}
+
+            <LeadNotesOverview lead={lead} onAction={isRestrictedLeadView ? undefined : onAction} />
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-4">
+              <div className="mb-4">
+                <p className="text-sm font-black text-gray-950">Activity history</p>
+                <p className="mt-0.5 text-xs font-semibold text-gray-500">Stage changes and CRM activities in one chronological view.</p>
+              </div>
+              <div className="space-y-3">
+                {activityTimeline.map((x, i) => <TimelineCard key={`${x._id || i}`} item={x} />)}
+                {!activityTimeline.length ? <EmptyState icon={<HClockIcon />} title="No activity yet" subtitle="Calls, meetings, notes and stage changes will appear here." /> : null}
               </div>
             </div>
-          ) : null}
-        </div>
-      )}
-      {showSalesTabs && tab === "deals" && <RecordList items={deals} type="deal" onView={(record) => setRecordView({ open: true, type: "deal", record })} onEdit={(record) => setRecordEdit({ type: "deal", record })} onWon={(id) => openReasonModal({ title: "Mark deal as won", subtitle: "Winning the deal will automatically convert this lead to a customer.", icon: <FiCheckCircle className="h-5 w-5" />, actionLabel: "Win deal & convert", onSubmit: async ({ reason, note }) => { const data = await apiDealWon(id, { reason, note }); await load(); onAction?.("dealWon", data) } })} onLost={(id) => openReasonModal({ title: "Mark deal as lost", subtitle: lead?.contact?.name || "Add a clear loss reason.", icon: <FiXCircle className="h-5 w-5" />, actionLabel: "Mark lost", danger: true, onSubmit: async ({ reason, note }) => { await apiDealLost(id, { reason, note }); await load(); onAction?.("refresh") } })} />}
-      {tab === "queue" && <RecordList items={queueItems} type="queue" onDone={async (id) => { await apiQueueDone(id, { result: "Done from lead view" }); await load(); onAction?.("refresh") }} />}
-      {tab === "notes" && <LeadNotesOverview lead={lead} onAction={onAction} />}
-      {tab === "inbox" && <LeadInboxPanel leadId={leadId} lead={lead} showToast={showToast} onUnreadChange={setInboxUnreadCount} />}
-    </> : <EmptyState icon={<FiEye className="h-5 w-5" />} title="No lead selected" />}
-  </ModalShell>
-  <ReasonModal open={reasonModal.open} onClose={closeReasonModal} title={reasonModal.title} subtitle={reasonModal.subtitle} icon={reasonModal.icon || <FiInfo className="h-5 w-5" />} actionLabel={reasonModal.actionLabel || "Submit"} danger={reasonModal.danger} onSubmit={reasonModal.onSubmit} />
-  <RecordDetailsModal open={recordView.open} onClose={() => setRecordView({ open: false, type: "", record: null })} record={recordView.record} type={recordView.type} lead={lead} />
-  <ProposalModal open={recordEdit.type === "proposal"} onClose={() => setRecordEdit({ type: "", record: null })} lead={lead && recordEdit.record ? { ...lead, _editingProposal: recordEdit.record } : lead} onSaved={async () => { await load(); onAction?.("refresh") }} />
-  <DealUpdateModal open={recordEdit.type === "deal"} onClose={() => setRecordEdit({ type: "", record: null })} deal={recordEdit.record} onSaved={async () => { await load(); onAction?.("refresh") }} />
-</>
+
+            {!isRestrictedLeadView && activities.length ? (
+              <details className="group overflow-hidden rounded-2xl border border-gray-200 bg-white">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 [&::-webkit-details-marker]:hidden">
+                  <div>
+                    <p className="text-sm font-black text-gray-950">Manage activities</p>
+                    <p className="text-xs font-semibold text-gray-500">Complete or cancel activity records when needed.</p>
+                  </div>
+                  <HChevronDownIcon className="h-4 w-4 text-gray-400 transition group-open:rotate-180" />
+                </summary>
+                <div className="border-t border-gray-100 p-4">
+                  <RecordList items={activities} type="activity" onComplete={async (id) => { await apiCompleteActivity(id, { outcome: "Completed from UI" }); await load(); onAction?.("refresh") }} onCancel={async (id) => { await apiCancelActivity(id, { reason: "Cancelled from UI" }); await load(); onAction?.("refresh") }} />
+                </div>
+              </details>
+            ) : null}
+          </div>
+        )}
+
+        {showSalesTab && tab === "sales" && (
+          <div className="mt-4 space-y-5">
+            <div className="rounded-2xl border border-gray-200 bg-white p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-black text-gray-950">Proposals</p>
+                  <p className="mt-0.5 text-xs font-semibold text-gray-500">Create, review, send and record proposal decisions.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {proposals.length ? <button type="button" className={cn(btn, btnSoft, "px-3 py-2")} onClick={() => onPreviewProposal(proposals[0])}><HEyeIcon className="h-4 w-4" />Preview proposal</button> : null}
+                  {!isRestrictedLeadView && getProposalShortcutInfo(lead, timeline).show && getProposalShortcutInfo(lead, timeline).action === "proposal" ? (
+                    <button type="button" className={cn(btn, btnPrimary, "px-3 py-2")} disabled={getProposalShortcutInfo(lead, timeline).disabled} onClick={() => onAction?.("proposal", lead)}><HPlusIcon className="h-4 w-4" />Create proposal</button>
+                  ) : null}
+                </div>
+              </div>
+              <RecordList
+                items={proposals}
+                type="proposal"
+                onPreview={onPreviewProposal}
+                onView={(record) => setRecordView({ open: true, type: "proposal", record })}
+                onEdit={isRestrictedLeadView ? undefined : (record) => setRecordEdit({ type: "proposal", record })}
+                onExport={exportTimelineProposal}
+                onSend={isRestrictedLeadView ? undefined : async (id) => { await apiSendProposal(id); await load(); onAction?.("refresh") }}
+                onAccept={isRestrictedLeadView ? undefined : async (id) => { await apiAcceptProposal(id); toast.success("Proposal accepted. Lead moved to Negotiation stage."); await load(); onAction?.("refresh") }}
+                onReject={isRestrictedLeadView ? undefined : (id) => openReasonModal({
+                  title: "Reject proposal",
+                  subtitle: lead?.contact?.name || "Add a clear reason before rejecting.",
+                  icon: <HCloseCircleIcon className="h-5 w-5" />,
+                  actionLabel: "Reject proposal",
+                  danger: true,
+                  onSubmit: async ({ reason, note }) => {
+                    await apiRejectProposal(id, { rejectReason: reason, note })
+                    await load()
+                    onAction?.("refresh")
+                  }
+                })}
+              />
+            </div>
+
+            {quotations.length > 0 ? (
+              <div className="rounded-2xl border border-gray-200 bg-white p-4">
+                <div className="mb-3 flex items-center gap-2">
+                  <div>
+                    <p className="text-sm font-black text-gray-950">Sales quotations</p>
+                    <p className="mt-0.5 text-xs font-semibold text-gray-500">Linked quotation records from Sales.</p>
+                  </div>
+                  <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-bold text-indigo-700">{quotations.length}</span>
+                </div>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  {quotations.map((quotation) => (
+                    <div key={quotation._id} className="rounded-2xl border border-gray-200 bg-gray-50/60 p-4">
+                      <div className="flex flex-wrap justify-between gap-2">
+                        <div>
+                          <p className="font-bold text-gray-900">{quotation.quotationNumber}</p>
+                          <p className="text-xs text-gray-500">{formatDate(quotation.quotationDate || quotation.createdAt, true)}</p>
+                        </div>
+                        <Badge value={quotation.status} />
+                      </div>
+                      {quotation.grandTotal !== undefined ? <p className="mt-3 text-sm font-black text-gray-900">{formatMoney(quotation.grandTotal, quotation.currency)}</p> : null}
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {!isRestrictedLeadView && ["sent", "viewed", "under_negotiation"].includes(quotation.status) ? (
+                          <button
+                            type="button"
+                            className={cn(btn, "bg-emerald-600 px-3 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700")}
+                            onClick={async () => {
+                              try {
+                                await apiJson(`${API_BASE}/sales/quotations/${quotation._id}/status`, {
+                                  method: "PATCH",
+                                  body: JSON.stringify({ status: "accepted", confirmationMethod: "direct_crm" }),
+                                })
+                                toast.success("Quotation accepted. Lead moved to Negotiation.")
+                                await load()
+                                onAction?.("refresh")
+                              } catch (e) {
+                                toast.error(e?.message || "Failed to accept quotation")
+                              }
+                            }}
+                          >
+                            <HCheckCircleIcon className="h-4 w-4" />Accept quotation
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className={cn(btn, btnGhost, "px-3 py-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50")}
+                          onClick={() => {
+                            onClose?.()
+                            navigate(`${getModuleBasePath(role, "sales")}/sales-quotations`)
+                          }}
+                        >
+                          <HArrowRightIcon className="h-4 w-4" />Open in Sales
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-4">
+              <div className="mb-3">
+                <p className="text-sm font-black text-gray-950">Deals</p>
+                <p className="mt-0.5 text-xs font-semibold text-gray-500">Deal records created from the accepted sales flow.</p>
+              </div>
+              <RecordList
+                items={deals}
+                type="deal"
+                onView={(record) => setRecordView({ open: true, type: "deal", record })}
+                onEdit={isRestrictedLeadView ? undefined : (record) => setRecordEdit({ type: "deal", record })}
+                onWon={isRestrictedLeadView ? undefined : (id) => openReasonModal({ title: "Mark deal as won", subtitle: "Winning the deal will automatically convert this lead to a customer.", icon: <HCheckCircleIcon className="h-5 w-5" />, actionLabel: "Win deal & convert", onSubmit: async ({ reason, note }) => { const data = await apiDealWon(id, { reason, note }); await load(); onAction?.("dealWon", data) } })}
+                onLost={isRestrictedLeadView ? undefined : (id) => openReasonModal({ title: "Mark deal as lost", subtitle: lead?.contact?.name || "Add a clear loss reason.", icon: <HCloseCircleIcon className="h-5 w-5" />, actionLabel: "Mark lost", danger: true, onSubmit: async ({ reason, note }) => { await apiDealLost(id, { reason, note }); await load(); onAction?.("refresh") } })}
+              />
+            </div>
+
+            {!proposals.length && !quotations.length && !deals.length ? <EmptyState icon={<HBriefcaseIcon className="h-5 w-5" />} title="No sales records yet" subtitle="Proposal and deal records will stay grouped here as the lead progresses." /> : null}
+          </div>
+        )}
+
+      </> : <EmptyState icon={<HEyeIcon className="h-5 w-5" />} title="No lead selected" />}
+    </ModalShell>
+
+    <ReasonModal open={reasonModal.open} onClose={closeReasonModal} title={reasonModal.title} subtitle={reasonModal.subtitle} icon={reasonModal.icon || <HInfoIcon className="h-5 w-5" />} actionLabel={reasonModal.actionLabel || "Submit"} danger={reasonModal.danger} onSubmit={reasonModal.onSubmit} />
+    <RecordDetailsModal open={recordView.open} onClose={() => setRecordView({ open: false, type: "", record: null })} record={recordView.record} type={recordView.type} lead={lead} />
+    <SavedProposalPreviewModal open={Boolean(savedPreviewProposal)} onClose={() => setSavedPreviewProposal(null)} proposal={savedPreviewProposal} lead={lead} />
+    <ProposalModal open={recordEdit.type === "proposal"} onClose={() => setRecordEdit({ type: "", record: null })} lead={lead && recordEdit.record ? { ...lead, _editingProposal: recordEdit.record } : lead} onSaved={async () => { await load(); onAction?.("refresh") }} />
+    <DealUpdateModal open={recordEdit.type === "deal"} onClose={() => setRecordEdit({ type: "", record: null })} deal={recordEdit.record} onSaved={async () => { await load(); onAction?.("refresh") }} />
+  </>
 }
 
-function DetailRow({ label: labelText, value }) { return <div className="rounded-2xl border border-gray-100 bg-gray-50/50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{labelText}</p><div className="mt-1 break-words text-sm font-semibold text-gray-900">{value || "—"}</div></div> }
+function DetailRow({ label: labelText, value }) { return <div className="rounded-2xl border border-gray-100 bg-gray-50/50 p-3"><p className="text-xs font-semibold uppercase tracking-wide text-gray-500">{labelText}</p><div className="mt-1 whitespace-pre-wrap break-words text-sm font-semibold leading-6 text-gray-900">{value || "—"}</div></div> }
 function TimelineCard({ item }) {
   const isQuotation = Boolean(item?.quotationNumber)
   const title = item?.quotationNumber
@@ -2861,8 +3722,8 @@ function TimelineCard({ item }) {
     </div>
   )
 }
-function RecordList({ items = [], type, onComplete, onCancel, onSend, onAccept, onReject, onWon, onLost, onDone, onView, onEdit, onExport }) {
-  if (!items.length) return <EmptyState icon={<FiInfo className="h-5 w-5" />} title={`No ${type} records`} />
+function RecordList({ items = [], type, onComplete, onCancel, onSend, onAccept, onReject, onWon, onLost, onDone, onPreview, onView, onEdit, onExport }) {
+  if (!items.length) return <EmptyState icon={<HInfoIcon className="h-5 w-5" />} title={`No ${type} records`} />
   return <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">{items.map((it) => {
     const proposalEditable = type === "proposal" && ["draft", "sent"].includes(it.status)
     const dealEditable = type === "deal" && !["won", "lost"].includes(it.stage)
@@ -2870,15 +3731,107 @@ function RecordList({ items = [], type, onComplete, onCancel, onSend, onAccept, 
       <div className="flex flex-wrap justify-between gap-2"><div><p className="font-bold text-gray-900">{it.title || it.proposalNo || it.dealNo || it.type || it.source}</p><p className="text-xs text-gray-500">{formatDate(it.createdAt || it.scheduledAt || it.followupDueAt, true)}</p></div><Badge value={it.status || it.stage || it.priority || it.dealHealth} /></div>
       {it.grandTotal !== undefined ? <div className="mt-3"><span className={cn(chip, "bg-indigo-50 text-indigo-700 ring-indigo-600/10")}>{formatMoney(it.grandTotal, it.currency)}</span></div> : null}
       <div className="mt-4 flex flex-wrap gap-2">
-        {["proposal", "deal"].includes(type) ? <button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onView?.(it)}><FiEye className="h-4 w-4" />View</button> : null}
-        {proposalEditable || dealEditable ? <button className={cn(btn, btnSoft, "px-3 py-2")} onClick={() => onEdit?.(it)}><FiEdit2 className="h-4 w-4" />Edit</button> : null}
+        {type === "proposal" ? <button className={cn(btn, btnSoft, "px-3 py-2")} onClick={() => onPreview?.(it)}><HEyeIcon className="h-4 w-4" />Preview proposal</button> : null}
+        {["proposal", "deal"].includes(type) ? <button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onView?.(it)}>{type === "proposal" ? "Details" : <><HEyeIcon className="h-4 w-4" />View</>}</button> : null}
+        {proposalEditable || dealEditable ? <button className={cn(btn, btnSoft, "px-3 py-2")} onClick={() => onEdit?.(it)}><HEditIcon className="h-4 w-4" />Edit</button> : null}
         {type === "activity" ? <><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onComplete?.(it._id)}>Complete</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={() => onCancel?.(it._id)}>Cancel</button></> : null}
-        {type === "proposal" ? <><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onExport?.(it)}><FiDownload className="h-4 w-4" />PDF</button><button className={cn(btn, btnGhost, "px-3 py-2")} disabled={it.status !== "draft"} onClick={() => Promise.resolve(onSend?.(it._id)).catch((error) => toast.error(error.message))}>Send</button><button className={cn(btn, btnGhost, "px-3 py-2")} disabled={it.status !== "sent"} onClick={() => Promise.resolve(onAccept?.(it._id)).catch((error) => toast.error(error.message))}>Accept internally</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={() => onReject?.(it._id)}>Reject</button></> : null}
+        {type === "proposal" ? <><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onExport?.(it)}><HDownloadIcon className="h-4 w-4" />PDF</button><button className={cn(btn, btnGhost, "px-3 py-2")} disabled={it.status !== "draft"} onClick={() => Promise.resolve(onSend?.(it._id)).catch((error) => toast.error(error.message))}>Send</button><button className={cn(btn, btnGhost, "px-3 py-2")} disabled={it.status !== "sent"} onClick={() => Promise.resolve(onAccept?.(it._id)).catch((error) => toast.error(error.message))}>Accept internally</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={() => onReject?.(it._id)}>Reject</button></> : null}
         {type === "deal" && !["won", "lost"].includes(it.stage) ? <span className="inline-flex items-center rounded-xl bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700">Outcome managed from lead Negotiation</span> : null}
         {type === "queue" ? <button className={cn(btn, btnPrimary, "px-3 py-2")} onClick={() => onDone?.(it._id)}>Done</button> : null}
       </div>
     </div>
   })}</div>
+}
+
+export function getQuotationActionItem(lead, timeline = null, checking = false, canManageSalesQuotation = true, salesQuotationAccessReason = "") {
+  const stage = String(lead?.pipelineStage || "new")
+  const stageIndex = getStageIndex(stage)
+  const requirementReady = hasRequirementDetails(lead)
+  const quotationCount = getProposalCount(lead, timeline)
+
+  if (checking) {
+    return [
+      "salesQuotation",
+      "Create Quotation",
+      HFileTextIcon,
+      true,
+      "Checking requirement and quotation status..."
+    ]
+  }
+
+  if (stage === "lost") {
+    return [
+      "salesQuotation",
+      "Create Quotation",
+      HFileTextIcon,
+      true,
+      "Lead is closed as lost."
+    ]
+  }
+
+  if (stage === "won") {
+    return [
+      "manageProposal",
+      "Manage Quotations",
+      HFileTextIcon,
+      false,
+      "View linked quotations and proposals in Proposals tab"
+    ]
+  }
+
+  // 1. If Stage is new or qualified:
+  if (["new", "qualified"].includes(stage)) {
+    return [
+      "salesQuotation",
+      "Create Quotation",
+      HFileTextIcon,
+      true,
+      "Complete discovery before creating quotations."
+    ]
+  }
+
+  // 2. If Stage is discovery:
+  if (stage === "discovery") {
+    if (!requirementReady) {
+      return [
+        "salesQuotation",
+        "Create Quotation",
+        HFileTextIcon,
+        true,
+        "Fill requirements first to unlock quotation."
+      ]
+    }
+    return [
+      "salesQuotation",
+      "Create Quotation",
+      HFileTextIcon,
+      !canManageSalesQuotation,
+      !canManageSalesQuotation
+        ? (salesQuotationAccessReason || "Requires sales-quotation:manage permission.")
+        : "Create sales quotation in Sales module"
+    ]
+  }
+
+  // 3. If Stage is proposal or negotiation (or any further stage):
+  if (quotationCount > 0) {
+    return [
+      "manageProposal",
+      "Manage Quotations",
+      HFileTextIcon,
+      false,
+      "View linked quotations and proposals in Proposals tab"
+    ]
+  }
+
+  return [
+    "salesQuotation",
+    "Create Quotation",
+    HFileTextIcon,
+    !canManageSalesQuotation,
+    !canManageSalesQuotation
+      ? (salesQuotationAccessReason || "Requires sales-quotation:manage permission.")
+      : "Create sales quotation in Sales module"
+  ]
 }
 
 function RowActionsMenu({
@@ -2965,42 +3918,33 @@ function RowActionsMenu({
   }, [open, lead])
 
   const hydratedLead = menuLead || lead
-  const proposalInfo = checkingProposal
-    ? { show: true, disabled: true, action: "proposal", label: "Checking proposal...", helper: "Loading requirement and proposal status." }
-    : getProposalShortcutInfo(hydratedLead, menuTimeline)
-  const eligibleProposal = Array.isArray(menuTimeline?.proposals)
-    ? menuTimeline.proposals.find((proposal) => ["sent", "accepted"].includes(proposal.status) && !proposal.dealId)
-    : null
-  const activeDeal = Array.isArray(menuTimeline?.deals)
-    ? menuTimeline.deals.find((deal) => !["won", "lost"].includes(deal.stage))
-    : null
+  const quotationAction = getQuotationActionItem(
+    hydratedLead,
+    menuTimeline,
+    checkingProposal,
+    canManageSalesQuotation,
+    salesQuotationAccessReason
+  )
   const isNegotiation = String(hydratedLead?.pipelineStage || "") === "negotiation"
   const isClosed = ["won", "lost"].includes(String(hydratedLead?.pipelineStage || ""))
   const manageItems = canManageLeads
     ? [
-        ["quick", "Quick action", FiZap],
-        ...(canAdminister ? [["assign", "Assign lead", FiUserCheck]] : []),
-        ["edit", "Edit lead", FiEdit2],
-        ["note", "Add note", FiFileText],
-        [
-          "salesQuotation",
-          "Create Quotation",
-          FiFileText,
-          !canManageSalesQuotation,
-          salesQuotationAccessReason || "Create sales quotation in Sales module"
-        ],
-        ["nextStage", "Next stage", FiArrowRight],
-        ["stage", "Update stage", FiSliders],
-        ["requirement", "Requirement", FiTarget],
-        ["activity", "Create activity", FiActivity],
-        ["followup", "Set follow-up", FiCalendar],
-        ["contacted", "Mark contacted", FiPhoneCall],
-        ...(proposalInfo.show ? [[proposalInfo.action, proposalInfo.label, FiFileText, proposalInfo.disabled, proposalInfo.helper]] : []),
-        ...(isNegotiation ? [["won", "Mark Won", FiCheckCircle, false, "Mark lead as Won and convert to customer"]] : []),
-        ...(!isClosed ? [["lost", "Mark lost", FiXCircle, false, "Close lead as lost with required reason"]] : [])
+        ["quick", "Quick action", HFlashIcon],
+        ...(canAdminister ? [["assign", "Assign lead", HUserCheckIcon]] : []),
+        ["edit", "Edit lead", HEditIcon],
+        ["note", "Add note", HFileTextIcon],
+        quotationAction,
+        ["nextStage", "Next stage", HArrowRightIcon],
+        ["stage", "Update stage", HSettingsIcon],
+        ["requirement", "Requirement", HTargetIcon],
+        ["activity", "Create activity", HActivityIcon],
+        ["followup", "Set follow-up", HCalendarIcon],
+        ["contacted", "Mark contacted", HPhoneCallIcon],
+        ...(isNegotiation ? [["won", "Mark Won", HCheckCircleIcon, false, "Mark lead as Won and convert to customer"]] : []),
+        ...(!isClosed ? [["lost", "Mark lost", HCloseCircleIcon, false, "Close lead as lost with required reason"]] : [])
       ]
     : []
-  const items = [["view", "View A-Z history", FiEye], ...manageItems]
+  const items = [["view", "View details", HEyeIcon], ...manageItems]
 
   const menu = open && typeof document !== "undefined" ? createPortal(
     <AnimatePresence>
@@ -3011,16 +3955,47 @@ function RowActionsMenu({
         exit={{ opacity: 0, y: 8, scale: 0.98 }}
         transition={{ duration: 0.14 }}
         style={{ top: menuStyle.top, left: menuStyle.left, transformOrigin: menuStyle.transformOrigin }}
-        className="fixed z-[9999] w-72 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_24px_60px_-20px_rgba(15,23,42,0.45)]"
+        className="fixed z-[9999] w-64 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_24px_60px_-20px_rgba(15,23,42,0.45)]"
       >
         <div className="max-h-[min(70vh,560px)] overflow-y-auto p-2">
-          {items.map(([key, text, Icon, forceDisabled, helper]) => {
+          {items.map(([key, text, Icon, forceDisabled]) => {
             const disabled = Boolean(forceDisabled) || (key === "convert" && (!canConvert || converted || converting)) || (key === "contacted" && busy) || (key === "won" && lead?.pipelineStage === "won") || (key === "lost" && lead?.pipelineStage === "lost") || (key === "nextStage" && !getNextPipelineStage(lead))
-            return <button key={key} disabled={disabled} className={cn("flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50", key === "proposal" ? "bg-indigo-50/60 text-indigo-800" : key === "won" ? "bg-emerald-50 text-emerald-800" : key === "manageProposal" ? "bg-gray-50 text-gray-900" : "text-gray-800")} onClick={() => { setOpen(false); onAction(key, ["proposal", "manageProposal", "requirement", "nextStage", "stage", "won", "lost"].includes(key) ? hydratedLead : lead) }}>{key === "contacted" && busy ? <FiLoader className="mt-0.5 h-4 w-4 animate-spin" /> : key === "convert" && converting ? <FiLoader className="mt-0.5 h-4 w-4 animate-spin" /> : <Icon className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" />}<span><span className="block text-sm font-semibold">{text}</span>{helper ? <span className="mt-0.5 block text-xs font-medium text-gray-500">{helper}</span> : null}</span></button>
+            return (
+              <button
+                key={key}
+                type="button"
+                disabled={disabled}
+                title={text}
+                aria-label={text}
+                className={cn(
+                  "flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50",
+                  (key === "proposal" || (key === "salesQuotation" && !disabled))
+                    ? "bg-indigo-50/60 text-indigo-800"
+                    : key === "won"
+                      ? "bg-emerald-50 text-emerald-800"
+                      : key === "lost"
+                        ? "text-rose-700 hover:bg-rose-50"
+                        : key === "manageProposal"
+                          ? "bg-gray-50 text-gray-900"
+                          : "text-gray-800"
+                )}
+                onClick={() => {
+                  setOpen(false)
+                  onAction(key, ["proposal", "salesQuotation", "manageProposal", "requirement", "nextStage", "stage", "won", "lost"].includes(key) ? hydratedLead : lead)
+                }}
+              >
+                {key === "contacted" && busy
+                  ? <HLoaderIcon className="h-4 w-4 shrink-0 animate-spin" />
+                  : key === "convert" && converting
+                    ? <HLoaderIcon className="h-4 w-4 shrink-0 animate-spin" />
+                    : <Icon className="h-4 w-4 shrink-0 text-current opacity-70" />}
+                <span className="truncate">{text}</span>
+              </button>
+            )
           })}
           {canAdminister ? <>
             <div className="my-1 border-t border-gray-100" />
-            <button className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-rose-700 transition hover:bg-rose-50" onClick={() => { setOpen(false); onAction("delete", lead) }}><FiTrash2 className="h-4 w-4" />Delete lead</button>
+            <button type="button" className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-rose-700 transition hover:bg-rose-50" onClick={() => { setOpen(false); onAction("delete", lead) }}><HTrashIcon className="h-4 w-4 shrink-0" />Delete lead</button>
           </> : null}
         </div>
       </motion.div>
@@ -3028,7 +4003,7 @@ function RowActionsMenu({
     document.body
   ) : null
 
-  return <div ref={ref} className="relative flex items-center justify-end gap-2"><button className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30" onClick={() => onAction("view", lead)}><FiEye className="h-4 w-4" />View</button><button ref={buttonRef} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30" onClick={toggleMenu} aria-label="More lead actions" aria-haspopup="menu" aria-expanded={open}><FiMoreVertical className="h-4 w-4" /></button>{menu}</div>
+  return <div ref={ref} className="relative flex items-center justify-end gap-2"><button className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30" onClick={() => onAction("view", lead)}><HEyeIcon className="h-4 w-4" />View</button><button ref={buttonRef} className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-700 transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30" onClick={toggleMenu} aria-label="More lead actions" aria-haspopup="menu" aria-expanded={open}><HMoreVerticalIcon className="h-4 w-4" /></button>{menu}</div>
 }
 
 function WorkQueuePanel({ open, onClose, onToast, onChanged }) {
@@ -3041,9 +4016,9 @@ function WorkQueuePanel({ open, onClose, onToast, onChanged }) {
   const done = async (id) => { await apiQueueDone(id, { result: "Completed from work queue" }); onToast?.("success", "Queue item completed."); await load(); onChanged?.() }
   const start = async (id) => { await apiQueueStart(id); await load() }
   const runSnooze = async () => { if (!snooze.id || !snooze.date) return; await apiQueueSnooze(snooze.id, { snoozedUntil: new Date(snooze.date).toISOString(), reason: "Snoozed from UI" }); setSnooze({ id: "", date: "" }); await load(); onChanged?.() }
-  return <ModalShell open={open} onClose={onClose} title="Today’s Work Queue" subtitle="Priority based daily work for the lead team" icon={<FiZap className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load}><FiRefreshCcw />Refresh</button></div>}>
+  return <ModalShell open={open} onClose={onClose} title="Today’s Work Queue" subtitle="Priority based daily work for the lead team" icon={<HFlashIcon className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load}><HRefreshIcon />Refresh</button></div>}>
     {summary ? <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">{Object.entries(summary).map(([k, v]) => <div key={k} className="rounded-2xl border border-gray-100 bg-gray-50 p-3"><p className="text-xs font-bold uppercase text-gray-500">{k}</p><p className="mt-1 text-2xl font-black text-gray-900">{v}</p></div>)}</div> : null}
-    {loading ? <div className="flex justify-center p-8"><FiLoader className="animate-spin" /></div> : items.length ? <div className="space-y-3">{items.map((it) => <div key={it._id} className="rounded-2xl border border-gray-100 bg-white p-4"><div className="flex flex-wrap justify-between gap-3"><div><p className="font-bold text-gray-900">{it.title}</p><p className="text-sm text-gray-500">{it.description || it.leadId?.contact?.companyName || "—"}</p><p className="mt-1 text-xs text-gray-400">Due: {formatDate(it.dueAt, true)}</p></div><div className="flex flex-wrap gap-2"><Badge value={it.priority} /><Badge value={it.status} /><Badge value={it.source} /></div></div><div className="mt-3 flex flex-wrap gap-2"><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => start(it._id)}>Start</button><button className={cn(btn, btnPrimary, "px-3 py-2")} onClick={() => done(it._id)}>Done</button><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => setSnooze({ id: it._id, date: formatDateInput(new Date(Date.now() + 24 * 60 * 60 * 1000)) })}>Snooze</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={async () => { await apiQueueCancel(it._id, { reason: "Cancelled from UI" }); await load() }}>Cancel</button></div></div>)}</div> : <EmptyState icon={<FiZap />} title="No work queue items for today" />}
+    {loading ? <div className="flex justify-center p-8"><HLoaderIcon className="animate-spin" /></div> : items.length ? <div className="space-y-3">{items.map((it) => <div key={it._id} className="rounded-2xl border border-gray-100 bg-white p-4"><div className="flex flex-wrap justify-between gap-3"><div><p className="font-bold text-gray-900">{it.title}</p><p className="text-sm text-gray-500">{it.description || it.leadId?.contact?.companyName || "—"}</p><p className="mt-1 text-xs text-gray-400">Due: {formatDate(it.dueAt, true)}</p></div><div className="flex flex-wrap gap-2"><Badge value={it.priority} /><Badge value={it.status} /><Badge value={it.source} /></div></div><div className="mt-3 flex flex-wrap gap-2"><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => start(it._id)}>Start</button><button className={cn(btn, btnPrimary, "px-3 py-2")} onClick={() => done(it._id)}>Done</button><button className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => setSnooze({ id: it._id, date: formatDateInput(new Date(Date.now() + 24 * 60 * 60 * 1000)) })}>Snooze</button><button className={cn(btn, btnDanger, "px-3 py-2")} onClick={async () => { await apiQueueCancel(it._id, { reason: "Cancelled from UI" }); await load() }}>Cancel</button></div></div>)}</div> : <EmptyState icon={<HFlashIcon />} title="No work queue items for today" />}
     {snooze.id ? <div className="mt-4 rounded-2xl border border-indigo-100 bg-indigo-50 p-4"><div className="grid gap-3 md:grid-cols-[1fr_auto]"><input type="datetime-local" className={input} value={snooze.date} onChange={(e) => setSnooze((p) => ({ ...p, date: e.target.value }))} /><button className={cn(btn, btnPrimary)} onClick={runSnooze}>Confirm snooze</button></div></div> : null}
   </ModalShell>
 }
@@ -3099,7 +4074,7 @@ function TemplatesPanel({ open, onClose, onToast }) {
     }
   }
 
-  return <ModalShell open={open} onClose={onClose} title="Message Templates" subtitle="" icon={<FiFileText className="h-5 w-5" />} maxWidthClass="max-w-5xl">
+  return <ModalShell open={open} onClose={onClose} title="Message Templates" subtitle="" icon={<HFileTextIcon className="h-5 w-5" />} maxWidthClass="max-w-5xl">
     <div className="mb-5 rounded-2xl border border-gray-100 bg-gray-50 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <p className="font-bold text-gray-900">Create template</p>
@@ -3136,7 +4111,7 @@ function TemplatesPanel({ open, onClose, onToast }) {
         </div>
       })}
     </div>
-    {!templates.length ? <EmptyState icon={<FiFileText className="h-5 w-5" />} title="No templates yet" subtitle="Create one template and reuse it inside notes, activity, proposal and follow-up forms." /> : null}
+    {!templates.length ? <EmptyState icon={<HFileTextIcon className="h-5 w-5" />} title="No templates yet" subtitle="Create one template and reuse it inside notes, activity, proposal and follow-up forms." /> : null}
   </ModalShell>
 }
 
@@ -3159,9 +4134,9 @@ function AssignmentPanel({ open, onClose, onToast }) {
 
   useEffect(() => { if (open) load() }, [open])
 
-  return <ModalShell open={open} onClose={onClose} title="Lead Assignment" subtitle="" icon={<FiUserCheck className="h-5 w-5" />} maxWidthClass="max-w-4xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load} disabled={loading}>{loading ? "Refreshing..." : "Refresh"}</button><button className={cn(btn, btnPrimary)} onClick={onClose}>Done</button></div>}>
+  return <ModalShell open={open} onClose={onClose} title="Lead Assignment" subtitle="" icon={<HUserCheckIcon className="h-5 w-5" />} maxWidthClass="max-w-4xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={load} disabled={loading}>{loading ? "Refreshing..." : "Refresh"}</button><button className={cn(btn, btnPrimary)} onClick={onClose}>Done</button></div>}>
 
-    {loading ? <div className="flex justify-center p-8"><FiLoader className="h-5 w-5 animate-spin text-gray-500" /></div> : users.length ? <div className="grid gap-3 md:grid-cols-2">
+    {loading ? <div className="flex justify-center p-8"><HLoaderIcon className="h-5 w-5 animate-spin text-gray-500" /></div> : users.length ? <div className="grid gap-3 md:grid-cols-2">
       {users.map((u) => <div key={u._id || u.id} className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
         <div className="flex items-start gap-3">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-sm font-black text-indigo-700">{initials(u.name || u.email)}</div>
@@ -3177,7 +4152,7 @@ function AssignmentPanel({ open, onClose, onToast }) {
           <div className="rounded-xl bg-gray-50 p-3"><p className="text-xs font-semibold text-gray-500">Limit</p><p className="mt-1 text-lg font-black text-gray-900">{u.dailyLeadLimit || "∞"}</p></div>
         </div>
       </div>)}
-    </div> : <EmptyState icon={<FiUserCheck className="h-5 w-5" />} title="No available lead assignees" subtitle="Only active, available employees with lead access can receive leads." />}
+    </div> : <EmptyState icon={<HUserCheckIcon className="h-5 w-5" />} title="No available lead assignees" subtitle="Only active, available employees with lead access can receive leads." />}
   </ModalShell>
 }
 
@@ -3251,16 +4226,16 @@ function NotificationsPanel({ open, onClose, onToast, onChanged }) {
       onClose={onClose}
       title="Notifications"
       subtitle={`${unread} unread`}
-      icon={<FiBell className="h-5 w-5" />}
+      icon={<HBellIcon className="h-5 w-5" />}
       maxWidthClass="max-w-3xl"
       footer={
         <div className="flex justify-end gap-2">
           <button className={cn(btn, btnGhost)} onClick={load} disabled={loading || Boolean(actionId)}>
-            {loading ? <FiLoader className="h-4 w-4 animate-spin" /> : <FiRefreshCcw className="h-4 w-4" />}
+            {loading ? <HLoaderIcon className="h-4 w-4 animate-spin" /> : <HRefreshIcon className="h-4 w-4" />}
             Refresh
           </button>
           <button className={cn(btn, btnPrimary)} onClick={markAllRead} disabled={!items.length || unread === 0 || Boolean(actionId)}>
-            {actionId === "all" ? <FiLoader className="h-4 w-4 animate-spin" /> : <FiCheck className="h-4 w-4" />}
+            {actionId === "all" ? <HLoaderIcon className="h-4 w-4 animate-spin" /> : <HCheckIcon className="h-4 w-4" />}
             Mark all read
           </button>
         </div>
@@ -3282,7 +4257,7 @@ function NotificationsPanel({ open, onClose, onToast, onChanged }) {
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-bold text-gray-900">{n.title}</p>
                   {!n.isRead ? <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[10px] font-bold text-white">NEW</span> : null}
-                  {actionId === n._id ? <FiLoader className="h-4 w-4 animate-spin text-indigo-600" /> : null}
+                  {actionId === n._id ? <HLoaderIcon className="h-4 w-4 animate-spin text-indigo-600" /> : null}
                 </div>
                 <p className="mt-1 text-sm text-gray-600">{n.message}</p>
                 <p className="mt-1 text-xs text-gray-400">{formatDate(n.createdAt, true)}</p>
@@ -3291,7 +4266,7 @@ function NotificationsPanel({ open, onClose, onToast, onChanged }) {
             </div>
           </button>
         ))}
-        {!items.length ? <EmptyState icon={<FiBell />} title="No notifications" /> : null}
+        {!items.length ? <EmptyState icon={<HBellIcon />} title="No notifications" /> : null}
       </div>
     </ModalShell>
   )
@@ -3521,7 +4496,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
           <div className="min-w-0">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
-                <FiTarget className="h-5 w-5" />
+                <HTargetIcon className="h-5 w-5" />
               </div>
               <div className="min-w-0">
                 <h1 className="truncate text-2xl font-black tracking-tight text-gray-950 sm:text-3xl">Leads</h1>
@@ -3530,18 +4505,31 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center xl:justify-end">
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("notifications")}>
-                <FiBell />
+                <HBellIcon />
                 Alerts
                 {notifications ? <span className="rounded-full bg-rose-600 px-2 py-0.5 text-xs text-white">{notifications}</span> : null}
               </button>
-              {canManageLeads ? <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("queue")}><FiZap />Queue</button> : null}
-              {canManageLeads ? <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("templates")}><FiFileText />Templates</button> : null}
-              {canAdminister ? <button className={cn(btn, btnGhost, "h-11 px-3")} onClick={() => setPanel("assignment")}><FiUserCheck />Assignees</button> : null}
+              {(canManageLeads || canAdminister) ? (
+                <PortalDropdown
+                  label="Tools"
+                  icon={<HGridIcon className="h-4 w-4" />}
+                  buttonClassName={cn(btn, btnGhost, "h-11 px-3")}
+                  menuClassName="w-56"
+                >
+                  {({ close }) => (
+                    <>
+                      {canManageLeads ? <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50" onClick={() => { close(); setPanel("queue") }}><HFlashIcon className="h-4 w-4" />Work queue</button> : null}
+                      {canManageLeads ? <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50" onClick={() => { close(); setPanel("templates") }}><HFileTextIcon className="h-4 w-4" />Templates</button> : null}
+                      {canAdminister ? <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-gray-700 hover:bg-gray-50" onClick={() => { close(); setPanel("assignment") }}><HUserCheckIcon className="h-4 w-4" />Assignments</button> : null}
+                    </>
+                  )}
+                </PortalDropdown>
+              ) : null}
             </div>
             {canManageLeads ? <button className={cn(btn, btnPrimary, "h-11 shrink-0 px-5")} onClick={() => setModal({ type: "create", lead: null })}>
-              <FiPlus />New Lead
+              <HPlusIcon />New Lead
             </button> : null}
           </div>
         </div>
@@ -3549,7 +4537,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="w-full xl:flex-1">
               <div className="flex min-h-[50px] w-full flex-wrap items-center gap-2 rounded-2xl border border-gray-200 bg-gray-50/80 px-3 py-1.5 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
-                <FiSearch className="h-4 w-4 shrink-0 text-gray-400" />
+                <HSearchIcon className="h-4 w-4 shrink-0 text-gray-400" />
                 {activeFilterEntries.map((f) => (
                   <button
                     key={f.key}
@@ -3559,7 +4547,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
                     onClick={() => setFilters((p) => ({ ...p, [f.key]: "" }))}
                   >
                     <span className="truncate"><span className="text-indigo-500">{f.label}:</span> {String(f.value)}</span>
-                    <FiX className="h-3.5 w-3.5 shrink-0" />
+                    <HCloseIcon className="h-3.5 w-3.5 shrink-0" />
                   </button>
                 ))}
                 <input
@@ -3573,7 +4561,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
                   className={cn("inline-flex h-9 shrink-0 items-center gap-2 rounded-xl px-3 text-sm font-bold transition", activeFilterCount ? "bg-indigo-600 text-white hover:bg-indigo-700" : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100")}
                   onClick={() => { setFilterDraft(filters); setFiltersOpen(true) }}
                 >
-                  <FiFilter className="h-4 w-4" />Filters
+                  <HFilterIcon className="h-4 w-4" />Filters
                   {activeFilterCount ? <span className="rounded-full bg-white/20 px-1.5 text-xs">{activeFilterCount}</span> : null}
                 </button>
                 {(filters.q || activeFilterCount) ? (
@@ -3583,16 +4571,16 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
                     className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
                     onClick={clearAllSearchAndFilters}
                   >
-                    <FiX className="h-4 w-4" />
+                    <HCloseIcon className="h-4 w-4" />
                   </button>
                 ) : null}
               </div>
             </div>
             <div className="flex flex-wrap gap-2 xl:justify-end">
               {activeFilterCount ? <button className={cn(btn, btnGhost, "px-3")} onClick={clearOnlyFilters}>Clear chips</button> : null}
-              <button className={cn(btn, btnGhost)} onClick={() => setColsOpen(true)}><FiColumns />Columns</button>
-              <button className={cn(btn, btnGhost)} onClick={exportExcel}><SiMicrosoftexcel className="text-emerald-600" />Export</button>
-              <button className={cn(btn, btnGhost)} onClick={refreshAll}><FiRefreshCcw />Refresh</button>
+              <button className={cn(btn, btnGhost)} onClick={() => setColsOpen(true)}><HColumnsIcon />Columns</button>
+              <button className={cn(btn, btnGhost)} onClick={exportExcel}><HExportIcon className="text-emerald-600" />Export</button>
+              <button className={cn(btn, btnGhost)} onClick={refreshAll}><HRefreshIcon />Refresh</button>
             </div>
           </div>
         </div>
@@ -3624,18 +4612,18 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
       {error ? <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">{error}</div> : null}
       <div className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-[0_18px_45px_-34px_rgba(15,23,42,0.45)]">
         <div className="h-[520px] overflow-auto bg-white [scrollbar-gutter:stable] lg:h-[600px] xl:h-[650px]">
-          <table className="w-full min-w-[1200px] border-separate border-spacing-0 text-left">
+          <table className="w-full min-w-[980px] border-separate border-spacing-0 text-left">
             <thead className="sticky top-0 z-20">
               <tr>
                 {selectedCols.map((col) => (
                   <th
                     key={col}
-                    className="whitespace-nowrap border-b border-gray-200 bg-gray-50 px-6 py-4 text-left text-xs font-black uppercase tracking-[0.06em] text-gray-600"
+                    className="whitespace-nowrap border-b border-gray-200 bg-gray-50 px-4 py-4 text-left text-xs font-black uppercase tracking-[0.06em] text-gray-600"
                   >
                     {COLUMN_LABELS[col] || col}
                   </th>
                 ))}
-                <th className="sticky right-0 z-30 whitespace-nowrap border-b border-gray-200 bg-gray-50 px-6 py-4 text-right text-xs font-black uppercase tracking-[0.06em] text-gray-600 shadow-[-12px_0_20px_-20px_rgba(15,23,42,0.35)]">
+                <th className="sticky right-0 z-30 whitespace-nowrap border-b border-gray-200 bg-gray-50 px-4 py-4 text-right text-xs font-black uppercase tracking-[0.06em] text-gray-600 shadow-[-12px_0_20px_-20px_rgba(15,23,42,0.35)]">
                   Actions
                 </th>
               </tr>
@@ -3645,7 +4633,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
               {loading ? (
                 <tr>
                   <td colSpan={selectedCols.length + 1} className="bg-white p-10 text-center">
-                    <FiLoader className="mx-auto h-6 w-6 animate-spin text-indigo-600" />
+                    <HLoaderIcon className="mx-auto h-6 w-6 animate-spin text-indigo-600" />
                   </td>
                 </tr>
               ) : leads.length ? (
@@ -3658,7 +4646,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
                       <td
                         key={col}
                         className={cn(
-                          "max-w-[260px] whitespace-nowrap bg-white px-6 py-2.5 text-[15px] font-medium text-gray-900 transition-colors duration-150 group-hover:bg-indigo-50/50",
+                          "max-w-[260px] whitespace-nowrap bg-white px-4 py-3 text-sm font-medium text-gray-900 transition-colors duration-150 group-hover:bg-indigo-50/50",
                           lead.isOverdue ? "bg-rose-50/50" : ""
                         )}
                       >
@@ -3668,7 +4656,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
                       </td>
                     ))}
                     <td className={cn(
-                      "sticky right-0 z-10 bg-white px-6 py-2 text-right transition-colors duration-150 group-hover:bg-indigo-50/50",
+                      "sticky right-0 z-10 bg-white px-4 py-2 text-right transition-colors duration-150 group-hover:bg-indigo-50/50",
                       lead.isOverdue ? "bg-rose-50/50" : "",
                       "shadow-[-14px_0_24px_-22px_rgba(15,23,42,0.45)]"
                     )}>
@@ -3690,7 +4678,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
                 <tr>
                   <td colSpan={selectedCols.length + 1} className="bg-white p-8">
                     <EmptyState
-                      icon={<FiGrid className="h-5 w-5" />}
+                      icon={<HUserGroupIcon className="h-5 w-5" />}
                       title="No leads found"
                       subtitle="Create a new lead or adjust filters."
                     />
@@ -3718,15 +4706,15 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
             onClick={() => hasMore && fetchLeads({ reset: false })}
             title={hasMore ? "Load more leads" : "No more leads available"}
           >
-            {loadingMore ? <FiLoader className="h-4 w-4 animate-spin" /> : null}
+            {loadingMore ? <HLoaderIcon className="h-4 w-4 animate-spin" /> : null}
             {loadingMore ? "Loading..." : hasMore ? "Load more" : "All leads loaded"}
           </button>
         </div>
       </div>
     </div>
-    <ModalShell open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Lead Filters" subtitle="Filter by lead, queue and follow-up fields" icon={<FiFilter className="h-5 w-5" />} maxWidthClass="max-w-4xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={() => { const empty = Object.fromEntries(Object.keys(filters).map((k)=>[k,"" ])); setFilterDraft(empty); setFilters(empty); setFiltersOpen(false) }}>Clear all</button><button className={cn(btn, btnPrimary)} onClick={() => { setFilters(filterDraft); setFiltersOpen(false) }}>Apply filters</button></div>}><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><Field label="Status"><select className={input} value={filterDraft.status} onChange={(e) => setFilterDraft((p) => ({ ...p, status: e.target.value }))}><option value="">All</option>{LEAD_STATUSES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Pipeline stage"><select className={input} value={filterDraft.pipelineStage} onChange={(e) => setFilterDraft((p) => ({ ...p, pipelineStage: e.target.value }))}><option value="">All</option>{PIPELINE_STAGES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Priority"><select className={input} value={filterDraft.priority} onChange={(e) => setFilterDraft((p) => ({ ...p, priority: e.target.value }))}><option value="">All</option>{PRIORITIES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Temperature"><select className={input} value={filterDraft.leadTemperature} onChange={(e) => setFilterDraft((p) => ({ ...p, leadTemperature: e.target.value }))}><option value="">All</option>{TEMPERATURES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Queue priority"><select className={input} value={filterDraft.workQueuePriority} onChange={(e) => setFilterDraft((p) => ({ ...p, workQueuePriority: e.target.value }))}><option value="">All</option>{WORK_PRIORITIES.map((x)=><option key={x}>{x}</option>)}</select></Field><Field label="Overdue"><select className={input} value={filterDraft.isOverdue} onChange={(e) => setFilterDraft((p) => ({ ...p, isOverdue: e.target.value }))}><option value="">All</option><option value="true">Overdue</option><option value="false">Not overdue</option></select></Field><Field label="Next action type"><input className={input} value={filterDraft.nextActionType} onChange={(e)=>setFilterDraft(p=>({...p,nextActionType:e.target.value}))}/></Field><Field label="Purchase type"><input className={input} value={filterDraft.purchaseType} onChange={(e) => setFilterDraft((p) => ({ ...p, purchaseType: e.target.value }))} /></Field><Field label="Source"><input className={input} value={filterDraft.source} onChange={(e) => setFilterDraft((p) => ({ ...p, source: e.target.value }))} /></Field><Field label="Tag"><input className={input} value={filterDraft.tag} onChange={(e) => setFilterDraft((p) => ({ ...p, tag: e.target.value }))} /></Field><Field label="Next follow-up from"><input type="date" className={input} value={filterDraft.nextFollowUpFrom} onChange={(e) => setFilterDraft((p) => ({ ...p, nextFollowUpFrom: e.target.value }))} /></Field><Field label="Next follow-up to"><input type="date" className={input} value={filterDraft.nextFollowUpTo} onChange={(e) => setFilterDraft((p) => ({ ...p, nextFollowUpTo: e.target.value }))} /></Field><Field label="Last contacted from"><input type="date" className={input} value={filterDraft.lastContactedFrom} onChange={(e) => setFilterDraft((p) => ({ ...p, lastContactedFrom: e.target.value }))} /></Field><Field label="Last contacted to"><input type="date" className={input} value={filterDraft.lastContactedTo} onChange={(e) => setFilterDraft((p) => ({ ...p, lastContactedTo: e.target.value }))} /></Field></div></ModalShell>
+    <ModalShell open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Lead Filters" subtitle="Filter by lead, queue and follow-up fields" icon={<HFilterIcon className="h-5 w-5" />} maxWidthClass="max-w-4xl" footer={<div className="flex justify-end gap-2"><button className={cn(btn, btnGhost)} onClick={() => { const empty = Object.fromEntries(Object.keys(filters).map((k)=>[k,"" ])); setFilterDraft(empty); setFilters(empty); setFiltersOpen(false) }}>Clear all</button><button className={cn(btn, btnPrimary)} onClick={() => { setFilters(filterDraft); setFiltersOpen(false) }}>Apply filters</button></div>}><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><Field label="Status"><select className={input} value={filterDraft.status} onChange={(e) => setFilterDraft((p) => ({ ...p, status: e.target.value }))}><option value="">All</option>{LEAD_STATUSES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Pipeline stage"><select className={input} value={filterDraft.pipelineStage} onChange={(e) => setFilterDraft((p) => ({ ...p, pipelineStage: e.target.value }))}><option value="">All</option>{PIPELINE_STAGES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Priority"><select className={input} value={filterDraft.priority} onChange={(e) => setFilterDraft((p) => ({ ...p, priority: e.target.value }))}><option value="">All</option>{PRIORITIES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Temperature"><select className={input} value={filterDraft.leadTemperature} onChange={(e) => setFilterDraft((p) => ({ ...p, leadTemperature: e.target.value }))}><option value="">All</option>{TEMPERATURES.map((x) => <option key={x}>{x}</option>)}</select></Field><Field label="Queue priority"><select className={input} value={filterDraft.workQueuePriority} onChange={(e) => setFilterDraft((p) => ({ ...p, workQueuePriority: e.target.value }))}><option value="">All</option>{WORK_PRIORITIES.map((x)=><option key={x}>{x}</option>)}</select></Field><Field label="Overdue"><select className={input} value={filterDraft.isOverdue} onChange={(e) => setFilterDraft((p) => ({ ...p, isOverdue: e.target.value }))}><option value="">All</option><option value="true">Overdue</option><option value="false">Not overdue</option></select></Field><Field label="Next action type"><input className={input} value={filterDraft.nextActionType} onChange={(e)=>setFilterDraft(p=>({...p,nextActionType:e.target.value}))}/></Field><Field label="Purchase type"><input className={input} value={filterDraft.purchaseType} onChange={(e) => setFilterDraft((p) => ({ ...p, purchaseType: e.target.value }))} /></Field><Field label="Source"><input className={input} value={filterDraft.source} onChange={(e) => setFilterDraft((p) => ({ ...p, source: e.target.value }))} /></Field><Field label="Tag"><input className={input} value={filterDraft.tag} onChange={(e) => setFilterDraft((p) => ({ ...p, tag: e.target.value }))} /></Field><Field label="Next follow-up from"><input type="date" className={input} value={filterDraft.nextFollowUpFrom} onChange={(e) => setFilterDraft((p) => ({ ...p, nextFollowUpFrom: e.target.value }))} /></Field><Field label="Next follow-up to"><input type="date" className={input} value={filterDraft.nextFollowUpTo} onChange={(e) => setFilterDraft((p) => ({ ...p, nextFollowUpTo: e.target.value }))} /></Field><Field label="Last contacted from"><input type="date" className={input} value={filterDraft.lastContactedFrom} onChange={(e) => setFilterDraft((p) => ({ ...p, lastContactedFrom: e.target.value }))} /></Field><Field label="Last contacted to"><input type="date" className={input} value={filterDraft.lastContactedTo} onChange={(e) => setFilterDraft((p) => ({ ...p, lastContactedTo: e.target.value }))} /></Field></div></ModalShell>
     <ColumnPickerModal open={colsOpen} onClose={() => setColsOpen(false)} allowed={allowedCols} selected={selectedCols} onSave={saveColumns} />
-    <LeadFullViewModal open={Boolean(viewLeadId)} onClose={() => setViewLeadId("")} leadId={viewLeadId} initialTab={viewInitialTab} refreshTick={viewTick} isRestrictedLeadView={isRestrictedLeadView} showToast={showToast} onAction={(type, lead) => type === "refresh" ? refreshAll() : action(type, lead)} />
+    <LeadFullViewModal open={Boolean(viewLeadId)} onClose={() => setViewLeadId("")} leadId={viewLeadId} initialTab={viewInitialTab} refreshTick={viewTick} isRestrictedLeadView={isRestrictedLeadView} onAction={(type, lead) => type === "refresh" ? refreshAll() : action(type, lead)} />
     <LeadUpsertModal open={modal.type === "create"} onClose={() => setModal({ type: "", lead: null })} mode="create" users={assignees} canAssignOwner={canAdminister} onSaved={async () => { showToast("success", "Lead created."); await refreshAll() }} />
     <LeadUpsertModal open={modal.type === "edit"} onClose={() => setModal({ type: "", lead: null })} mode="edit" initial={modal.lead} users={assignees} canAssignOwner={canAdminister} onSaved={async () => { showToast("success", "Lead updated."); await refreshAll() }} />
     <NoteModal open={modal.type === "note"} onClose={() => setModal({ type: "", lead: null })} lead={modal.lead} onSaved={async () => { showToast("success", "Note added."); await refreshAll() }} />
@@ -3747,7 +4735,7 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
       salesWin
       title="Win negotiation & create sales records"
       subtitle={modal.lead?.contact?.name ? `${modal.lead.contact.name}${modal.lead.contact.companyName ? ` (${modal.lead.contact.companyName})` : ""}` : "Mark lead as Won and convert to customer."}
-      icon={<FiCheckCircle className="h-5 w-5" />}
+      icon={<HCheckCircleIcon className="h-5 w-5" />}
       actionLabel="Win & Create Sales Order"
       onSubmit={async (payload) => {
         const result = await apiLeadWon(getLeadId(modal.lead), payload);
@@ -3782,8 +4770,8 @@ export default function AdminLeadsPage({ onConvertedToCustomer }) {
         navigate(`${getModuleBasePath(role, "crm")}/clients/${customerId}`);
       }}
     />
-    <ReasonModal open={modal.type === "dealWon"} onClose={() => setModal({ type: "", lead: null, deal: null })} title="Mark deal as won" subtitle="The lead will be converted to a customer automatically." icon={<FiCheckCircle className="h-5 w-5" />} actionLabel="Win deal & convert" onSubmit={async (payload) => { const data = await apiDealWon(modal.deal?._id, payload); showToast("success", "Deal won. Lead converted to customer automatically."); onConvertedToCustomer?.(data?.customer || data); setModal({ type: "", lead: null, deal: null }); await refreshAll() }} />
-    <ReasonModal open={modal.type === "leadLost"} onClose={() => setModal({ type: "", lead: null })} title="Mark lead lost" subtitle={modal.lead?.contact?.name || ""} icon={<FiXCircle className="h-5 w-5" />} actionLabel="Mark lost" danger onSubmit={async (payload) => { await apiLeadLost(getLeadId(modal.lead), payload); showToast("success", "Lead marked as lost."); await refreshAll() }} />
+    <ReasonModal open={modal.type === "dealWon"} onClose={() => setModal({ type: "", lead: null, deal: null })} title="Mark deal as won" subtitle="The lead will be converted to a customer automatically." icon={<HCheckCircleIcon className="h-5 w-5" />} actionLabel="Win deal & convert" onSubmit={async (payload) => { const data = await apiDealWon(modal.deal?._id, payload); showToast("success", "Deal won. Lead converted to customer automatically."); onConvertedToCustomer?.(data?.customer || data); setModal({ type: "", lead: null, deal: null }); await refreshAll() }} />
+    <ReasonModal open={modal.type === "leadLost"} onClose={() => setModal({ type: "", lead: null })} title="Mark lead lost" subtitle={modal.lead?.contact?.name || ""} icon={<HCloseCircleIcon className="h-5 w-5" />} actionLabel="Mark lost" danger onSubmit={async (payload) => { await apiLeadLost(getLeadId(modal.lead), payload); showToast("success", "Lead marked as lost."); await refreshAll() }} />
     {canAdminister ? <ConfirmDeleteModal open={deleteState.open} leadName={deleteState.lead?.contact?.name || ""} loading={deleteState.loading} onClose={() => setDeleteState({ open: false, lead: null, loading: false })} onConfirm={confirmDelete} /> : null}
     <WorkQueuePanel open={panel === "queue"} onClose={() => setPanel("")} onToast={showToast} onChanged={refreshAll} />
     <TemplatesPanel open={panel === "templates"} onClose={() => setPanel("")} onToast={showToast} />

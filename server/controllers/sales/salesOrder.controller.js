@@ -3,6 +3,7 @@ import Deal from "../../models/deal.model.js";
 import Customer from "../../models/customer.model.js";
 import Warehouse from "../../models/inventory/warehouse.model.js";
 import Product from "../../models/inventory/product.model.js";
+import Branch from "../../models/branch.model.js";
 import {
   reserveInventory,
   releaseInventory,
@@ -328,7 +329,14 @@ export const createSalesOrderFromDeal = async (req, res) => {
     }
   }
 
-  const branchId = req.body.branchId || req.membership?.defaultBranch || req.user.defaultBranch;
+  let branchId = req.body.branchId || req.membership?.defaultBranch || req.user.defaultBranch;
+  if (!branchId) {
+    const defaultBranch = await Branch.findOne(tenantFilter(req, { isDefault: true, isActive: true })).lean()
+      || await Branch.findOne(tenantFilter(req, { isActive: true })).lean()
+      || await Branch.findOne({ isDefault: true, isActive: true }).lean()
+      || await Branch.findOne({ isActive: true }).lean();
+    branchId = defaultBranch?._id;
+  }
   if (!branchId) throw new SalesError("branchId is required.");
 
   let warehouseId = req.body.warehouseId;
@@ -353,11 +361,48 @@ export const createSalesOrderFromDeal = async (req, res) => {
 
     const dealLines = Array.isArray(deal.items) && deal.items.length ? deal.items : [];
     const productIds = dealLines.map((item) => item.productId).filter(Boolean);
-    const products = await Product.find({ _id: { $in: productIds } }).lean();
+    const products = productIds.length ? await Product.find({ _id: { $in: productIds } }).session(session).lean() : [];
     const productMap = new Map(products.map((p) => [String(p._id), p]));
 
-    const lines = dealLines.map((item) => {
-      const prod = item.productId ? productMap.get(String(item.productId)) : null;
+    const lines = [];
+    for (let index = 0; index < dealLines.length; index++) {
+      const item = dealLines[index];
+      let prod = item.productId ? productMap.get(String(item.productId)) : null;
+
+      if (!prod && item.nameSnapshot) {
+        prod = await Product.findOne(tenantFilter(req, {
+          name: { $regex: new RegExp(`^${item.nameSnapshot.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+          status: "active",
+        })).session(session);
+      }
+
+      if (!prod) {
+        const name = item.nameSnapshot?.trim() || `Deal Item ${index + 1}`;
+        const sku = `SVC-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+        const [created] = await Product.create(
+          [
+            {
+              tenantId,
+              name,
+              sku,
+              productType: "service",
+              trackInventory: false,
+              sellingPrice: Number(item.unitPrice || 0),
+              minimumSellingPrice: 0,
+              status: "active",
+              createdBy: req.user._id,
+              updatedBy: req.user._id,
+            },
+          ],
+          { session }
+        );
+        prod = created;
+      }
+
+      if (!item.productId) {
+        item.productId = prod._id;
+      }
+
       const orderedQty = Math.max(Number(item.qty || 1), 0.000001);
       const unitPrice = Number(item.unitPrice || prod?.sellingPrice || 0);
       const lineDiscount = Number(item.discount || 0);
@@ -366,8 +411,8 @@ export const createSalesOrderFromDeal = async (req, res) => {
       const lineTax = Math.round((lineSubtotal - lineDiscount) * (taxRate / 100) * 100) / 100;
       const lineTotal = Math.round((lineSubtotal - lineDiscount + lineTax) * 100) / 100;
 
-      return {
-        productId: item.productId || prod?._id,
+      lines.push({
+        productId: prod._id,
         name: item.nameSnapshot || prod?.name || "Item",
         sku: prod?.sku || "",
         warehouseId,
@@ -383,8 +428,48 @@ export const createSalesOrderFromDeal = async (req, res) => {
         lineDiscount,
         lineTax,
         lineTotal,
-      };
-    });
+      });
+    }
+
+    if (!lines.length) {
+      const name = deal.title || "Custom Deal Service";
+      const sku = `SVC-${Date.now().toString(36).toUpperCase()}`;
+      const [created] = await Product.create(
+        [
+          {
+            tenantId,
+            name,
+            sku,
+            productType: "service",
+            trackInventory: false,
+            sellingPrice: Number(deal.grandTotal || 0),
+            minimumSellingPrice: 0,
+            status: "active",
+            createdBy: req.user._id,
+            updatedBy: req.user._id,
+          },
+        ],
+        { session }
+      );
+      lines.push({
+        productId: created._id,
+        name,
+        sku,
+        warehouseId,
+        orderedQty: 1,
+        reservedQty: 0,
+        dispatchedQty: 0,
+        deliveredQty: 0,
+        invoicedQty: 0,
+        returnedQty: 0,
+        unitPrice: Number(deal.grandTotal || 0),
+        taxRate: 0,
+        lineSubtotal: Number(deal.grandTotal || 0),
+        lineDiscount: 0,
+        lineTax: 0,
+        lineTotal: Number(deal.grandTotal || 0),
+      });
+    }
 
     const subtotal = lines.reduce((acc, l) => acc + l.lineSubtotal, 0);
     const taxTotal = lines.reduce((acc, l) => acc + l.lineTax, 0);
@@ -432,11 +517,11 @@ export const createSalesOrderFromDeal = async (req, res) => {
 
   await writeAudit({
     actorId: req.user._id,
-    action: "create_from_deal",
+    action: "create",
     entityType: "SalesOrder",
     entityId: createdOrder._id,
     after: createdOrder.toObject(),
-    meta: { ...getReqMeta(req), dealId: deal._id },
+    meta: { ...getReqMeta(req), dealId: deal._id, source: "deal_conversion" },
   });
 
   res.status(201).json({ success: true, data: createdOrder });

@@ -6,6 +6,7 @@ import Customer from "../../models/customer.model.js";
 import WorkQueue from "../../models/workQueue.model.js";
 import Notification from "../../models/notification.model.js";
 import SalesInvoice from "../../models/sales/salesInvoice.model.js";
+import { SalesOrder } from "../../models/sales/salesOrder.model.js";
 import { getReqMeta, writeAudit, writeActivity } from "../../utils/audit.js";
 
 const toObjectId = (v) => {
@@ -782,17 +783,27 @@ export const listDeals = async (req, res) => {
     ]);
 
     const dealIds = items.map((item) => item._id);
-    const invoices = dealIds.length
-      ? await SalesInvoice.find({
-          dealId: { $in: dealIds },
-          status: { $nin: ["void", "cancelled"] },
-        })
-          .select(
-            "invoiceNumber dealId status currency totals paidAmount dueAmount invoiceDate dueDate createdAt"
-          )
-          .sort({ createdAt: -1, _id: -1 })
-          .lean()
-      : [];
+    const [invoices, salesOrders] = await Promise.all([
+      dealIds.length
+        ? SalesInvoice.find({
+            dealId: { $in: dealIds },
+            status: { $nin: ["void", "cancelled"] },
+          })
+            .select(
+              "invoiceNumber dealId status currency totals paidAmount dueAmount invoiceDate dueDate createdAt"
+            )
+            .sort({ createdAt: -1, _id: -1 })
+            .lean()
+        : [],
+      dealIds.length
+        ? SalesOrder.find({
+            dealId: { $in: dealIds },
+            status: { $nin: ["cancelled"] },
+          })
+            .select("_id orderNumber dealId status")
+            .lean()
+        : [],
+    ]);
 
     const invoiceByDeal = new Map();
     for (const inv of invoices) {
@@ -815,8 +826,17 @@ export const listDeals = async (req, res) => {
       }
     }
 
+    const orderByDeal = new Map();
+    for (const ord of salesOrders) {
+      const key = String(ord.dealId);
+      if (!orderByDeal.has(key)) {
+        orderByDeal.set(key, ord);
+      }
+    }
+
     const enrichedItems = items.map((item) => ({
       ...item,
+      salesOrderId: item.salesOrderId || orderByDeal.get(String(item._id))?._id || null,
       invoice: invoiceByDeal.get(String(item._id)) || null,
     }));
 

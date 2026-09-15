@@ -3,35 +3,62 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
 import { createPortal } from "react-dom"
 import toast, { Toaster } from "react-hot-toast"
 import { getModuleBasePath } from "../../Navigation/moduleConfig"
+import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  FiAlertCircle,
-  FiBriefcase,
-  FiCheckCircle,
-  FiCheck,
-  FiChevronDown,
-  FiColumns,
-  FiCreditCard,
-  FiDollarSign,
-  FiEye,
-  FiFileText,
-  FiLoader,
-  FiPrinter,
-  FiRefreshCcw,
-  FiSearch,
-  FiShoppingCart,
-  FiTruck,
-  FiX,
-} from "react-icons/fi"
+  AlertCircleIcon,
+  ArrowDown01Icon,
+  Briefcase01Icon,
+  Cancel01Icon,
+  CheckmarkCircle02Icon,
+  CreditCardIcon,
+  DeliveryTruck01Icon,
+  DollarCircleIcon,
+  File02Icon,
+  PrinterIcon,
+  InsertColumnIcon,
+  Loading03Icon,
+  MoreVerticalIcon,
+  RefreshIcon,
+  Search01Icon,
+  ShoppingCart01Icon,
+  Tick02Icon,
+  ViewIcon,
+} from "@hugeicons/core-free-icons"
+
+function createHugeIcon(icon) {
+  return function HugeIconAdapter({ className, ...props }) {
+    return <HugeiconsIcon icon={icon} className={className} strokeWidth={1.8} {...props} />
+  }
+}
+
+const HAlertCircleIcon = createHugeIcon(AlertCircleIcon)
+const HBriefcaseIcon = createHugeIcon(Briefcase01Icon)
+const HCheckCircleIcon = createHugeIcon(CheckmarkCircle02Icon)
+const HCheckIcon = createHugeIcon(Tick02Icon)
+const HChevronDownIcon = createHugeIcon(ArrowDown01Icon)
+const HColumnsIcon = createHugeIcon(InsertColumnIcon)
+const HCreditCardIcon = createHugeIcon(CreditCardIcon)
+const HMoneyIcon = createHugeIcon(DollarCircleIcon)
+const HEyeIcon = createHugeIcon(ViewIcon)
+const HFileTextIcon = createHugeIcon(File02Icon)
+const HLoaderIcon = createHugeIcon(Loading03Icon)
+const HMoreVerticalIcon = createHugeIcon(MoreVerticalIcon)
+const HPrinterIcon = createHugeIcon(PrinterIcon)
+const HRefreshIcon = createHugeIcon(RefreshIcon)
+const HSearchIcon = createHugeIcon(Search01Icon)
+const HShoppingCartIcon = createHugeIcon(ShoppingCart01Icon)
+const HTruckIcon = createHugeIcon(DeliveryTruck01Icon)
+const HCloseIcon = createHugeIcon(Cancel01Icon)
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 const PAGE_SIZE = 25
 const VIEW_KEY = "deals.accounting"
 const COLUMN_LABELS = {
   title: "Deal",
-  dealNo: "Deal No",
   customer: "Client",
   leadNumber: "Lead No",
   stage: "Stage",
@@ -47,7 +74,15 @@ const COLUMN_LABELS = {
   closeDate: "Close Date",
 }
 const ALLOWED_COLUMNS = Object.keys(COLUMN_LABELS)
-const DEFAULT_COLUMNS = ["title", "dealNo", "customer", "stage", "dealValue", "invoiceTotal", "paidAmount", "dueAmount", "invoiceStatus"]
+const DEFAULT_COLUMNS = ["title", "customer", "stage", "dealValue", "invoiceTotal", "paidAmount", "dueAmount"]
+
+function normalizeColumns(columns) {
+  const source = Array.isArray(columns) ? columns : []
+  const safe = [...new Set(source)]
+    .filter((column) => column !== "dealNo")
+    .filter((column) => ALLOWED_COLUMNS.includes(column))
+  return safe.length ? safe : DEFAULT_COLUMNS
+}
 const STAGE_COLORS = {
   negotiation: "bg-amber-50 text-amber-800 ring-amber-600/10",
   won: "bg-emerald-50 text-emerald-700 ring-emerald-600/10",
@@ -59,11 +94,15 @@ const STAGE_COLORS = {
   overdue: "bg-rose-50 text-rose-700 ring-rose-600/10",
 }
 
-const card = "rounded-2xl border border-gray-100 bg-white shadow-[0_10px_28px_-16px_rgba(0,0,0,0.22)]"
-const button = "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+const card = "rounded-2xl border border-gray-100 bg-white shadow-[0_10px_30px_-20px_rgba(15,23,42,0.25)]"
+const button = "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed disabled:opacity-50"
 const primaryButton = `${button} bg-indigo-600 text-white shadow-sm hover:bg-indigo-700`
 const ghostButton = `${button} border border-gray-200 bg-white text-gray-800 hover:bg-gray-50`
 const input = "w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm outline-none transition focus:border-indigo-300 focus:ring-4 focus:ring-indigo-500/10"
+
+function cn(...classes) {
+  return classes.filter(Boolean).join(" ")
+}
 
 function getAuthHeaders() {
   const token = localStorage.getItem("token")
@@ -140,36 +179,76 @@ function Badge({ value }) {
 }
 
 function Modal({ open, onClose, title, subtitle, children, footer, maxWidth = "max-w-4xl" }) {
+  const reduceMotion = useReducedMotion()
+
   useEffect(() => {
     if (!open) return undefined
     const onKey = (event) => event.key === "Escape" && onClose?.()
     document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.removeEventListener("keydown", onKey)
+      document.body.style.overflow = previousOverflow
+    }
   }, [open, onClose])
 
-  if (!open || typeof document === "undefined") return null
+  if (typeof document === "undefined") return null
+
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <button type="button" aria-label="Close modal" className="absolute inset-0 bg-gray-950/45 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative flex max-h-[92vh] w-full ${maxWidth} flex-col overflow-hidden rounded-3xl border border-white/70 bg-white shadow-2xl`}>
-        <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-5 py-4 sm:px-6">
-          <div>
-            <h2 className="text-xl font-bold text-gray-950">{title}</h2>
-            {subtitle ? <p className="mt-1 text-sm font-medium text-gray-500">{subtitle}</p> : null}
-          </div>
-          <button type="button" className="rounded-xl p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900" onClick={onClose}>
-            <FiX className="h-5 w-5" />
-          </button>
-        </div>
-        <div className="overflow-y-auto p-5 sm:p-6">{children}</div>
-        {footer ? <div className="border-t border-gray-100 bg-gray-50/70 px-5 py-4 sm:px-6">{footer}</div> : null}
-      </div>
-    </div>,
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto p-3 sm:items-center sm:p-5"
+          initial={reduceMotion ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={reduceMotion ? undefined : { opacity: 0 }}
+          transition={{ duration: 0.16 }}
+        >
+          <motion.button
+            type="button"
+            aria-label="Close modal"
+            className="fixed inset-0 bg-gray-950/45 backdrop-blur-sm"
+            onClick={onClose}
+            initial={reduceMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={reduceMotion ? undefined : { opacity: 0 }}
+            transition={{ duration: 0.16 }}
+          />
+          <motion.div
+            className={cn("relative my-auto flex max-h-[94vh] w-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_30px_80px_-30px_rgba(15,23,42,0.60)]", maxWidth)}
+            initial={reduceMotion ? false : { opacity: 0, y: 12, scale: 0.992 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={reduceMotion ? undefined : { opacity: 0, y: 8, scale: 0.995 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+          >
+            <div className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-gray-100 bg-white px-4 py-3.5 sm:px-5">
+              <div className="min-w-0">
+                <h2 className="truncate text-lg font-black text-gray-950">{title}</h2>
+                {subtitle ? <p className="mt-0.5 truncate text-xs font-medium text-gray-500">{subtitle}</p> : null}
+              </div>
+              <motion.button
+                type="button"
+                aria-label="Close"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
+                onClick={onClose}
+                whileTap={reduceMotion ? undefined : { scale: 0.96 }}
+              >
+                <HCloseIcon className="h-[18px] w-[18px]" />
+              </motion.button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">{children}</div>
+            {footer ? <div className="sticky bottom-0 z-20 border-t border-gray-100 bg-white px-4 py-3 sm:px-5">{footer}</div> : null}
+          </motion.div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>,
     document.body
   )
 }
 
 function ColumnPickerModal({ open, onClose, selected, onSave }) {
+  const reduceMotion = useReducedMotion()
   const [local, setLocal] = useState([])
   const [search, setSearch] = useState("")
   const [saving, setSaving] = useState(false)
@@ -219,62 +298,105 @@ function ColumnPickerModal({ open, onClose, selected, onSave }) {
     }
   }
 
+  const tap = reduceMotion ? undefined : { scale: 0.98 }
+
   return (
     <Modal
       open={open}
       onClose={onClose}
       title="Choose columns"
-      subtitle="Show, hide and arrange accounting columns."
+      subtitle={`${local.length} selected`}
       maxWidth="max-w-5xl"
       footer={
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex gap-2">
-            <button className={ghostButton} onClick={() => setLocal(ALLOWED_COLUMNS)}>Show all</button>
-            <button className={ghostButton} onClick={() => setLocal(DEFAULT_COLUMNS)}>Default</button>
+            <motion.button whileTap={tap} className={cn(ghostButton, "h-10 px-3.5")} onClick={() => setLocal(ALLOWED_COLUMNS)}>Show all</motion.button>
+            <motion.button whileTap={tap} className={cn(ghostButton, "h-10 px-3.5")} onClick={() => setLocal(DEFAULT_COLUMNS)}>Default</motion.button>
           </div>
           <div className="flex justify-end gap-2">
-            <button className={ghostButton} onClick={onClose}>Cancel</button>
-            <button className={primaryButton} disabled={saving || !local.length} onClick={save}>{saving ? "Saving..." : "Apply"}</button>
+            <motion.button whileTap={tap} className={cn(ghostButton, "h-10 px-3.5")} onClick={onClose}>Cancel</motion.button>
+            <motion.button whileTap={tap} className={cn(primaryButton, "h-10 px-4")} disabled={saving || !local.length} onClick={save}>{saving ? "Saving..." : "Apply"}</motion.button>
           </div>
         </div>
       }
     >
       {error ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{error}</div> : null}
-      <div className="mb-4 flex items-center gap-2 rounded-2xl border border-gray-200 px-3 py-2">
-        <FiSearch className="text-gray-400" />
-        <input className="flex-1 border-0 bg-transparent text-sm outline-none" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search columns..." />
-        <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">{local.length} selected</span>
+
+      <div className="mb-4 flex h-10 items-center gap-2 rounded-xl border border-gray-200 bg-gray-50/70 px-3 focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-indigo-500/10">
+        <HSearchIcon className="h-4 w-4 shrink-0 text-gray-400" />
+        <input className="min-w-0 flex-1 border-0 bg-transparent text-sm outline-none" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search columns..." />
       </div>
+
       <div className="grid gap-4 lg:grid-cols-12">
-        <div className="overflow-hidden rounded-2xl border border-gray-100 lg:col-span-7">
-          <div className="border-b border-gray-100 bg-gray-50 px-4 py-3"><p className="text-sm font-semibold text-gray-900">Available columns</p></div>
+        <section className="overflow-hidden rounded-2xl border border-gray-100 lg:col-span-7">
+          <div className="border-b border-gray-100 bg-gray-50/70 px-4 py-3">
+            <p className="text-sm font-bold text-gray-900">Available columns</p>
+          </div>
           <div className="grid gap-2 p-3 sm:grid-cols-2">
             {filtered.map((column) => {
               const checked = local.includes(column)
               return (
-                <button key={column} type="button" onClick={() => toggle(column)} className={`flex items-center justify-between rounded-2xl border p-3 text-left transition ${checked ? "border-indigo-200 bg-indigo-50" : "border-gray-100 hover:bg-gray-50"}`}>
-                  <span className="text-sm font-bold text-gray-900">{COLUMN_LABELS[column]}</span>
-                  <span className={`flex h-6 w-6 items-center justify-center rounded-lg border ${checked ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-200 text-transparent"}`}><FiCheck /></span>
-                </button>
+                <motion.button
+                  key={column}
+                  type="button"
+                  whileTap={tap}
+                  onClick={() => toggle(column)}
+                  className={cn(
+                    "flex min-h-[52px] items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-left transition-colors duration-150",
+                    checked
+                      ? "border-indigo-200 bg-indigo-50/70"
+                      : "border-gray-100 bg-white hover:border-gray-200 hover:bg-gray-50/70"
+                  )}
+                >
+                  <span className="truncate text-sm font-bold text-gray-900">{COLUMN_LABELS[column]}</span>
+                  <span
+                    className={cn(
+                      "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[7px] border transition-colors duration-150",
+                      checked ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-200 bg-white text-transparent"
+                    )}
+                    aria-hidden="true"
+                  >
+                    <AnimatePresence initial={false}>
+                      {checked ? (
+                        <motion.span
+                          key="checked"
+                          initial={reduceMotion ? false : { opacity: 0, scale: 0.75 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={reduceMotion ? undefined : { opacity: 0, scale: 0.75 }}
+                          transition={{ duration: 0.14 }}
+                          className="flex items-center justify-center"
+                        >
+                          <HCheckIcon className="h-3.5 w-3.5" />
+                        </motion.span>
+                      ) : null}
+                    </AnimatePresence>
+                  </span>
+                </motion.button>
               )
             })}
           </div>
-        </div>
-        <div className="overflow-hidden rounded-2xl border border-gray-100 lg:col-span-5">
-          <div className="border-b border-gray-100 bg-gray-50 px-4 py-3"><p className="text-sm font-semibold text-gray-900">Selected order</p></div>
+        </section>
+
+        <section className="overflow-hidden rounded-2xl border border-gray-100 lg:col-span-5">
+          <div className="border-b border-gray-100 bg-gray-50/70 px-4 py-3">
+            <p className="text-sm font-bold text-gray-900">Selected order</p>
+          </div>
           <div className="max-h-[430px] space-y-2 overflow-y-auto p-3">
             {local.map((column, index) => (
-              <div key={column} className="flex items-center justify-between gap-3 rounded-2xl border border-gray-100 p-3">
-                <div className="flex min-w-0 items-center gap-3"><span className="flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold">{index + 1}</span><p className="truncate text-sm font-semibold">{COLUMN_LABELS[column]}</p></div>
-                <div className="flex gap-1">
-                  <button className="rounded-xl border p-2 disabled:opacity-30" disabled={index === 0} onClick={() => move(column, "up")}><FiChevronDown className="rotate-180" /></button>
-                  <button className="rounded-xl border p-2 disabled:opacity-30" disabled={index === local.length - 1} onClick={() => move(column, "down")}><FiChevronDown /></button>
-                  <button className="rounded-xl border p-2" onClick={() => toggle(column)}><FiX /></button>
+              <motion.div layout={!reduceMotion} key={column} className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-white px-3 py-2.5">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-gray-200 text-[11px] font-bold text-gray-600">{index + 1}</span>
+                  <p className="truncate text-sm font-semibold text-gray-900">{COLUMN_LABELS[column]}</p>
                 </div>
-              </div>
+                <div className="flex shrink-0 gap-1">
+                  <motion.button whileTap={tap} type="button" aria-label={`Move ${COLUMN_LABELS[column]} up`} className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 transition hover:bg-gray-50 disabled:opacity-30" disabled={index === 0} onClick={() => move(column, "up")}><HChevronDownIcon className="h-3.5 w-3.5 rotate-180" /></motion.button>
+                  <motion.button whileTap={tap} type="button" aria-label={`Move ${COLUMN_LABELS[column]} down`} className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 transition hover:bg-gray-50 disabled:opacity-30" disabled={index === local.length - 1} onClick={() => move(column, "down")}><HChevronDownIcon className="h-3.5 w-3.5" /></motion.button>
+                  <motion.button whileTap={tap} type="button" aria-label={`Remove ${COLUMN_LABELS[column]}`} className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600" onClick={() => toggle(column)}><HCloseIcon className="h-3.5 w-3.5" /></motion.button>
+                </div>
+              </motion.div>
             ))}
           </div>
-        </div>
+        </section>
       </div>
     </Modal>
   )
@@ -288,23 +410,30 @@ function getClientName(deal) {
     || "—"
 }
 
-function SummaryMetric({ label, value, hint, icon, tone, glow }) {
+function SummaryMetric({ label, value, hint, icon, tone }) {
+  const reduceMotion = useReducedMotion()
   return (
-    <div className={`rounded-2xl border border-gray-100 bg-white p-5 ${glow || "shadow-[0_18px_50px_-34px_rgba(75,85,99,0.25)]"}`}>
-      <div className="flex items-start justify-between gap-4">
+    <motion.div
+      className="rounded-2xl border border-gray-100 bg-white p-4 shadow-[0_12px_32px_-24px_rgba(15,23,42,0.30)]"
+      whileHover={reduceMotion ? undefined : { y: -2 }}
+      transition={{ duration: 0.18, ease: "easeOut" }}
+    >
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-500">{label}</p>
-          <p className="mt-1 whitespace-nowrap text-2xl font-bold text-gray-900">{value}</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-gray-500">{label}</p>
+          <p className="mt-1 truncate text-2xl font-black tracking-tight text-gray-950">{value}</p>
         </div>
-        <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ring-1 ring-black/5 ${tone}`}>{icon}</div>
+        <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ring-1 ring-black/5", tone)}>{icon}</div>
       </div>
-      <p className="mt-3 text-xs text-gray-500">{hint}</p>
-    </div>
+      <p className="mt-2 truncate text-xs font-medium text-gray-500">{hint}</p>
+    </motion.div>
   )
 }
 
 function DealDetailsModal({ dealId, onClose, onCreateSalesOrder, onViewInvoice, creatingOrderId = "", canManage = true }) {
   const navigate = useNavigate()
+  const reduceMotion = useReducedMotion()
+  const tap = reduceMotion ? undefined : { scale: 0.98 }
   const [deal, setDeal] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -334,36 +463,36 @@ function DealDetailsModal({ dealId, onClose, onCreateSalesOrder, onViewInvoice, 
       subtitle={deal?.dealNo || deal?.title || ""}
       footer={deal ? (
         <div className="flex flex-wrap justify-end gap-2">
-          <button className={ghostButton} onClick={onClose}>Close</button>
+          <motion.button whileTap={tap} className={ghostButton} onClick={onClose}>Close</motion.button>
           {deal.salesOrderId ? (
-            <button className={primaryButton} onClick={() => { navigate(`${getModuleBasePath(role, "sales")}/sales-orders?search=${encodeURIComponent(deal.dealNo || "")}`) }}>
-              <FiShoppingCart />View Sales Order
-            </button>
+            <motion.button whileTap={tap} className={primaryButton} onClick={() => { navigate(`${getModuleBasePath(role, "sales")}/sales-orders?search=${encodeURIComponent(deal.dealNo || "")}`) }}>
+              <HShoppingCartIcon className="h-4 w-4" />View Sales Order
+            </motion.button>
           ) : canManage && deal.stage === "won" ? (
-            <button className={primaryButton} disabled={creatingOrderId === deal._id || !deal.customerId} onClick={() => onCreateSalesOrder?.(deal)}>
-              {creatingOrderId === deal._id ? <FiLoader className="animate-spin" /> : <FiShoppingCart />}
+            <motion.button whileTap={tap} className={primaryButton} disabled={creatingOrderId === deal._id || !deal.customerId} onClick={() => onCreateSalesOrder?.(deal)}>
+              {creatingOrderId === deal._id ? <HLoaderIcon className="h-4 w-4 animate-spin" /> : <HShoppingCartIcon className="h-4 w-4" />}
               Create Sales Order
-            </button>
+            </motion.button>
           ) : null}
           {deal.salesOrderId ? (
-            <button className={ghostButton} onClick={() => { navigate(`${getModuleBasePath(role, "sales")}/deliveries?search=${encodeURIComponent(deal.dealNo || "")}`) }}>
-              <FiTruck />Deliveries
-            </button>
+            <motion.button whileTap={tap} className={ghostButton} onClick={() => { navigate(`${getModuleBasePath(role, "sales")}/deliveries?search=${encodeURIComponent(deal.dealNo || "")}`) }}>
+              <HTruckIcon className="h-4 w-4" />Deliveries
+            </motion.button>
           ) : null}
           {deal.invoice ? (
-            <button className={ghostButton} onClick={() => { navigate(`${getModuleBasePath(role, "sales")}/invoices?search=${encodeURIComponent(deal.invoice?.invoiceNo || deal.invoice?.invoiceNumber || "")}`) }}>
-              <FiFileText />View invoice
-            </button>
+            <motion.button whileTap={tap} className={ghostButton} onClick={() => { navigate(`${getModuleBasePath(role, "sales")}/invoices?search=${encodeURIComponent(deal.invoice?.invoiceNo || deal.invoice?.invoiceNumber || "")}`) }}>
+              <HFileTextIcon className="h-4 w-4" />View invoice
+            </motion.button>
           ) : null}
           {deal.salesOrderId ? (
-            <button className={ghostButton} onClick={() => { navigate(`${getModuleBasePath(role, "sales")}/payments?search=${encodeURIComponent(deal.dealNo || "")}`) }}>
-              <FiCreditCard />Payments
-            </button>
+            <motion.button whileTap={tap} className={ghostButton} onClick={() => { navigate(`${getModuleBasePath(role, "sales")}/payments?search=${encodeURIComponent(deal.dealNo || "")}`) }}>
+              <HCreditCardIcon className="h-4 w-4" />Payments
+            </motion.button>
           ) : null}
         </div>
       ) : null}
     >
-      {loading ? <div className="flex justify-center p-10"><FiLoader className="h-6 w-6 animate-spin text-indigo-600" /></div> : null}
+      {loading ? <div className="flex justify-center p-10"><HLoaderIcon className="h-6 w-6 animate-spin text-indigo-600" /></div> : null}
       {error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">{error}</div> : null}
       {deal ? (
         <div className="space-y-5">
@@ -547,7 +676,7 @@ function PaymentModal({ invoice, onClose, onSaved }) {
       title="Record payment"
       subtitle={invoice?.invoiceNo || ""}
       maxWidth="max-w-2xl"
-      footer={<div className="flex justify-end gap-2"><button className={ghostButton} onClick={onClose}>Cancel</button><button className={primaryButton} disabled={loading || loadingTreasury || !Number(amount) || !treasuryAccount} onClick={submit}>{loading ? <FiLoader className="animate-spin" /> : <FiCreditCard />}{loading ? "Posting..." : !invoicePosted ? "Post invoice & receive" : "Post receipt"}</button></div>}
+      footer={<div className="flex justify-end gap-2"><button className={ghostButton} onClick={onClose}>Cancel</button><button className={primaryButton} disabled={loading || loadingTreasury || !Number(amount) || !treasuryAccount} onClick={submit}>{loading ? <HLoaderIcon className="animate-spin" /> : <HCreditCardIcon />}{loading ? "Posting..." : !invoicePosted ? "Post invoice & receive" : "Post receipt"}</button></div>}
     >
       {error ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{error}</div> : null}
       {!invoicePosted ? <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">This invoice is still a draft. The system will first post Accounts Receivable and Sales Revenue, then post the cash/bank receipt.</div> : null}
@@ -577,8 +706,8 @@ function InvoiceDetailsModal({ invoice, onClose, onPayment }) {
       footer={
         <div className="flex justify-end gap-2">
           <button className={ghostButton} onClick={onClose}>Close</button>
-          {Number(invoice?.dueTotal || 0) > 0 ? <button className={ghostButton} onClick={() => onPayment(invoice)}><FiCreditCard />Add payment</button> : null}
-          <button className={primaryButton} onClick={() => printInvoice(invoice)}><FiPrinter />Print invoice</button>
+          {Number(invoice?.dueTotal || 0) > 0 ? <button className={ghostButton} onClick={() => onPayment(invoice)}><HCreditCardIcon />Add payment</button> : null}
+          <button className={primaryButton} onClick={() => printInvoice(invoice)}><HPrinterIcon />Print invoice</button>
         </div>
       }
     >
@@ -616,8 +745,139 @@ function InvoiceDetailsModal({ invoice, onClose, onPayment }) {
   )
 }
 
-export default function AdminDealsPage({ employeeMode = false }) {
+
+function DealRowActions({ deal, onView, onCreateSalesOrder, creatingOrderId = "", employeeMode = false, role = "admin" }) {
   const navigate = useNavigate()
+  const reduceMotion = useReducedMotion()
+  const [open, setOpen] = useState(false)
+  const [menuStyle, setMenuStyle] = useState({ top: 0, left: 0 })
+  const wrapperRef = useRef(null)
+  const buttonRef = useRef(null)
+  const menuRef = useRef(null)
+
+  const updatePosition = useCallback(() => {
+    if (typeof window === "undefined" || !buttonRef.current) return
+    const rect = buttonRef.current.getBoundingClientRect()
+    const width = 230
+    const gap = 8
+    const estimatedHeight = 230
+    const openUp = window.innerHeight - rect.bottom < estimatedHeight
+    setMenuStyle({
+      top: openUp ? Math.max(12, rect.top - estimatedHeight - gap) : rect.bottom + gap,
+      left: Math.min(Math.max(12, rect.right - width), window.innerWidth - width - 12),
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!open) return undefined
+    updatePosition()
+    const closeOutside = (event) => {
+      if (wrapperRef.current?.contains(event.target) || menuRef.current?.contains(event.target)) return
+      setOpen(false)
+    }
+    const closeOnEscape = (event) => event.key === "Escape" && setOpen(false)
+    const reposition = () => updatePosition()
+    document.addEventListener("mousedown", closeOutside)
+    document.addEventListener("keydown", closeOnEscape)
+    window.addEventListener("resize", reposition)
+    window.addEventListener("scroll", reposition, true)
+    return () => {
+      document.removeEventListener("mousedown", closeOutside)
+      document.removeEventListener("keydown", closeOnEscape)
+      window.removeEventListener("resize", reposition)
+      window.removeEventListener("scroll", reposition, true)
+    }
+  }, [open, updatePosition])
+
+  const closeAndRun = (fn) => {
+    setOpen(false)
+    fn?.()
+  }
+
+  const tap = reduceMotion ? undefined : { scale: 0.97 }
+  const menuItemClass = "flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-gray-800 transition hover:bg-gray-50"
+
+  const menu = !employeeMode && typeof document !== "undefined"
+    ? createPortal(
+        <AnimatePresence>
+          {open ? (
+            <motion.div
+              ref={menuRef}
+              role="menu"
+              style={{ top: menuStyle.top, left: menuStyle.left }}
+              className="fixed z-[9999] w-[230px] rounded-2xl border border-gray-100 bg-white p-2 shadow-[0_24px_60px_-22px_rgba(15,23,42,0.50)]"
+              initial={reduceMotion ? false : { opacity: 0, y: -4, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={reduceMotion ? undefined : { opacity: 0, y: -3, scale: 0.99 }}
+              transition={{ duration: 0.15, ease: "easeOut" }}
+            >
+              {deal.salesOrderId ? (
+                <motion.button whileTap={tap} type="button" role="menuitem" className={menuItemClass} onClick={() => closeAndRun(() => navigate(`${getModuleBasePath(role, "sales")}/sales-orders?search=${encodeURIComponent(deal.dealNo || "")}`))}>
+                  <HShoppingCartIcon className="h-4 w-4 text-gray-500" />View Sales Order
+                </motion.button>
+              ) : deal.stage === "won" ? (
+                <motion.button whileTap={tap} type="button" role="menuitem" disabled={creatingOrderId === deal._id || !deal.customerId} className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-indigo-700 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-50" onClick={() => closeAndRun(() => onCreateSalesOrder?.(deal))}>
+                  {creatingOrderId === deal._id ? <HLoaderIcon className="h-4 w-4 animate-spin" /> : <HShoppingCartIcon className="h-4 w-4" />}
+                  {creatingOrderId === deal._id ? "Creating order..." : "Create Sales Order"}
+                </motion.button>
+              ) : null}
+              {deal.invoice ? (
+                <motion.button whileTap={tap} type="button" role="menuitem" className={menuItemClass} onClick={() => closeAndRun(() => navigate(`${getModuleBasePath(role, "sales")}/invoices?search=${encodeURIComponent(deal.invoice?.invoiceNo || deal.invoice?.invoiceNumber || "")}`))}>
+                  <HFileTextIcon className="h-4 w-4 text-gray-500" />View Invoice
+                </motion.button>
+              ) : null}
+              {deal.salesOrderId ? (
+                <>
+                  <motion.button whileTap={tap} type="button" role="menuitem" className={menuItemClass} onClick={() => closeAndRun(() => navigate(`${getModuleBasePath(role, "sales")}/deliveries?search=${encodeURIComponent(deal.dealNo || "")}`))}>
+                    <HTruckIcon className="h-4 w-4 text-gray-500" />Deliveries
+                  </motion.button>
+                  <motion.button whileTap={tap} type="button" role="menuitem" className={menuItemClass} onClick={() => closeAndRun(() => navigate(`${getModuleBasePath(role, "sales")}/payments?search=${encodeURIComponent(deal.dealNo || "")}`))}>
+                    <HCreditCardIcon className="h-4 w-4 text-gray-500" />Payments
+                  </motion.button>
+                </>
+              ) : null}
+            </motion.div>
+          ) : null}
+        </AnimatePresence>,
+        document.body
+      )
+    : null
+
+  return (
+    <div ref={wrapperRef} className="flex items-center justify-end gap-2">
+      <motion.button
+        type="button"
+        whileTap={tap}
+        className="inline-flex h-9 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3.5 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30"
+        onClick={onView}
+      >
+        <HEyeIcon className="h-4 w-4" />View
+      </motion.button>
+      {!employeeMode ? (
+        <motion.button
+          ref={buttonRef}
+          type="button"
+          whileTap={tap}
+          className={cn(
+            "inline-flex h-9 w-9 items-center justify-center rounded-xl border bg-white text-gray-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30",
+            open ? "border-indigo-200 bg-indigo-50 text-indigo-700" : "border-gray-200 hover:bg-gray-50"
+          )}
+          onClick={() => { if (!open) updatePosition(); setOpen((value) => !value) }}
+          aria-label="More deal actions"
+          title="More actions"
+          aria-haspopup="menu"
+          aria-expanded={open}
+        >
+          <HMoreVerticalIcon className="h-4 w-4" />
+        </motion.button>
+      ) : null}
+      {menu}
+    </div>
+  )
+}
+
+export default function AdminDealsPage({ employeeMode = false }) {
+  const reduceMotion = useReducedMotion()
   const directRole = typeof window !== "undefined" ? localStorage.getItem("role") : null
   const role = directRole ? String(directRole).toLowerCase() : (employeeMode ? "employee" : "admin")
   const [deals, setDeals] = useState([])
@@ -661,7 +921,7 @@ export default function AdminDealsPage({ employeeMode = false }) {
 
   useEffect(() => {
     apiJson(`/view-preferences/${encodeURIComponent(VIEW_KEY)}`)
-      .then((data) => setSelectedColumns(Array.isArray(data?.columns) && data.columns.length ? data.columns : DEFAULT_COLUMNS))
+      .then((data) => setSelectedColumns(normalizeColumns(data?.columns)))
       .catch(() => setSelectedColumns(DEFAULT_COLUMNS))
   }, [])
 
@@ -710,7 +970,7 @@ export default function AdminDealsPage({ employeeMode = false }) {
 
 
   const saveColumns = async (columns) => {
-    const safeColumns = columns.length ? columns : DEFAULT_COLUMNS
+    const safeColumns = normalizeColumns(columns)
     await apiJson(`/view-preferences/${encodeURIComponent(VIEW_KEY)}`, {
       method: "PUT",
       body: JSON.stringify({ columns: safeColumns }),
@@ -725,21 +985,26 @@ export default function AdminDealsPage({ employeeMode = false }) {
   }
 
   const renderCell = (deal, column) => {
-    const currency = deal.invoice?.currency || deal.currency
     const dueAmount = deal.invoice ? Number(deal.invoice.dueTotal || 0) : Number(deal.grandTotal || 0)
     const values = {
-      title: deal.title || "—",
-      dealNo: deal.dealNo || "—",
-      customer: getClientName(deal),
+      title: (
+        <div className="min-w-0">
+          <p className="truncate font-bold text-gray-950">{deal.title || "Untitled deal"}</p>
+          <p className="mt-0.5 truncate text-xs font-medium text-gray-400">{deal.dealNo || "—"}</p>
+        </div>
+      ),
+      customer: <span className="font-semibold text-gray-900">{getClientName(deal)}</span>,
       leadNumber: deal.leadId?.leadNumber || "—",
       stage: <Badge value={deal.stage} />,
-      budgetMin: formatMoney(deal.requirementSnapshot?.budgetMin, deal.currency),
-      budgetMax: formatMoney(deal.requirementSnapshot?.budgetMax, deal.currency),
-      expectedValue: formatMoney(deal.requirementSnapshot?.expectedValue, deal.currency),
-      dealValue: formatMoney(deal.grandTotal, deal.currency),
-      invoiceTotal: deal.invoice ? formatMoney(deal.invoice.total, currency) : "—",
-      paidAmount: <span className="font-semibold text-emerald-700">{formatMoney(deal.invoice?.paidTotal, currency)}</span>,
-      dueAmount: <span className={`font-semibold ${dueAmount > 0 ? "text-rose-700" : "text-emerald-700"}`}>{formatMoney(dueAmount, currency)}</span>,
+      budgetMin: formatAmount(deal.requirementSnapshot?.budgetMin),
+      budgetMax: formatAmount(deal.requirementSnapshot?.budgetMax),
+      expectedValue: formatAmount(deal.requirementSnapshot?.expectedValue),
+      dealValue: <span className="font-bold tabular-nums text-gray-950">{formatAmount(deal.grandTotal)}</span>,
+      invoiceTotal: deal.invoice
+        ? <span className="font-semibold tabular-nums text-gray-800">{formatAmount(deal.invoice.total)}</span>
+        : <span className="text-xs font-semibold text-gray-400">Not invoiced</span>,
+      paidAmount: <span className="font-semibold tabular-nums text-emerald-700">{formatAmount(deal.invoice?.paidTotal)}</span>,
+      dueAmount: <span className={cn("font-semibold tabular-nums", dueAmount > 0 ? "text-rose-700" : "text-emerald-700")}>{formatAmount(dueAmount)}</span>,
       invoiceStatus: deal.invoice ? <Badge value={deal.invoice.status} /> : <Badge value="uninvoiced" />,
       invoiceNo: deal.invoice?.invoiceNo || "—",
       closeDate: formatDate(deal.expectedCloseDate),
@@ -748,99 +1013,166 @@ export default function AdminDealsPage({ employeeMode = false }) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50/60">
-      <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: "12px", fontWeight: 600 } }} />
-      <div className="mx-auto max-w-[1550px] space-y-5 px-1 py-1 sm:px-3">
-        <div className={`${card} p-5 sm:p-6`}>
-          <div className="flex items-center gap-3 border-b border-gray-100 pb-5">
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm"><FiBriefcase className="h-6 w-6" /></div>
-              <h1 className="text-2xl font-bold text-gray-950 sm:text-3xl">Deals</h1>
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
+      <Toaster position="top-right" toastOptions={{ duration: 2600, style: { borderRadius: "14px", fontWeight: 700 } }} />
+
+      <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8">
+        <motion.div
+          className="mb-4 rounded-3xl border border-gray-100 bg-white/95 p-4 shadow-[0_18px_45px_-35px_rgba(15,23,42,0.45)] backdrop-blur sm:p-5"
+          initial={reduceMotion ? false : { opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
+              <HBriefcaseIcon className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-black tracking-tight text-gray-950 sm:text-3xl">Deals</h1>
+              <p className="mt-0.5 text-xs font-medium text-gray-500">Won deals, orders and accounting progress</p>
             </div>
           </div>
-          <div className="flex flex-col gap-3 pt-5 lg:flex-row lg:items-center">
-              <div className="relative min-w-0 flex-1">
-                <FiSearch className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <input className={`${input} h-12 pl-10`} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search deals, numbers or clients..." />
+
+          <div className="mt-4 border-t border-gray-100 pt-4">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="w-full xl:flex-1">
+                <div className="flex min-h-[48px] items-center gap-2 rounded-2xl border border-gray-200 bg-gray-50/80 px-3 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
+                  <HSearchIcon className="h-4 w-4 shrink-0 text-gray-400" />
+                  <input
+                    className="min-w-0 flex-1 border-0 bg-transparent py-3 text-sm font-medium text-gray-900 outline-none placeholder:text-gray-400"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search deals, numbers or clients..."
+                  />
+                  {search ? (
+                    <button type="button" aria-label="Clear search" className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700" onClick={() => setSearch("")}>
+                      <HCloseIcon className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
               </div>
-              <div className="flex gap-2">
-                <button className={ghostButton} onClick={() => setColumnsOpen(true)}><FiColumns />Columns</button>
-                <button className={ghostButton} onClick={() => loadDeals()} disabled={loading}><FiRefreshCcw className={loading ? "animate-spin" : ""} />Refresh</button>
+              <div className="flex flex-wrap gap-2 xl:justify-end">
+                <motion.button whileTap={reduceMotion ? undefined : { scale: 0.98 }} className={cn(ghostButton, "h-11 px-3.5")} onClick={() => setColumnsOpen(true)}><HColumnsIcon className="h-4 w-4" />Columns</motion.button>
+                <motion.button whileTap={reduceMotion ? undefined : { scale: 0.98 }} className={cn(ghostButton, "h-11 px-3.5")} onClick={() => loadDeals()} disabled={loading}><HRefreshIcon className={cn("h-4 w-4", loading && "animate-spin")} />Refresh</motion.button>
               </div>
+            </div>
+          </div>
+        </motion.div>
+
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryMetric label="Won deals" value={accounting.wonDeals} hint="Closed successfully" icon={<HCheckCircleIcon className="h-5 w-5" />} tone="bg-emerald-50 text-emerald-700" />
+          <SummaryMetric label="Won value" value={formatAmount(accounting.wonValue)} hint="Confirmed deal value" icon={<HBriefcaseIcon className="h-5 w-5" />} tone="bg-indigo-50 text-indigo-700" />
+          <SummaryMetric label="Invoiced" value={formatAmount(accounting.invoicedAmount)} hint={`${formatAmount(accounting.uninvoicedAmount)} not invoiced`} icon={<HFileTextIcon className="h-5 w-5" />} tone="bg-sky-50 text-sky-700" />
+          <SummaryMetric label="Paid" value={formatAmount(accounting.paidAmount)} hint="Payments collected" icon={<HMoneyIcon className="h-5 w-5" />} tone="bg-emerald-50 text-emerald-700" />
+        </div>
+
+        <div className="mb-4 overflow-x-auto rounded-2xl border border-gray-200 bg-white p-1.5 shadow-[0_10px_30px_-22px_rgba(15,23,42,0.25)]">
+          <div className="flex min-w-max gap-1" role="tablist" aria-label="Deal invoice state">
+            {[["", "All", accounting.wonDeals], ["paid", "Paid", accounting.paidDeals], ["due", "Due", accounting.dueDeals]].map(([value, label, count]) => {
+              const active = invoiceState === value
+              return (
+                <motion.button
+                  key={label}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  whileTap={reduceMotion ? undefined : { scale: 0.98 }}
+                  onClick={() => setInvoiceState(value)}
+                  className={cn(
+                    "relative inline-flex h-9 items-center gap-2 overflow-hidden rounded-xl px-4 text-sm font-bold transition-colors",
+                    active ? "text-white" : "text-gray-700 hover:bg-gray-100"
+                  )}
+                >
+                  {active ? (
+                    <motion.span
+                      layoutId="deal-filter-active"
+                      className="absolute inset-0 rounded-xl bg-indigo-600 shadow-sm"
+                      transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                    />
+                  ) : null}
+                  <span className="relative z-10">{label}</span>
+                  <span className={cn("relative z-10 rounded-full px-2 py-0.5 text-[11px] font-black", active ? "bg-white/20 text-white" : "bg-gray-100 text-gray-500")}>{count}</span>
+                </motion.button>
+              )
+            })}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <SummaryMetric label="Won deals" value={accounting.wonDeals} hint="Closed successfully" icon={<FiCheckCircle />} tone="bg-emerald-50 text-emerald-700" glow="shadow-[0_18px_50px_-30px_rgba(34,197,94,0.28)]" />
-          <SummaryMetric label="Won value" value={formatAmount(accounting.wonValue)} hint="Total confirmed value" icon={<FiBriefcase />} tone="bg-indigo-50 text-indigo-700" glow="shadow-[0_18px_50px_-30px_rgba(79,70,229,0.30)]" />
-          <SummaryMetric label="Invoiced" value={formatAmount(accounting.invoicedAmount)} hint={`${formatAmount(accounting.uninvoicedAmount)} not invoiced`} icon={<FiFileText />} tone="bg-sky-50 text-sky-700" />
-          <SummaryMetric label="Paid" value={formatAmount(accounting.paidAmount)} hint="Payments collected" icon={<FiDollarSign />} tone="bg-emerald-50 text-emerald-700" glow="shadow-[0_18px_50px_-30px_rgba(34,197,94,0.28)]" />
-        </div>
-
-        <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white p-1.5 shadow-sm">
-          <div className="flex min-w-max gap-1">
-            {[["", "All", accounting.wonDeals], ["paid", "Paid", accounting.paidDeals], ["due", "Due", accounting.dueDeals]].map(([value, label, count]) => (
-              <button key={label} type="button" onClick={() => setInvoiceState(value)} className={`rounded-xl px-5 py-2.5 text-sm font-semibold transition ${invoiceState === value ? "bg-indigo-600 text-white shadow-sm" : "text-gray-700 hover:bg-gray-100"}`}>
-                {label}<span className={`ml-2 rounded-full px-2 py-0.5 text-xs ${invoiceState === value ? "bg-white/20" : "bg-gray-100"}`}>{count}</span>
-              </button>
-            ))}
+        {error ? (
+          <div className="mb-4 flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-3.5 text-sm font-semibold text-rose-700">
+            <HAlertCircleIcon className="mt-0.5 h-5 w-5 shrink-0" />{error}
           </div>
-        </div>
-
-        {error ? <div className="mb-4 flex items-start gap-2 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700"><FiAlertCircle className="mt-0.5 h-5 w-5" />{error}</div> : null}
+        ) : null}
 
         <div className={`${card} overflow-hidden`}>
-          <div className="h-[620px] overflow-auto [scrollbar-gutter:stable]">
-            <table className="w-full min-w-[1200px] border-separate border-spacing-0 text-left">
+          <div className="max-h-[640px] overflow-auto [scrollbar-gutter:stable]">
+            <table className="w-full min-w-[1050px] border-separate border-spacing-0 text-left">
               <thead className="sticky top-0 z-20">
                 <tr>
-                  {selectedColumns.map((column) => <th key={column} className="whitespace-nowrap border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-semibold uppercase text-gray-600">{COLUMN_LABELS[column]}</th>)}
-                  <th className="sticky right-0 z-30 whitespace-nowrap border-b border-gray-200 bg-gray-50 px-5 py-4 text-right text-xs font-semibold uppercase text-gray-600 shadow-[-12px_0_20px_-20px_rgba(15,23,42,0.35)]">Actions</th>
+                  {selectedColumns.map((column) => (
+                    <th key={column} className="whitespace-nowrap border-b border-gray-200 bg-gray-50 px-4 py-3 text-[11px] font-black uppercase tracking-wide text-gray-500">
+                      {COLUMN_LABELS[column]}
+                    </th>
+                  ))}
+                  <th className="sticky right-0 z-30 w-[210px] whitespace-nowrap border-b border-gray-200 bg-gray-50 px-4 py-3 text-right text-[11px] font-black uppercase tracking-wide text-gray-500 shadow-[-12px_0_20px_-20px_rgba(15,23,42,0.35)]">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 bg-white">
                 {loading ? (
-                  <tr><td colSpan={selectedColumns.length + 1} className="p-12 text-center"><FiLoader className="mx-auto h-7 w-7 animate-spin text-indigo-600" /></td></tr>
+                  <tr>
+                    <td colSpan={selectedColumns.length + 1} className="p-12 text-center">
+                      <HLoaderIcon className="mx-auto h-7 w-7 animate-spin text-indigo-600" />
+                      <p className="mt-3 text-sm font-semibold text-gray-500">Loading deals...</p>
+                    </td>
+                  </tr>
                 ) : deals.length ? deals.map((deal) => (
-                    <tr key={deal._id} className="group">
-                      {selectedColumns.map((column) => <td key={column} className="max-w-[240px] whitespace-nowrap bg-white px-5 py-3.5 text-sm font-medium text-gray-800 transition group-hover:bg-indigo-50/40"><div className="truncate">{renderCell(deal, column)}</div></td>)}
-                      <td className="sticky right-0 z-10 bg-white px-5 py-2.5 text-right shadow-[-14px_0_24px_-22px_rgba(15,23,42,0.45)] group-hover:bg-indigo-50/40">
-                        <div className="flex justify-end gap-2">
-                          <button className={ghostButton} onClick={() => setViewDealId(deal._id)}><FiEye />View</button>
-                          {!employeeMode ? (
-                            deal.salesOrderId ? (
-                              <button className={primaryButton} onClick={() => { navigate(`${getModuleBasePath(role, "sales")}/sales-orders?search=${encodeURIComponent(deal.dealNo || "")}`) }} title="View in Sales Orders">
-                                <FiShoppingCart />Sales Order
-                              </button>
-                            ) : deal.stage === "won" ? (
-                              <button
-                                className={primaryButton}
-                                disabled={creatingOrderId === deal._id || !deal.customerId}
-                                onClick={() => handleCreateSalesOrder(deal)}
-                                title={!deal.customerId ? "Customer conversion required" : "Create Sales Order to reserve stock & deliver"}
-                              >
-                                {creatingOrderId === deal._id ? <FiLoader className="animate-spin" /> : <FiShoppingCart />}
-                                {creatingOrderId === deal._id ? "Creating..." : "Create Order"}
-                              </button>
-                            ) : null
-                          ) : null}
-                          {deal.invoice ? (
-                            <button className={ghostButton} onClick={() => navigate(`${getModuleBasePath(role, "sales")}/invoices?search=${encodeURIComponent(deal.invoice?.invoiceNo || deal.invoice?.invoiceNumber || "")}`)} title="View in Invoices">
-                              <FiFileText />Invoice
-                            </button>
-                          ) : null}
-                        </div>
+                  <tr key={deal._id} className="group">
+                    {selectedColumns.map((column) => (
+                      <td key={column} className="max-w-[250px] whitespace-nowrap bg-white px-4 py-3 text-sm font-medium text-gray-700 transition group-hover:bg-indigo-50/40">
+                        <div className="truncate">{renderCell(deal, column)}</div>
                       </td>
-                    </tr>
+                    ))}
+                    <td className="sticky right-0 z-10 bg-white px-4 py-2.5 text-right shadow-[-14px_0_24px_-22px_rgba(15,23,42,0.45)] transition group-hover:bg-indigo-50/40">
+                      <DealRowActions
+                        deal={deal}
+                        onView={() => setViewDealId(deal._id)}
+                        onCreateSalesOrder={handleCreateSalesOrder}
+                        creatingOrderId={creatingOrderId}
+                        employeeMode={employeeMode}
+                        role={role}
+                      />
+                    </td>
+                  </tr>
                 )) : (
-                  <tr><td colSpan={selectedColumns.length + 1} className="p-12 text-center"><FiBriefcase className="mx-auto h-9 w-9 text-gray-300" /><p className="mt-3 font-semibold text-gray-900">No deals found</p><p className="mt-1 text-sm text-gray-500">No won deals match this accounting tab.</p></td></tr>
+                  <tr>
+                    <td colSpan={selectedColumns.length + 1} className="bg-white p-10">
+                      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 px-6 py-10 text-center">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-gray-500 shadow-sm ring-1 ring-gray-100">
+                          <HBriefcaseIcon className="h-5 w-5" />
+                        </div>
+                        <p className="mt-3 text-sm font-black text-gray-950">No deals found</p>
+                        <p className="mt-1 text-sm font-medium text-gray-500">Try another search or deal state.</p>
+                      </div>
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
           </div>
-          <div className="flex flex-col gap-3 border-t border-gray-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div><p className="text-sm font-semibold text-gray-800">{deals.length} of {pageInfo.total || 0} deals loaded</p><p className="mt-0.5 text-xs text-gray-500">Newest deals appear first.</p></div>
-            <button className={pageInfo.hasNextPage ? primaryButton : `${ghostButton} cursor-not-allowed text-gray-400`} disabled={!pageInfo.hasNextPage || loadingMore} onClick={() => loadDeals({ nextPage: pageInfo.page + 1, append: true })}>{loadingMore ? <FiLoader className="animate-spin" /> : null}{loadingMore ? "Loading..." : pageInfo.hasNextPage ? "Load more" : "All deals loaded"}</button>
+
+          <div className="flex flex-col gap-3 border-t border-gray-200 bg-white px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-bold text-gray-800">{deals.length} of {pageInfo.total || 0} deals loaded</p>
+              <p className="mt-0.5 text-xs font-medium text-gray-500">Newest won deals appear first.</p>
+            </div>
+            <button
+              className={cn(pageInfo.hasNextPage ? primaryButton : ghostButton, "min-w-[145px]", !pageInfo.hasNextPage && "cursor-not-allowed text-gray-400")}
+              disabled={!pageInfo.hasNextPage || loadingMore}
+              onClick={() => loadDeals({ nextPage: pageInfo.page + 1, append: true })}
+            >
+              {loadingMore ? <HLoaderIcon className="h-4 w-4 animate-spin" /> : null}
+              {loadingMore ? "Loading..." : pageInfo.hasNextPage ? "Load more" : "All deals loaded"}
+            </button>
           </div>
         </div>
       </div>
