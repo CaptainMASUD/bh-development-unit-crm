@@ -11,6 +11,7 @@ import {
   ChevronDownIcon,
   DeliveryTruck01Icon,
   File01Icon,
+  Factory02Icon,
   Home01Icon,
   Layers01Icon,
   Search01Icon,
@@ -63,7 +64,8 @@ const navigationTabs = [
   },
 ]
 
-const modules = [
+// eslint-disable-next-line react-refresh/only-export-components -- module registry is shared with navigation verification
+export const moduleCards = [
   {
     id: "payroll",
     name: "HR Payroll",
@@ -93,6 +95,16 @@ const modules = [
     route: "/admin/inventory",
     image: inventoryIcon,
     tone: "emerald",
+  },
+  {
+    id: "manufacturing",
+    name: "Manufacturing",
+    category: "Operations",
+    status: "active",
+    subscribed: true,
+    route: "/admin/manufacturing",
+    icon: Factory02Icon,
+    tone: "rose",
   },
   {
     id: "accounting",
@@ -732,7 +744,7 @@ export default function OdooStyleModulesPage({
       (tab) => tab.id === activeTab
     )
 
-    return modules.filter((module) => {
+    return moduleCards.filter((module) => {
       const isSubscribed = subscribedIds.has(module.id)
 
       const matchesSubscription =

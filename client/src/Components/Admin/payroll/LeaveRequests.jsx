@@ -2,16 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import toast, { Toaster } from "react-hot-toast"
+import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  FiCalendar,
-  FiCheck,
-  FiFilter,
-  FiLoader,
-  FiRefreshCcw,
-  FiSearch,
-  FiUser,
-  FiX,
-} from "react-icons/fi"
+  Calendar03Icon,
+  Cancel01Icon,
+  CheckmarkCircle02Icon,
+  FilterIcon,
+  RefreshIcon,
+  Search01Icon,
+  UserIcon,
+} from "@hugeicons/core-free-icons"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -135,7 +135,7 @@ function FilterChip({ label, value, onClear }) {
     >
       <span className="text-indigo-400">{label}:</span>
       <span className="max-w-[180px] truncate sm:max-w-[220px]">{value}</span>
-      <FiX className="h-3.5 w-3.5 shrink-0 text-indigo-600" />
+      <HugeiconsIcon icon={Cancel01Icon} size={14} className="h-3.5 w-3.5 shrink-0 text-indigo-600" />
     </button>
   )
 }
@@ -203,7 +203,7 @@ function ModalShell({
             </div>
 
             <button type="button" onClick={onClose} className="rounded-xl p-2 transition hover:bg-gray-100">
-              <FiX className="h-5 w-5 text-gray-700" />
+              <HugeiconsIcon icon={Cancel01Icon} size={20} className="h-5 w-5 text-gray-700" />
             </button>
           </div>
 
@@ -234,7 +234,7 @@ function HeaderSearchFilters({
   return (
     <div className="mt-5 w-full lg:w-1/2">
       <div className="flex min-h-[42px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
-        <FiSearch className="h-4 w-4 shrink-0 text-gray-400" />
+        <HugeiconsIcon icon={Search01Icon} size={16} className="h-4 w-4 shrink-0 text-gray-400" />
 
         {filters.q.trim() ? (
           <FilterChip label="Search" value={filters.q.trim()} onClear={() => updateFilter("q", "")} />
@@ -270,7 +270,7 @@ function HeaderSearchFilters({
               : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
           )}
         >
-          <FiFilter className="h-3.5 w-3.5" />
+          <HugeiconsIcon icon={FilterIcon} size={14} className="h-3.5 w-3.5" />
           Filters
 
           {activeFilterCount ? (
@@ -287,15 +287,13 @@ function HeaderSearchFilters({
             className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
             title="Clear search and filters"
           >
-            <FiX className="h-4 w-4" />
+            <HugeiconsIcon icon={Cancel01Icon} size={16} className="h-4 w-4" />
           </button>
         ) : null}
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-medium text-gray-500">
-        <span>{visibleCount} showing</span>
-        <span className="h-1 w-1 rounded-full bg-gray-300" />
-        <span>{totalCount} total loaded</span>
+        <span>Showing {visibleCount} of {totalCount} leave requests</span>
       </div>
     </div>
   )
@@ -310,7 +308,7 @@ function LeaveFilterModal({
   activeFilterCount,
   load,
 }) {
-  const apply = () => {
+  const handleApply = () => {
     load?.()
     onClose?.()
   }
@@ -321,7 +319,7 @@ function LeaveFilterModal({
       onClose={onClose}
       title="Filter leave requests"
       subtitle="Search and filter employee leave requests."
-      icon={<FiFilter className="h-5 w-5" />}
+      icon={<HugeiconsIcon icon={FilterIcon} size={20} className="h-5 w-5" />}
       maxWidthClass="max-w-3xl"
       footer={
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -341,7 +339,7 @@ function LeaveFilterModal({
               Reset
             </button>
 
-            <button type="button" className={cn(btn, btnPrimary)} onClick={apply}>
+            <button type="button" className={cn(btn, btnPrimary)} onClick={handleApply}>
               Apply filters
             </button>
           </div>
@@ -467,7 +465,7 @@ function LeaveMobileCard({ leave, noteById, setNoteById, reviewingId, review }) 
               disabled={reviewingId === leave._id}
               onClick={() => review(leave, "rejected")}
             >
-              <FiX className="h-4 w-4" />
+              <HugeiconsIcon icon={Cancel01Icon} size={16} className="h-4 w-4" />
               Reject
             </button>
 
@@ -476,7 +474,7 @@ function LeaveMobileCard({ leave, noteById, setNoteById, reviewingId, review }) 
               disabled={reviewingId === leave._id}
               onClick={() => review(leave, "approved")}
             >
-              <FiCheck className="h-4 w-4" />
+              <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} className="h-4 w-4" />
               Approve
             </button>
           </div>
@@ -612,7 +610,7 @@ export default function LeaveRequests() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex min-w-0 items-center gap-4">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20 sm:h-14 sm:w-14">
-                <FiCalendar className="h-5 w-5 sm:h-6 sm:w-6" />
+                <HugeiconsIcon icon={Calendar03Icon} size={22} className="h-5 w-5 sm:h-6 sm:w-6" />
               </div>
 
               <div className="min-w-0">
@@ -626,11 +624,7 @@ export default function LeaveRequests() {
             </div>
 
             <button className={`${btn} ${btnGhost} shrink-0`} onClick={load} disabled={loading}>
-              {loading ? (
-                <FiLoader className="h-4 w-4 animate-spin" />
-              ) : (
-                <FiRefreshCcw className="h-4 w-4" />
-              )}
+              <HugeiconsIcon icon={RefreshIcon} size={16} className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </button>
           </div>
@@ -668,7 +662,7 @@ export default function LeaveRequests() {
                 <tr>
                   <td colSpan={6} className="bg-white px-5 py-16 text-center">
                     <div className="flex justify-center">
-                      <FiLoader className="h-6 w-6 animate-spin text-indigo-600" />
+                      <HugeiconsIcon icon={RefreshIcon} size={24} className="h-6 w-6 animate-spin text-indigo-600" />
                     </div>
                   </td>
                 </tr>
@@ -742,7 +736,7 @@ export default function LeaveRequests() {
                               disabled={reviewingId === leave._id}
                               onClick={() => review(leave, "rejected")}
                             >
-                              <FiX className="h-4 w-4" />
+                              <HugeiconsIcon icon={Cancel01Icon} size={16} className="h-4 w-4" />
                               Reject
                             </button>
 
@@ -751,7 +745,7 @@ export default function LeaveRequests() {
                               disabled={reviewingId === leave._id}
                               onClick={() => review(leave, "approved")}
                             >
-                              <FiCheck className="h-4 w-4" />
+                              <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} className="h-4 w-4" />
                               Approve
                             </button>
                           </div>
@@ -770,7 +764,7 @@ export default function LeaveRequests() {
                   <td colSpan={6} className="bg-white px-5 py-14 text-center">
                     <div className="mx-auto flex max-w-sm flex-col items-center justify-center">
                       <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-50 text-gray-500">
-                        <FiUser className="h-5 w-5" />
+                        <HugeiconsIcon icon={UserIcon} size={20} className="h-5 w-5" />
                       </div>
 
                       <p className="text-sm font-semibold text-gray-900">No leave requests found.</p>
@@ -789,7 +783,7 @@ export default function LeaveRequests() {
       <div className="space-y-3 lg:hidden">
         {loading ? (
           <div className="flex justify-center rounded-2xl border border-gray-100 bg-white p-10">
-            <FiLoader className="h-6 w-6 animate-spin text-indigo-600" />
+            <HugeiconsIcon icon={RefreshIcon} size={24} className="h-6 w-6 animate-spin text-indigo-600" />
           </div>
         ) : null}
 
@@ -808,7 +802,7 @@ export default function LeaveRequests() {
         {!loading && !filtered.length ? (
           <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-8 text-center">
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-50 text-gray-500">
-              <FiUser className="h-5 w-5" />
+              <HugeiconsIcon icon={UserIcon} size={20} className="h-5 w-5" />
             </div>
 
             <p className="text-sm font-semibold text-gray-900">No leave requests found.</p>

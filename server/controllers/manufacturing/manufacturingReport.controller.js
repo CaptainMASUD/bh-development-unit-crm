@@ -1,0 +1,12 @@
+import ManufacturingOrder from "../../models/manufacturing/manufacturingOrder.model.js";
+import MaterialIssue from "../../models/manufacturing/materialIssue.model.js";
+import ProductionEntry from "../../models/manufacturing/productionEntry.model.js";
+import ScrapEntry from "../../models/manufacturing/scrapEntry.model.js";
+import WorkOrder from "../../models/manufacturing/workOrder.model.js";
+import { assertTenant } from "../../utils/manufacturingError.js";
+import { getManufacturingTrace } from "../../services/manufacturing/traceability.service.js";
+export const productionSummaryReport=async(req,res)=>{assertTenant(req);const match={};if(req.query.from||req.query.to)match.createdAt={...(req.query.from?{$gte:new Date(req.query.from)}:{}),...(req.query.to?{$lte:new Date(req.query.to)}:{})};const rows=await ManufacturingOrder.find(match).populate("product","name sku").lean();res.json({success:true,data:rows});};
+export const materialConsumptionReport=async(req,res)=>{assertTenant(req);res.json({success:true,data:await MaterialIssue.find({status:"posted"}).populate("manufacturingOrder","moNumber").populate("lines.product","name sku").lean()});};
+export const efficiencyReport=async(req,res)=>{assertTenant(req);const data=await WorkOrder.aggregate([{$group:{_id:"$workCenter",planned:{$sum:"$plannedQuantity"},completed:{$sum:"$completedQuantity"},laborMinutes:{$sum:"$laborMinutes"},machineMinutes:{$sum:"$machineMinutes"},downtimeMinutes:{$sum:"$downtimeMinutes"}}}]);res.json({success:true,data});};
+export const scrapReport=async(req,res)=>{assertTenant(req);res.json({success:true,data:await ScrapEntry.find({status:{$ne:"cancelled"}}).populate("product","name sku").lean()});};
+export const traceabilityReport=async(req,res)=>{assertTenant(req);res.json({success:true,data:await getManufacturingTrace({manufacturingOrderId:req.params.manufacturingOrderId})});};

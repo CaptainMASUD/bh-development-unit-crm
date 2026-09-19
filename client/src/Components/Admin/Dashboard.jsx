@@ -101,7 +101,7 @@ export default function AdminDashboard() {
   }, [activeSection, activeSubcategory, moduleSections])
 
   const content = useMemo(() => {
-    if (activeSection === "Dashboard") {
+    if (activeSection === "Dashboard" && !MODULES[moduleId]?.useSectionDashboard) {
       return (
         <ModuleDashboard
           moduleId={moduleId}

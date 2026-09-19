@@ -23,12 +23,23 @@ export function buildDashboardRouteMap(basePath, sections) {
     })
   })
 
+  // Add alias routes for Departments & Positions
+  if (routes[`${basePath}/departments`]) {
+    routes[`${basePath}/departments-positions`] = routes[`${basePath}/departments`]
+    routes[`${basePath}/departments-and-positions`] = routes[`${basePath}/departments`]
+  }
+
   return { routes, reverse }
 }
 
 export function matchDashboardRoute(pathname, basePath, routeMap) {
   const cleanPath = pathname.replace(/\/+$/, "") || "/"
   if (routeMap.routes[cleanPath]) return routeMap.routes[cleanPath]
+
+  if (cleanPath === `${basePath}/departments-positions` || cleanPath === `${basePath}/departments-and-positions`) {
+    if (routeMap.routes[`${basePath}/departments`]) return routeMap.routes[`${basePath}/departments`]
+    if (routeMap.routes[`${basePath}/departments-and-positions`]) return routeMap.routes[`${basePath}/departments-and-positions`]
+  }
 
   const segments = cleanPath.slice(basePath.length).split("/").filter(Boolean)
   if (basePath.startsWith("/admin") && segments[0] === "clients" && segments[1]) {

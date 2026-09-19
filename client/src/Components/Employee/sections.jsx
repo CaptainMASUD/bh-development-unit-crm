@@ -1,9 +1,8 @@
 /* eslint-disable react-refresh/only-export-components -- route registry intentionally owns lazy page references */
 import { lazy } from "react"
 import { MdDashboard } from "react-icons/md"
-import { FiBarChart2, FiCalendar, FiClock, FiCreditCard, FiDollarSign, FiPackage, FiUsers } from "react-icons/fi"
+import { FiBarChart2, FiBriefcase, FiCalendar, FiClock, FiCreditCard, FiDollarSign, FiLayers, FiPackage, FiSettings, FiTarget, FiUsers } from "react-icons/fi"
 import { FaInfoCircle, FaClipboardList } from "react-icons/fa"
-import { FiSettings, FiTarget } from "react-icons/fi"
 import { PERMISSIONS } from "../Auth/permissions"
 import { sections as adminSections } from "../Admin/sections"
 
@@ -32,6 +31,7 @@ const LoanManager = lazy(() => import("../Admin/payroll/EmployeeLoans"))
 const LeaveManager = lazy(() => import("../Admin/payroll/LeaveRequests"))
 const RosterManager = lazy(() => import("../Admin/payroll/RosterShiftSetup"))
 const AccessControl = lazy(() => import("../Admin/system/AccessControl"))
+const DepartmentPosition = lazy(() => import("../Admin/payroll/DepartmentPosition"))
 const TaxSetup = lazy(() => import("../Admin/payroll/TaxSetup"))
 const TaxReport = lazy(() => import("../Admin/reports/TaxReport"))
 const Expenses = lazy(() => import("../Admin/accounting/Expenses"))
@@ -327,6 +327,24 @@ export const sections = {
     icon: <FiClock className="w-5 h-5" />,
     component: <RosterManager />,
     permission: PERMISSIONS.ROSTER_MANAGE,
+  },
+
+  Departments: {
+    icon: <FiLayers className="w-5 h-5" />,
+    component: <DepartmentPosition key="emp-departments" defaultTab="departments" />,
+    permission: PERMISSIONS.EMPLOYEES_VIEW,
+  },
+
+  Positions: {
+    icon: <FiBriefcase className="w-5 h-5" />,
+    component: <DepartmentPosition key="emp-positions" defaultTab="positions" />,
+    permission: PERMISSIONS.EMPLOYEES_VIEW,
+  },
+
+  "Departments & Positions": {
+    icon: <FiLayers className="w-5 h-5" />,
+    component: <DepartmentPosition key="emp-dept-pos" />,
+    permission: PERMISSIONS.EMPLOYEES_VIEW,
   },
 
   "Access Control": {

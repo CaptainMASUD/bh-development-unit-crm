@@ -672,3 +672,22 @@ export const applyPayrollLoanRepayments = async ({ payroll, requesterId = null }
     await loan.save();
   }
 };
+
+export const revertPayrollLoanRepayments = async ({ payroll, requesterId = null, session = null }) => {
+  if (!payroll) return;
+
+  const loanDeductions = (payroll.deductions || []).filter(
+    (item) => item.source === "employee_loan" && item.refId
+  );
+
+  for (const item of loanDeductions) {
+    let query = EmployeeLoan.findById(item.refId);
+    if (session) query = query.session(session);
+    const loan = await query;
+    if (!loan) continue;
+
+    loan.removeRepaymentForPayroll(payroll._id);
+    loan.updatedBy = requesterId || null;
+    await loan.save(session ? { session } : undefined);
+  }
+};

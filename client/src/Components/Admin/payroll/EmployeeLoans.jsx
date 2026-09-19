@@ -29,35 +29,34 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { createPortal } from "react-dom"
 import toast, { Toaster } from "react-hot-toast"
+import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  FiAlertCircle,
-  FiAlertTriangle,
-  FiCalendar,
-  FiCheck,
-  FiCheckCircle,
-  FiChevronDown,
-  FiChevronLeft,
-  FiChevronRight,
-  FiColumns,
-  FiCreditCard,
-  FiDollarSign,
-  FiEdit2,
-  FiEye,
-  FiFileText,
-  FiFilter,
-  FiLoader,
-  FiMoreVertical,
-  FiPlus,
-  FiRefreshCcw,
-  FiSearch,
-  FiTrash2,
-  FiTrendingDown,
-  FiTrendingUp,
-  FiUser,
-  FiX,
-  FiXCircle,
-} from "react-icons/fi"
-import { SiMicrosoftexcel } from "react-icons/si"
+  Add01Icon,
+  Alert02Icon,
+  AlertCircleIcon,
+  ArrowDown01Icon,
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  Calendar03Icon,
+  Cancel01Icon,
+  CancelCircleIcon,
+  CheckmarkCircle02Icon,
+  CreditCardIcon,
+  Delete02Icon,
+  Dollar01Icon,
+  File02Icon,
+  FilterIcon,
+  GridTableIcon,
+  MoreVerticalIcon,
+  PencilEdit02Icon,
+  RefreshIcon,
+  Search01Icon,
+  TradeDownIcon,
+  TradeUpIcon,
+  UserIcon,
+  ViewIcon,
+  Xls01Icon,
+} from "@hugeicons/core-free-icons"
 import * as XLSX from "xlsx"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
@@ -314,7 +313,7 @@ function FilterChip({ label, value, onClear }) {
     >
       <span className="text-indigo-400">{label}:</span>
       <span className="max-w-[180px] truncate sm:max-w-[220px]">{value}</span>
-      <FiX className="h-3.5 w-3.5 shrink-0 text-indigo-600" />
+      <HugeiconsIcon icon={Cancel01Icon} size={14} className="shrink-0 text-indigo-600" />
     </button>
   )
 }
@@ -421,7 +420,7 @@ function ModalShell({
               </div>
 
               <button type="button" onClick={onClose} className="rounded-xl p-2 transition hover:bg-gray-100">
-                <FiX className="h-5 w-5 text-gray-700" />
+                <HugeiconsIcon icon={Cancel01Icon} size={20} className="text-gray-700" />
               </button>
             </div>
 
@@ -561,7 +560,7 @@ function renderColumnValue(loan, column) {
   if (column === "startPeriod") {
     return (
       <div className="flex items-center gap-2 text-sm font-semibold text-gray-700">
-        <FiCalendar className="h-4 w-4 text-gray-400" />
+        <HugeiconsIcon icon={Calendar03Icon} size={16} className="text-gray-400" />
         {getColumnRawValue(loan, column) || "—"}
       </div>
     )
@@ -673,7 +672,7 @@ function ColumnPickerModal({ open, onClose, allowed = [], selected = [], onSave 
       onClose={onClose}
       title="Choose columns"
       subtitle="Show, hide and arrange employee loan table columns. Actions stay visible."
-      icon={<FiColumns className="h-5 w-5" />}
+      icon={<HugeiconsIcon icon={GridTableIcon} size={20} />}
       maxWidthClass="max-w-5xl"
       footer={
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -700,7 +699,7 @@ function ColumnPickerModal({ open, onClose, allowed = [], selected = [], onSave 
       {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
 
       <div className="mb-4 flex items-center gap-2 rounded-2xl border border-gray-200 bg-white px-3 py-2">
-        <FiSearch className="h-4 w-4 text-gray-400" />
+        <HugeiconsIcon icon={Search01Icon} size={16} className="text-gray-400" />
         <input
           value={q}
           onChange={(event) => setQ(event.target.value)}
@@ -742,7 +741,7 @@ function ColumnPickerModal({ open, onClose, allowed = [], selected = [], onSave 
                       checked ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-200 bg-white text-transparent"
                     )}
                   >
-                    <FiCheck className="h-4 w-4" />
+                    <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} />
                   </span>
                 </button>
               )
@@ -778,7 +777,7 @@ function ColumnPickerModal({ open, onClose, allowed = [], selected = [], onSave 
                       className="rounded-xl border border-gray-200 bg-white p-2 transition hover:bg-gray-50 disabled:opacity-40"
                       title="Move up"
                     >
-                      <FiChevronDown className="h-4 w-4 rotate-180 text-gray-700" />
+                      <HugeiconsIcon icon={ArrowDown01Icon} size={16} className="rotate-180 text-gray-700" />
                     </button>
                     <button
                       type="button"
@@ -787,7 +786,7 @@ function ColumnPickerModal({ open, onClose, allowed = [], selected = [], onSave 
                       className="rounded-xl border border-gray-200 bg-white p-2 transition hover:bg-gray-50 disabled:opacity-40"
                       title="Move down"
                     >
-                      <FiChevronDown className="h-4 w-4 text-gray-700" />
+                      <HugeiconsIcon icon={ArrowDown01Icon} size={16} className="text-gray-700" />
                     </button>
                     <button
                       type="button"
@@ -795,7 +794,7 @@ function ColumnPickerModal({ open, onClose, allowed = [], selected = [], onSave 
                       className="rounded-xl border border-gray-200 bg-white p-2 transition hover:bg-gray-50"
                       title="Remove"
                     >
-                      <FiX className="h-4 w-4 text-gray-700" />
+                      <HugeiconsIcon icon={Cancel01Icon} size={16} className="text-gray-700" />
                     </button>
                   </div>
                 </div>
@@ -803,7 +802,7 @@ function ColumnPickerModal({ open, onClose, allowed = [], selected = [], onSave 
 
               {!local.length ? (
                 <EmptyState
-                  icon={<FiColumns className="h-5 w-5" />}
+                  icon={<HugeiconsIcon icon={GridTableIcon} size={20} />}
                   title="No columns selected"
                   subtitle="Choose at least one column to show in the employee loan table."
                 />
@@ -914,7 +913,7 @@ function LoanUpsertModal({ open, onClose, mode = "create", initial, employees = 
       onClose={onClose}
       title={mode === "edit" ? "Edit employee loan" : "Create employee loan"}
       subtitle={mode === "edit" ? initial?.loanNo || "" : ""}
-      icon={mode === "edit" ? <FiEdit2 className="h-5 w-5" /> : <FiPlus className="h-5 w-5" />}
+      icon={mode === "edit" ? <HugeiconsIcon icon={PencilEdit02Icon} size={20} /> : <HugeiconsIcon icon={Add01Icon} size={20} />}
       maxWidthClass="max-w-5xl"
       footer={
         <div className="flex flex-col justify-end gap-2 sm:flex-row">
@@ -922,7 +921,7 @@ function LoanUpsertModal({ open, onClose, mode = "create", initial, employees = 
             Cancel
           </button>
           <button type="button" className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>
-            {loading ? <FiLoader className="h-4 w-4 animate-spin" /> : <FiCheck className="h-4 w-4" />}
+            {loading ? <HugeiconsIcon icon={RefreshIcon} size={16} className="animate-spin" /> : <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} />}
             {mode === "edit" ? "Update loan" : "Create loan"}
           </button>
         </div>
@@ -1101,7 +1100,7 @@ function ManualPaymentModal({ open, onClose, loan, onSaved }) {
       onClose={onClose}
       title="Add manual payment"
       subtitle={loan?.loanNo || employeeName(loan?.employee)}
-      icon={<FiCreditCard className="h-5 w-5" />}
+      icon={<HugeiconsIcon icon={CreditCardIcon} size={20} />}
       maxWidthClass="max-w-xl"
       footer={
         <div className="flex justify-end gap-2">
@@ -1109,7 +1108,7 @@ function ManualPaymentModal({ open, onClose, loan, onSaved }) {
             Cancel
           </button>
           <button type="button" className={cn(btn, btnGreen)} onClick={submit} disabled={loading}>
-            {loading ? <FiLoader className="h-4 w-4 animate-spin" /> : <FiCheckCircle className="h-4 w-4" />}
+            {loading ? <HugeiconsIcon icon={RefreshIcon} size={16} className="animate-spin" /> : <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} />}
             Add payment
           </button>
         </div>
@@ -1191,7 +1190,7 @@ function CancelLoanModal({ open, onClose, loan, onSaved }) {
       onClose={onClose}
       title="Cancel employee loan?"
       subtitle={loan?.loanNo || employeeName(loan?.employee)}
-      icon={<FiAlertTriangle className="h-5 w-5" />}
+      icon={<HugeiconsIcon icon={Alert02Icon} size={20} />}
       maxWidthClass="max-w-xl"
       footer={
         <div className="flex justify-end gap-2">
@@ -1199,7 +1198,7 @@ function CancelLoanModal({ open, onClose, loan, onSaved }) {
             Keep loan
           </button>
           <button type="button" className={cn(btn, btnRed)} onClick={submit} disabled={loading}>
-            {loading ? <FiLoader className="h-4 w-4 animate-spin" /> : <FiXCircle className="h-4 w-4" />}
+            {loading ? <HugeiconsIcon icon={RefreshIcon} size={16} className="animate-spin" /> : <HugeiconsIcon icon={CancelCircleIcon} size={16} />}
             Cancel loan
           </button>
         </div>
@@ -1236,7 +1235,7 @@ function LoanDetailsModal({ open, onClose, loan, onEdit, onPayment, onCancel }) 
       onClose={onClose}
       title="Loan details"
       subtitle={loan?.loanNo || employeeName(loan?.employee)}
-      icon={<FiEye className="h-5 w-5" />}
+      icon={<HugeiconsIcon icon={ViewIcon} size={20} />}
       maxWidthClass="max-w-5xl"
       footer={
         <div className="flex flex-col justify-between gap-2 sm:flex-row">
@@ -1248,15 +1247,15 @@ function LoanDetailsModal({ open, onClose, loan, onEdit, onPayment, onCancel }) 
             {loan?.status === "active" ? (
               <>
                 <button type="button" className={cn(btn, btnGreen)} onClick={() => onPayment?.(loan)}>
-                  <FiCreditCard className="h-4 w-4" />
+                  <HugeiconsIcon icon={CreditCardIcon} size={16} />
                   Manual payment
                 </button>
                 <button type="button" className={cn(btn, btnPrimary)} onClick={() => onEdit?.(loan)}>
-                  <FiEdit2 className="h-4 w-4" />
+                  <HugeiconsIcon icon={PencilEdit02Icon} size={16} />
                   Edit
                 </button>
                 <button type="button" className={cn(btn, btnRed)} onClick={() => onCancel?.(loan)}>
-                  <FiXCircle className="h-4 w-4" />
+                  <HugeiconsIcon icon={CancelCircleIcon} size={16} />
                   Cancel
                 </button>
               </>
@@ -1266,7 +1265,7 @@ function LoanDetailsModal({ open, onClose, loan, onEdit, onPayment, onCancel }) 
       }
     >
       {!loan ? (
-        <EmptyState icon={<FiFileText className="h-5 w-5" />} title="No loan selected" />
+        <EmptyState icon={<HugeiconsIcon icon={File02Icon} size={20} />} title="No loan selected" />
       ) : (
         <div className="space-y-5">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
@@ -1291,10 +1290,10 @@ function LoanDetailsModal({ open, onClose, loan, onEdit, onPayment, onCancel }) 
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:col-span-7">
-              <SummaryTile icon={<FiDollarSign />} label="Loan amount" value={formatMoney(loan.loanAmount)} />
-              <SummaryTile icon={<FiTrendingUp />} label="Paid amount" value={formatMoney(loan.paidAmount)} tone="emerald" />
-              <SummaryTile icon={<FiTrendingDown />} label="Remaining" value={formatMoney(loan.remainingAmount)} tone="rose" />
-              <SummaryTile icon={<FiCalendar />} label="Monthly installment" value={formatMoney(loan.installmentAmount)} tone="indigo" />
+              <SummaryTile icon={<HugeiconsIcon icon={Dollar01Icon} size={20} />} label="Loan amount" value={formatMoney(loan.loanAmount)} />
+              <SummaryTile icon={<HugeiconsIcon icon={TradeUpIcon} size={20} />} label="Paid amount" value={formatMoney(loan.paidAmount)} tone="emerald" />
+              <SummaryTile icon={<HugeiconsIcon icon={TradeDownIcon} size={20} />} label="Remaining" value={formatMoney(loan.remainingAmount)} tone="rose" />
+              <SummaryTile icon={<HugeiconsIcon icon={Calendar03Icon} size={20} />} label="Monthly installment" value={formatMoney(loan.installmentAmount)} tone="indigo" />
             </div>
           </div>
 
@@ -1356,7 +1355,7 @@ function LoanDetailsModal({ open, onClose, loan, onEdit, onPayment, onCancel }) 
                 </div>
               ) : (
                 <EmptyState
-                  icon={<FiCreditCard className="h-5 w-5" />}
+                  icon={<HugeiconsIcon icon={CreditCardIcon} size={20} />}
                   title="No repayment yet"
                   subtitle="Payroll deductions or manual payments will be listed here."
                 />
@@ -1389,7 +1388,7 @@ function HeaderSearchFilters({
       )}
     >
       <div className="flex min-h-[42px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-[#f7f8fb] px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
-        <FiSearch className="h-4 w-4 shrink-0 text-gray-400" />
+        <HugeiconsIcon icon={Search01Icon} size={16} className="shrink-0 text-gray-400" />
 
         {filters.q.trim() ? (
           <FilterChip label="Search" value={filters.q.trim()} onClear={() => updateFilter("q", "")} />
@@ -1429,7 +1428,7 @@ function HeaderSearchFilters({
               : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100"
           )}
         >
-          <FiFilter className="h-3.5 w-3.5" />
+          <HugeiconsIcon icon={FilterIcon} size={14} />
           Filters
           {activeFilterCount ? (
             <span className="rounded-full bg-white/20 px-1.5 text-[10px]">
@@ -1445,7 +1444,7 @@ function HeaderSearchFilters({
             className="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
             title="Clear search and filters"
           >
-            <FiX className="h-4 w-4" />
+            <HugeiconsIcon icon={Cancel01Icon} size={16} />
           </button>
         ) : null}
       </div>
@@ -1476,7 +1475,7 @@ function LoanFilterModal({
       onClose={onClose}
       title="Filter employee loans"
       subtitle="Filter and sort employee loans like the lead list."
-      icon={<FiFilter className="h-5 w-5" />}
+      icon={<HugeiconsIcon icon={FilterIcon} size={20} />}
       maxWidthClass="max-w-4xl"
       footer={
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1486,7 +1485,7 @@ function LoanFilterModal({
             </span>
             {selectedEmployee ? (
               <span className={cn(chip, "bg-white text-gray-700 ring-gray-200")}>
-                <FiUser className="h-3.5 w-3.5" />
+                <HugeiconsIcon icon={UserIcon} size={14} />
                 {employeeName(selectedEmployee)}
               </span>
             ) : null}
@@ -1638,18 +1637,18 @@ function RowActionMenu({ loan, onView, onEdit, onPayment, onCancel }) {
             onClick={(event) => event.stopPropagation()}
           >
             <button type="button" className={itemClass} onClick={() => runAction(onView)}>
-              <FiEye className="h-4 w-4 text-indigo-600" />
+              <HugeiconsIcon icon={ViewIcon} size={16} className="text-indigo-600" />
               View details
             </button>
 
             {canManage ? (
               <>
                 <button type="button" className={itemClass} onClick={() => runAction(onPayment)}>
-                  <FiCreditCard className="h-4 w-4 text-emerald-600" />
+                  <HugeiconsIcon icon={CreditCardIcon} size={16} className="text-emerald-600" />
                   Manual payment
                 </button>
                 <button type="button" className={itemClass} onClick={() => runAction(onEdit)}>
-                  <FiEdit2 className="h-4 w-4 text-gray-600" />
+                  <HugeiconsIcon icon={PencilEdit02Icon} size={16} className="text-gray-600" />
                   Edit loan
                 </button>
                 <button
@@ -1657,7 +1656,7 @@ function RowActionMenu({ loan, onView, onEdit, onPayment, onCancel }) {
                   className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
                   onClick={() => runAction(onCancel)}
                 >
-                  <FiXCircle className="h-4 w-4" />
+                  <HugeiconsIcon icon={CancelCircleIcon} size={16} />
                   Cancel loan
                 </button>
               </>
@@ -1674,7 +1673,7 @@ function RowActionMenu({ loan, onView, onEdit, onPayment, onCancel }) {
   return (
     <div className="relative flex items-center justify-end gap-2" onClick={(event) => event.stopPropagation()}>
       <button type="button" className={cn(btn, btnPrimary, "h-10 px-3 py-2 shadow-sm shadow-indigo-600/20")} onClick={() => runAction(onView)}>
-        <FiEye className="h-4 w-4" />
+        <HugeiconsIcon icon={ViewIcon} size={16} />
         View
       </button>
 
@@ -1688,7 +1687,7 @@ function RowActionMenu({ loan, onView, onEdit, onPayment, onCancel }) {
           setOpen((prev) => !prev)
         }}
       >
-        <FiMoreVertical className="h-4 w-4" />
+        <HugeiconsIcon icon={MoreVerticalIcon} size={16} />
       </button>
 
       {menu}
@@ -1702,7 +1701,7 @@ function TableLoadingState({ colSpan = 1 }) {
     <tr>
       <td colSpan={colSpan} className="bg-white p-8">
         <div className="flex justify-center p-10">
-          <FiLoader className="h-6 w-6 animate-spin text-indigo-600" />
+          <HugeiconsIcon icon={RefreshIcon} size={24} className="animate-spin text-indigo-600" />
         </div>
       </td>
     </tr>
@@ -1712,7 +1711,7 @@ function TableLoadingState({ colSpan = 1 }) {
 function MobileLoadingState() {
   return (
     <div className="flex justify-center rounded-2xl border border-gray-100 bg-white p-10">
-      <FiLoader className="h-6 w-6 animate-spin text-indigo-600" />
+      <HugeiconsIcon icon={RefreshIcon} size={24} className="animate-spin text-indigo-600" />
     </div>
   )
 }
@@ -1995,7 +1994,7 @@ export default function AdminEmployeeLoansPage() {
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm shadow-indigo-600/20">
-                <FiCreditCard className="h-5 w-5" />
+                <HugeiconsIcon icon={CreditCardIcon} size={20} />
               </div>
               <div className="min-w-0">
                 <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Employee Loans</h1>
@@ -2004,19 +2003,19 @@ export default function AdminEmployeeLoansPage() {
 
             <div className="flex flex-wrap gap-2">
               <button type="button" className={cn(btn, btnGhost)} onClick={refreshAll} disabled={loading || employeeLoading}>
-                <FiRefreshCcw className={cn("h-4 w-4", loading ? "animate-spin" : "")} />
+                <HugeiconsIcon icon={RefreshIcon} size={16} className={loading ? "animate-spin" : ""} />
                 Refresh
               </button>
               <button type="button" className={cn(btn, btnGhost)} onClick={() => setColumnModalOpen(true)} disabled={prefLoading}>
-                <FiColumns className="h-4 w-4" />
+                <HugeiconsIcon icon={GridTableIcon} size={16} />
                 Columns
               </button>
               <button type="button" className={cn(btn, btnGhost)} onClick={exportLoans}>
-                <SiMicrosoftexcel className="h-4 w-4" />
+                <HugeiconsIcon icon={Xls01Icon} size={16} />
                 Export
               </button>
               <button type="button" className={cn(btn, btnPrimary)} onClick={openCreate}>
-                <FiPlus className="h-4 w-4" />
+                <HugeiconsIcon icon={Add01Icon} size={16} />
                 New Loan
               </button>
             </div>
@@ -2042,7 +2041,7 @@ export default function AdminEmployeeLoansPage() {
         {err ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-700">
             <div className="flex items-start gap-2">
-              <FiAlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <HugeiconsIcon icon={AlertCircleIcon} size={16} className="mt-0.5 shrink-0" />
               <span>{err}</span>
             </div>
           </div>
@@ -2094,12 +2093,12 @@ export default function AdminEmployeeLoansPage() {
                   <tr>
                     <td colSpan={(columns.length ? columns.length : DEFAULT_COLUMNS.length) + 1} className="p-6">
                       <EmptyState
-                        icon={<FiCreditCard className="h-5 w-5" />}
+                        icon={<HugeiconsIcon icon={CreditCardIcon} size={20} />}
                         title="No employee loans found"
                         subtitle="Create a new employee loan to start monthly salary deduction tracking."
                         action={
                           <button type="button" className={cn(btn, btnPrimary)} onClick={openCreate}>
-                            <FiPlus className="h-4 w-4" />
+                            <HugeiconsIcon icon={Add01Icon} size={16} />
                             Create first loan
                           </button>
                         }
@@ -2127,12 +2126,12 @@ export default function AdminEmployeeLoansPage() {
               ))
             ) : (
               <EmptyState
-                icon={<FiCreditCard className="h-5 w-5" />}
+                icon={<HugeiconsIcon icon={CreditCardIcon} size={20} />}
                 title="No employee loans found"
                 subtitle="Create a new employee loan to start monthly salary deduction tracking."
                 action={
                   <button type="button" className={cn(btn, btnPrimary)} onClick={openCreate}>
-                    <FiPlus className="h-4 w-4" />
+                    <HugeiconsIcon icon={Add01Icon} size={16} />
                     Create first loan
                   </button>
                 }
@@ -2152,7 +2151,7 @@ export default function AdminEmployeeLoansPage() {
                 disabled={!canGoPrev || loading}
                 onClick={() => updateFilter("page", Number(pagination.page || 1) - 1)}
               >
-                <FiChevronLeft className="h-4 w-4" />
+                <HugeiconsIcon icon={ArrowLeft01Icon} size={16} />
                 Previous
               </button>
               <button
@@ -2162,7 +2161,7 @@ export default function AdminEmployeeLoansPage() {
                 onClick={() => updateFilter("page", Number(pagination.page || 1) + 1)}
               >
                 Next
-                <FiChevronRight className="h-4 w-4" />
+                <HugeiconsIcon icon={ArrowRight01Icon} size={16} />
               </button>
             </div>
           </div>
@@ -2326,22 +2325,22 @@ function LoanMobileCard({ loan, onView, onEdit, onPayment, onCancel }) {
 
       <div className="mt-4 flex flex-wrap justify-end gap-2">
         <button type="button" className={cn(btn, btnPrimary, "px-3 py-2 shadow-sm shadow-indigo-600/20")} onClick={() => onView?.(loan)}>
-          <FiEye className="h-4 w-4" />
+          <HugeiconsIcon icon={ViewIcon} size={16} />
           View
         </button>
 
         {loan.status === "active" ? (
           <>
             <button type="button" className={cn(btn, btnGreen, "px-3 py-2")} onClick={() => onPayment?.(loan)}>
-              <FiCreditCard className="h-4 w-4" />
+              <HugeiconsIcon icon={CreditCardIcon} size={16} />
               Pay
             </button>
             <button type="button" className={cn(btn, btnGhost, "px-3 py-2")} onClick={() => onEdit?.(loan)}>
-              <FiEdit2 className="h-4 w-4" />
+              <HugeiconsIcon icon={PencilEdit02Icon} size={16} />
               Edit
             </button>
             <button type="button" className={cn(btn, btnRed, "px-3 py-2")} onClick={() => onCancel?.(loan)}>
-              <FiXCircle className="h-4 w-4" />
+              <HugeiconsIcon icon={CancelCircleIcon} size={16} />
               Cancel
             </button>
           </>

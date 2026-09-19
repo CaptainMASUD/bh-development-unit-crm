@@ -1,0 +1,1 @@
+import {Router} from "express";import {requirePermission} from "../../middleware/auth.middleware.js";import * as c from "../../controllers/manufacturing/wip.controller.js";const r=Router();r.get("/",requirePermission("manufacturing-wip:view"),c.listWIPs);r.get("/:id",requirePermission("manufacturing-wip:view"),c.getWIP);export default r;

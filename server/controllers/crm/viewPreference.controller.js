@@ -43,6 +43,25 @@ const VIEW_ALLOWED_COLUMNS = {
     "invoiceNo",
     "closeDate",
   ],
+  "employee-loans.list": [
+    "employee",
+    "employeeId",
+    "department",
+    "position",
+    "loanNo",
+    "status",
+    "loanAmount",
+    "paidAmount",
+    "remainingAmount",
+    "installmentAmount",
+    "startPeriod",
+    "issueDate",
+    "reason",
+    "repaymentsCount",
+    "progress",
+    "createdAt",
+    "updatedAt",
+  ],
 };
 
 // ✅ Default selected columns per view-key
@@ -59,6 +78,18 @@ const VIEW_DEFAULT_COLUMNS = {
     "paidAmount",
     "dueAmount",
     "invoiceStatus",
+  ],
+  "employee-loans.list": [
+    "employee",
+    "loanNo",
+    "status",
+    "loanAmount",
+    "paidAmount",
+    "remainingAmount",
+    "installmentAmount",
+    "startPeriod",
+    "progress",
+    "createdAt",
   ],
 };
 

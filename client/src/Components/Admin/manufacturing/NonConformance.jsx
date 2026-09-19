@@ -1,0 +1,9 @@
+"use client"
+import { FiAlertTriangle } from "react-icons/fi"
+import ManufacturingResourcePage from "./ManufacturingResourcePage"
+
+export default function NonConformance() {
+  return <ManufacturingResourcePage title="Non-Conformance / CAPA" subtitle="Track defects, severity, disposition, root cause, corrective action, preventive action, ownership, and closure." endpoint="/manufacturing/quality/ncr" icon={<FiAlertTriangle />} viewPermission="manufacturing-quality:view" managePermission="manufacturing-quality:manage" allowCreate={false} statusOptions={["open", "investigating", "action_required", "closed"]}
+    columns={[{ key: "ncrNumber", label: "NCR No." }, { key: "product", label: "Product", type: "relation" }, { key: "defectType", label: "Defect" }, { key: "severity", label: "Severity", type: "status" }, { key: "quantity", label: "Qty", type: "number" }, { key: "disposition", label: "Disposition" }, { key: "status", label: "Status", type: "status" }, { key: "dueDate", label: "Due", type: "date" }]}
+    formFields={[{ name: "defectType", label: "Defect Type", type: "text" }, { name: "severity", label: "Severity", type: "select", options: ["minor", "major", "critical"] }, { name: "quantity", label: "Quantity", type: "number", min: 0.000001 }, { name: "disposition", label: "Disposition", type: "select", options: ["pending", "rework", "scrap", "use_as_is", "return_to_supplier"] }, { name: "rootCause", label: "Root Cause", type: "textarea", full: true }, { name: "correctiveAction", label: "Corrective Action", type: "textarea", full: true }, { name: "preventiveAction", label: "Preventive Action", type: "textarea", full: true }, { name: "dueDate", label: "Due Date", type: "date" }, { name: "status", label: "Status", type: "select", options: ["open", "investigating", "action_required", "closed"] }]} />
+}

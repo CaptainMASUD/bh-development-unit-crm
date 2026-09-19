@@ -2,7 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react"
 import toast, { Toaster } from "react-hot-toast"
-import { FiBarChart2, FiEdit3, FiPlus, FiRefreshCcw, FiSave, FiTrash2, FiX } from "react-icons/fi"
+import { HugeiconsIcon } from "@hugeicons/react"
+import {
+  Add01Icon,
+  Analytics01Icon,
+  Cancel01Icon,
+  Delete02Icon,
+  FloppyDiskIcon,
+  PencilEdit02Icon,
+  RefreshIcon,
+} from "@hugeicons/core-free-icons"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -243,13 +252,13 @@ export default function TaxSetup() {
       <div className={`${card} mb-6 p-5 sm:p-6`}>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white"><FiBarChart2 /></div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white"><HugeiconsIcon icon={Analytics01Icon} size={24} /></div>
             <div>
               <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Tax / TDS Setup</h1>
               <p className="mt-1 text-sm font-semibold text-gray-500">Manage fiscal-year slabs and employee tax exceptions.</p>
             </div>
           </div>
-          <button className={`${btn} ${btnGhost}`} onClick={load} disabled={loading}><FiRefreshCcw className={loading ? "animate-spin" : ""} />Refresh</button>
+          <button className={`${btn} ${btnGhost}`} onClick={load} disabled={loading}><HugeiconsIcon icon={RefreshIcon} size={18} className={loading ? "animate-spin" : ""} />Refresh</button>
         </div>
       </div>
 
@@ -283,7 +292,7 @@ export default function TaxSetup() {
           <div className="flex flex-col gap-3 border-b border-gray-100 p-5 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-base font-extrabold text-gray-900">Fiscal Year Tax Slabs</h2>
             <button className={`${btn} ${btnPrimary}`} type="button" onClick={openSlabModal}>
-              <FiPlus /> Add Tax Slab
+              <HugeiconsIcon icon={Add01Icon} size={18} /> Add Tax Slab
             </button>
           </div>
           <div className="max-h-[460px] overflow-auto">
@@ -298,7 +307,7 @@ export default function TaxSetup() {
                     <td className="px-5 py-4 text-sm font-semibold text-gray-700">{pretty(slab.taxpayerType)}</td>
                     <td className="px-5 py-4 text-sm font-semibold text-gray-700">{money(slab.minIncome)} - {slab.maxIncome === null || slab.maxIncome === undefined ? "Above" : money(slab.maxIncome)}</td>
                     <td className="px-5 py-4 text-sm font-semibold text-gray-700">{slab.rate || 0}% + {money(slab.fixedAmount)}</td>
-                    <td className="px-5 py-4"><div className="flex justify-end gap-2"><button className={`${btn} ${btnGhost} px-3`} type="button" onClick={() => editSlab(slab)}><FiEdit3 /></button><button className={`${btn} ${btnDanger} px-3`} type="button" onClick={() => deleteSlab(slab)}><FiTrash2 /></button></div></td>
+                    <td className="px-5 py-4"><div className="flex justify-end gap-2"><button className={`${btn} ${btnGhost} px-3`} type="button" onClick={() => editSlab(slab)}><HugeiconsIcon icon={PencilEdit02Icon} size={16} /></button><button className={`${btn} ${btnDanger} px-3`} type="button" onClick={() => deleteSlab(slab)}><HugeiconsIcon icon={Delete02Icon} size={16} /></button></div></td>
                   </tr>
                 ))}
                 {!slabs.length ? <tr><td className="px-5 py-10 text-center text-sm font-bold text-gray-500" colSpan={5}>No tax slabs found.</td></tr> : null}
@@ -419,7 +428,7 @@ export default function TaxSetup() {
                   : "No active slab matches this fiscal year and taxpayer type."}
               </div>
             ) : null}
-            <button className={`${btn} ${btnPrimary}`} type="submit"><FiSave />Save Tax Override</button>
+            <button className={`${btn} ${btnPrimary}`} type="submit"><HugeiconsIcon icon={FloppyDiskIcon} size={18} />Save Tax Override</button>
           </form>
         </div>
       ) : null}
@@ -433,7 +442,7 @@ export default function TaxSetup() {
                 <p className="text-sm font-semibold text-gray-500">Create fiscal-year tax brackets without changing payroll logic.</p>
               </div>
               <button className="rounded-xl p-2 hover:bg-gray-100" type="button" onClick={() => setSlabModalOpen(false)}>
-                <FiX className="h-5 w-5" />
+                <HugeiconsIcon icon={Cancel01Icon} size={20} className="h-5 w-5" />
               </button>
             </div>
             <form onSubmit={saveSlab}>
@@ -448,7 +457,7 @@ export default function TaxSetup() {
               </div>
               <div className="flex justify-end gap-2 border-t border-gray-100 p-5">
                 <button className={`${btn} ${btnGhost}`} type="button" onClick={() => setSlabModalOpen(false)}>Cancel</button>
-                <button className={`${btn} ${btnPrimary}`} type="submit"><FiPlus />{editingSlab ? "Update Slab" : "Create Slab"}</button>
+                <button className={`${btn} ${btnPrimary}`} type="submit"><HugeiconsIcon icon={Add01Icon} size={18} />{editingSlab ? "Update Slab" : "Create Slab"}</button>
               </div>
             </form>
           </div>

@@ -3,7 +3,18 @@
 import { useEffect, useMemo, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import toast, { Toaster } from "react-hot-toast"
-import { FiBriefcase, FiCalendar, FiCheckCircle, FiClock, FiEdit3, FiPlus, FiRefreshCcw, FiTrash2, FiX } from "react-icons/fi"
+import { HugeiconsIcon } from "@hugeicons/react"
+import {
+  Add01Icon,
+  Briefcase01Icon,
+  Calendar03Icon,
+  Cancel01Icon,
+  CheckmarkCircle02Icon,
+  Clock01Icon,
+  Delete02Icon,
+  PencilEdit02Icon,
+  RefreshIcon,
+} from "@hugeicons/core-free-icons"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -473,11 +484,11 @@ export default function LeaveSetup() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
-                <FiCalendar className="h-5 w-5" />
+                <HugeiconsIcon icon={Calendar03Icon} size={20} className="h-5 w-5" />
               </div>
 
               <div>
-                <h1 className="text-xl font-extrabold tracking-tight text-gray-950 sm:text-2xl">
+                <h1 className="text-xl font-extrabold tracking-tight text-gray-955 sm:text-2xl">
                   Leave Setup
                 </h1>
               </div>
@@ -485,13 +496,13 @@ export default function LeaveSetup() {
 
             <div className="flex flex-wrap gap-2">
               <button className={`${btn} ${btnGhost}`} disabled={loading} onClick={load}>
-                <FiRefreshCcw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+                <HugeiconsIcon icon={RefreshIcon} size={14} className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
                 Refresh
               </button>
 
               {activeTab === "templates" ? (
                 <button className={`${btn} ${btnPrimary}`} onClick={openCreate}>
-                  <FiPlus className="h-3.5 w-3.5" />
+                  <HugeiconsIcon icon={Add01Icon} size={14} className="h-3.5 w-3.5" />
                   Add Template
                 </button>
               ) : null}
@@ -502,10 +513,10 @@ export default function LeaveSetup() {
         <div className="mb-6 overflow-x-auto rounded-3xl border border-gray-100 bg-white p-1.5 shadow-[0_14px_35px_-28px_rgba(15,23,42,0.45)]">
           <div className="flex min-w-max gap-1">
             {[
-              ["templates", "Leave Templates", FiCalendar],
-              ["weekly-off", "Weekly Off", FiClock],
-              ["holidays", "Holidays", FiBriefcase],
-            ].map(([key, text, Icon]) => (
+              ["templates", "Leave Templates", Calendar03Icon],
+              ["weekly-off", "Weekly Off", Clock01Icon],
+              ["holidays", "Holidays", Briefcase01Icon],
+            ].map(([key, text, icon]) => (
               <button
                 key={key}
                 type="button"
@@ -514,7 +525,7 @@ export default function LeaveSetup() {
                 }`}
                 onClick={() => setActiveTab(key)}
               >
-                <Icon className="h-4 w-4" />
+                <HugeiconsIcon icon={icon} size={16} className="h-4 w-4" />
                 {text}
               </button>
             ))}
@@ -597,17 +608,17 @@ export default function LeaveSetup() {
                           onClick={() => applyNow(template)}
                           title={template.isActive === false ? "Activate the template before applying it." : "Apply this template to its assigned employees now."}
                         >
-                          <FiCheckCircle className="h-3.5 w-3.5" />
+                          <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} className="h-3.5 w-3.5" />
                           {applyingId === template._id ? "Applying..." : "Apply"}
                         </button>
 
                         <button className={`${btn} ${btnGhost}`} onClick={() => openEdit(template)}>
-                          <FiEdit3 className="h-3.5 w-3.5" />
+                          <HugeiconsIcon icon={PencilEdit02Icon} size={14} className="h-3.5 w-3.5" />
                           Edit
                         </button>
 
                         <button className={`${btn} ${btnDanger}`} onClick={() => remove(template)}>
-                          <FiTrash2 className="h-3.5 w-3.5" />
+                          <HugeiconsIcon icon={Delete02Icon} size={14} className="h-3.5 w-3.5" />
                           Delete
                         </button>
                       </div>
@@ -702,7 +713,7 @@ export default function LeaveSetup() {
               </label>
 
               <button className={`${btn} ${btnPrimary}`} type="submit" disabled={saving}>
-                <FiPlus className="h-3.5 w-3.5" />
+                <HugeiconsIcon icon={Add01Icon} size={14} className="h-3.5 w-3.5" />
                 Save Weekly Off
               </button>
             </form>
@@ -717,7 +728,7 @@ export default function LeaveSetup() {
                   <SetupCell>{item.paid ? "Paid" : "Unpaid"}</SetupCell>
                   <SetupCell right>
                     <button className={`${btn} ${btnDanger}`} type="button" onClick={() => removeSetupItem(`/roster/weekly-offs/${item._id}`, "Weekly off deleted.")}>
-                      <FiTrash2 className="h-3.5 w-3.5" />
+                      <HugeiconsIcon icon={Delete02Icon} size={14} className="h-3.5 w-3.5" />
                     </button>
                   </SetupCell>
                 </tr>
@@ -826,7 +837,7 @@ export default function LeaveSetup() {
               </div>
 
               <button className={`${btn} ${btnPrimary}`} type="submit" disabled={saving}>
-                <FiPlus className="h-3.5 w-3.5" />
+                <HugeiconsIcon icon={Add01Icon} size={14} className="h-3.5 w-3.5" />
                 Save Holiday
               </button>
             </form>
@@ -840,7 +851,7 @@ export default function LeaveSetup() {
                   <SetupCell>{item.appliesTo === "department" ? item.department?.name || "Department" : item.appliesTo === "employee" ? employeeLabel(item.employee) : "Company"}</SetupCell>
                   <SetupCell right>
                     <button className={`${btn} ${btnDanger}`} type="button" onClick={() => removeSetupItem(`/roster/holidays/${item._id}`, "Holiday deleted.")}>
-                      <FiTrash2 className="h-3.5 w-3.5" />
+                      <HugeiconsIcon icon={Delete02Icon} size={14} className="h-3.5 w-3.5" />
                     </button>
                   </SetupCell>
                 </tr>
@@ -880,7 +891,7 @@ export default function LeaveSetup() {
                   disabled={saving}
                   aria-label="Close modal"
                 >
-                  <FiX className="h-4 w-4" />
+                  <HugeiconsIcon icon={Cancel01Icon} size={16} className="h-4 w-4" />
                 </button>
               </div>
 

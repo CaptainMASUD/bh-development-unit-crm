@@ -1,0 +1,10 @@
+import MaterialIssue from "../../models/manufacturing/materialIssue.model.js";
+import ManufacturingOrder from "../../models/manufacturing/manufacturingOrder.model.js";
+import { createCrudController } from "./crud.factory.js";
+import { assertTenant } from "../../utils/manufacturingError.js";
+import { nextManufacturingNumber } from "../../services/manufacturing/manufacturingNumbering.service.js";
+import { issueMaterialsToProduction } from "../../services/manufacturing/manufacturingInventory.service.js";
+const crud=createCrudController({Model:MaterialIssue,searchFields:["issueNumber","notes"],populate:["manufacturingOrder","lines.product","lines.warehouse","stockMovement","journalEntry"]});
+export const listMaterialIssues=crud.list; export const getMaterialIssue=crud.get; export const updateMaterialIssue=crud.update;
+export const createMaterialIssue=async(req,res)=>{assertTenant(req);const item=await MaterialIssue.create({...req.body,tenantId:req.tenantId,issueNumber:req.body.issueNumber||await nextManufacturingNumber({tenantId:req.tenantId,key:"issue"}),createdBy:req.user?._id,updatedBy:req.user?._id});res.status(201).json({success:true,data:item});};
+export const postMaterialIssue=async(req,res)=>{assertTenant(req);const issue=await MaterialIssue.findById(req.params.id);if(!issue)return res.status(404).json({success:false,message:"Material issue not found."});if(issue.status!=="draft")return res.status(409).json({success:false,message:"Only draft material issues can be posted."});const {movement,journal}=await issueMaterialsToProduction({tenantId:req.tenantId,issue,userId:req.user?._id});issue.status="posted";issue.stockMovement=movement?._id||null;issue.journalEntry=journal?._id||null;issue.updatedBy=req.user?._id;await issue.save();for(const line of issue.lines){await ManufacturingOrder.updateOne({_id:issue.manufacturingOrder,"materials.product":line.product},{$inc:{"materials.$.issuedQuantity":line.quantity},$set:{materialStatus:"partially_issued",updatedBy:req.user?._id}});}res.json({success:true,data:issue});};

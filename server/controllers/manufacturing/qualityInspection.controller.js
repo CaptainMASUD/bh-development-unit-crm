@@ -1,0 +1,13 @@
+import QualityInspection from "../../models/manufacturing/qualityInspection.model.js";
+import NonConformance from "../../models/manufacturing/nonConformance.model.js";
+import { createCrudController } from "./crud.factory.js";
+import { assertTenant } from "../../utils/manufacturingError.js";
+import { nextManufacturingNumber } from "../../services/manufacturing/manufacturingNumbering.service.js";
+import { finalizeInspection, createNcrFromInspection } from "../../services/manufacturing/quality.service.js";
+const crud=createCrudController({Model:QualityInspection,searchFields:["inspectionNumber","batchNumber","notes"],populate:["manufacturingOrder","workOrder","product","inspectedBy"]});
+export const listQualityInspections=crud.list; export const getQualityInspection=crud.get; export const updateQualityInspection=crud.update;
+export const createQualityInspection=async(req,res)=>{assertTenant(req);const item=await QualityInspection.create({...req.body,tenantId:req.tenantId,inspectionNumber:req.body.inspectionNumber||await nextManufacturingNumber({tenantId:req.tenantId,key:"inspection"}),createdBy:req.user?._id,updatedBy:req.user?._id});res.status(201).json({success:true,data:item});};
+export const finalizeQualityInspection=async(req,res)=>{assertTenant(req);res.json({success:true,data:await finalizeInspection({inspectionId:req.params.id,result:req.body.result,userId:req.user?._id})});};
+export const createInspectionNcr=async(req,res)=>{assertTenant(req);res.status(201).json({success:true,data:await createNcrFromInspection({tenantId:req.tenantId,inspectionId:req.params.id,...req.body,userId:req.user?._id})});};
+const ncrCrud=createCrudController({Model:NonConformance,searchFields:["ncrNumber","defectType","rootCause"],populate:["inspection","manufacturingOrder","product","owner"]});
+export const listNonConformances=ncrCrud.list; export const getNonConformance=ncrCrud.get; export const updateNonConformance=ncrCrud.update;

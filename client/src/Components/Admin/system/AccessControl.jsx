@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { useNavigate } from "react-router-dom"
 import toast, { Toaster } from "react-hot-toast"
 import {
   FiBriefcase,
@@ -401,7 +402,8 @@ export default function AccessControl() {
     }
   }, [])
   const canManageAccessControl = hasPermission(currentUser, PERMISSIONS.ACCESS_CONTROL_MANAGE)
-  const [activeTab, setActiveTab] = useState("departments")
+  const navigate = useNavigate()
+  const [activeTab, setActiveTab] = useState("permission-groups")
   const [createModal, setCreateModal] = useState("")
   const [editingItem, setEditingItem] = useState(null)
   const [departments, setDepartments] = useState([])
@@ -466,8 +468,6 @@ export default function AccessControl() {
   }, [permissionSearch, permissionSections])
 
   const tabs = [
-    { key: "departments", label: "Departments", icon: FiLayers, count: departments.length },
-    { key: "positions", label: "Positions", icon: FiBriefcase, count: positions.length },
     { key: "permission-groups", label: "Permission Groups", icon: FiShield, count: permissionGroups.length },
     { key: "roles", label: "Roles", icon: FiUserCheck, count: roles.length },
   ]
@@ -757,7 +757,7 @@ export default function AccessControl() {
                   Access Control
                 </h1>
                 <p className="mt-1 text-sm font-medium text-gray-500">
-                  Build employee access from departments, positions, and permission groups.
+                  Configure permission groups and user role assignments.
                 </p>
               </div>
             </div>
@@ -766,6 +766,27 @@ export default function AccessControl() {
               Refresh
             </button>
           </div>
+        </div>
+
+        <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4 sm:flex-row sm:items-center sm:justify-between shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm">
+              <FiLayers className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-extrabold text-gray-900">Looking for Departments & Positions?</p>
+              <p className="text-xs font-semibold text-gray-600">
+                Departments and job designations have moved to the <strong>HR & Payroll</strong> module for unified organizational and compensation management.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate("/admin/payroll/departments")}
+            className={`${btn} ${btnPrimary} shrink-0 text-xs shadow-sm`}
+          >
+            Go to Departments & Positions
+          </button>
         </div>
 
         <div className="mb-5 overflow-x-auto rounded-2xl border border-gray-200 bg-white p-1.5 shadow-[0_10px_30px_-20px_rgba(0,0,0,0.25)]">

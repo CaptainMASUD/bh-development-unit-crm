@@ -4,6 +4,7 @@ import Attendance from "../../models/attendance.model.js";
 import SalaryProfile from "../../models/salaryProfile.model.js";
 import WeeklyOff from "../../models/weeklyOff.model.js";
 import Holiday from "../../models/holiday.model.js";
+import PayrollPeriod from "../../models/payroll/payrollPeriod.model.js";
 
 const DEFAULT_LIMIT = 31;
 const MAX_LIMIT = 200;
@@ -55,6 +56,22 @@ const normalizeDateOnly = (value) => {
 const dayKey = (value) => {
   const d = normalizeDateOnly(value);
   return d ? d.toISOString().slice(0, 10) : "";
+};
+
+export const checkPeriodLockedForDate = async (date) => {
+  if (!date) return { isLocked: false };
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return { isLocked: false };
+  const year = d.getFullYear();
+  const month = d.getMonth() + 1;
+  const period = await PayrollPeriod.findOne({ year, month }).lean();
+  if (period?.status === "locked") {
+    return {
+      isLocked: true,
+      message: `Payroll period ${year}-${String(month).padStart(2, "0")} is locked. Attendance cannot be modified.`,
+    };
+  }
+  return { isLocked: false };
 };
 
 const getMonthRange = ({ year, month }) => {
@@ -152,6 +169,10 @@ const buildAttendancePayload = async (req, { isCreate = true } = {}) => {
   if (req.body.workDate !== undefined || isCreate) {
     const workDate = normalizeDateOnly(req.body.workDate);
     if (!workDate) return { ok: false, status: 400, message: "Invalid workDate." };
+    const lockCheck = await checkPeriodLockedForDate(workDate);
+    if (lockCheck.isLocked) {
+      return { ok: false, status: 403, message: lockCheck.message };
+    }
     payload.workDate = workDate;
   }
 
@@ -549,6 +570,11 @@ export const updateAttendance = async (req, res) => {
       return res.status(404).json({ message: "Attendance not found." });
     }
 
+    const lockCheck = await checkPeriodLockedForDate(attendance.workDate);
+    if (lockCheck.isLocked) {
+      return res.status(403).json({ message: lockCheck.message });
+    }
+
     const built = await buildAttendancePayload(req, { isCreate: false });
     if (!built.ok) return res.status(built.status).json({ message: built.message });
 
@@ -587,6 +613,11 @@ export const deleteAttendance = async (req, res) => {
     const attendance = await Attendance.findById(req.params.id);
     if (!attendance) {
       return res.status(404).json({ message: "Attendance not found." });
+    }
+
+    const lockCheck = await checkPeriodLockedForDate(attendance.workDate);
+    if (lockCheck.isLocked) {
+      return res.status(403).json({ message: lockCheck.message });
     }
 
     await attendance.deleteOne();

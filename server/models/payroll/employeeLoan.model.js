@@ -304,4 +304,23 @@ employeeLoanSchema.methods.addRepayment = function ({
   return this;
 };
 
+employeeLoanSchema.methods.removeRepaymentForPayroll = function (payrollId) {
+  const strId = String(payrollId || "");
+  const matching = (this.repayments || []).filter(
+    (r) => String(r.payroll || "") === strId
+  );
+  if (!matching.length) return this;
+
+  const removedSum = matching.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  this.repayments = this.repayments.filter((r) => String(r.payroll || "") !== strId);
+  this.paidAmount = roundMoney(Math.max(0, Number(this.paidAmount || 0) - removedSum));
+  this.remainingAmount = roundMoney(Number(this.loanAmount || 0) - Number(this.paidAmount || 0));
+
+  if (this.remainingAmount > 0 && this.status === "paid") {
+    this.status = "active";
+  }
+
+  return this;
+};
+
 export default mongoose.model("EmployeeLoan", employeeLoanSchema);

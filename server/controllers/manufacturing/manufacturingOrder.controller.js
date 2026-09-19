@@ -1,0 +1,13 @@
+import ManufacturingOrder from "../../models/manufacturing/manufacturingOrder.model.js";
+import BillOfMaterial from "../../models/manufacturing/billOfMaterial.model.js";
+import Routing from "../../models/manufacturing/routing.model.js";
+import { createCrudController } from "./crud.factory.js";
+import { assertTenant } from "../../utils/manufacturingError.js";
+import { nextManufacturingNumber } from "../../services/manufacturing/manufacturingNumbering.service.js";
+import { explodeBom } from "../../services/manufacturing/bomExplosion.service.js";
+import { releaseManufacturingOrder } from "../../services/manufacturing/productionExecution.service.js";
+const crud=createCrudController({Model:ManufacturingOrder,searchFields:["moNumber","notes"],populate:["product","bom","routing","rawMaterialWarehouse","finishedGoodsWarehouse"]});
+export const listManufacturingOrders=crud.list; export const getManufacturingOrder=crud.get; export const updateManufacturingOrder=crud.update; export const deleteManufacturingOrder=crud.remove;
+export const createManufacturingOrder=async(req,res)=>{assertTenant(req);const bom=req.body.bom?await BillOfMaterial.findById(req.body.bom).lean():await BillOfMaterial.findOne({product:req.body.product,status:"active"}).sort({version:-1}).lean();if(!bom)return res.status(409).json({success:false,message:"An active BOM is required."});const routing=req.body.routing||((await Routing.findOne({product:req.body.product,status:"active"}).sort({version:-1}).select("_id").lean())?._id||null);const exploded=await explodeBom({productId:req.body.product,quantity:req.body.quantity,bomId:bom._id});const materials=exploded.requirements.map(x=>({product:x.product,requiredQuantity:x.quantity,unit:x.unit||null,warehouse:x.warehouse||req.body.rawMaterialWarehouse,location:x.location||null}));const item=await ManufacturingOrder.create({...req.body,tenantId:req.tenantId,moNumber:req.body.moNumber||await nextManufacturingNumber({tenantId:req.tenantId,key:"mo"}),bom:bom._id,routing,materials,createdBy:req.user?._id,updatedBy:req.user?._id});res.status(201).json({success:true,data:item});};
+export const releaseOrder=async(req,res)=>{assertTenant(req);res.json({success:true,data:await releaseManufacturingOrder({orderId:req.params.id,userId:req.user?._id})});};
+export const cancelManufacturingOrder=async(req,res)=>{assertTenant(req);const item=await ManufacturingOrder.findById(req.params.id);if(!item)return res.status(404).json({success:false,message:"Manufacturing order not found."});if(["completed","cancelled"].includes(item.status))return res.status(409).json({success:false,message:"Order cannot be cancelled."});item.status="cancelled";item.updatedBy=req.user?._id;await item.save();res.json({success:true,data:item});};

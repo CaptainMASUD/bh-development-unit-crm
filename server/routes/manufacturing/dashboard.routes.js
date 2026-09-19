@@ -1,0 +1,1 @@
+import {Router} from "express";import {requirePermission} from "../../middleware/auth.middleware.js";import {manufacturingDashboard} from "../../controllers/manufacturing/manufacturingDashboard.controller.js";const r=Router();r.get("/",requirePermission("manufacturing-report:view"),manufacturingDashboard);export default r;

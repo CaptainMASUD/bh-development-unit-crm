@@ -218,6 +218,25 @@ const userSchema = new mongoose.Schema(
       investmentAmount: { type: Number, default: 0, min: 0 },
     },
 
+    payoutInfo: {
+      preferredPayoutMethod: {
+        type: String,
+        enum: ["bank", "mobile_banking", "cash", "cheque", ""],
+        default: "cash",
+      },
+      bankName: { type: String, trim: true, default: "" },
+      branchName: { type: String, trim: true, default: "" },
+      accountHolderName: { type: String, trim: true, default: "" },
+      accountNumber: { type: String, trim: true, default: "" },
+      routingNumber: { type: String, trim: true, default: "" },
+      mfsProvider: {
+        type: String,
+        enum: ["bkash", "nagad", "rocket", "upay", "other", ""],
+        default: "",
+      },
+      mfsNumber: { type: String, trim: true, default: "" },
+    },
+
     isActive: { type: Boolean, default: true, index: true },
 
     avatarUrl: { type: String, default: "" },

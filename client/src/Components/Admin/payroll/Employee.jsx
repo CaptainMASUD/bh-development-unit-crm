@@ -2,27 +2,27 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
 import toast, { Toaster } from "react-hot-toast"
+import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  FiCamera,
-  FiCalendar,
-  FiClock,
-  FiEdit3,
-  FiEye,
-  FiFilter,
-  FiLock,
-  FiLoader,
-  FiMoreVertical,
-  FiPlus,
-  FiRefreshCcw,
-  FiSearch,
-  FiUploadCloud,
-  FiShield,
-  FiTrash2,
-  FiUser,
-  FiUsers,
-  FiX,
-} from "react-icons/fi"
+  Add01Icon,
+  Calendar03Icon,
+  Camera01Icon,
+  Cancel01Icon,
+  Clock01Icon,
+  CloudUploadIcon,
+  Delete02Icon,
+  FilterIcon,
+  LockIcon,
+  MoreVerticalIcon,
+  PencilEdit02Icon,
+  RefreshIcon,
+  Search01Icon,
+  UserGroup03Icon,
+  UserIcon,
+  ViewIcon,
+} from "@hugeicons/core-free-icons"
 import { hasPermission, PERMISSIONS } from "../../Auth/permissions"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
@@ -36,10 +36,40 @@ const btnPrimary = "bg-indigo-600 text-white shadow-sm hover:bg-indigo-700"
 const btnGhost = "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
 const btnDanger = "bg-rose-600 text-white hover:bg-rose-700"
 const input =
-  "h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-transparent focus:ring-2 focus:ring-indigo-500/40"
+  "h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-transparent focus:ring-2 focus:ring-indigo-500/40 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500 disabled:opacity-80"
 
 function cn(...classes) {
   return classes.filter(Boolean).join(" ")
+}
+
+function SelectionCheckbox({ checked = false, indeterminate = false, disabled = false, onChange, label }) {
+  const active = checked || indeterminate
+
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={indeterminate ? "mixed" : checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={(event) => {
+        event.stopPropagation()
+        onChange?.()
+      }}
+      className={cn(
+        "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/20 focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-45",
+        active
+          ? "border-indigo-600 bg-indigo-600 text-white shadow-[0_1px_1px_rgba(79,70,229,0.16)]"
+          : "border-slate-300 bg-white text-transparent hover:border-indigo-400 hover:bg-indigo-50/40"
+      )}
+    >
+      {indeterminate ? (
+        <span className="h-[1.5px] w-2 rounded-full bg-current" aria-hidden="true" />
+      ) : checked ? (
+        <span className="-mt-px text-[10px] font-black leading-none" aria-hidden="true">✓</span>
+      ) : null}
+    </button>
+  )
 }
 
 function authHeaders() {
@@ -78,10 +108,13 @@ async function apiFormData(path, formData, options = {}) {
   return data
 }
 
-function Field({ label, children, hint }) {
+function Field({ label, children, hint, required = false }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-sm font-semibold text-gray-800">{label}</span>
+      <span className="mb-1.5 block text-sm font-semibold text-gray-800">
+        {label}
+        {required ? <span className="ml-1 text-rose-500" aria-hidden="true">*</span> : null}
+      </span>
       {children}
       {hint ? <span className="mt-1 block text-xs font-medium text-gray-500">{hint}</span> : null}
     </label>
@@ -89,6 +122,8 @@ function Field({ label, children, hint }) {
 }
 
 function Modal({ open, title, subtitle, icon, children, footer, onClose, maxWidthClass = "max-w-4xl" }) {
+  const reduceMotion = useReducedMotion()
+
   useEffect(() => {
     if (!open) return
     const previous = document.body.style.overflow
@@ -105,34 +140,73 @@ function Modal({ open, title, subtitle, icon, children, footer, onClose, maxWidt
     return () => window.removeEventListener("keydown", onKey)
   }, [open, onClose])
 
-  if (!open) return null
+  if (typeof document === "undefined") return null
 
-  return (
-    <div className="fixed inset-0 z-[90]" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 overflow-y-auto">
-        <div className="flex min-h-full items-start justify-center p-4 sm:items-center sm:p-6">
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-md" onClick={onClose} />
-          <div className={`relative w-full overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_30px_70px_-30px_rgba(0,0,0,0.65)] ${maxWidthClass}`}>
-            <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-100 bg-white p-4 sm:p-5">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
-                  {icon}
+  const transition = reduceMotion
+    ? { duration: 0 }
+    : { duration: 0.2, ease: [0.22, 1, 0.36, 1] }
+
+  return createPortal(
+    <AnimatePresence>
+      {open ? (
+        <motion.div
+          className="fixed inset-0 z-[90]"
+          role="dialog"
+          aria-modal="true"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={transition}
+        >
+          <div className="absolute inset-0 overflow-y-auto">
+            <div className="flex min-h-full items-start justify-center p-4 sm:items-center sm:p-6">
+              <motion.button
+                type="button"
+                aria-label="Close modal"
+                className="fixed inset-0 cursor-default bg-black/40 backdrop-blur-sm"
+                onClick={onClose}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={transition}
+              />
+
+              <motion.div
+                initial={reduceMotion ? false : { opacity: 0, y: 14, scale: 0.985 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.99 }}
+                transition={transition}
+                className={`relative w-full overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_30px_70px_-30px_rgba(0,0,0,0.65)] ${maxWidthClass}`}
+              >
+                <div className="sticky top-0 z-20 flex items-center justify-between border-b border-gray-100 bg-white/95 p-4 backdrop-blur sm:p-5">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
+                      {icon}
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="truncate text-base font-extrabold text-gray-900 sm:text-lg">{title}</h2>
+                      {subtitle ? <p className="truncate text-sm text-gray-600">{subtitle}</p> : null}
+                    </div>
+                  </div>
+                  <button
+                    onClick={onClose}
+                    className="rounded-xl p-2 text-gray-600 transition hover:bg-gray-100 hover:text-gray-900"
+                    type="button"
+                    aria-label="Close"
+                  >
+                    <HugeiconsIcon icon={Cancel01Icon} size={20} />
+                  </button>
                 </div>
-                <div className="min-w-0">
-                  <h2 className="truncate text-base font-extrabold text-gray-900 sm:text-lg">{title}</h2>
-                  {subtitle ? <p className="truncate text-sm text-gray-600">{subtitle}</p> : null}
-                </div>
-              </div>
-              <button onClick={onClose} className="rounded-xl p-2 transition hover:bg-gray-100" type="button">
-                <FiX className="h-5 w-5 text-gray-700" />
-              </button>
+
+                <div className="max-h-[calc(100vh-14rem)] overflow-y-auto bg-white p-4 sm:p-5">{children}</div>
+                {footer ? <div className="sticky bottom-0 z-20 border-t border-gray-100 bg-white/95 p-4 backdrop-blur sm:p-5">{footer}</div> : null}
+              </motion.div>
             </div>
-            <div className="max-h-[calc(100vh-14rem)] overflow-y-auto bg-white p-4 sm:p-5">{children}</div>
-            {footer ? <div className="sticky bottom-0 z-20 border-t border-gray-100 bg-white p-4 sm:p-5">{footer}</div> : null}
           </div>
-        </div>
-      </div>
-    </div>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>,
+    document.body
   )
 }
 
@@ -150,15 +224,34 @@ function StatusBadge({ active, label }) {
   )
 }
 
-function EmployeeDetailsModal({ open, employee, salaryProfile, loading, onClose, onEdit, onDelete, canManage = true }) {
-  if (!open) return null
+function EmployeeStateBadge({ status = "active", enabled = true }) {
+  if (!enabled) {
+    return <StatusBadge active={false} label="Disabled" />
+  }
 
+  const normalized = String(status || "active")
+  const styles = {
+    active: "bg-emerald-50 text-emerald-700 ring-emerald-600/10",
+    probation: "bg-amber-50 text-amber-700 ring-amber-600/10",
+    on_leave: "bg-sky-50 text-sky-700 ring-sky-600/10",
+    resigned: "bg-gray-100 text-gray-600 ring-gray-600/10",
+    terminated: "bg-rose-50 text-rose-700 ring-rose-600/10",
+  }
+
+  return (
+    <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${styles[normalized] || styles.active}`}>
+      {pretty(normalized)}
+    </span>
+  )
+}
+
+function EmployeeDetailsModal({ open, employee, salaryProfile, loading, onClose, onEdit, onDelete, canManage = true }) {
   return (
     <Modal
       open={open}
       title="Employee Details"
       subtitle={employee?.employeeId || employee?.email || "Employee profile"}
-      icon={<FiEye className="h-5 w-5" />}
+      icon={<HugeiconsIcon icon={ViewIcon} size={20} />}
       onClose={onClose}
       maxWidthClass="max-w-4xl"
       footer={
@@ -177,7 +270,7 @@ function EmployeeDetailsModal({ open, employee, salaryProfile, loading, onClose,
                   onEdit?.(employee)
                 }}
               >
-                <FiEdit3 className="h-4 w-4" />
+                <HugeiconsIcon icon={PencilEdit02Icon} size={16} />
                 Edit
               </button>
               <button
@@ -188,7 +281,7 @@ function EmployeeDetailsModal({ open, employee, salaryProfile, loading, onClose,
                   onDelete?.(employee)
                 }}
               >
-                <FiTrash2 className="h-4 w-4" />
+                <HugeiconsIcon icon={Delete02Icon} size={16} />
                 Delete
               </button>
             </div>
@@ -197,7 +290,7 @@ function EmployeeDetailsModal({ open, employee, salaryProfile, loading, onClose,
       }
     >
       {loading ? (
-        <div className="flex items-center justify-center p-12"><FiLoader className="h-7 w-7 animate-spin text-indigo-600" /></div>
+        <div className="flex items-center justify-center p-12"><HugeiconsIcon icon={RefreshIcon} size={28} className="animate-spin text-indigo-600" /></div>
       ) : !employee ? (
         <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center text-sm font-semibold text-gray-500">
           No employee selected.
@@ -210,7 +303,7 @@ function EmployeeDetailsModal({ open, employee, salaryProfile, loading, onClose,
                 {employee.avatarUrl ? (
                   <img src={employee.avatarUrl} alt={employee.name || "Employee"} className="h-full w-full object-cover" />
                 ) : (
-                  <FiUser className="h-8 w-8 text-gray-500" />
+                  <HugeiconsIcon icon={UserIcon} size={32} className="text-gray-500" />
                 )}
               </div>
 
@@ -346,6 +439,7 @@ function EmployeeDetailsModal({ open, employee, salaryProfile, loading, onClose,
 function EmployeeActionMenu({ employee, openMenuId, setOpenMenuId, onView, onEdit, onDelete, canManage = true }) {
   const [position, setPosition] = useState({ top: 0, left: 0 })
   const buttonRef = useRef(null)
+  const reduceMotion = useReducedMotion()
   const open = openMenuId === employee?._id
 
   const close = useCallback(() => setOpenMenuId(null), [setOpenMenuId])
@@ -366,11 +460,13 @@ function EmployeeActionMenu({ employee, openMenuId, setOpenMenuId, onView, onEdi
       if (!rect) return
 
       const width = 190
-      const height = 154
+      const height = canManage ? 154 : 58
       const gap = 8
       const left = Math.min(window.innerWidth - width - 12, Math.max(12, rect.right - width))
       const openAbove = rect.bottom + height + gap > window.innerHeight
-      const top = openAbove ? Math.max(12, rect.top - height - gap) : Math.min(window.innerHeight - height - 12, rect.bottom + gap)
+      const top = openAbove
+        ? Math.max(12, rect.top - height - gap)
+        : Math.min(window.innerHeight - height - 12, rect.bottom + gap)
 
       setPosition({ top, left })
     }
@@ -391,68 +487,83 @@ function EmployeeActionMenu({ employee, openMenuId, setOpenMenuId, onView, onEdi
       window.removeEventListener("scroll", updatePosition, true)
       window.removeEventListener("resize", updatePosition)
     }
-  }, [close, open])
+  }, [canManage, close, open])
 
   const itemClass =
     "flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-bold text-gray-700 transition hover:bg-gray-50"
 
   const menu =
-    open && typeof document !== "undefined"
+    typeof document !== "undefined"
       ? createPortal(
-          <div
-            style={{ position: "fixed", top: position.top, left: position.left, width: 190 }}
-            className="z-[9999] rounded-2xl border border-gray-100 bg-white p-2 shadow-[0_16px_38px_-24px_rgba(15,23,42,0.45)] ring-1 ring-black/5"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button type="button" className={itemClass} onClick={() => runAction(onView)}>
-              <FiEye className="h-4 w-4 text-indigo-600" />
-              View details
-            </button>
-            {canManage ? (
-              <>
-                <button type="button" className={itemClass} onClick={() => runAction(onEdit)}>
-                  <FiEdit3 className="h-4 w-4 text-gray-600" />
-                  Edit employee
+          <AnimatePresence>
+            {open ? (
+              <motion.div
+                style={{ position: "fixed", top: position.top, left: position.left, width: 190 }}
+                className="z-[9999] rounded-2xl border border-gray-100 bg-white p-2 shadow-[0_16px_38px_-24px_rgba(15,23,42,0.45)] ring-1 ring-black/5"
+                onClick={(event) => event.stopPropagation()}
+                initial={reduceMotion ? false : { opacity: 0, y: -6, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -4, scale: 0.985 }}
+                transition={{ duration: reduceMotion ? 0 : 0.16, ease: [0.22, 1, 0.36, 1] }}
+              >
+                <button type="button" className={itemClass} onClick={() => runAction(onView)}>
+                  <HugeiconsIcon icon={ViewIcon} size={16} className="text-indigo-600" />
+                  View details
                 </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-bold text-rose-700 transition hover:bg-rose-50"
-                  onClick={() => runAction(onDelete)}
-                >
-                  <FiTrash2 className="h-4 w-4" />
-                  Delete employee
-                </button>
-              </>
+                {canManage ? (
+                  <>
+                    <button type="button" className={itemClass} onClick={() => runAction(onEdit)}>
+                      <HugeiconsIcon icon={PencilEdit02Icon} size={16} className="text-gray-600" />
+                      Edit employee
+                    </button>
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-bold text-rose-700 transition hover:bg-rose-50"
+                      onClick={() => runAction(onDelete)}
+                    >
+                      <HugeiconsIcon icon={Delete02Icon} size={16} />
+                      Delete employee
+                    </button>
+                  </>
+                ) : null}
+              </motion.div>
             ) : null}
-          </div>,
+          </AnimatePresence>,
           document.body
         )
       : null
 
   return (
-    <div className="flex items-center justify-end gap-2" onClick={(event) => event.stopPropagation()}>
-      <button type="button" className={`${btn} ${btnPrimary} h-10 px-3 py-2 shadow-sm shadow-indigo-600/15`} onClick={() => onView?.(employee)}>
-        <FiEye className="h-4 w-4" />
+    <div className="flex items-center justify-end gap-2 whitespace-nowrap" onClick={(event) => event.stopPropagation()}>
+      <button
+        type="button"
+        className={`${btn} ${btnPrimary} h-9 px-3 py-1.5 shadow-sm shadow-indigo-600/15`}
+        onClick={() => onView?.(employee)}
+      >
+        <HugeiconsIcon icon={ViewIcon} size={16} />
         View
       </button>
 
       <button
         ref={buttonRef}
         type="button"
-        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 transition hover:bg-gray-50"
+        className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 transition hover:bg-gray-50 hover:text-gray-900"
         onClick={(event) => {
           event.stopPropagation()
           setOpenMenuId(open ? null : employee._id)
         }}
         title="More actions"
+        aria-label="More actions"
+        aria-expanded={open}
       >
-        <FiMoreVertical className="h-4 w-4" />
+        <HugeiconsIcon icon={MoreVerticalIcon} size={16} />
       </button>
 
       {menu}
     </div>
   )
 }
+
 
 
 const emptyForm = {
@@ -638,8 +749,92 @@ export default function Employee() {
   const [deleteState, setDeleteState] = useState({ open: false, employee: null, password: "", loading: false })
   const [detailsState, setDetailsState] = useState({ open: false, employee: null, salaryProfile: null, loading: false })
   const [openMenuId, setOpenMenuId] = useState(null)
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([])
   const abortRef = useRef(null)
   const avatarInputRef = useRef(null)
+  const tableScrollRef = useRef(null)
+
+  const selectedEmployeeIdSet = useMemo(
+    () => new Set(selectedEmployeeIds.map(String)),
+    [selectedEmployeeIds]
+  )
+
+  const visibleEmployeeIds = useMemo(
+    () => employees.map((employee) => String(employee._id)).filter(Boolean),
+    [employees]
+  )
+
+  const selectedVisibleCount = useMemo(
+    () => visibleEmployeeIds.filter((id) => selectedEmployeeIdSet.has(id)).length,
+    [visibleEmployeeIds, selectedEmployeeIdSet]
+  )
+
+  const allVisibleEmployeesSelected = visibleEmployeeIds.length > 0 && selectedVisibleCount === visibleEmployeeIds.length
+  const someVisibleEmployeesSelected = selectedVisibleCount > 0 && !allVisibleEmployeesSelected
+  const toggleEmployeeSelection = useCallback((employeeId) => {
+    const id = String(employeeId || "")
+    if (!id) return
+    setSelectedEmployeeIds((previous) =>
+      previous.some((item) => String(item) === id)
+        ? previous.filter((item) => String(item) !== id)
+        : [...previous, id]
+    )
+  }, [])
+
+  const toggleAllVisibleEmployees = useCallback(() => {
+    setSelectedEmployeeIds((previous) => {
+      const next = new Set(previous.map(String))
+      const shouldSelectAll = !visibleEmployeeIds.every((id) => next.has(id))
+
+      visibleEmployeeIds.forEach((id) => {
+        if (shouldSelectAll) next.add(id)
+        else next.delete(id)
+      })
+
+      return Array.from(next)
+    })
+  }, [visibleEmployeeIds])
+
+  // Keep the table at a fixed visual height, but only consume vertical wheel
+  // movement while the table can actually scroll in that direction. When the
+  // table has no vertical overflow, or the user reaches the top/bottom edge,
+  // forward the wheel delta to the page so the global page scroll never feels
+  // trapped. Horizontal trackpad / Shift+wheel gestures stay inside the table.
+  const handleTableWheel = useCallback((event) => {
+    const scroller = tableScrollRef.current
+    if (!scroller) return
+
+    const { deltaX, deltaY, shiftKey } = event
+    const isHorizontalGesture = shiftKey || Math.abs(deltaX) > Math.abs(deltaY)
+    if (isHorizontalGesture || deltaY === 0) return
+
+    const maxScrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
+    const hasVerticalOverflow = maxScrollTop > 1
+    const atTop = scroller.scrollTop <= 1
+    const atBottom = scroller.scrollTop >= maxScrollTop - 1
+    const movingUp = deltaY < 0
+    const movingDown = deltaY > 0
+
+    const shouldUsePageScroll =
+      !hasVerticalOverflow ||
+      (movingUp && atTop) ||
+      (movingDown && atBottom)
+
+    if (!shouldUsePageScroll) return
+
+    event.preventDefault()
+    window.scrollBy({ top: deltaY, left: 0, behavior: "auto" })
+  }, [])
+
+  useEffect(() => {
+    const scroller = tableScrollRef.current
+    if (!scroller) return undefined
+
+    // Native non-passive listener lets us hand vertical wheel movement back to
+    // the page at the table boundaries without breaking horizontal scrolling.
+    scroller.addEventListener("wheel", handleTableWheel, { passive: false })
+    return () => scroller.removeEventListener("wheel", handleTableWheel)
+  }, [handleTableWheel])
 
   const filteredPositions = useMemo(() => {
     if (!form.department) return positions
@@ -727,6 +922,7 @@ export default function Employee() {
     if (reset) {
       setLoading(true)
       setEmployees([])
+      setSelectedEmployeeIds([])
       setNextCursor("")
       setHasMore(false)
     } else {
@@ -1111,7 +1307,7 @@ export default function Employee() {
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
-                <FiUsers className="h-5 w-5" />
+                <HugeiconsIcon icon={UserGroup03Icon} size={20} />
               </div>
               <div>
                 <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Employee</h1>
@@ -1123,12 +1319,12 @@ export default function Employee() {
 
             <div className="flex flex-wrap gap-2">
               <button className={`${btn} ${btnGhost}`} onClick={() => loadEmployees({ reset: true })}>
-                <FiRefreshCcw className={loading ? "animate-spin" : ""} />
+                <HugeiconsIcon icon={RefreshIcon} size={16} className={loading ? "animate-spin" : ""} />
                 Refresh
               </button>
               {canManageEmployees ? (
                 <button className={`${btn} ${btnPrimary}`} onClick={openCreate}>
-                  <FiPlus />
+                  <HugeiconsIcon icon={Add01Icon} size={16} />
                   Add Employee
                 </button>
               ) : null}
@@ -1138,7 +1334,7 @@ export default function Employee() {
           <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className={activeFilterCount ? "w-full xl:max-w-[72%]" : "w-full sm:max-w-[460px] md:max-w-[520px] lg:max-w-[580px] xl:max-w-[620px]"}>
               <div className="flex min-h-[44px] w-full flex-wrap items-center gap-1.5 rounded-2xl border border-gray-200 bg-gray-50/80 px-2.5 py-1 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(99,102,241,0.10)]">
-                <FiSearch className="h-4 w-4 shrink-0 text-gray-400" />
+                <HugeiconsIcon icon={Search01Icon} size={16} className="shrink-0 text-gray-400" />
 
                 {activeFilterEntries.map((filter) => (
                   <button
@@ -1151,7 +1347,7 @@ export default function Employee() {
                     <span className="truncate">
                       <span className="text-indigo-500">{filter.label}:</span> {filter.value}
                     </span>
-                    <FiX className="h-3.5 w-3.5 shrink-0" />
+                    <HugeiconsIcon icon={Cancel01Icon} size={14} className="shrink-0" />
                   </button>
                 ))}
 
@@ -1175,7 +1371,7 @@ export default function Employee() {
                     setFiltersOpen(true)
                   }}
                 >
-                  <FiFilter className="h-4 w-4" />
+                  <HugeiconsIcon icon={FilterIcon} size={16} />
                   Filters
                   {activeFilterCount ? <span className="rounded-full bg-white/20 px-1.5 text-xs">{activeFilterCount}</span> : null}
                 </button>
@@ -1187,7 +1383,7 @@ export default function Employee() {
                     onClick={resetFilters}
                     title="Clear search and filters"
                   >
-                    <FiX className="h-4 w-4" />
+                    <HugeiconsIcon icon={Cancel01Icon} size={16} />
                   </button>
                 ) : null}
               </div>
@@ -1200,7 +1396,7 @@ export default function Employee() {
         </div>
 
         <div className="mb-5 overflow-hidden rounded-3xl border border-gray-200 bg-white p-2 shadow-[0_14px_35px_-30px_rgba(15,23,42,0.45)]">
-          <div className="flex min-w-max gap-1 overflow-x-auto" role="tablist" aria-label="Filter employees by department">
+          <div className="flex min-w-max gap-1 overflow-x-auto no-scrollbar" role="tablist" aria-label="Filter employees by department">
             {departmentTabs.map((department) => {
               const active = String(filters.department || "") === String(department.key)
               return (
@@ -1221,21 +1417,32 @@ export default function Employee() {
           </div>
         </div>
 
-        <section className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-[0_18px_45px_-34px_rgba(15,23,42,0.45)]">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1180px] border-separate border-spacing-0 text-left">
+        <section className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-[0_18px_45px_-34px_rgba(15,23,42,0.45)]">
+          <div
+            ref={tableScrollRef}
+            className="custom-scrollbar h-[560px] overflow-x-auto overflow-y-auto overscroll-x-contain overscroll-y-auto"
+          >
+            <table className="w-full min-w-[1264px] border-separate border-spacing-0 text-left">
               <thead>
                 <tr>
-                  {["Employee", "Department", "Designation", "Access Group", "Employment", "Status", "Actions"].map((heading) => (
-                    <th
-                      key={heading}
-                      className={`border-b border-gray-200 bg-gray-50 px-5 py-4 text-xs font-extrabold uppercase tracking-[0.06em] text-gray-600 ${
-                        heading === "Actions" ? "text-right" : ""
-                      }`}
-                    >
-                      {heading}
-                    </th>
-                  ))}
+                  <th className="sticky top-0 z-20 w-[340px] min-w-[340px] border-b border-gray-200 bg-gray-50 px-5 py-3 text-xs font-extrabold uppercase tracking-[0.06em] text-gray-600">
+                    <div className="flex items-center gap-4">
+                      <SelectionCheckbox
+                        checked={allVisibleEmployeesSelected}
+                        indeterminate={someVisibleEmployeesSelected}
+                        onChange={toggleAllVisibleEmployees}
+                        disabled={!employees.length || loading}
+                        label={allVisibleEmployeesSelected ? "Clear employee selection" : "Select loaded employees"}
+                      />
+                      <span>Employee</span>
+                    </div>
+                  </th>
+                  <th className="sticky top-0 z-20 w-[170px] min-w-[170px] border-b border-gray-200 bg-gray-50 px-4 py-3 text-xs font-extrabold uppercase tracking-[0.06em] text-gray-600">Department</th>
+                  <th className="sticky top-0 z-20 w-[240px] min-w-[240px] border-b border-gray-200 bg-gray-50 px-4 py-3 text-xs font-extrabold uppercase tracking-[0.06em] text-gray-600">Designation</th>
+                  <th className="sticky top-0 z-20 w-[190px] min-w-[190px] border-b border-gray-200 bg-gray-50 px-4 py-3 text-xs font-extrabold uppercase tracking-[0.06em] text-gray-600">Access Group</th>
+                  <th className="sticky top-0 z-20 w-[150px] min-w-[150px] border-b border-gray-200 bg-gray-50 px-4 py-3 text-xs font-extrabold uppercase tracking-[0.06em] text-gray-600">Employment</th>
+                  <th className="sticky top-0 z-20 w-[130px] min-w-[130px] border-b border-gray-200 bg-gray-50 px-4 py-3 text-xs font-extrabold uppercase tracking-[0.06em] text-gray-600">Status</th>
+                  <th className="sticky right-0 top-0 z-50 w-[166px] min-w-[166px] border-b border-gray-200 bg-gray-50 px-4 py-3 text-right text-xs font-extrabold uppercase tracking-[0.06em] text-gray-600 shadow-[-8px_0_14px_-14px_rgba(15,23,42,0.20)]">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1246,72 +1453,77 @@ export default function Employee() {
                     </td>
                   </tr>
                 ) : employees.length ? (
-                  employees.map((employee) => (
-                    <tr key={employee._id} className="group align-top">
-                      <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40">
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gray-100 ring-1 ring-gray-200">
-                            {employee.avatarUrl ? (
-                              <img src={employee.avatarUrl} alt={employee.name || "Employee"} className="h-full w-full object-cover" />
-                            ) : (
-                              <FiUser className="h-5 w-5 text-gray-500" />
-                            )}
+                  employees.map((employee) => {
+                    const employeeId = String(employee._id)
+                    const isSelected = selectedEmployeeIdSet.has(employeeId)
+
+                    return (
+                      <tr key={employee._id} className={cn("group align-middle transition-colors", isSelected && "bg-indigo-50/45")}>
+                        <td className={cn("border-b border-gray-100 px-5 py-3 transition-colors group-hover:bg-indigo-50/40", isSelected && "bg-indigo-50/45")}>
+                          <div className="flex items-center gap-2.5">
+                            <SelectionCheckbox
+                              checked={isSelected}
+                              onChange={() => toggleEmployeeSelection(employeeId)}
+                              label={`${isSelected ? "Deselect" : "Select"} ${employee.name || "employee"}`}
+                            />
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gray-100 ring-1 ring-gray-200">
+                              {employee.avatarUrl ? (
+                                <img src={employee.avatarUrl} alt={employee.name || "Employee"} className="h-full w-full object-cover" />
+                              ) : (
+                                <HugeiconsIcon icon={UserIcon} size={20} className="text-gray-500" />
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="max-w-[220px] truncate whitespace-nowrap text-sm font-extrabold text-gray-900">{employee.name || "Unnamed"}</p>
+                              <p className="mt-0.5 max-w-[220px] truncate whitespace-nowrap text-xs font-medium text-gray-500">{employee.email || "No email"}</p>
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <p className="truncate text-base font-extrabold text-gray-900">{employee.name || "Unnamed"}</p>
-                            <p className="truncate text-sm font-medium text-gray-500">{employee.email || "No email"}</p>
-                            {employee.employeeId ? (
-                              <p className="mt-1 text-xs font-semibold text-indigo-600">{employee.employeeId}</p>
-                            ) : null}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="border-b border-gray-100 px-5 py-4 text-sm font-semibold text-gray-700 group-hover:bg-indigo-50/40">
-                        {employee.department?.name || "Not assigned"}
-                      </td>
-                      <td className="border-b border-gray-100 px-5 py-4 text-sm font-semibold text-gray-700 group-hover:bg-indigo-50/40">
-                        {employee.position?.title || "Not assigned"}
-                      </td>
-                      <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40">
-                        <span className="inline-flex rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-600/10">
-                          {employee.permissionGroup?.name || "No access group"}
-                        </span>
-                      </td>
-                      <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40">
-                        <div className="flex flex-col gap-1.5">
-                          <p className="text-sm font-bold text-gray-700">{pretty(employee.employmentType || "full_time")}</p>
-                          <span className="inline-flex w-fit rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600 ring-1 ring-gray-200">
-                            {pretty(employee.salaryType || "fixed")} Salary
+                        </td>
+                        <td className="whitespace-nowrap border-b border-gray-100 px-4 py-3 text-sm font-semibold text-gray-700 group-hover:bg-indigo-50/40">
+                          {employee.department?.name || "Not assigned"}
+                        </td>
+                        <td className="whitespace-nowrap border-b border-gray-100 px-4 py-3 text-sm font-semibold text-gray-700 group-hover:bg-indigo-50/40">
+                          {employee.position?.title || "Not assigned"}
+                        </td>
+                        <td className="whitespace-nowrap border-b border-gray-100 px-4 py-3 group-hover:bg-indigo-50/40">
+                          <span className="inline-flex max-w-[170px] truncate whitespace-nowrap rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-600/10">
+                            {employee.permissionGroup?.name || "No access group"}
                           </span>
-                        </div>
-                      </td>
-                      <td className="border-b border-gray-100 px-5 py-4 group-hover:bg-indigo-50/40">
-                        <div className="flex flex-col gap-2">
-                          <StatusBadge active={employee.isActive !== false} label={employee.isActive !== false ? "Enabled" : "Disabled"} />
-                          <span className="inline-flex w-fit rounded-full bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
-                            {pretty(employee.employeeStatus || "active")}
+                        </td>
+                        <td className="whitespace-nowrap border-b border-gray-100 px-4 py-3 group-hover:bg-indigo-50/40">
+                          <span className="whitespace-nowrap text-sm font-bold text-gray-700">
+                            {pretty(employee.employmentType || "full_time")}
                           </span>
-                        </div>
-                      </td>
-                      <td className="border-b border-gray-100 px-5 py-4 text-right group-hover:bg-indigo-50/40">
-                        <EmployeeActionMenu
-                          employee={employee}
-                          openMenuId={openMenuId}
-                          setOpenMenuId={setOpenMenuId}
-                          onView={openDetails}
-                          onEdit={openEdit}
-                          onDelete={(item) => setDeleteState({ open: true, employee: item, password: "", loading: false })}
-                          canManage={canManageEmployees}
-                        />
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                        <td className="whitespace-nowrap border-b border-gray-100 px-4 py-3 group-hover:bg-indigo-50/40">
+                          <EmployeeStateBadge
+                            status={employee.employeeStatus || "active"}
+                            enabled={employee.isActive !== false}
+                          />
+                        </td>
+                        <td className={cn(
+                          "sticky right-0 z-30 w-[166px] min-w-[166px] whitespace-nowrap border-b border-gray-100 px-4 py-3 text-right shadow-[-8px_0_14px_-14px_rgba(15,23,42,0.18)] transition-colors",
+                          isSelected ? "bg-indigo-50" : "bg-white group-hover:bg-indigo-50"
+                        )}>
+                          <EmployeeActionMenu
+                            employee={employee}
+                            openMenuId={openMenuId}
+                            setOpenMenuId={setOpenMenuId}
+                            onView={openDetails}
+                            onEdit={openEdit}
+                            onDelete={(item) => setDeleteState({ open: true, employee: item, password: "", loading: false })}
+                            canManage={canManageEmployees}
+                          />
+                        </td>
+                      </tr>
+                    )
+                  })
                 ) : (
                   <tr>
                     <td colSpan={7} className="px-5 py-12 text-center">
                       <div className="mx-auto flex max-w-sm flex-col items-center">
                         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10">
-                          <FiUsers className="h-5 w-5" />
+                          <HugeiconsIcon icon={UserGroup03Icon} size={20} />
                         </div>
                         <p className="mt-3 text-sm font-extrabold text-gray-900">No employees found</p>
                         <p className="mt-1 text-sm font-medium text-gray-500">Create an employee or adjust the search filters.</p>
@@ -1322,18 +1534,19 @@ export default function Employee() {
               </tbody>
             </table>
           </div>
-          <div className="flex flex-col gap-3 border-t border-gray-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm font-semibold text-gray-700">
-              {employees.length} {employees.length === 1 ? "employee" : "employees"} loaded
-            </p>
-            <button
-              className={`${btn} ${hasMore ? btnPrimary : "cursor-not-allowed border border-gray-200 bg-gray-100 text-gray-400"}`}
-              disabled={!hasMore || loadingMore || loading}
-              onClick={() => loadEmployees({ reset: false })}
-            >
-              {loadingMore ? "Loading..." : hasMore ? "Load More" : "All Loaded"}
-            </button>
-          </div>
+
+          {(hasMore || loadingMore) ? (
+            <div className="flex items-center justify-center bg-white px-5 py-4">
+              <button
+                type="button"
+                className={`${btn} ${btnPrimary} min-w-[132px]`}
+                disabled={loadingMore || loading}
+                onClick={() => loadEmployees({ reset: false })}
+              >
+                {loadingMore ? "Loading..." : "See More"}
+              </button>
+            </div>
+          ) : null}
         </section>
       </div>
 
@@ -1351,8 +1564,8 @@ export default function Employee() {
       <Modal
         open={modalOpen}
         title={editing ? "Edit Employee" : "Add Employee"}
-        subtitle="Employee identity, avatar, department, designation, and access."
-        icon={<FiUsers className="h-5 w-5" />}
+        subtitle={editing ? "Update employee information" : "Create a new employee"}
+        icon={<HugeiconsIcon icon={UserGroup03Icon} size={20} />}
         onClose={closeModal}
         footer={
           <div className="flex justify-end gap-2">
@@ -1371,17 +1584,15 @@ export default function Employee() {
                   {avatarPreview ? (
                     <img src={avatarPreview} alt="Employee avatar preview" className="h-full w-full object-cover" />
                   ) : (
-                    <FiUser className="h-8 w-8 text-gray-400" />
+                    <HugeiconsIcon icon={UserIcon} size={32} className="text-gray-400" />
                   )}
                   <div className="absolute bottom-1 right-1 flex h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-white shadow-sm ring-2 ring-white">
-                    <FiCamera className="h-3.5 w-3.5" />
+                    <HugeiconsIcon icon={Camera01Icon} size={14} />
                   </div>
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-extrabold text-gray-900">Profile Image</p>
-                  <p className="mt-1 max-w-md text-xs font-medium leading-5 text-gray-500">
-                    Upload a clear employee photo. JPG, PNG, WEBP accepted, up to 5MB.
-                  </p>
+                  <p className="mt-1 text-xs font-medium text-gray-500">JPG, PNG or WEBP • max 5MB</p>
                   {avatarFile ? (
                     <p className="mt-1 truncate text-xs font-semibold text-indigo-600">Selected: {avatarFile.name}</p>
                   ) : avatarRemove ? (
@@ -1403,7 +1614,7 @@ export default function Employee() {
                   htmlFor="employee-avatar-upload"
                   className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl bg-indigo-600 px-3 text-sm font-bold text-white transition hover:bg-indigo-700"
                 >
-                  <FiUploadCloud className="h-4 w-4" />
+                  <HugeiconsIcon icon={CloudUploadIcon} size={16} />
                   {avatarPreview ? "Change Image" : "Upload Image"}
                 </label>
                 {avatarPreview || avatarFile || avatarRemove ? (
@@ -1412,7 +1623,7 @@ export default function Employee() {
                     className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-rose-100 bg-white px-3 text-sm font-bold text-rose-600 transition hover:bg-rose-50"
                     onClick={removeAvatarDraft}
                   >
-                    <FiTrash2 className="h-4 w-4" />
+                    <HugeiconsIcon icon={Delete02Icon} size={16} />
                     Remove
                   </button>
                 ) : null}
@@ -1421,13 +1632,13 @@ export default function Employee() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <Field label="Full Name">
+            <Field label="Full Name" required>
               <input className={input} value={form.name} onChange={(event) => updateForm("name", event.target.value)} required />
             </Field>
-            <Field label="Email">
+            <Field label="Email" required>
               <input className={input} type="email" value={form.email} onChange={(event) => updateForm("email", event.target.value)} required />
             </Field>
-            <Field label={editing ? "New Password" : "Password"} hint={editing ? "Leave empty to keep the current password." : "At least 6 characters."}>
+            <Field label={editing ? "New Password" : "Password"} required={!editing} hint={editing ? "Leave empty to keep the current password." : undefined}>
               <input className={input} type="password" value={form.password} onChange={(event) => updateForm("password", event.target.value)} required={!editing} />
             </Field>
             <Field label="Employee ID">
@@ -1452,7 +1663,7 @@ export default function Employee() {
                 ))}
               </select>
             </Field>
-            <Field label="Basic Salary" hint={selectedPosition ? "Auto-filled from designation. You can edit it for this employee." : "Select a designation or enter employee salary manually."}>
+            <Field label="Basic Salary">
               <input className={input} type="number" min="0" value={form.basicSalary} onChange={(event) => updateForm("basicSalary", event.target.value)} placeholder="Example: 25000" />
             </Field>
             <Field label="Salary Profile Type">
@@ -1471,7 +1682,7 @@ export default function Employee() {
             <Field label="Working Hours / Day">
               <input className={input} type="number" min="1" max="24" value={form.workingHoursPerDay} onChange={(event) => updateForm("workingHoursPerDay", event.target.value)} />
             </Field>
-            <Field label="Access Role" hint="Selecting a role automatically applies its permission group.">
+            <Field label="Access Role">
               <select
                 className={input}
                 value={form.accessRole}
@@ -1491,7 +1702,7 @@ export default function Employee() {
                 ))}
               </select>
             </Field>
-            <Field label="Permission Group" hint={form.accessRole ? "Controlled by the selected access role." : "Choose direct feature access for this employee."}>
+            <Field label="Permission Group">
               <select disabled={Boolean(form.accessRole)} className={input} value={form.permissionGroup} onChange={(event) => updateForm("permissionGroup", event.target.value)}>
                 <option value="">Select access group</option>
                 {permissionGroups.map((group) => (
@@ -1499,7 +1710,7 @@ export default function Employee() {
                 ))}
               </select>
             </Field>
-            <Field label="Leave Template" hint="Auto-selected from Leave Setup by department/designation. You can override it if needed.">
+            <Field label="Leave Template">
               <select
                 className={input}
                 value={form.leaveTemplate}
@@ -1560,15 +1771,10 @@ export default function Employee() {
           <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
             <div className="mb-4 flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-emerald-600 ring-1 ring-emerald-100">
-                <FiCalendar className="h-5 w-5" />
+                <HugeiconsIcon icon={Calendar03Icon} size={20} />
               </div>
               <div>
                 <p className="text-sm font-extrabold text-gray-900">Yearly Leave Entitlement</p>
-                <p className="text-xs font-semibold text-gray-500">
-                  {selectedLeaveTemplate
-                    ? "Template values are loaded below. Admin can still manually override them for this employee."
-                    : "No setup template matches this employee yet. You can set the leave days manually."}
-                </p>
               </div>
             </div>
             {selectedLeaveTemplate ? (
@@ -1608,11 +1814,10 @@ export default function Employee() {
           <div className="rounded-2xl border border-indigo-100 bg-indigo-50/50 p-4">
             <div className="mb-4 flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-indigo-600 ring-1 ring-indigo-100">
-                <FiClock className="h-5 w-5" />
+                <HugeiconsIcon icon={Clock01Icon} size={20} />
               </div>
               <div>
                 <p className="text-sm font-extrabold text-gray-900">Assign Roster / Shift</p>
-                <p className="text-xs font-semibold text-gray-500">Optional. Assign this employee to a shift from the employee panel.</p>
               </div>
             </div>
 
@@ -1672,8 +1877,8 @@ export default function Employee() {
       <Modal
         open={filtersOpen}
         title="Employee Filters"
-        subtitle="Filter employees by account, department, designation, and job state."
-        icon={<FiFilter className="h-5 w-5" />}
+        subtitle={null}
+        icon={<HugeiconsIcon icon={FilterIcon} size={20} />}
         onClose={() => setFiltersOpen(false)}
         maxWidthClass="max-w-4xl"
         footer={
@@ -1781,7 +1986,7 @@ export default function Employee() {
         open={deleteState.open}
         title="Delete Employee"
         subtitle={deleteState.employee?.name || "Confirm employee deletion"}
-        icon={<FiLock className="h-5 w-5" />}
+        icon={<HugeiconsIcon icon={LockIcon} size={20} />}
         onClose={() => !deleteState.loading && setDeleteState({ open: false, employee: null, password: "", loading: false })}
         maxWidthClass="max-w-md"
         footer={
@@ -1797,13 +2002,14 @@ export default function Employee() {
           <p className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
             This will permanently delete the employee. Enter your password to continue.
           </p>
-          <Field label="Your Password">
+          <Field label="Your Password" required>
             <input
               className={input}
               type="password"
               value={deleteState.password}
               onChange={(event) => setDeleteState((prev) => ({ ...prev, password: event.target.value }))}
               placeholder="Enter admin password"
+              required
               autoFocus
             />
           </Field>

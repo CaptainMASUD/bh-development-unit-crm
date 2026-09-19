@@ -79,6 +79,7 @@ const ClientReport = lazy(() => import("./reports/ClientReport"))
 const AdminEmployeeReportPage = lazy(() => import("./reports/EmployeeReportPage"))
 const TaxReport = lazy(() => import("./reports/TaxReport"))
 const AccessControl = lazy(() => import("./system/AccessControl"))
+const DepartmentPosition = lazy(() => import("./payroll/DepartmentPosition"))
 const Products = lazy(() => import("./inventory/Product"))
 const ProductCategories = lazy(() => import("./inventory/ProductCategory"))
 const InventoryUnits = lazy(() => import("./inventory/InventoryUnit"))
@@ -117,6 +118,29 @@ const PurchaseReportsPage = lazy(() => import("./purchase/PurchaseReportsPage"))
 const PurchaseQualityInspections = lazy(() => import("./purchase/PurchaseQualityInspections"))
 const SalesPage = lazy(() => import("./sales/SalesPage"))
 const SalesReports = lazy(() => import("./sales/SalesReports"))
+const ManufacturingDashboard = lazy(() => import("./manufacturing/ManufacturingDashboard"))
+const ProductionPlanning = lazy(() => import("./manufacturing/ProductionPlanning"))
+const MRP = lazy(() => import("./manufacturing/MRP"))
+const ProductionSchedule = lazy(() => import("./manufacturing/ProductionSchedule"))
+const CapacityPlanning = lazy(() => import("./manufacturing/CapacityPlanning"))
+const ManufacturingOrders = lazy(() => import("./manufacturing/ManufacturingOrders"))
+const WorkOrders = lazy(() => import("./manufacturing/WorkOrders"))
+const MaterialIssues = lazy(() => import("./manufacturing/MaterialIssues"))
+const ProductionEntries = lazy(() => import("./manufacturing/ProductionEntries"))
+const WorkInProgress = lazy(() => import("./manufacturing/WorkInProgress"))
+const BillOfMaterials = lazy(() => import("./manufacturing/BillOfMaterials"))
+const Routings = lazy(() => import("./manufacturing/Routings"))
+const WorkCenters = lazy(() => import("./manufacturing/WorkCenters"))
+const Machines = lazy(() => import("./manufacturing/Machines"))
+const QualityInspections = lazy(() => import("./manufacturing/QualityInspections"))
+const NonConformance = lazy(() => import("./manufacturing/NonConformance"))
+const ReworkOrders = lazy(() => import("./manufacturing/ReworkOrders"))
+const ScrapWastage = lazy(() => import("./manufacturing/ScrapWastage"))
+const MaintenancePlans = lazy(() => import("./manufacturing/MaintenancePlans"))
+const MaintenanceOrders = lazy(() => import("./manufacturing/MaintenanceOrders"))
+const Subcontracting = lazy(() => import("./manufacturing/Subcontracting"))
+const ManufacturingCosting = lazy(() => import("./manufacturing/ManufacturingCosting"))
+const ManufacturingReports = lazy(() => import("./manufacturing/ManufacturingReports"))
 
 const createSectionIcon = (icon) => (
   <HugeiconsIcon
@@ -321,6 +345,110 @@ const sections = {
   "Sales Returns": { icon: createSectionIcon(Archive02Icon), component: <SalesPage kind="returns" />, permission: "sales-return:view" },
   "Sales Reports": { icon: createSectionIcon(ChartLineData01Icon), component: <SalesReports />, permission: "sales-report:view" },
 
+  "Manufacturing Dashboard": {
+    icon: createSectionIcon(DashboardSquare01Icon),
+    component: <ManufacturingDashboard />,
+    permission: "manufacturing-report:view",
+  },
+
+  Planning: {
+    icon: createSectionIcon(Calendar03Icon),
+    subcategories: {
+      "Production Plans": <ProductionPlanning />,
+      MRP: <MRP />,
+      "Production Schedule": <ProductionSchedule />,
+      "Capacity Planning": <CapacityPlanning />,
+    },
+    subcategoryPermissions: {
+      "Production Plans": "manufacturing-plan:view",
+      MRP: "manufacturing-mrp:view",
+      "Production Schedule": "manufacturing-schedule:view",
+      "Capacity Planning": "manufacturing-work-center:view",
+    },
+  },
+
+  Production: {
+    icon: createSectionIcon(WorkflowSquare03Icon),
+    subcategories: {
+      "Manufacturing Orders": <ManufacturingOrders />,
+      "Work Orders": <WorkOrders />,
+      "Material Issues": <MaterialIssues />,
+      "Production Entries": <ProductionEntries />,
+      "Shop Floor": <WorkOrders />,
+      "Work In Progress": <WorkInProgress />,
+    },
+    subcategoryPermissions: {
+      "Manufacturing Orders": "manufacturing-order:view",
+      "Work Orders": "manufacturing-work-order:view",
+      "Material Issues": "manufacturing-material:view",
+      "Production Entries": "manufacturing-production:view",
+      "Shop Floor": "manufacturing-work-order:view",
+      "Work In Progress": "manufacturing-wip:view",
+    },
+  },
+
+  Engineering: {
+    icon: createSectionIcon(Setup02Icon),
+    subcategories: {
+      "Bill of Materials": <BillOfMaterials />,
+      Routings: <Routings />,
+      "Work Centers": <WorkCenters />,
+      Machines: <Machines />,
+    },
+    subcategoryPermissions: {
+      "Bill of Materials": "manufacturing-bom:view",
+      Routings: "manufacturing-routing:view",
+      "Work Centers": "manufacturing-work-center:view",
+      Machines: "manufacturing-machine:view",
+    },
+  },
+
+  Quality: {
+    icon: createSectionIcon(ShieldUserIcon),
+    subcategories: {
+      "Quality Inspections": <QualityInspections />,
+      "Non-Conformance": <NonConformance />,
+      "Rework Orders": <ReworkOrders />,
+      "Scrap & Wastage": <ScrapWastage />,
+    },
+    subcategoryPermissions: {
+      "Quality Inspections": "manufacturing-quality:view",
+      "Non-Conformance": "manufacturing-quality:view",
+      "Rework Orders": "manufacturing-rework:view",
+      "Scrap & Wastage": "manufacturing-scrap:view",
+    },
+  },
+
+  Maintenance: {
+    icon: createSectionIcon(Setup02Icon),
+    subcategories: {
+      "Maintenance Plans": <MaintenancePlans />,
+      "Maintenance Orders": <MaintenanceOrders />,
+    },
+    subcategoryPermissions: {
+      "Maintenance Plans": "manufacturing-maintenance:view",
+      "Maintenance Orders": "manufacturing-maintenance:view",
+    },
+  },
+
+  Outsourcing: {
+    icon: createSectionIcon(ArrowDataTransferHorizontalIcon),
+    subcategories: { Subcontracting: <Subcontracting /> },
+    subcategoryPermissions: { Subcontracting: "manufacturing-subcontract:view" },
+  },
+
+  Costing: {
+    icon: createSectionIcon(DollarCircleIcon),
+    subcategories: { "Manufacturing Costing": <ManufacturingCosting /> },
+    subcategoryPermissions: { "Manufacturing Costing": "manufacturing-cost:view" },
+  },
+
+  "Manufacturing Reports Group": {
+    icon: createSectionIcon(FileChartColumnIcon),
+    subcategories: { "Manufacturing Reports": <ManufacturingReports /> },
+    subcategoryPermissions: { "Manufacturing Reports": "manufacturing-report:view" },
+  },
+
   "Workflow Setup": {
     icon: createSectionIcon(WorkflowSquare03Icon),
     subcategories: {
@@ -465,6 +593,24 @@ const sections = {
   "Leave Requests": {
     icon: createSectionIcon(CalendarMinus01Icon),
     component: <LeaveRequests />,
+  },
+
+  Departments: {
+    icon: createSectionIcon(Layers01Icon),
+    component: <DepartmentPosition key="departments" defaultTab="departments" />,
+    permission: "employees:view",
+  },
+
+  Positions: {
+    icon: createSectionIcon(Briefcase01Icon),
+    component: <DepartmentPosition key="positions" defaultTab="positions" />,
+    permission: "employees:view",
+  },
+
+  "Departments & Positions": {
+    icon: createSectionIcon(Layers01Icon),
+    component: <DepartmentPosition key="dept-pos" />,
+    permission: "employees:view",
   },
 
   Setup: {

@@ -2,14 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react"
 import toast, { Toaster } from "react-hot-toast"
+import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  FiCalendar,
-  FiClock,
-  FiRefreshCcw,
-  FiSave,
-  FiTrash2,
-  FiUsers,
-} from "react-icons/fi"
+  Calendar03Icon,
+  Clock01Icon,
+  Delete02Icon,
+  FloppyDiskIcon,
+  RefreshIcon,
+  UserGroup03Icon,
+} from "@hugeicons/core-free-icons"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -106,8 +107,8 @@ export default function RosterShiftSetup() {
   const [shiftForm, setShiftForm] = useState(emptyShift)
   const [assignmentForm, setAssignmentForm] = useState(emptyAssignment)
   const tabs = [
-    ["shifts", "Shift Setup", FiClock],
-    ["assign", "Employee Roster Assign", FiUsers],
+    ["shifts", "Shift Setup", Clock01Icon],
+    ["assign", "Employee Roster Assign", UserGroup03Icon],
   ]
 
   const loadAll = async () => {
@@ -177,21 +178,21 @@ export default function RosterShiftSetup() {
         <div className={`${card} mb-5 p-4 sm:p-5`}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white"><FiCalendar /></div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white"><HugeiconsIcon icon={Calendar03Icon} size={20} /></div>
               <div>
                 <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Roster / Shift Setup</h1>
                 <p className="mt-1 text-sm font-semibold text-gray-500">Manage shifts and employee roster assignments.</p>
               </div>
             </div>
-            <button className={`${btn} ${btnGhost}`} onClick={loadAll} type="button"><FiRefreshCcw className={loading ? "animate-spin" : ""} /> Refresh</button>
+            <button className={`${btn} ${btnGhost}`} onClick={loadAll} type="button"><HugeiconsIcon icon={RefreshIcon} size={18} className={loading ? "animate-spin" : ""} /> Refresh</button>
           </div>
         </div>
 
         <div className="mb-5 overflow-x-auto rounded-2xl border border-gray-200 bg-white p-1.5">
           <div className="flex min-w-max gap-1">
-            {tabs.map(([key, label, Icon]) => (
+            {tabs.map(([key, label, icon]) => (
               <button key={key} className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-extrabold transition ${tab === key ? "bg-indigo-600 text-white" : "text-gray-600 hover:bg-gray-100"}`} onClick={() => setTab(key)} type="button">
-                <Icon /> {label}
+                <HugeiconsIcon icon={icon} size={18} /> {label}
               </button>
             ))}
           </div>
@@ -210,7 +211,7 @@ export default function RosterShiftSetup() {
               </div>
               <Field label="Overtime starts after end time (minutes)"><input className={input} type="number" min="0" value={shiftForm.overtimeAfterMinutes} onChange={(e) => setShiftForm((p) => ({ ...p, overtimeAfterMinutes: e.target.value }))} /></Field>
               <Field label="Note"><textarea className={textarea} value={shiftForm.note} onChange={(e) => setShiftForm((p) => ({ ...p, note: e.target.value }))} /></Field>
-              <button className={`${btn} ${btnPrimary}`} type="submit"><FiSave /> Save Shift</button>
+              <button className={`${btn} ${btnPrimary}`} type="submit"><HugeiconsIcon icon={FloppyDiskIcon} size={18} /> Save Shift</button>
             </form>
             <DataTable headers={["Shift", "Time", "Break", "Grace", "Status", ""]}>
               {shifts.map((shift) => (
@@ -220,7 +221,7 @@ export default function RosterShiftSetup() {
                   <Cell>{shift.breakMinutes || 0} min</Cell>
                   <Cell>{shift.graceMinutes || 0} min</Cell>
                   <Cell><Badge tone={shift.isActive ? "emerald" : "gray"}>{shift.isActive ? "Active" : "Inactive"}</Badge></Cell>
-                  <Cell right><button className="text-rose-600" onClick={() => remove(`/roster/shifts/${shift._id}`, shift.name)}><FiTrash2 /></button></Cell>
+                  <Cell right><button className="text-rose-600" onClick={() => remove(`/roster/shifts/${shift._id}`, shift.name)}><HugeiconsIcon icon={Delete02Icon} size={16} /></button></Cell>
                 </tr>
               ))}
             </DataTable>
@@ -241,7 +242,7 @@ export default function RosterShiftSetup() {
               {assignmentForm.rosterType === "weekly" ? <Field label="Weekly roster days"><ToggleDays value={assignmentForm.weekdays} onChange={(days) => setAssignmentForm((p) => ({ ...p, weekdays: days }))} /></Field> : null}
               {assignmentForm.rosterType === "monthly" ? <Field label="Monthly roster dates"><ToggleDays type="month" value={assignmentForm.monthDays} onChange={(days) => setAssignmentForm((p) => ({ ...p, monthDays: days }))} /></Field> : null}
               <Field label="Note"><textarea className={textarea} value={assignmentForm.note} onChange={(e) => setAssignmentForm((p) => ({ ...p, note: e.target.value }))} /></Field>
-              <button className={`${btn} ${btnPrimary}`} type="submit"><FiSave /> Assign Roster</button>
+              <button className={`${btn} ${btnPrimary}`} type="submit"><HugeiconsIcon icon={FloppyDiskIcon} size={18} /> Assign Roster</button>
             </form>
             <DataTable headers={["Employee", "Shift", "Type", "Days", "Date Range", ""]}>
               {assignments.map((item) => (
@@ -251,7 +252,7 @@ export default function RosterShiftSetup() {
                   <Cell><Badge tone="indigo">{item.rosterType}</Badge></Cell>
                   <Cell>{item.rosterType === "weekly" ? dayNames(item.weekdays) : item.rosterType === "monthly" ? item.monthDays?.join(", ") : "Every day"}</Cell>
                   <Cell>{String(item.startDate || "").slice(0, 10)} - {item.endDate ? String(item.endDate).slice(0, 10) : "Open"}</Cell>
-                  <Cell right><button className="text-rose-600" onClick={() => remove(`/roster/assignments/${item._id}`, "roster assignment")}><FiTrash2 /></button></Cell>
+                  <Cell right><button className="text-rose-600" onClick={() => remove(`/roster/assignments/${item._id}`, "roster assignment")}><HugeiconsIcon icon={Delete02Icon} size={16} /></button></Cell>
                 </tr>
               ))}
             </DataTable>

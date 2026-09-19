@@ -2,6 +2,8 @@ import mongoose from "mongoose";
 import User from "../../models/user.model.js";
 import SalaryProfile from "../../models/salaryProfile.model.js";
 import TaxSlab from "../../models/taxSlab.model.js";
+import SalaryGrade from "../../models/payroll/salaryGrade.model.js";
+import PayrollAudit from "../../models/payroll/payrollAudit.model.js";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -20,6 +22,9 @@ const SALARY_POPULATE = [
   },
   { path: "department", select: "name isActive" },
   { path: "position", select: "title department isActive" },
+  { path: "salaryGrade", select: "name code currency minBasicSalary maxBasicSalary defaultBasicSalary components" },
+  { path: "previousVersion", select: "version basicSalary effectiveFrom effectiveTo" },
+  { path: "approvedBy", select: "name email role" },
   { path: "createdBy", select: "name email role" },
   { path: "updatedBy", select: "name email role" },
 ];
@@ -248,6 +253,40 @@ const buildProfilePayload = async (req, { isCreate = false } = {}) => {
     payload.isActive = true;
   }
 
+  if (req.body.salaryGrade && isValidObjectId(req.body.salaryGrade)) {
+    payload.salaryGrade = req.body.salaryGrade;
+    if (!payload.components || !payload.components.length) {
+      const grade = await SalaryGrade.findById(req.body.salaryGrade).lean();
+      if (grade) {
+        if (!payload.components || !payload.components.length) {
+          payload.components = (grade.components || []).map((c) => ({
+            name: c.name,
+            type: c.type,
+            calculationType: c.calculationType,
+            value: c.value,
+            basedOn: c.basedOn,
+            isRecurring: c.isRecurring,
+            isTaxable: c.isTaxable,
+            isActive: c.isActive,
+            note: c.note || "",
+          }));
+        }
+        if (!payload.rules || !Object.keys(payload.rules).length) {
+          payload.rules = grade.rules || {};
+        }
+        if (!payload.basicSalary && grade.defaultBasicSalary) {
+          payload.basicSalary = grade.defaultBasicSalary;
+        }
+      }
+    }
+  }
+
+  if (req.body.version !== undefined) payload.version = Math.max(1, Number(req.body.version || 1));
+  if (req.body.previousVersion && isValidObjectId(req.body.previousVersion)) payload.previousVersion = req.body.previousVersion;
+  if (req.body.revisionReason !== undefined) payload.revisionReason = clean(req.body.revisionReason);
+  if (req.body.incrementPercentage !== undefined) payload.incrementPercentage = roundMoney(req.body.incrementPercentage);
+  if (req.body.incrementAmount !== undefined) payload.incrementAmount = roundMoney(req.body.incrementAmount);
+
   if (req.body.note !== undefined) payload.note = clean(req.body.note);
 
   return { ok: true, payload };
@@ -284,6 +323,20 @@ export const createSalaryProfile = async (req, res) => {
       updatedBy: req.user?._id || null,
     });
     await applyDefaultTaxProfileFromActiveSlab(profile);
+
+    await PayrollAudit.create({
+      employee: profile.employee,
+      action: "salary_profile_created",
+      performedBy: req.user?._id || null,
+      performedAt: new Date(),
+      newStatus: profile.isActive ? "active" : "inactive",
+      details: {
+        basicSalary: profile.basicSalary,
+        currency: profile.currency,
+        version: profile.version || 1,
+        salaryGrade: profile.salaryGrade || null,
+      },
+    }).catch(() => {});
 
     const full = await populateSalaryQuery(SalaryProfile.findById(profile._id)).lean();
 
@@ -455,6 +508,18 @@ export const updateSalaryProfile = async (req, res) => {
 
     await profile.save();
 
+    await PayrollAudit.create({
+      employee: profile.employee,
+      action: "salary_profile_updated",
+      performedBy: req.user?._id || null,
+      performedAt: new Date(),
+      details: {
+        basicSalary: profile.basicSalary,
+        currency: profile.currency,
+        version: profile.version || 1,
+      },
+    }).catch(() => {});
+
     const full = await populateSalaryQuery(SalaryProfile.findById(profile._id)).lean();
 
     return res.json({
@@ -563,3 +628,162 @@ export const previewSalaryProfile = async (req, res) => {
     });
   }
 };
+
+/* ===============================
+   REVISE SALARY PROFILE (VERSIONING)
+   POST /api/salary-profiles/:id/revise
+================================ */
+export const reviseSalaryProfile = async (req, res) => {
+  try {
+    if (!isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: "Invalid salary profile ID." });
+    }
+
+    const currentProfile = await SalaryProfile.findById(req.params.id);
+    if (!currentProfile) {
+      return res.status(404).json({ message: "Salary profile not found." });
+    }
+
+    const newBasicSalary = req.body.basicSalary !== undefined
+      ? roundMoney(req.body.basicSalary)
+      : currentProfile.basicSalary;
+
+    const effectiveFrom = req.body.effectiveFrom ? new Date(req.body.effectiveFrom) : new Date();
+    if (Number.isNaN(effectiveFrom.getTime())) {
+      return res.status(400).json({ message: "Valid effectiveFrom date is required." });
+    }
+
+    const revisionReason = clean(req.body.revisionReason || req.body.reason || "Salary revision");
+    const incrementAmount = roundMoney(newBasicSalary - Number(currentProfile.basicSalary || 0));
+    const incrementPercentage = Number(currentProfile.basicSalary || 0) > 0
+      ? roundMoney(((newBasicSalary - Number(currentProfile.basicSalary || 0)) / Number(currentProfile.basicSalary || 0)) * 100)
+      : 0;
+
+    // Close current profile
+    currentProfile.effectiveTo = effectiveFrom;
+    currentProfile.isActive = false;
+    currentProfile.updatedBy = req.user?._id || null;
+    await currentProfile.save();
+
+    // Deactivate any other active profile for this employee
+    await SalaryProfile.updateMany(
+      { employee: currentProfile.employee, _id: { $ne: currentProfile._id }, isActive: true },
+      { $set: { isActive: false, effectiveTo: effectiveFrom, updatedBy: req.user?._id || null } }
+    );
+
+    let components = Array.isArray(req.body.components)
+      ? normalizeComponents(req.body.components)
+      : currentProfile.components;
+
+    let rules = req.body.rules !== undefined ? req.body.rules : currentProfile.rules;
+
+    if (req.body.salaryGrade && isValidObjectId(req.body.salaryGrade)) {
+      const grade = await SalaryGrade.findById(req.body.salaryGrade).lean();
+      if (grade) {
+        if (!req.body.components || !req.body.components.length) {
+          components = (grade.components || []).map((c) => ({
+            name: c.name,
+            type: c.type,
+            calculationType: c.calculationType,
+            value: c.value,
+            basedOn: c.basedOn,
+            isRecurring: c.isRecurring,
+            isTaxable: c.isTaxable,
+            isActive: c.isActive,
+            note: c.note || "",
+          }));
+        }
+        if (!req.body.rules) {
+          rules = grade.rules || {};
+        }
+      }
+    }
+
+    const taxProfile = req.body.taxProfile !== undefined
+      ? normalizeTaxProfile(req.body.taxProfile)
+      : currentProfile.taxProfile;
+
+    const newProfile = await SalaryProfile.create({
+      employee: currentProfile.employee,
+      department: currentProfile.department,
+      position: currentProfile.position,
+      salaryType: clean(req.body.salaryType || currentProfile.salaryType || "monthly"),
+      currency: clean(req.body.currency || currentProfile.currency || "BDT").toUpperCase(),
+      basicSalary: newBasicSalary,
+      workingDaysPerMonth: Number(req.body.workingDaysPerMonth || currentProfile.workingDaysPerMonth || 26),
+      workingHoursPerDay: Number(req.body.workingHoursPerDay || currentProfile.workingHoursPerDay || 8),
+      components,
+      rules,
+      taxProfile,
+      effectiveFrom,
+      effectiveTo: null,
+      isActive: true,
+      version: Number(currentProfile.version || 1) + 1,
+      previousVersion: currentProfile._id,
+      revisionReason,
+      incrementAmount,
+      incrementPercentage,
+      salaryGrade: req.body.salaryGrade || currentProfile.salaryGrade || null,
+      approvedBy: req.user?._id || null,
+      approvedAt: new Date(),
+      note: clean(req.body.note),
+      createdBy: req.user?._id || null,
+      updatedBy: req.user?._id || null,
+    });
+
+    await applyDefaultTaxProfileFromActiveSlab(newProfile);
+
+    // Audit log
+    await PayrollAudit.create({
+      employee: newProfile.employee,
+      action: "salary_profile_revised",
+      performedBy: req.user?._id || null,
+      performedAt: new Date(),
+      previousStatus: `v${currentProfile.version || 1}`,
+      newStatus: `v${newProfile.version}`,
+      reason: revisionReason,
+      details: {
+        previousBasicSalary: currentProfile.basicSalary,
+        newBasicSalary,
+        incrementAmount,
+        incrementPercentage,
+        effectiveFrom,
+      },
+    }).catch(() => {});
+
+    const full = await populateSalaryQuery(SalaryProfile.findById(newProfile._id)).lean();
+
+    return res.status(201).json({
+      message: "Salary profile revision created successfully.",
+      salaryProfile: full,
+      preview: newProfile.getFixedMonthlyPreview(),
+    });
+  } catch (err) {
+    const duplicate = handleDuplicate(err);
+    if (duplicate) return res.status(409).json({ message: duplicate });
+    return res.status(500).json({ message: "Server error in reviseSalaryProfile.", error: err.message });
+  }
+};
+
+/* ===============================
+   GET SALARY PROFILE HISTORY
+   GET /api/salary-profiles/employee/:employeeId/history
+================================ */
+export const getSalaryProfileHistory = async (req, res) => {
+  try {
+    const employeeId = req.params.employeeId;
+    if (!isValidObjectId(employeeId)) {
+      return res.status(400).json({ message: "Invalid employee ID." });
+    }
+
+    const history = await populateSalaryQuery(
+      SalaryProfile.find({ employee: employeeId })
+        .sort({ version: -1, effectiveFrom: -1, createdAt: -1 })
+    ).lean();
+
+    return res.json({ count: history.length, salaryProfiles: history });
+  } catch (err) {
+    return res.status(500).json({ message: "Server error in getSalaryProfileHistory.", error: err.message });
+  }
+};
+

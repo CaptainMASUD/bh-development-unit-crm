@@ -136,6 +136,47 @@ const salarySnapshotSchema = new mongoose.Schema(
       type: Object,
       default: {},
     },
+
+    isProrated: {
+      type: Boolean,
+      default: false,
+    },
+
+    prorationReason: {
+      type: String,
+      default: "",
+    },
+
+    joiningDate: {
+      type: Date,
+      default: null,
+    },
+
+    leavingDate: {
+      type: Date,
+      default: null,
+    },
+
+    activeDays: {
+      type: Number,
+      default: 0,
+    },
+
+    totalDaysInMonth: {
+      type: Number,
+      default: 0,
+    },
+
+    prorationRatio: {
+      type: Number,
+      default: 1,
+    },
+
+    unproratedBasicSalary: {
+      type: Number,
+      default: 0,
+      set: roundMoney,
+    },
   },
   { _id: false }
 );
@@ -183,12 +224,101 @@ const rosterSummarySchema = new mongoose.Schema(
   { _id: false }
 );
 
+const approvalWorkflowStageSchema = new mongoose.Schema(
+  {
+    stageId: { type: String, required: true },
+    name: { type: String, required: true },
+    sequence: { type: Number, required: true },
+    requiredPermission: { type: String, required: true },
+    approvalsRequired: { type: Number, default: 1 },
+    approvalsCount: { type: Number, default: 0 },
+    approvedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    allowSendBack: { type: Boolean, default: true },
+    allowReject: { type: Boolean, default: true },
+    status: {
+      type: String,
+      enum: ["pending", "in_progress", "approved", "rejected", "sent_back"],
+      default: "pending",
+    },
+    comments: { type: String, default: "" },
+    actedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+const approvalWorkflowStateSchema = new mongoose.Schema(
+  {
+    isWorkflowEnabled: { type: Boolean, default: false },
+    enforceMakerChecker: { type: Boolean, default: true },
+    status: {
+      type: String,
+      enum: [
+        "draft",
+        "submitted",
+        "in_review",
+        "approved",
+        "rejected",
+        "sent_back",
+      ],
+      default: "draft",
+      index: true,
+    },
+    currentStageIndex: { type: Number, default: 0 },
+    currentStageId: { type: String, default: "" },
+    currentStageName: { type: String, default: "" },
+    pendingPermission: { type: String, default: "" },
+    stages: [approvalWorkflowStageSchema],
+    cycle: { type: Number, default: 1 },
+    preparedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    submittedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    submittedAt: { type: Date, default: null },
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    approvedAt: { type: Date, default: null },
+    rejectedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    rejectedAt: { type: Date, default: null },
+    rejectionReason: { type: String, default: "" },
+    sentBackBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    sentBackAt: { type: Date, default: null },
+    sendBackReason: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
 const payrollSchema = new mongoose.Schema(
   {
     payrollKey: {
       type: String,
       required: true,
       unique: true,
+      index: true,
+    },
+
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      default: null,
       index: true,
     },
 
@@ -349,8 +479,50 @@ const payrollSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["draft", "calculated", "approved", "paid", "cancelled"],
+      enum: ["draft", "calculated", "approved", "paid", "reversed", "cancelled"],
       default: "calculated",
+      index: true,
+    },
+
+    payoutSnapshot: {
+      type: Object,
+      default: () => ({}),
+    },
+
+    isReversed: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    reversedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    reversedAt: {
+      type: Date,
+      default: null,
+    },
+
+    reversalReason: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    reversalJournalEntry: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "JournalEntry",
+      default: null,
+      index: true,
+    },
+
+    reversalAccrualJournalEntry: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "JournalEntry",
+      default: null,
       index: true,
     },
 
@@ -449,11 +621,41 @@ const payrollSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+
+    auditTrail: [
+      {
+        action: { type: String, required: true },
+        performedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+        performedAt: { type: Date, default: Date.now },
+        previousStatus: { type: String, default: "" },
+        newStatus: { type: String, default: "" },
+        reason: { type: String, default: "" },
+        note: { type: String, default: "" },
+      },
+    ],
+
+    approvalWorkflow: {
+      type: approvalWorkflowStateSchema,
+      default: () => ({
+        isWorkflowEnabled: false,
+        enforceMakerChecker: true,
+        status: "draft",
+        currentStageIndex: 0,
+        currentStageId: "",
+        currentStageName: "",
+        pendingPermission: "",
+        stages: [],
+        cycle: 1,
+      }),
+    },
   },
   { timestamps: true }
 );
 
 payrollSchema.index({ employee: 1, year: 1, month: 1 }, { unique: true });
+payrollSchema.index({ tenantId: 1, year: 1, month: 1 });
+payrollSchema.index({ tenantId: 1, employee: 1, year: -1, month: -1 });
+payrollSchema.index({ tenantId: 1, "approvalWorkflow.status": 1, year: -1, month: -1 });
 payrollSchema.index({ department: 1, year: 1, month: 1 });
 payrollSchema.index({ status: 1, year: 1, month: 1 });
 payrollSchema.index({ createdAt: -1, _id: -1 });

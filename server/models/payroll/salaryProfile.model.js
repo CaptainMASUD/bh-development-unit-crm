@@ -275,6 +275,54 @@ const salaryProfileSchema = new mongoose.Schema(
       index: true,
     },
 
+    version: {
+      type: Number,
+      default: 1,
+      index: true,
+    },
+
+    previousVersion: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SalaryProfile",
+      default: null,
+    },
+
+    revisionReason: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    incrementPercentage: {
+      type: Number,
+      default: 0,
+      set: roundMoney,
+    },
+
+    incrementAmount: {
+      type: Number,
+      default: 0,
+      set: roundMoney,
+    },
+
+    salaryGrade: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SalaryGrade",
+      default: null,
+      index: true,
+    },
+
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    approvedAt: {
+      type: Date,
+      default: null,
+    },
+
     note: {
       type: String,
       trim: true,

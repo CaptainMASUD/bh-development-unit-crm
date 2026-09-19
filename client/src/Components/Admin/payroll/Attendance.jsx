@@ -2,21 +2,21 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import toast, { Toaster } from "react-hot-toast"
+import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  FiCalendar,
-  FiCheck,
-  FiChevronLeft,
-  FiChevronRight,
-  FiClock,
-  FiEdit3,
-  FiRefreshCcw,
-  FiSave,
-  FiSearch,
-  FiTrash2,
-  FiUser,
-  FiUsers,
-  FiX,
-} from "react-icons/fi"
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  Calendar03Icon,
+  Cancel01Icon,
+  CheckmarkCircle02Icon,
+  Clock01Icon,
+  Delete02Icon,
+  FloppyDiskIcon,
+  PencilEdit02Icon,
+  RefreshIcon,
+  Search01Icon,
+  UserIcon,
+} from "@hugeicons/core-free-icons"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -36,14 +36,14 @@ const textarea =
 const WEEK_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 const STATUS_OPTIONS = [
-  { value: "present", label: "Present", icon: FiCheck },
-  { value: "late", label: "Late", icon: FiClock },
-  { value: "half_day", label: "Half Day", icon: FiClock },
-  { value: "absent", label: "Absent", icon: FiX },
-  { value: "paid_leave", label: "Paid Leave", icon: FiCalendar },
-  { value: "unpaid_leave", label: "Unpaid Leave", icon: FiCalendar },
-  { value: "weekly_holiday", label: "Weekend", icon: FiCalendar },
-  { value: "holiday", label: "Holiday", icon: FiCalendar },
+  { value: "present", label: "Present", icon: CheckmarkCircle02Icon },
+  { value: "late", label: "Late", icon: Clock01Icon },
+  { value: "half_day", label: "Half Day", icon: Clock01Icon },
+  { value: "absent", label: "Absent", icon: Cancel01Icon },
+  { value: "paid_leave", label: "Paid Leave", icon: Calendar03Icon },
+  { value: "unpaid_leave", label: "Unpaid Leave", icon: Calendar03Icon },
+  { value: "weekly_holiday", label: "Weekend", icon: Calendar03Icon },
+  { value: "holiday", label: "Holiday", icon: Calendar03Icon },
 ]
 
 const noTimeStatuses = ["absent", "paid_leave", "unpaid_leave", "weekly_holiday", "holiday"]
@@ -51,7 +51,7 @@ const noTimeStatuses = ["absent", "paid_leave", "unpaid_leave", "weekly_holiday"
 const statusTheme = {
   present: {
     label: "Present",
-    icon: FiCheck,
+    icon: CheckmarkCircle02Icon,
     card: "border-emerald-200 bg-emerald-50/70",
     chip: "bg-emerald-50 text-emerald-700 ring-emerald-600/10",
     button: "border-emerald-200 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-500/20",
@@ -59,7 +59,7 @@ const statusTheme = {
   },
   late: {
     label: "Late",
-    icon: FiClock,
+    icon: Clock01Icon,
     card: "border-amber-200 bg-amber-50/70",
     chip: "bg-amber-50 text-amber-700 ring-amber-600/10",
     button: "border-amber-200 bg-amber-50 text-amber-700 ring-2 ring-amber-500/20",
@@ -67,7 +67,7 @@ const statusTheme = {
   },
   half_day: {
     label: "Half Day",
-    icon: FiClock,
+    icon: Clock01Icon,
     card: "border-orange-200 bg-orange-50/70",
     chip: "bg-orange-50 text-orange-700 ring-orange-600/10",
     button: "border-orange-200 bg-orange-50 text-orange-700 ring-2 ring-orange-500/20",
@@ -75,7 +75,7 @@ const statusTheme = {
   },
   absent: {
     label: "Absent",
-    icon: FiX,
+    icon: Cancel01Icon,
     card: "border-rose-200 bg-rose-50/70",
     chip: "bg-rose-50 text-rose-700 ring-rose-600/10",
     button: "border-rose-200 bg-rose-50 text-rose-700 ring-2 ring-rose-500/20",
@@ -83,7 +83,7 @@ const statusTheme = {
   },
   paid_leave: {
     label: "Paid Leave",
-    icon: FiCalendar,
+    icon: Calendar03Icon,
     card: "border-blue-200 bg-blue-50/70",
     chip: "bg-blue-50 text-blue-700 ring-blue-600/10",
     button: "border-blue-200 bg-blue-50 text-blue-700 ring-2 ring-blue-500/20",
@@ -91,7 +91,7 @@ const statusTheme = {
   },
   unpaid_leave: {
     label: "Unpaid Leave",
-    icon: FiCalendar,
+    icon: Calendar03Icon,
     card: "border-purple-200 bg-purple-50/70",
     chip: "bg-purple-50 text-purple-700 ring-purple-600/10",
     button: "border-purple-200 bg-purple-50 text-purple-700 ring-2 ring-purple-500/20",
@@ -99,7 +99,7 @@ const statusTheme = {
   },
   weekly_holiday: {
     label: "Weekend",
-    icon: FiCalendar,
+    icon: Calendar03Icon,
     card: "border-gray-200 bg-gray-50",
     chip: "bg-gray-100 text-gray-600 ring-gray-600/10",
     button: "border-gray-200 bg-gray-50 text-gray-700 ring-2 ring-gray-400/20",
@@ -107,7 +107,7 @@ const statusTheme = {
   },
   holiday: {
     label: "Holiday",
-    icon: FiCalendar,
+    icon: Calendar03Icon,
     card: "border-cyan-200 bg-cyan-50/70",
     chip: "bg-cyan-50 text-cyan-700 ring-cyan-600/10",
     button: "border-cyan-200 bg-cyan-50 text-cyan-700 ring-2 ring-cyan-500/20",
@@ -115,7 +115,7 @@ const statusTheme = {
   },
   empty: {
     label: "No Record",
-    icon: FiEdit3,
+    icon: PencilEdit02Icon,
     card: "border-gray-200 bg-white hover:border-indigo-200 hover:bg-indigo-50/30",
     chip: "bg-gray-100 text-gray-500 ring-gray-600/10",
     button: "border-indigo-200 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-500/20",
@@ -311,7 +311,6 @@ function buildCalendarCells(year, month) {
 
 function StatusPill({ status, small = false }) {
   const meta = getStatusMeta(status)
-  const Icon = meta.icon
 
   return (
     <span
@@ -319,7 +318,7 @@ function StatusPill({ status, small = false }) {
         small ? "px-2 py-1 text-[11px]" : "px-2.5 py-1.5 text-xs"
       }`}
     >
-      <Icon className={small ? "h-3 w-3" : "h-3.5 w-3.5"} />
+      <HugeiconsIcon icon={meta.icon} size={small ? 12 : 14} />
       {meta.label}
     </span>
   )
@@ -376,7 +375,7 @@ function EmployeePicker({
   return (
     <div ref={pickerRef} className={`relative ${centered ? "mx-auto w-full max-w-xl" : "w-full"}`}>
       <div className="flex h-9 items-center gap-3 rounded-xl border border-gray-200 bg-[#f8f9fc] px-3 transition focus-within:border-indigo-300 focus-within:bg-[#f8f9fc] focus-within:shadow-[0_0_0_4px_rgba(99,102,241,0.10)]">
-        <FiSearch className="h-4 w-4 shrink-0 text-gray-400" />
+        <HugeiconsIcon icon={Search01Icon} size={16} className="shrink-0 text-gray-400" />
         <input
           className="h-8 min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm font-semibold text-gray-800 outline-none ring-0 placeholder:text-gray-400 focus:border-0 focus:outline-none focus:ring-0 focus-visible:outline-none"
           style={{ outline: "none", boxShadow: "none" }}
@@ -404,7 +403,7 @@ function EmployeePicker({
             onClick={() => clearSelectedEmployee()}
             title="Clear employee"
           >
-            <FiX className="h-4 w-4" />
+            <HugeiconsIcon icon={Cancel01Icon} size={16} />
           </button>
         ) : null}
       </div>
@@ -426,7 +425,7 @@ function EmployeePicker({
                   {employee.avatarUrl ? (
                     <img src={employee.avatarUrl} alt={employee.name || "Employee"} className="h-full w-full object-cover" />
                   ) : (
-                    <FiUser className="h-5 w-5 text-gray-500" />
+                    <HugeiconsIcon icon={UserIcon} size={20} className="text-gray-500" />
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -452,7 +451,7 @@ function EmployeePicker({
             {selectedEmployee.avatarUrl ? (
               <img src={selectedEmployee.avatarUrl} alt={selectedEmployee.name || "Employee"} className="h-full w-full object-cover" />
             ) : (
-              <FiUser className="h-4 w-4 text-indigo-600" />
+              <HugeiconsIcon icon={UserIcon} size={16} className="text-indigo-600" />
             )}
           </div>
           <div className="min-w-0">
@@ -701,7 +700,6 @@ export default function AttendanceManager() {
   }
 
   const statusMeta = getStatusMeta(form.status)
-  const StatusIcon = statusMeta.icon
 
   return (
     <div className={shell}>
@@ -712,7 +710,7 @@ export default function AttendanceManager() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
-                <FiCalendar className="h-5 w-5" />
+                <HugeiconsIcon icon={Calendar03Icon} size={20} />
               </div>
               <div>
                 <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Attendance</h1>
@@ -722,7 +720,7 @@ export default function AttendanceManager() {
 
             <div className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-indigo-700 ring-1 ring-gray-100">
-                <FiClock className="h-5 w-5" />
+                <HugeiconsIcon icon={Clock01Icon} size={20} />
               </div>
               <div>
                 <p className="text-xs font-extrabold uppercase tracking-[0.08em] text-gray-400">Current Time</p>
@@ -738,10 +736,9 @@ export default function AttendanceManager() {
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="inline-flex w-full rounded-2xl border border-gray-100 bg-gray-50 p-1 sm:w-auto">
               {[
-                { key: "attendance", label: "Attendance", icon: FiEdit3 },
-                { key: "calendar", label: "Calendar", icon: FiCalendar },
+                { key: "attendance", label: "Attendance", icon: PencilEdit02Icon },
+                { key: "calendar", label: "Calendar", icon: Calendar03Icon },
               ].map((item) => {
-                const Icon = item.icon
                 const active = tab === item.key
                 return (
                   <button
@@ -752,7 +749,7 @@ export default function AttendanceManager() {
                       active ? "bg-indigo-600 text-white shadow-sm" : "text-gray-600 hover:bg-white hover:text-gray-900"
                     }`}
                   >
-                    <Icon className="h-4 w-4" />
+                    <HugeiconsIcon icon={item.icon} size={16} />
                     {item.label}
                   </button>
                 )
@@ -772,7 +769,7 @@ export default function AttendanceManager() {
               />
 
               <button className={`${btn} ${btnGhost} h-10 px-3`} type="button" onClick={loadMonthlySummary} disabled={!selectedEmployeeId || loadingSummary}>
-                <FiRefreshCcw className={loadingSummary ? "animate-spin" : ""} />
+                <HugeiconsIcon icon={RefreshIcon} size={16} className={loadingSummary ? "animate-spin" : ""} />
                 Refresh
               </button>
             </div>
@@ -833,7 +830,6 @@ export default function AttendanceManager() {
                   <p className="mb-2 text-sm font-semibold text-gray-800">Status</p>
                   <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                     {STATUS_OPTIONS.map((item) => {
-                      const Icon = item.icon
                       const active = form.status === item.value
                       const meta = getStatusMeta(item.value)
                       return (
@@ -864,7 +860,7 @@ export default function AttendanceManager() {
                             active ? meta.button : "border-gray-100 bg-white text-gray-600 hover:border-indigo-200 hover:bg-indigo-50/50 hover:text-indigo-700"
                           }`}
                         >
-                          <Icon className="h-4 w-4 shrink-0" />
+                          <HugeiconsIcon icon={item.icon} size={16} className="shrink-0" />
                           <span className="truncate">{item.label}</span>
                         </button>
                       )
@@ -935,19 +931,19 @@ export default function AttendanceManager() {
 
                 <div className="flex flex-col gap-2 border-t border-gray-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-2 text-sm font-semibold text-gray-500">
-                    <StatusIcon className="h-4 w-4" />
+                    <HugeiconsIcon icon={statusMeta.icon} size={16} />
                     Working time: {minutesLabel(minutesBetween(form.checkIn, form.checkOut))}
                   </div>
 
                   <div className="flex flex-col gap-2 sm:flex-row">
                     {selectedRecord ? (
                       <button className={`${btn} ${btnDanger}`} type="button" onClick={deleteSelectedAttendance} disabled={deleting || saving}>
-                        <FiTrash2 />
+                        <HugeiconsIcon icon={Delete02Icon} size={16} />
                         {deleting ? "Deleting..." : "Delete"}
                       </button>
                     ) : null}
                     <button className={`${btn} ${btnPrimary}`} type="submit" disabled={saving || deleting || !selectedEmployeeId}>
-                      <FiSave />
+                      <HugeiconsIcon icon={FloppyDiskIcon} size={16} />
                       {saving ? "Saving..." : selectedRecord ? "Update Attendance" : "Save Attendance"}
                     </button>
                   </div>
@@ -984,7 +980,7 @@ export default function AttendanceManager() {
               </div>
 
               <button className={`${btn} ${btnSoft} mt-4 w-full`} type="button" onClick={() => setTab("calendar")}>
-                <FiCalendar />
+                <HugeiconsIcon icon={Calendar03Icon} size={16} />
                 Open Calendar
               </button>
             </aside>
@@ -1004,13 +1000,13 @@ export default function AttendanceManager() {
 
               <div className="flex items-center gap-2">
                 <button className={`${btn} ${btnGhost} px-3`} type="button" onClick={() => changeMonth(-1)}>
-                  <FiChevronLeft />
+                  <HugeiconsIcon icon={ArrowLeft01Icon} size={16} />
                 </button>
                 <button className={`${btn} ${btnSoft}`} type="button" onClick={() => setViewMonth(toMonthInput(new Date()))}>
                   This Month
                 </button>
                 <button className={`${btn} ${btnGhost} px-3`} type="button" onClick={() => changeMonth(1)}>
-                  <FiChevronRight />
+                  <HugeiconsIcon icon={ArrowRight01Icon} size={16} />
                 </button>
               </div>
             </div>
@@ -1019,7 +1015,7 @@ export default function AttendanceManager() {
               <div className="flex min-h-[430px] items-center justify-center p-5">
                 <div className="w-full max-w-xl rounded-3xl border border-gray-100 bg-white p-5 text-center shadow-[0_18px_44px_-34px_rgba(15,23,42,0.55)] sm:p-6">
                   <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600/10">
-                    <FiUser className="h-6 w-6" />
+                    <HugeiconsIcon icon={UserIcon} size={24} />
                   </div>
                   <h3 className="mt-4 text-lg font-extrabold text-gray-900">Select an employee first</h3>
                   <div className="mt-4">

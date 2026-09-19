@@ -114,9 +114,21 @@ const emptyComponent = {
   note: "",
 }
 
+const emptyPayoutInfo = {
+  preferredPayoutMethod: "bank",
+  bankName: "",
+  branchName: "",
+  accountHolderName: "",
+  accountNumber: "",
+  routingNumber: "",
+  mfsProvider: "bkash",
+  mfsNumber: "",
+}
+
 const emptyForm = {
   employee: "",
   employeeObject: null,
+  salaryGrade: "",
   salaryType: "monthly",
   currency: "BDT",
   basicSalary: "",
@@ -124,6 +136,7 @@ const emptyForm = {
   workingHoursPerDay: 8,
   components: [],
   rules: emptyRules,
+  payoutInfo: emptyPayoutInfo,
   effectiveFrom: new Date().toISOString().slice(0, 10),
   effectiveTo: "",
   isActive: true,
@@ -652,7 +665,7 @@ function RulePill({ item }) {
   )
 }
 
-function SalaryRowActionMenu({ profile, onView, onEdit, onDeactivate, onDelete }) {
+function SalaryRowActionMenu({ profile, onView, onEdit, onRevise, onHistory, onDeactivate, onDelete }) {
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState({ top: 0, left: 0 })
   const buttonRef = useRef(null)
@@ -660,35 +673,38 @@ function SalaryRowActionMenu({ profile, onView, onEdit, onDeactivate, onDelete }
 
   const closeMenu = useCallback(() => setOpen(false), [])
 
-  const runAction = useCallback(
-    (action) => {
-      closeMenu()
-      window.requestAnimationFrame(() => action?.(profile))
-    },
-    [closeMenu, profile]
-  )
+  const runAction = (action) => {
+    closeMenu()
+    window.requestAnimationFrame(() => action?.(profile))
+  }
 
   useEffect(() => {
-    if (!open) return
+    if (!open) return undefined
 
     const updatePosition = () => {
       const rect = buttonRef.current?.getBoundingClientRect()
       if (!rect) return
 
-      const width = 220
-      const height = 138
+      const menuWidth = 220
+      const menuHeight = 220
       const gap = 8
-      const left = Math.min(window.innerWidth - width - 12, Math.max(12, rect.right - width))
-      const openAbove = rect.bottom + height + gap > window.innerHeight
+
+      const left = Math.min(window.innerWidth - menuWidth - 12, Math.max(12, rect.right - menuWidth))
+      const openAbove = rect.bottom + menuHeight + gap > window.innerHeight
       const top = openAbove
-        ? Math.max(12, rect.top - height - gap)
-        : Math.min(window.innerHeight - height - 12, rect.bottom + gap)
+        ? Math.max(12, rect.top - menuHeight - gap)
+        : Math.min(window.innerHeight - menuHeight - 12, rect.bottom + gap)
 
       setPosition({ top, left })
     }
 
     updatePosition()
-    const onOutside = () => closeMenu()
+
+    const onOutside = (event) => {
+      if (buttonRef.current?.contains(event.target)) return
+      closeMenu()
+    }
+
     const onKey = (event) => event.key === "Escape" && closeMenu()
 
     window.addEventListener("click", onOutside)
@@ -718,6 +734,26 @@ function SalaryRowActionMenu({ profile, onView, onEdit, onDeactivate, onDelete }
             <button type="button" className={itemClass} onClick={() => runAction(onEdit)}>
               <HIcon icon={PencilEdit02Icon} className="text-indigo-600" />
               Edit salary profile
+            </button>
+
+            {isActive ? (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-bold text-emerald-700 transition hover:bg-emerald-50"
+                onClick={() => runAction(() => onRevise?.(profile))}
+              >
+                <HIcon icon={ArrowUp02Icon} className="text-emerald-600" />
+                Revise salary
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              className={itemClass}
+              onClick={() => runAction(() => onHistory?.(profile))}
+            >
+              <HIcon icon={Calendar03Icon} className="text-indigo-600" />
+              Version history
             </button>
 
             {isActive ? (
@@ -774,7 +810,7 @@ function SalaryRowActionMenu({ profile, onView, onEdit, onDeactivate, onDelete }
   )
 }
 
-function SalaryMobileCard({ profile, onView, onEdit, onDeactivate, onDelete }) {
+function SalaryMobileCard({ profile, onView, onEdit, onRevise, onHistory, onDeactivate, onDelete }) {
   const employee = profile.employee || {}
   const preview = calculatePreview(profile)
   const rules = salaryRuleItems(profile.rules)
@@ -832,6 +868,8 @@ function SalaryMobileCard({ profile, onView, onEdit, onDeactivate, onDelete }) {
           profile={profile}
           onView={onView}
           onEdit={onEdit}
+          onRevise={onRevise}
+          onHistory={onHistory}
           onDeactivate={onDeactivate}
           onDelete={onDelete}
         />
@@ -881,6 +919,49 @@ function SalaryProfileDetails({ profile }) {
         </div>
         <StatusBadge active={profile.isActive !== false} />
       </div>
+
+      {(profile.version > 1 || profile.revisionReason) ? (
+        <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-emerald-600 px-2.5 py-0.5 text-xs font-extrabold text-white">
+                Version {profile.version || 1}
+              </span>
+              <span className="text-xs font-bold text-emerald-800">
+                {profile.revisionReason || "Salary Revision"}
+              </span>
+            </div>
+            {Number(profile.incrementPercentage || 0) > 0 ? (
+              <span className="rounded-md bg-emerald-100/80 px-2 py-0.5 text-xs font-extrabold text-emerald-800">
+                +{profile.incrementPercentage}% increment (+{money(profile.incrementAmount, profile.currency)})
+              </span>
+            ) : null}
+          </div>
+          {profile.approvedBy?.name ? (
+            <p className="mt-2 text-xs font-semibold text-emerald-700">
+              Approved by {profile.approvedBy.name} on {dateText(profile.approvedAt || profile.effectiveFrom)}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {profile.salaryGrade ? (
+        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 font-black text-xs text-white">
+              G
+            </span>
+            <div>
+              <p className="text-sm font-extrabold text-gray-900">
+                {profile.salaryGrade.name || "Salary Grade"} {profile.salaryGrade.code ? `(${profile.salaryGrade.code})` : ""}
+              </p>
+              <p className="text-xs font-semibold text-gray-500">
+                Level {profile.salaryGrade.level || 1} · Scale: {money(profile.salaryGrade.minSalary, profile.currency)} – {money(profile.salaryGrade.maxSalary, profile.currency)}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <DetailItem label="Basic salary" value={money(profile.basicSalary, profile.currency)} />
@@ -952,6 +1033,63 @@ function SalaryProfileDetails({ profile }) {
         </div>
       </div>
 
+      {(() => {
+        const payout = profile.employee?.payoutInfo || profile.payoutInfo || {}
+        const method = payout.preferredPayoutMethod || "bank"
+        return (
+          <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700">
+                  <HIcon icon={CreditCardIcon} />
+                </span>
+                <div>
+                  <p className="text-sm font-extrabold text-gray-900">Payout & Disbursement Method</p>
+                  <p className="text-xs font-semibold text-gray-500">Configured payout information for salary disbursements</p>
+                </div>
+              </div>
+              <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-extrabold text-indigo-700 capitalize">
+                {method === "mobile_banking" ? "Mobile Banking" : method}
+              </span>
+            </div>
+
+            {method === "bank" ? (
+              <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="rounded-xl bg-gray-50 p-3">
+                  <dt className="text-xs font-bold text-gray-400">Bank Name</dt>
+                  <dd className="mt-1 text-sm font-extrabold text-gray-900">{payout.bankName || "Not configured"}</dd>
+                </div>
+                <div className="rounded-xl bg-gray-50 p-3">
+                  <dt className="text-xs font-bold text-gray-400">Account Number</dt>
+                  <dd className="mt-1 text-sm font-extrabold text-gray-900">{payout.accountNumber || "—"}</dd>
+                </div>
+                <div className="rounded-xl bg-gray-50 p-3">
+                  <dt className="text-xs font-bold text-gray-400">Branch / Routing</dt>
+                  <dd className="mt-1 text-sm font-extrabold text-gray-900">
+                    {payout.branchName || "—"} {payout.routingNumber ? `(${payout.routingNumber})` : ""}
+                  </dd>
+                </div>
+              </dl>
+            ) : method === "mobile_banking" ? (
+              <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-xl bg-gray-50 p-3">
+                  <dt className="text-xs font-bold text-gray-400">Provider</dt>
+                  <dd className="mt-1 text-sm font-extrabold text-gray-900 uppercase">{payout.mfsProvider || "bKash"}</dd>
+                </div>
+                <div className="rounded-xl bg-gray-50 p-3">
+                  <dt className="text-xs font-bold text-gray-400">Wallet / Mobile Number</dt>
+                  <dd className="mt-1 text-sm font-extrabold text-gray-900">{payout.mfsNumber || "—"}</dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="rounded-xl bg-gray-50 p-3 text-sm font-semibold text-gray-600">
+                Disbursed via {method === "cash" ? "cash in hand" : "company cheque"}.
+              </p>
+            )}
+          </div>
+        )
+      })()}
+
       <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
@@ -1019,6 +1157,22 @@ export default function AdminSalaryPage() {
   const [viewProfile, setViewProfile] = useState(null)
   const [deleteState, setDeleteState] = useState({ open: false, profile: null, loading: false })
   const [deactivateState, setDeactivateState] = useState({ open: false, profile: null, date: new Date().toISOString().slice(0, 10), loading: false })
+  const [salaryGrades, setSalaryGrades] = useState([])
+  const [revisionModal, setRevisionModal] = useState({
+    open: false,
+    profile: null,
+    newBasicSalary: "",
+    effectiveFrom: new Date().toISOString().slice(0, 10),
+    revisionReason: "Annual Appraisal",
+    note: "",
+    loading: false,
+  })
+  const [historyModal, setHistoryModal] = useState({
+    open: false,
+    employee: null,
+    history: [],
+    loading: false,
+  })
 
   const filteredPositions = useMemo(() => {
     if (!filters.department) return positions
@@ -1125,12 +1279,14 @@ export default function AdminSalaryPage() {
 
   const loadAccessLists = async () => {
     try {
-      const [departmentsRes, positionsRes] = await Promise.all([
+      const [departmentsRes, positionsRes, gradesRes] = await Promise.all([
         api("/access-control/departments"),
         api("/access-control/positions"),
+        api("/salary-grades?isActive=true").catch(() => ({ salaryGrades: [] })),
       ])
       setDepartments(departmentsRes.departments || [])
       setPositions(positionsRes.positions || [])
+      setSalaryGrades(gradesRes.salaryGrades || [])
     } catch (error) {
       toast.error(error.message || "Failed to load access lists")
     }
@@ -1170,15 +1326,17 @@ export default function AdminSalaryPage() {
 
   const openCreate = () => {
     setEditing(null)
-    setForm({ ...emptyForm, rules: safeRules(emptyRules), components: [] })
+    setForm({ ...emptyForm, rules: safeRules(emptyRules), components: [], payoutInfo: { ...emptyPayoutInfo } })
     setModalOpen(true)
   }
 
   const openEdit = (profile) => {
     setEditing(profile)
+    const empPayout = profile.employee?.payoutInfo || profile.payoutInfo || {}
     setForm({
       employee: getId(profile.employee),
       employeeObject: profile.employee || null,
+      salaryGrade: getId(profile.salaryGrade) || "",
       salaryType: profile.salaryType || "monthly",
       currency: profile.currency || "BDT",
       basicSalary: Number(profile.basicSalary || 0),
@@ -1186,12 +1344,85 @@ export default function AdminSalaryPage() {
       workingHoursPerDay: Number(profile.workingHoursPerDay || 8),
       components: Array.isArray(profile.components) ? profile.components.map((item) => ({ ...emptyComponent, ...item })) : [],
       rules: safeRules(profile.rules || {}),
+      payoutInfo: {
+        preferredPayoutMethod: empPayout.preferredPayoutMethod || "bank",
+        bankName: empPayout.bankName || "",
+        branchName: empPayout.branchName || "",
+        accountHolderName: empPayout.accountHolderName || "",
+        accountNumber: empPayout.accountNumber || "",
+        routingNumber: empPayout.routingNumber || "",
+        mfsProvider: empPayout.mfsProvider || "bkash",
+        mfsNumber: empPayout.mfsNumber || "",
+      },
       effectiveFrom: toDateInput(profile.effectiveFrom) || new Date().toISOString().slice(0, 10),
       effectiveTo: toDateInput(profile.effectiveTo),
       isActive: profile.isActive !== false,
       note: profile.note || "",
     })
     setModalOpen(true)
+  }
+
+  const openRevise = (profile) => {
+    setRevisionModal({
+      open: true,
+      profile,
+      newBasicSalary: profile.basicSalary || "",
+      effectiveFrom: new Date().toISOString().slice(0, 10),
+      revisionReason: "Annual Appraisal",
+      note: "",
+      loading: false,
+    })
+  }
+
+  const handleReviseSalary = async (e) => {
+    e?.preventDefault()
+    if (!revisionModal.profile?._id) return
+    const newBasic = Number(revisionModal.newBasicSalary)
+    if (!newBasic || newBasic <= 0) {
+      toast.error("Enter a valid new basic salary")
+      return
+    }
+    setRevisionModal((prev) => ({ ...prev, loading: true }))
+    try {
+      await api(`/salary-profiles/${revisionModal.profile._id}/revise`, {
+        method: "POST",
+        body: JSON.stringify({
+          newBasicSalary: newBasic,
+          effectiveFrom: revisionModal.effectiveFrom,
+          revisionReason: revisionModal.revisionReason,
+          note: revisionModal.note,
+        }),
+      })
+      toast.success("Salary revision executed successfully")
+      setRevisionModal({ open: false, profile: null, newBasicSalary: "", effectiveFrom: new Date().toISOString().slice(0, 10), revisionReason: "Annual Appraisal", note: "", loading: false })
+      loadProfiles(page)
+    } catch (err) {
+      toast.error(err.message || "Salary revision failed")
+      setRevisionModal((prev) => ({ ...prev, loading: false }))
+    }
+  }
+
+  const openHistory = async (profile) => {
+    const employeeId = getId(profile.employee)
+    if (!employeeId) return
+    setHistoryModal({
+      open: true,
+      employee: profile.employee,
+      history: [],
+      loading: true,
+    })
+    try {
+      const data = await api(`/salary-profiles/employee/${employeeId}/history`)
+      setHistoryModal({
+        open: true,
+        employee: profile.employee,
+        history: data.salaryProfiles || [],
+        loading: false,
+      })
+    } catch (err) {
+      toast.error(err.message || "Failed to load version history")
+      setHistoryModal((prev) => ({ ...prev, loading: false }))
+    }
   }
 
   const closeModal = () => {
@@ -1238,11 +1469,13 @@ export default function AdminSalaryPage() {
 
     const payload = {
       employee: form.employeeObject?._id || form.employee,
+      salaryGrade: form.salaryGrade || null,
       salaryType: form.salaryType,
       currency: String(form.currency || "BDT").trim().toUpperCase(),
       basicSalary: Number(form.basicSalary || 0),
       workingDaysPerMonth: Number(form.workingDaysPerMonth || 26),
       workingHoursPerDay: Number(form.workingHoursPerDay || 8),
+      payoutInfo: form.payoutInfo,
       components: form.components
         .map((item) => ({
           name: String(item.name || "").trim(),
@@ -1539,6 +1772,8 @@ export default function AdminSalaryPage() {
                             profile={profile}
                             onView={setViewProfile}
                             onEdit={openEdit}
+                            onRevise={openRevise}
+                            onHistory={openHistory}
                             onDeactivate={(selected) => setDeactivateState({ open: true, profile: selected, date: new Date().toISOString().slice(0, 10), loading: false })}
                             onDelete={(selected) => setDeleteState({ open: true, profile: selected, loading: false })}
                           />
@@ -1578,6 +1813,8 @@ export default function AdminSalaryPage() {
                   profile={profile}
                   onView={setViewProfile}
                   onEdit={openEdit}
+                  onRevise={openRevise}
+                  onHistory={openHistory}
                   onDeactivate={(selected) => setDeactivateState({ open: true, profile: selected, date: new Date().toISOString().slice(0, 10), loading: false })}
                   onDelete={(selected) => setDeleteState({ open: true, profile: selected, loading: false })}
                 />
@@ -1633,6 +1870,32 @@ export default function AdminSalaryPage() {
             <button className={`${btn} ${btnGhost}`} type="button" onClick={() => setViewProfile(null)}>
               Close
             </button>
+            <button
+              className={`${btn} ${btnGhost}`}
+              type="button"
+              onClick={() => {
+                const selected = viewProfile
+                setViewProfile(null)
+                window.requestAnimationFrame(() => selected && openHistory(selected))
+              }}
+            >
+              <HIcon icon={Calendar03Icon} />
+              Version History
+            </button>
+            {viewProfile?.isActive !== false ? (
+              <button
+                className={`${btn} bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm`}
+                type="button"
+                onClick={() => {
+                  const selected = viewProfile
+                  setViewProfile(null)
+                  window.requestAnimationFrame(() => selected && openRevise(selected))
+                }}
+              >
+                <HIcon icon={ArrowUp02Icon} />
+                Revise Salary
+              </button>
+            ) : null}
             <button
               className={`${btn} ${btnPrimary}`}
               type="button"
@@ -1762,9 +2025,60 @@ export default function AdminSalaryPage() {
                       onSelect={(employee) => {
                         updateForm("employeeObject", employee)
                         updateForm("employee", employee?._id || "")
+                        if (employee?.payoutInfo) {
+                          updateForm("payoutInfo", {
+                            preferredPayoutMethod: employee.payoutInfo.preferredPayoutMethod || "bank",
+                            bankName: employee.payoutInfo.bankName || "",
+                            branchName: employee.payoutInfo.branchName || "",
+                            accountHolderName: employee.payoutInfo.accountHolderName || "",
+                            accountNumber: employee.payoutInfo.accountNumber || "",
+                            routingNumber: employee.payoutInfo.routingNumber || "",
+                            mfsProvider: employee.payoutInfo.mfsProvider || "bkash",
+                            mfsNumber: employee.payoutInfo.mfsNumber || "",
+                          })
+                        }
                       }}
                       placeholder="Search employee"
                     />
+                  </Field>
+                  <Field label="Salary Grade (Template)">
+                    <div className="flex gap-2">
+                      <select
+                        className={input}
+                        value={form.salaryGrade || ""}
+                        onChange={(event) => updateForm("salaryGrade", event.target.value)}
+                      >
+                        <option value="">No Grade / Custom Scale</option>
+                        {salaryGrades.map((grade) => (
+                          <option key={grade._id} value={grade._id}>
+                            {grade.name} ({grade.code || `Lvl ${grade.level}`}) · {grade.minSalary?.toLocaleString()} - {grade.maxSalary?.toLocaleString()} {grade.currency || "BDT"}
+                          </option>
+                        ))}
+                      </select>
+                      {form.salaryGrade ? (
+                        <button
+                          type="button"
+                          className={`${btn} ${btnGhost} shrink-0 px-3 py-1 text-xs`}
+                          title="Apply Grade Template: Basic, Components & Rules"
+                          onClick={() => {
+                            const selectedGrade = salaryGrades.find((g) => String(g._id) === String(form.salaryGrade))
+                            if (!selectedGrade) return
+                            if (selectedGrade.defaultBasicSalary) {
+                              updateForm("basicSalary", selectedGrade.defaultBasicSalary)
+                            }
+                            if (Array.isArray(selectedGrade.components) && selectedGrade.components.length > 0) {
+                              updateForm("components", selectedGrade.components.map((item) => ({ ...emptyComponent, ...item })))
+                            }
+                            if (selectedGrade.rules) {
+                              updateForm("rules", safeRules(selectedGrade.rules))
+                            }
+                            toast.success(`Template applied: ${selectedGrade.name}`)
+                          }}
+                        >
+                          Apply Grade
+                        </button>
+                      ) : null}
+                    </div>
                   </Field>
                   <Field label="Basic Salary">
                     <input
@@ -1833,6 +2147,99 @@ export default function AdminSalaryPage() {
                     />
                   </label>
                 </div>
+              </div>
+
+              <div className={`${card} p-4`}>
+                <div className="mb-4 flex items-center gap-2">
+                  <HIcon icon={CreditCardIcon} className="text-indigo-600" />
+                  <h3 className="text-sm font-extrabold text-gray-900">Payout & Disbursement Method</h3>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <Field label="Preferred Payout Method">
+                    <select
+                      className={input}
+                      value={form.payoutInfo?.preferredPayoutMethod || "bank"}
+                      onChange={(event) => updateForm("payoutInfo", { ...form.payoutInfo, preferredPayoutMethod: event.target.value })}
+                    >
+                      <option value="bank">Bank Transfer</option>
+                      <option value="mobile_banking">Mobile Banking (bKash/Nagad/Rocket)</option>
+                      <option value="cash">Cash in Hand</option>
+                      <option value="cheque">Company Cheque</option>
+                    </select>
+                  </Field>
+                </div>
+
+                {form.payoutInfo?.preferredPayoutMethod === "bank" ? (
+                  <div className="mt-4 grid grid-cols-1 gap-4 rounded-xl border border-gray-100 bg-[#fbfcff] p-4 md:grid-cols-2">
+                    <Field label="Bank Name">
+                      <input
+                        className={input}
+                        placeholder="e.g. Dutch-Bangla Bank PLC"
+                        value={form.payoutInfo?.bankName || ""}
+                        onChange={(event) => updateForm("payoutInfo", { ...form.payoutInfo, bankName: event.target.value })}
+                      />
+                    </Field>
+                    <Field label="Branch Name">
+                      <input
+                        className={input}
+                        placeholder="e.g. Dhanmondi Branch"
+                        value={form.payoutInfo?.branchName || ""}
+                        onChange={(event) => updateForm("payoutInfo", { ...form.payoutInfo, branchName: event.target.value })}
+                      />
+                    </Field>
+                    <Field label="Account Holder Name">
+                      <input
+                        className={input}
+                        placeholder="Account Title"
+                        value={form.payoutInfo?.accountHolderName || ""}
+                        onChange={(event) => updateForm("payoutInfo", { ...form.payoutInfo, accountHolderName: event.target.value })}
+                      />
+                    </Field>
+                    <Field label="Account Number">
+                      <input
+                        className={input}
+                        placeholder="13-17 Digit Account Number"
+                        value={form.payoutInfo?.accountNumber || ""}
+                        onChange={(event) => updateForm("payoutInfo", { ...form.payoutInfo, accountNumber: event.target.value })}
+                      />
+                    </Field>
+                    <Field label="Routing Number">
+                      <input
+                        className={input}
+                        placeholder="9 Digit Routing Code (Optional)"
+                        value={form.payoutInfo?.routingNumber || ""}
+                        onChange={(event) => updateForm("payoutInfo", { ...form.payoutInfo, routingNumber: event.target.value })}
+                      />
+                    </Field>
+                  </div>
+                ) : null}
+
+                {form.payoutInfo?.preferredPayoutMethod === "mobile_banking" ? (
+                  <div className="mt-4 grid grid-cols-1 gap-4 rounded-xl border border-gray-100 bg-[#fbfcff] p-4 md:grid-cols-2">
+                    <Field label="MFS Provider">
+                      <select
+                        className={input}
+                        value={form.payoutInfo?.mfsProvider || "bkash"}
+                        onChange={(event) => updateForm("payoutInfo", { ...form.payoutInfo, mfsProvider: event.target.value })}
+                      >
+                        <option value="bkash">bKash</option>
+                        <option value="nagad">Nagad</option>
+                        <option value="rocket">Rocket</option>
+                        <option value="upay">Upay</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </Field>
+                    <Field label="Wallet / Mobile Number">
+                      <input
+                        className={input}
+                        placeholder="e.g. 017XXXXXXXX"
+                        value={form.payoutInfo?.mfsNumber || ""}
+                        onChange={(event) => updateForm("payoutInfo", { ...form.payoutInfo, mfsNumber: event.target.value })}
+                      />
+                    </Field>
+                  </div>
+                ) : null}
               </div>
 
               <div className={`${card} p-4`}>
@@ -2102,6 +2509,209 @@ export default function AdminSalaryPage() {
         <p className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">
           This will permanently delete the inactive salary profile. Active profiles must be deactivated first.
         </p>
+      </Modal>
+
+      <Modal
+        open={revisionModal.open}
+        title="Revise Employee Salary"
+        subtitle={revisionModal.profile?.employee?.name || "Increment or revise base compensation"}
+        icon={<HIcon icon={ArrowUp02Icon} className="h-5 w-5 text-emerald-600" />}
+        onClose={() => !revisionModal.loading && setRevisionModal((prev) => ({ ...prev, open: false, profile: null }))}
+        maxWidthClass="max-w-xl"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button
+              className={`${btn} ${btnGhost}`}
+              disabled={revisionModal.loading}
+              type="button"
+              onClick={() => setRevisionModal((prev) => ({ ...prev, open: false, profile: null }))}
+            >
+              Cancel
+            </button>
+            <button
+              className={`${btn} bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm`}
+              disabled={revisionModal.loading}
+              form="revision-form"
+              type="submit"
+            >
+              {revisionModal.loading ? "Applying Revision..." : "Confirm Revision"}
+            </button>
+          </div>
+        }
+      >
+        <form id="revision-form" onSubmit={handleReviseSalary} className="space-y-4">
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Current Base</p>
+                <p className="text-lg font-extrabold text-emerald-950">
+                  {money(revisionModal.profile?.basicSalary, revisionModal.profile?.currency)}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">Current Version</p>
+                <p className="text-base font-extrabold text-emerald-950">
+                  v{revisionModal.profile?.version || 1}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="New Basic Salary">
+              <input
+                className={input}
+                type="number"
+                min="1"
+                placeholder="New Basic Salary"
+                value={revisionModal.newBasicSalary}
+                onChange={(e) => setRevisionModal((prev) => ({ ...prev, newBasicSalary: e.target.value }))}
+                required
+              />
+            </Field>
+
+            <Field label="Effective From">
+              <input
+                className={input}
+                type="date"
+                value={revisionModal.effectiveFrom}
+                onChange={(e) => setRevisionModal((prev) => ({ ...prev, effectiveFrom: e.target.value }))}
+                required
+              />
+            </Field>
+          </div>
+
+          {(() => {
+            const current = Number(revisionModal.profile?.basicSalary || 0)
+            const next = Number(revisionModal.newBasicSalary || 0)
+            if (next > 0 && current > 0) {
+              const diff = next - current
+              const pct = ((diff / current) * 100).toFixed(2)
+              const isUp = diff >= 0
+              return (
+                <div className={`rounded-xl border p-3 ${isUp ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800"}`}>
+                  <p className="text-xs font-bold">Adjustment Preview:</p>
+                  <p className="mt-0.5 text-sm font-extrabold">
+                    {isUp ? "+" : ""}{money(diff, revisionModal.profile?.currency)} ({isUp ? "+" : ""}{pct}%)
+                  </p>
+                </div>
+              )
+            }
+            return null
+          })()}
+
+          <Field label="Revision Reason">
+            <select
+              className={input}
+              value={revisionModal.revisionReason}
+              onChange={(e) => setRevisionModal((prev) => ({ ...prev, revisionReason: e.target.value }))}
+            >
+              <option value="Annual Appraisal">Annual Appraisal</option>
+              <option value="Promotion">Promotion</option>
+              <option value="Market Adjustment">Market Adjustment</option>
+              <option value="Confirmation">Probation Confirmation</option>
+              <option value="Correction">Correction</option>
+              <option value="Other">Other</option>
+            </select>
+          </Field>
+
+          <Field label="Note / Justification">
+            <textarea
+              className="min-h-20 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-800 outline-none placeholder:text-gray-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-500/15"
+              placeholder="Details regarding this salary change..."
+              value={revisionModal.note}
+              onChange={(e) => setRevisionModal((prev) => ({ ...prev, note: e.target.value }))}
+            />
+          </Field>
+        </form>
+      </Modal>
+
+      <Modal
+        open={historyModal.open}
+        title="Salary Profile Version History"
+        subtitle={historyModal.employee?.name || "Chronological record of salary adjustments"}
+        icon={<HIcon icon={Calendar03Icon} className="h-5 w-5 text-indigo-600" />}
+        onClose={() => setHistoryModal((prev) => ({ ...prev, open: false, employee: null }))}
+        maxWidthClass="max-w-3xl"
+        footer={
+          <div className="flex justify-end">
+            <button
+              className={`${btn} ${btnGhost}`}
+              type="button"
+              onClick={() => setHistoryModal((prev) => ({ ...prev, open: false, employee: null }))}
+            >
+              Close
+            </button>
+          </div>
+        }
+      >
+        {historyModal.loading ? (
+          <div className="flex min-h-48 items-center justify-center">
+            <div className="flex items-center gap-2 text-sm font-bold text-gray-500">
+              <HIcon icon={RefreshIcon} className="animate-spin text-indigo-600" />
+              Loading history...
+            </div>
+          </div>
+        ) : historyModal.history?.length ? (
+          <div className="space-y-3">
+            {historyModal.history.map((item, idx) => (
+              <div
+                key={item._id || idx}
+                className={`rounded-2xl border p-4 transition ${item.isActive ? "border-indigo-200 bg-indigo-50/20 shadow-sm" : "border-gray-200 bg-white"}`}
+              >
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gray-900 text-xs font-black text-white">
+                      v{item.version || 1}
+                    </span>
+                    <p className="text-base font-extrabold text-gray-900">
+                      {money(item.basicSalary, item.currency)}
+                    </p>
+                    {item.isActive ? (
+                      <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-extrabold text-emerald-700">
+                        Active
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-extrabold text-gray-600">
+                        Archived
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs font-bold text-gray-500">
+                    {dateText(item.effectiveFrom)} → {item.effectiveTo ? dateText(item.effectiveTo) : "Present"}
+                  </p>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs font-semibold text-gray-600">
+                  {item.incrementPercentage > 0 ? (
+                    <span className="rounded-md bg-emerald-50 px-2 py-1 font-extrabold text-emerald-700">
+                      +{item.incrementPercentage}% increment (+{money(item.incrementAmount, item.currency)})
+                    </span>
+                  ) : null}
+                  {item.revisionReason ? (
+                    <span className="rounded-md bg-gray-100 px-2 py-1 font-bold text-gray-700">
+                      Reason: {item.revisionReason}
+                    </span>
+                  ) : null}
+                  {item.approvedBy?.name ? (
+                    <span className="text-gray-500">
+                      Approved by: <strong className="text-gray-800">{item.approvedBy.name}</strong>
+                    </span>
+                  ) : null}
+                </div>
+
+                {item.note ? (
+                  <p className="mt-2 text-xs italic text-gray-500">Note: {item.note}</p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-8 text-center">
+            <p className="text-sm font-extrabold text-gray-900">No version history found</p>
+            <p className="mt-1 text-xs font-semibold text-gray-500">This employee only has their initial salary profile.</p>
+          </div>
+        )}
       </Modal>
     </div>
   )

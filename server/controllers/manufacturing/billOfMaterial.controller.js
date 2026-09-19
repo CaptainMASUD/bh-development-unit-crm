@@ -1,0 +1,10 @@
+import BillOfMaterial from "../../models/manufacturing/billOfMaterial.model.js";
+import { createCrudController } from "./crud.factory.js";
+import { assertTenant } from "../../utils/manufacturingError.js";
+import { nextManufacturingNumber } from "../../services/manufacturing/manufacturingNumbering.service.js";
+import { explodeBom, estimateBomMaterialCost } from "../../services/manufacturing/bomExplosion.service.js";
+const crud=createCrudController({Model:BillOfMaterial,searchFields:["bomNumber","revisionNotes"],populate:["product","lines.product","lines.unit","byProducts.product"]});
+export const listBillOfMaterials=crud.list; export const getBillOfMaterial=crud.get; export const updateBillOfMaterial=crud.update; export const deleteBillOfMaterial=crud.remove;
+export const createBillOfMaterial=async(req,res)=>{assertTenant(req);const bomNumber=req.body.bomNumber||await nextManufacturingNumber({tenantId:req.tenantId,key:"bom"});const item=await BillOfMaterial.create({...req.body,tenantId:req.tenantId,bomNumber,createdBy:req.user?._id,updatedBy:req.user?._id});res.status(201).json({success:true,data:item});};
+export const activateBillOfMaterial=async(req,res)=>{assertTenant(req);const item=await BillOfMaterial.findById(req.params.id);if(!item)return res.status(404).json({success:false,message:"BOM not found."});await BillOfMaterial.updateMany({product:item.product,status:"active",_id:{$ne:item._id}},{$set:{status:"obsolete",updatedBy:req.user?._id}});item.status="active";item.approvedBy=req.user?._id;item.approvedAt=new Date();item.updatedBy=req.user?._id;await item.save();res.json({success:true,data:item});};
+export const explodeBillOfMaterial=async(req,res)=>{assertTenant(req);const bom=await BillOfMaterial.findById(req.params.id).lean();if(!bom)return res.status(404).json({success:false,message:"BOM not found."});const result=await explodeBom({productId:bom.product,quantity:Number(req.query.quantity||bom.outputQuantity||1),bomId:bom._id});const materialCost=await estimateBomMaterialCost({requirements:result.requirements});res.json({success:true,data:{...result,materialCost}});};

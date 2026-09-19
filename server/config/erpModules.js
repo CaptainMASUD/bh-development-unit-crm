@@ -5,6 +5,7 @@ export const ERP_MODULES = [
   { id: "supplier", code: "SUPPLIER", name: "Supplier", category: "Operations", description: "Supplier onboarding, approvals, and product sourcing.", permissionPrefixes: ["supplier"] },
   { id: "purchase", code: "PURCHASE", name: "Purchase", category: "Operations", description: "Purchase orders, goods receipts, and supplier returns.", permissionPrefixes: ["purchase-order", "goods-receipt", "purchase-return"] },
   { id: "sales", code: "SALES", name: "Sales", category: "Sales", description: "Quotations, sales orders, deliveries, invoices, customer receipts, returns, and sales reporting.", permissionPrefixes: ["sales-quotation", "sales-order", "sales-delivery", "sales-invoice", "sales-payment", "sales-return", "sales-report"] },
+  { id: "manufacturing", code: "MANUFACTURING", name: "Manufacturing", category: "Operations", description: "BOM, routing, MRP, production execution, quality, maintenance, costing, and manufacturing reporting.", permissionPrefixes: ["manufacturing-bom", "manufacturing-routing", "manufacturing-work-center", "manufacturing-machine", "manufacturing-plan", "manufacturing-mrp", "manufacturing-order", "manufacturing-work-order", "manufacturing-material", "manufacturing-production", "manufacturing-wip", "manufacturing-quality", "manufacturing-scrap", "manufacturing-rework", "manufacturing-schedule", "manufacturing-maintenance", "manufacturing-subcontract", "manufacturing-cost", "manufacturing-report"] },
   { id: "payroll", code: "PAYROLL", name: "HR Payroll", category: "People", description: "Employees, attendance, salary, payroll, leave, loans, and tax.", permissionPrefixes: ["attendance", "payroll", "tax", "loans", "leaves", "roster", "employees", "salary"] },
   { id: "administration", code: "ADMINISTRATION", name: "Administration", category: "Operations", description: "Company profile, branches, users, roles, permissions, and settings.", permissionPrefixes: ["users", "notifications", "access-control", "profile", "company", "branch"] },
 ];
@@ -25,6 +26,7 @@ export const ERP_MODULE_DEPENDENCIES = Object.freeze({
   supplier: Object.freeze(["inventory"]),
   purchase: Object.freeze(["supplier", "inventory"]),
   sales: Object.freeze(["crm", "inventory", "accounting"]),
+  manufacturing: Object.freeze(["inventory", "purchase", "accounting"]),
   payroll: Object.freeze(["accounting"]),
 });
 

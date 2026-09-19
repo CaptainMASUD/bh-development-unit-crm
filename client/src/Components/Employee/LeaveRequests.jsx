@@ -3,7 +3,14 @@
 import { useEffect, useMemo, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import toast, { Toaster } from "react-hot-toast"
-import { FiCalendar, FiPlus, FiRefreshCcw, FiSend, FiX } from "react-icons/fi"
+import { HugeiconsIcon } from "@hugeicons/react"
+import {
+  Add01Icon,
+  Calendar03Icon,
+  Cancel01Icon,
+  RefreshIcon,
+  SentIcon,
+} from "@hugeicons/core-free-icons"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -195,7 +202,7 @@ export default function EmployeeLeaveRequests() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
-              <FiCalendar className="h-5 w-5" />
+              <HugeiconsIcon icon={Calendar03Icon} size={20} />
             </div>
 
             <div>
@@ -211,12 +218,12 @@ export default function EmployeeLeaveRequests() {
 
           <div className="flex flex-wrap gap-2">
             <button className={`${btn} ${btnGhost}`} onClick={load} disabled={loading}>
-              <FiRefreshCcw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+              <HugeiconsIcon icon={RefreshIcon} size={14} className={loading ? "animate-spin" : ""} />
               Refresh
             </button>
 
             <button className={`${btn} ${btnPrimary}`} onClick={openApplyModal}>
-              <FiPlus className="h-3.5 w-3.5" />
+              <HugeiconsIcon icon={Add01Icon} size={14} />
               Apply Leave
             </button>
           </div>
@@ -362,7 +369,7 @@ export default function EmployeeLeaveRequests() {
                   disabled={saving}
                   aria-label="Close modal"
                 >
-                  <FiX className="h-4 w-4" />
+                  <HugeiconsIcon icon={Cancel01Icon} size={16} />
                 </button>
               </div>
 
@@ -448,7 +455,7 @@ export default function EmployeeLeaveRequests() {
                 </button>
 
                 <button className={`${btn} ${btnPrimary}`} onClick={submit} disabled={saving}>
-                  <FiSend className="h-3.5 w-3.5" />
+                  <HugeiconsIcon icon={SentIcon} size={14} />
                   {saving ? "Submitting..." : "Submit Request"}
                 </button>
               </div>

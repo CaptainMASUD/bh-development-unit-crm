@@ -5,29 +5,28 @@ import {
   deleteSalaryProfile,
   getActiveSalaryProfileByEmployee,
   getSalaryProfileById,
+  getSalaryProfileHistory,
   listSalaryProfiles,
   previewSalaryProfile,
+  reviseSalaryProfile,
   updateSalaryProfile,
 } from "../../controllers/salaryProfile.controller.js";
-import { protect, requirePermission } from "../../middleware/auth.middleware.js";
+import { protect, requirePermission, requireAnyPermission } from "../../middleware/auth.middleware.js";
 
 const router = express.Router();
 
 router.use(protect);
 
-/**
- * Admin/Superadmin can manage salary profiles.
- * Later you can replace isAdminOrSuperAdmin with permission middleware:
- * authorize("payroll:manage")
- */
 router.get("/", requirePermission("salary:view"), listSalaryProfiles);
 router.post("/", requirePermission("salary:manage"), createSalaryProfile);
 
 router.get("/employee/:employeeId/active", requirePermission("salary:view"), getActiveSalaryProfileByEmployee);
+router.get("/employee/:employeeId/history", requirePermission("salary:view"), getSalaryProfileHistory);
 
 router.get("/:id", requirePermission("salary:view"), getSalaryProfileById);
 router.get("/:id/preview", requirePermission("salary:view"), previewSalaryProfile);
 
+router.post("/:id/revise", requirePermission("salary:manage"), reviseSalaryProfile);
 router.patch("/:id", requirePermission("salary:manage"), updateSalaryProfile);
 router.patch("/:id/deactivate", requirePermission("salary:manage"), deactivateSalaryProfile);
 

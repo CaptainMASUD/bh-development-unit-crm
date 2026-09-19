@@ -1,0 +1,9 @@
+"use client"
+import { FiTool } from "react-icons/fi"
+import ManufacturingResourcePage from "./ManufacturingResourcePage"
+
+export default function MaintenancePlans() {
+  return <ManufacturingResourcePage title="Maintenance Plans" subtitle="Set preventive maintenance triggers, frequencies, due dates, meter thresholds, and checklists." endpoint="/manufacturing/maintenance/plans" icon={<FiTool />} viewPermission="manufacturing-maintenance:view" managePermission="manufacturing-maintenance:manage" createLabel="New Maintenance Plan" statusOptions={["active", "paused", "inactive"]}
+    columns={[{ key: "planNumber", label: "Plan No." }, { key: "machine", label: "Machine", type: "relation" }, { key: "name", label: "Plan" }, { key: "triggerType", label: "Trigger" }, { key: "frequencyDays", label: "Days", type: "number" }, { key: "nextDueAt", label: "Next Due", type: "date" }, { key: "status", label: "Status", type: "status" }]}
+    formFields={[{ name: "planNumber", label: "Plan Number", type: "text" }, { name: "machine", label: "Machine", type: "relation", endpoint: "/manufacturing/machines?limit=100" }, { name: "name", label: "Plan Name", type: "text" }, { name: "triggerType", label: "Trigger Type", type: "select", defaultValue: "calendar", options: ["calendar", "meter"] }, { name: "frequencyDays", label: "Frequency Days", type: "number", min: 1, defaultValue: 30 }, { name: "frequencyMeter", label: "Frequency Meter", type: "number", min: 1 }, { name: "nextDueAt", label: "Next Due", type: "date" }, { name: "nextDueMeter", label: "Next Due Meter", type: "number", min: 0 }, { name: "estimatedMinutes", label: "Estimated Minutes", type: "number", min: 0, defaultValue: 0 }, { name: "checklist", label: "Checklist", type: "tags", full: true }, { name: "status", label: "Status", type: "select", defaultValue: "active", options: ["active", "paused", "inactive"] }]} />
+}

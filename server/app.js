@@ -144,6 +144,7 @@ import employeeReportRoutes from "./routes/payroll/employeeReport.route.js";
 import employeeReportViewPreferenceRoutes from "./routes/payroll/employeeReportViewPreference.route.js";
 
 // HR, payroll and attendance
+import salaryGradeRoutes from "./routes/payroll/salaryGrade.routes.js";
 import salaryProfileRoutes from "./routes/payroll/salaryProfile.routes.js";
 import attendanceRoutes from "./routes/payroll/attendance.routes.js";
 import payrollRoutes from "./routes/payroll/payroll.routes.js";
@@ -186,6 +187,7 @@ import goodsReceiptRoutes from "./routes/purchase/goodsReceipt.routes.js";
 import purchaseReturnRoutes from "./routes/purchase/purchaseReturn.routes.js";
 import purchaseWorkflowRoutes from "./routes/purchase/purchaseWorkflow.routes.js";
 import salesRoutes from "./routes/sales/sales.routes.js";
+import manufacturingRoutes from "./routes/manufacturing/manufacturing.routes.js";
 
 /* =========================
    HEALTH CHECK
@@ -275,6 +277,12 @@ mountModuleRoutes("/api/purchase/workflow", "purchase", purchaseWorkflowRoutes);
 ========================= */
 
 mountModuleRoutes("/api/sales", "sales", salesRoutes);
+
+/* =========================
+   MANUFACTURING MODULE
+========================= */
+
+mountModuleRoutes("/api/manufacturing", "manufacturing", manufacturingRoutes);
 /* =========================
    INVENTORY SETUP
 ========================= */
@@ -321,6 +329,7 @@ mountModuleRoutes("/api/employeeReport", "payroll", employeeReportRoutes);
    SALARY PROFILES
 ========================= */
 
+mountModuleRoutes("/api/salary-grades", "payroll", salaryGradeRoutes);
 mountModuleRoutes("/api/salary-profiles", "payroll", salaryProfileRoutes);
 
 /* =========================
@@ -358,6 +367,7 @@ mountModuleRoutes("/api/banking", "accounting", bankingRoutes);
 ========================= */
 
 mountModuleRoutes("/api/payroll", "payroll", payrollRoutes);
+mountModuleRoutes("/api/payrolls", "payroll", payrollRoutes);
 
 /* =========================
    ROSTER / SHIFT SETUP
