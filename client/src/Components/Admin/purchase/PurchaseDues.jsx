@@ -7,7 +7,10 @@ import toast, { Toaster } from "react-hot-toast"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Alert02Icon,
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
   Cancel01Icon,
+  DollarCircleIcon,
   FilterIcon,
   FolderLibraryIcon,
   RefreshIcon,
@@ -473,7 +476,365 @@ function FilterModal({
   )
 }
 
-function DetailsModal({ item, open, onClose }) {
+function PaymentModal({ item, open, onClose, onSuccess }) {
+  const [options, setOptions] = useState({ cashAccounts: [], bankAccounts: [] })
+  const [loadingOptions, setLoadingOptions] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState("")
+  const [confirmPrompt, setConfirmPrompt] = useState(false)
+
+  const [paymentType, setPaymentType] = useState("full")
+  const [amount, setAmount] = useState("")
+  const [paymentAccountType, setPaymentAccountType] = useState("cash")
+  const [cashAccount, setCashAccount] = useState("")
+  const [bankAccount, setBankAccount] = useState("")
+  const [bankCheckNumber, setBankCheckNumber] = useState("")
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10))
+  const [note, setNote] = useState("")
+
+  const currency = item?.currency || item?.purchaseOrder?.currency || ""
+  const remainingDue = Number(item?.remainingDue || 0)
+
+  useEffect(() => {
+    if (!open || !item) return
+    setError("")
+    setConfirmPrompt(false)
+    setPaymentType("full")
+    setAmount(String(remainingDue))
+    setPaymentDate(new Date().toISOString().slice(0, 10))
+    setNote("")
+    setBankCheckNumber("")
+
+    setLoadingOptions(true)
+    api("/purchase/workflow/dues/options")
+      .then((res) => {
+        const cash = Array.isArray(res?.cashAccounts) ? res.cashAccounts : []
+        const bank = Array.isArray(res?.bankAccounts) ? res.bankAccounts : []
+        setOptions({ cashAccounts: cash, bankAccounts: bank })
+        if (cash.length) setCashAccount(cash[0]._id)
+        if (bank.length) setBankAccount(bank[0]._id)
+      })
+      .catch((e) => {
+        setError(e.message || "Failed to load payment accounts.")
+      })
+      .finally(() => setLoadingOptions(false))
+  }, [open, item, remainingDue])
+
+  const parsedAmount = Math.round((Number(amount || 0) + Number.EPSILON) * 100) / 100
+  const newRemaining = Math.max(0, Math.round((remainingDue - parsedAmount) * 100) / 100)
+
+  const handleTypeToggle = (type) => {
+    setPaymentType(type)
+    if (type === "full") {
+      setAmount(String(remainingDue))
+    } else {
+      if (parsedAmount >= remainingDue || parsedAmount <= 0) {
+        setAmount(String(Math.round((remainingDue / 2) * 100) / 100))
+      }
+    }
+  }
+
+  const handleAmountChange = (val) => {
+    setAmount(val)
+    const valNum = Number(val || 0)
+    if (valNum >= remainingDue && remainingDue > 0) {
+      setPaymentType("full")
+    } else {
+      setPaymentType("partial")
+    }
+  }
+
+  const validate = () => {
+    if (!parsedAmount || parsedAmount <= 0) {
+      setError("Payment amount must be greater than zero.")
+      return false
+    }
+    if (parsedAmount > remainingDue) {
+      setError(`Payment amount cannot exceed the remaining due (${formatMoney(remainingDue, currency)}).`)
+      return false
+    }
+    if (paymentAccountType === "cash" && !cashAccount) {
+      setError("Please select an active cash account.")
+      return false
+    }
+    if (paymentAccountType === "bank") {
+      if (!bankAccount) {
+        setError("Please select an active bank account.")
+        return false
+      }
+      if (!clean(bankCheckNumber)) {
+        setError("Please enter the check / reference number for bank payment.")
+        return false
+      }
+    }
+    setError("")
+    return true
+  }
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault?.()
+    if (!validate()) return
+
+    if (!confirmPrompt) {
+      setConfirmPrompt(true)
+      return
+    }
+
+    setSubmitting(true)
+    setError("")
+    try {
+      const payload = {
+        amount: parsedAmount,
+        paymentAccountType,
+        cashAccount: paymentAccountType === "cash" ? cashAccount : null,
+        bankAccount: paymentAccountType === "bank" ? bankAccount : null,
+        bankCheckNumber: paymentAccountType === "bank" ? bankCheckNumber : null,
+        paymentDate,
+        note,
+      }
+
+      const res = await fetch(`${API_BASE}/purchase/workflow/dues/${item._id}/pay`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(localStorage.getItem("token") ? { Authorization: `Bearer ${localStorage.getItem("token")}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      })
+      const result = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(result?.message || result?.error || "Payment recording failed.")
+
+      toast.success(result?.message || `Payment of ${formatMoney(parsedAmount, currency)} recorded successfully.`)
+      onSuccess?.(result?.due)
+      onClose?.()
+    } catch (err) {
+      setError(err.message || "Payment recording failed.")
+      setConfirmPrompt(false)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <ModalShell
+      open={open}
+      onClose={onClose}
+      title="Record Purchase Payment"
+      subtitle={item ? `${item.dueReference} · ${item.supplier?.businessName || item.supplier?.name || "Supplier"}` : ""}
+      icon={<Icon icon={DollarCircleIcon} className="h-5 w-5" />}
+      maxWidthClass="max-w-2xl"
+      footer={
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="text-xs font-semibold text-gray-500">
+            {confirmPrompt ? (
+              <span className="text-amber-700 font-bold">Please confirm payment details before submitting.</span>
+            ) : (
+              <span>Remaining after payment: <strong className="text-gray-900">{formatMoney(newRemaining, currency)}</strong></span>
+            )}
+          </div>
+          <div className="flex gap-2 w-full sm:w-auto justify-end">
+            <button
+              type="button"
+              className={cn(button, ghostButton)}
+              onClick={confirmPrompt ? () => setConfirmPrompt(false) : onClose}
+              disabled={submitting}
+            >
+              {confirmPrompt ? "Back" : "Cancel"}
+            </button>
+            <button
+              type="button"
+              className={cn(button, primaryButton, confirmPrompt ? "bg-emerald-600 hover:bg-emerald-700" : "")}
+              onClick={handleSubmit}
+              disabled={submitting || loadingOptions}
+            >
+              {submitting ? (
+                <>
+                  <Spinner />
+                  Processing...
+                </>
+              ) : confirmPrompt ? (
+                <>
+                  <Icon icon={Tick02Icon} className="h-4 w-4" />
+                  Confirm & Post Payment
+                </>
+              ) : (
+                <>
+                  <Icon icon={DollarCircleIcon} className="h-4 w-4" />
+                  Continue to Pay
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      }
+    >
+      {item ? (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error ? (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700 flex items-start gap-2">
+              <Icon icon={Alert02Icon} className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          ) : null}
+
+          <div className="grid grid-cols-3 gap-3 rounded-2xl border border-gray-100 bg-gray-50 p-3 text-center">
+            <div>
+              <p className="text-[10px] font-black uppercase text-gray-400">Total Payable</p>
+              <p className="mt-1 text-sm font-bold text-gray-900">{formatMoney(item.originalNetAmount, currency)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase text-gray-400">Already Paid</p>
+              <p className="mt-1 text-sm font-bold text-emerald-700">{formatMoney(item.currentPaidAmount, currency)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase text-gray-400">Current Due</p>
+              <p className="mt-1 text-sm font-black text-rose-700">{formatMoney(remainingDue, currency)}</p>
+            </div>
+          </div>
+
+          <div className="flex rounded-xl border border-gray-200 bg-gray-100 p-1">
+            <button
+              type="button"
+              onClick={() => handleTypeToggle("full")}
+              className={cn(
+                "flex-1 rounded-lg py-1.5 text-xs font-bold transition",
+                paymentType === "full" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-600 hover:text-gray-900"
+              )}
+            >
+              Full Payment ({formatMoney(remainingDue, currency)})
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTypeToggle("partial")}
+              className={cn(
+                "flex-1 rounded-lg py-1.5 text-xs font-bold transition",
+                paymentType === "partial" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-600 hover:text-gray-900"
+              )}
+            >
+              Partial Payment
+            </button>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Payment Amount">
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                max={remainingDue}
+                className={input}
+                value={amount}
+                onChange={(e) => handleAmountChange(e.target.value)}
+                placeholder="0.00"
+                required
+              />
+            </Field>
+
+            <Field label="Payment Date">
+              <input
+                type="date"
+                className={input}
+                value={paymentDate}
+                onChange={(e) => setPaymentDate(e.target.value)}
+                required
+              />
+            </Field>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Payment Method">
+              <select
+                className={input}
+                value={paymentAccountType}
+                onChange={(e) => setPaymentAccountType(e.target.value)}
+              >
+                <option value="cash">Cash Payment</option>
+                <option value="bank">Bank / Cheque Payment</option>
+              </select>
+            </Field>
+
+            {paymentAccountType === "cash" ? (
+              <Field label="Cash Account">
+                <select
+                  className={input}
+                  value={cashAccount}
+                  onChange={(e) => setCashAccount(e.target.value)}
+                  disabled={loadingOptions || !options.cashAccounts.length}
+                >
+                  {options.cashAccounts.length ? (
+                    options.cashAccounts.map((acc) => (
+                      <option key={acc._id} value={acc._id}>
+                        {acc.name} ({acc.account?.code || "Asset"})
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">No active cash account available</option>
+                  )}
+                </select>
+              </Field>
+            ) : (
+              <Field label="Bank Account">
+                <select
+                  className={input}
+                  value={bankAccount}
+                  onChange={(e) => setBankAccount(e.target.value)}
+                  disabled={loadingOptions || !options.bankAccounts.length}
+                >
+                  {options.bankAccounts.length ? (
+                    options.bankAccounts.map((acc) => (
+                      <option key={acc._id} value={acc._id}>
+                        {acc.accountName} - {acc.accountNumber} ({acc.bank?.shortName || "Bank"})
+                      </option>
+                    ))
+                  ) : (
+                    <option value="">No active bank account available</option>
+                  )}
+                </select>
+              </Field>
+            )}
+          </div>
+
+          {paymentAccountType === "bank" ? (
+            <Field label="Cheque / Transaction Reference">
+              <input
+                type="text"
+                className={input}
+                value={bankCheckNumber}
+                onChange={(e) => setBankCheckNumber(e.target.value)}
+                placeholder="Cheque No, TT Ref, or Bank Ref"
+                required
+              />
+            </Field>
+          ) : null}
+
+          <Field label="Payment Notes / Remarks (Optional)">
+            <textarea
+              className={cn(input, "h-20 resize-none py-2")}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g., Partial settlement against PO-2026-..."
+            />
+          </Field>
+
+          {confirmPrompt ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-bold">Are you sure you want to execute this payment?</p>
+              <ul className="mt-2 list-disc pl-5 space-y-1 text-xs font-semibold text-amber-800">
+                <li>Amount: <strong>{formatMoney(parsedAmount, currency)}</strong></li>
+                <li>Method: <strong>{paymentAccountType === "cash" ? "Cash" : "Bank"}</strong></li>
+                <li>An official Journal Entry will be posted to Accounts Payable and Treasury Ledgers.</li>
+                <li>This action immediately reduces remaining supplier due to <strong>{formatMoney(newRemaining, currency)}</strong>.</li>
+              </ul>
+            </div>
+          ) : null}
+        </form>
+      ) : null}
+    </ModalShell>
+  )
+}
+
+function DetailsModal({ item, open, onClose, onPayDue }) {
   const currency = item?.currency || item?.purchaseOrder?.currency || ""
   const overdue =
     Boolean(item) &&
@@ -495,7 +856,22 @@ function DetailsModal({ item, open, onClose }) {
       icon={<Icon icon={ViewIcon} className="h-5 w-5" />}
       maxWidthClass="max-w-5xl"
       footer={
-        <div className="flex justify-end">
+        <div className="flex justify-between items-center w-full">
+          <div>
+            {item && Number(item.remainingDue || 0) > 0 && item.status !== "paid" && item.status !== "cancelled" ? (
+              <button
+                type="button"
+                className={cn(button, primaryButton, "bg-emerald-600 hover:bg-emerald-700 text-white")}
+                onClick={() => {
+                  onClose()
+                  onPayDue?.(item)
+                }}
+              >
+                <Icon icon={DollarCircleIcon} className="h-4 w-4" />
+                Record Payment
+              </button>
+            ) : null}
+          </div>
           <button type="button" className={cn(button, ghostButton)} onClick={onClose}>
             Close
           </button>
@@ -564,6 +940,42 @@ function DetailsModal({ item, open, onClose }) {
               ))}
             </div>
           </SectionCard>
+
+          {Array.isArray(item.payments) && item.payments.length > 0 ? (
+            <SectionCard
+              title="Payment History"
+              description="Chronological record of settlements applied against this purchase due."
+            >
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-100 text-gray-400 font-bold uppercase">
+                      <th className="py-2.5 px-3">Date</th>
+                      <th className="py-2.5 px-3">Amount</th>
+                      <th className="py-2.5 px-3">Account / Method</th>
+                      <th className="py-2.5 px-3">Reference / Check</th>
+                      <th className="py-2.5 px-3">Recorded By</th>
+                      <th className="py-2.5 px-3">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 font-semibold text-gray-800">
+                    {item.payments.map((p, idx) => (
+                      <tr key={p._id || idx} className="hover:bg-gray-50/50">
+                        <td className="py-2.5 px-3">{formatDate(p.paymentDate || p.createdAt)}</td>
+                        <td className="py-2.5 px-3 font-bold text-emerald-700">{formatMoney(p.amount, currency)}</td>
+                        <td className="py-2.5 px-3">
+                          {p.cashAccount ? `Cash: ${p.cashAccount.name || "Cash"}` : p.bankAccount ? `Bank: ${p.bankAccount.accountName || "Bank"}` : "Manual"}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-gray-600">{p.bankCheckNumber || p.reference || "-"}</td>
+                        <td className="py-2.5 px-3">{p.paidBy?.name || "-"}</td>
+                        <td className="py-2.5 px-3 text-gray-500 max-w-[180px] truncate">{p.note || "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </SectionCard>
+          ) : null}
 
           {item.paymentDeadline ? (
             <div
@@ -637,14 +1049,29 @@ export default function PurchaseDues() {
   const [deadline, setDeadline] = useState("all")
   const [filterOpen, setFilterOpen] = useState(false)
   const [details, setDetails] = useState({ open: false, item: null })
+  const [paymentModal, setPaymentModal] = useState({ open: false, item: null })
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [limit] = useState(25)
 
-  const load = useCallback(async ({ showToast = false } = {}) => {
+  const load = useCallback(async ({ showToast = false, targetPage = 1 } = {}) => {
     setLoading(true)
     setError("")
 
     try {
-      const data = await api(ENDPOINT)
+      const params = new URLSearchParams()
+      params.set("page", String(targetPage))
+      params.set("limit", String(limit))
+      if (supplier && supplier !== "all") params.set("supplier", supplier)
+      if (deadline && deadline !== "all") params.set("deadline", deadline)
+      if (clean(query)) params.set("q", clean(query))
+
+      const data = await api(`${ENDPOINT}?${params.toString()}`)
       setRows(Array.isArray(data?.items) ? data.items : [])
+      setTotal(Number(data?.total) || 0)
+      setTotalPages(Number(data?.totalPages) || 1)
+      setPage(Number(data?.page) || targetPage)
       if (showToast) toast.success("Purchase dues refreshed")
     } catch (loadError) {
       const message = loadError?.message || "Failed to load purchase dues"
@@ -653,7 +1080,7 @@ export default function PurchaseDues() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [limit, supplier, deadline, query])
 
   useEffect(() => {
     load()
@@ -882,7 +1309,17 @@ export default function PurchaseDues() {
                         <StatusBadge value={item.status} />
                       </td>
                       <td className="sticky right-0 bg-white px-5 py-4 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-gray-50/70">
-                        <div className="flex justify-end">
+                        <div className="flex justify-end gap-2">
+                          {Number(item.remainingDue || 0) > 0 && item.status !== "paid" && item.status !== "cancelled" ? (
+                            <button
+                              type="button"
+                              className={cn(button, primaryButton, "h-10 px-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/10")}
+                              onClick={() => setPaymentModal({ open: true, item })}
+                            >
+                              <Icon icon={DollarCircleIcon} className="h-4 w-4" />
+                              Pay Due
+                            </button>
+                          ) : null}
                           <button
                             type="button"
                             className={cn(button, ghostButton, "h-10 px-3")}
@@ -981,10 +1418,20 @@ export default function PurchaseDues() {
                     </div>
                   </div>
 
-                  <div className="mt-4">
+                  <div className="mt-4 flex gap-2">
+                    {Number(item.remainingDue || 0) > 0 && item.status !== "paid" && item.status !== "cancelled" ? (
+                      <button
+                        type="button"
+                        className={cn(button, primaryButton, "h-10 flex-1 px-3 bg-emerald-600 hover:bg-emerald-700 text-white")}
+                        onClick={() => setPaymentModal({ open: true, item })}
+                      >
+                        <Icon icon={DollarCircleIcon} className="h-4 w-4" />
+                        Pay Due
+                      </button>
+                    ) : null}
                     <button
                       type="button"
-                      className={cn(button, ghostButton, "h-10 w-full px-3")}
+                      className={cn(button, ghostButton, "h-10 flex-1 px-3")}
                       onClick={() => setDetails({ open: true, item })}
                     >
                       <Icon icon={ViewIcon} className="h-4 w-4" />
@@ -1002,11 +1449,40 @@ export default function PurchaseDues() {
           )}
         </div>
 
-        <div className="flex flex-col gap-2 border-t border-gray-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs font-semibold text-gray-500">
-            {filtered.length} due record{filtered.length === 1 ? "" : "s"} shown
+        <div className="flex flex-col gap-3 border-t border-gray-100 bg-gray-50/50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between text-xs font-semibold text-gray-600">
+          <p>
+            Showing {rows.length} of {total} due record{total === 1 ? "" : "s"} {totalPages > 1 ? `· Page ${page} of ${totalPages}` : ""}
           </p>
-          {filtered.length ? (
+          {totalPages > 1 ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className={cn(button, ghostButton, "h-8 px-3 text-xs")}
+                disabled={page <= 1 || loading}
+                onClick={() => {
+                  const prev = Math.max(page - 1, 1)
+                  setPage(prev)
+                  load({ targetPage: prev })
+                }}
+              >
+                <Icon icon={ArrowLeft01Icon} className="h-3.5 w-3.5" />
+                Previous
+              </button>
+              <button
+                type="button"
+                className={cn(button, ghostButton, "h-8 px-3 text-xs")}
+                disabled={page >= totalPages || loading}
+                onClick={() => {
+                  const next = Math.min(page + 1, totalPages)
+                  setPage(next)
+                  load({ targetPage: next })
+                }}
+              >
+                Next
+                <Icon icon={ArrowRight01Icon} className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : filtered.length ? (
             <span className="text-xs font-semibold text-gray-400">
               Purchase Management · Purchase Dues
             </span>
@@ -1032,6 +1508,14 @@ export default function PurchaseDues() {
         item={details.item}
         open={details.open}
         onClose={() => setDetails({ open: false, item: null })}
+        onPayDue={(item) => setPaymentModal({ open: true, item })}
+      />
+
+      <PaymentModal
+        item={paymentModal.item}
+        open={paymentModal.open}
+        onClose={() => setPaymentModal({ open: false, item: null })}
+        onSuccess={() => load({ showToast: true })}
       />
     </div>
   )

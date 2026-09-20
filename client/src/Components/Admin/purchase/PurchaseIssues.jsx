@@ -7,6 +7,8 @@ import toast, { Toaster } from "react-hot-toast"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Alert02Icon,
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
   Cancel01Icon,
   FilterIcon,
   FolderLibraryIcon,
@@ -17,7 +19,7 @@ import {
 } from "@hugeicons/core-free-icons"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
-const ENDPOINT = "/purchase/workflow/issues"
+const ENDPOINT = "/purchase/workflow/issues?purchaseType=industrial_purchase"
 
 const shell = "min-h-screen bg-gradient-to-b from-gray-50 to-white"
 const card =
@@ -76,11 +78,12 @@ function relationLabel(item, fallback = "-") {
   return `${name}${code ? ` (${code})` : ""}`
 }
 
-async function api(path) {
+async function api(path, options = {}) {
   const token = localStorage.getItem("token")
   const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
     credentials: "include",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers },
   })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) {
@@ -567,9 +570,14 @@ function DetailsModal({ item, open, onClose }) {
                 ["Product", relationLabel(item.product, "-")],
                 ["Supplier", relationLabel(item.supplier, "-")],
                 ["Quantity", formatNumber(item.quantity)],
+                ["Unit Price", formatMoney(item.unitPrice, currency)],
                 ["Net Amount", formatMoney(item.netAmount, currency)],
                 ["Payment Plan", pretty(item.paymentPlan)],
                 ["Status", pretty(item.status)],
+                ["Purchase Request", item.request?.requestReference || item.sourceRequestReference || "-"],
+                ["Purchase Analysis", item.analysis?.analysisReference || "-"],
+                ["Purchase Order", item.purchaseOrder?.orderNo || "-"],
+                ["Notes", item.note || "-"],
               ].map(([label, value]) => (
                 <div key={label}>
                   <p className="text-xs font-bold text-gray-400">{label}</p>
@@ -657,14 +665,29 @@ export default function PurchaseIssues() {
   const [purchaseType, setPurchaseType] = useState("all")
   const [filterOpen, setFilterOpen] = useState(false)
   const [details, setDetails] = useState({ open: false, item: null })
+  const [saving, setSaving] = useState(false)
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [limit] = useState(25)
 
-  const load = useCallback(async ({ showToast = false } = {}) => {
+  const load = useCallback(async ({ showToast = false, targetPage = 1 } = {}) => {
     setLoading(true)
     setError("")
 
     try {
-      const data = await api(ENDPOINT)
+      const params = new URLSearchParams()
+      params.set("page", String(targetPage))
+      params.set("limit", String(limit))
+      params.set("purchaseType", "industrial_purchase")
+      if (supplier && supplier !== "all") params.set("supplier", supplier)
+      if (clean(query)) params.set("q", clean(query))
+
+      const data = await api(`/purchase/workflow/issues?${params.toString()}`)
       setRows(Array.isArray(data?.items) ? data.items : [])
+      setTotal(Number(data?.total) || 0)
+      setTotalPages(Number(data?.totalPages) || 1)
+      setPage(Number(data?.page) || targetPage)
       if (showToast) toast.success("Purchase issues refreshed")
     } catch (loadError) {
       const message = loadError?.message || "Failed to load purchase issues"
@@ -673,11 +696,38 @@ export default function PurchaseIssues() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [limit, supplier, query])
 
   useEffect(() => {
     load()
   }, [load])
+
+  const createIssue = async () => {
+    try {
+      setSaving(true)
+      const data = await api("/purchase/workflow/industrial-issues/options")
+      const choices = data?.analyses || []
+      if (!choices.length) throw new Error("No completed Purchase Analysis is ready to issue.")
+      const selected = window.prompt(`Select analysis number:\n${choices.map((item, index) => `${index + 1}. ${item.analysisReference} — ${item.product?.name || "Product"}`).join("\n")}`, "1")
+      if (!selected) return
+      const analysis = choices[Number(selected) - 1]
+      if (!analysis) throw new Error("Select a valid analysis number.")
+      const note = window.prompt("Industrial Purchase Issue note", "") || ""
+      await api("/purchase/workflow/industrial-issues", { method: "POST", body: JSON.stringify({ analysis: analysis._id, note }) })
+      toast.success("Industrial Purchase Issue draft created")
+      await load()
+    } catch (actionError) { toast.error(actionError.message) } finally { setSaving(false) }
+  }
+
+  const transition = async (item, action) => {
+    try {
+      if (action === "finalize" && !window.confirm("Finalize this Issue and create its draft Purchase Order?")) return
+      setSaving(true)
+      await api(`/purchase/workflow/industrial-issues/${item._id}/${action}`, { method: "POST", body: "{}" })
+      toast.success(action === "submit" ? "Issue submitted" : "Draft Purchase Order created")
+      await load()
+    } catch (actionError) { toast.error(actionError.message) } finally { setSaving(false) }
+  }
 
   const suppliers = useMemo(() => {
     const map = new Map()
@@ -783,6 +833,8 @@ export default function PurchaseIssues() {
             </div>
           </div>
 
+          <div className="flex gap-2">
+          <button type="button" className={cn(button, primaryButton)} onClick={createIssue} disabled={saving}>New Industrial Issue</button>
           <button
             type="button"
             className={cn(button, ghostButton)}
@@ -792,6 +844,7 @@ export default function PurchaseIssues() {
             {loading ? <Spinner /> : <Icon icon={RefreshIcon} className="h-4 w-4" />}
             Refresh
           </button>
+          </div>
         </div>
 
         <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -914,7 +967,9 @@ export default function PurchaseIssues() {
                         <StatusBadge value={item.status} />
                       </td>
                       <td className="sticky right-0 bg-white px-5 py-4 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-gray-50/70">
-                        <div className="flex justify-end">
+                        <div className="flex justify-end gap-2">
+                          {item.status === "draft" ? <button type="button" className={cn(button, primaryButton, "h-10 px-3")} onClick={() => transition(item, "submit")} disabled={saving}>Submit</button> : null}
+                          {item.status === "ready" ? <button type="button" className={cn(button, primaryButton, "h-10 px-3")} onClick={() => transition(item, "finalize")} disabled={saving}>Create PO</button> : null}
                           <button
                             type="button"
                             className={cn(button, ghostButton, "h-10 px-3")}
@@ -1020,11 +1075,40 @@ export default function PurchaseIssues() {
           )}
         </div>
 
-        <div className="flex flex-col gap-2 border-t border-gray-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs font-semibold text-gray-500">
-            {filtered.length} purchase record{filtered.length === 1 ? "" : "s"} shown
+        <div className="flex flex-col gap-3 border-t border-gray-100 bg-gray-50/50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between text-xs font-semibold text-gray-600">
+          <p>
+            Showing {rows.length} of {total} purchase record{total === 1 ? "" : "s"} {totalPages > 1 ? `· Page ${page} of ${totalPages}` : ""}
           </p>
-          {filtered.length ? (
+          {totalPages > 1 ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className={cn(button, ghostButton, "h-8 px-3 text-xs")}
+                disabled={page <= 1 || loading}
+                onClick={() => {
+                  const prev = Math.max(page - 1, 1)
+                  setPage(prev)
+                  load({ targetPage: prev })
+                }}
+              >
+                <Icon icon={ArrowLeft01Icon} className="h-3.5 w-3.5" />
+                Previous
+              </button>
+              <button
+                type="button"
+                className={cn(button, ghostButton, "h-8 px-3 text-xs")}
+                disabled={page >= totalPages || loading}
+                onClick={() => {
+                  const next = Math.min(page + 1, totalPages)
+                  setPage(next)
+                  load({ targetPage: next })
+                }}
+              >
+                Next
+                <Icon icon={ArrowRight01Icon} className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : filtered.length ? (
             <span className="text-xs font-semibold text-gray-400">
               Purchase Management · Purchase Issues
             </span>

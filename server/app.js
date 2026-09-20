@@ -183,6 +183,7 @@ import inventoryOperationsRoutes from "./routes/inventory/inventoryOperations.ro
 import supplierRoutes from "./routes/supplier/supplier.routes.js";
 
 import purchaseOrderRoutes from "./routes/purchase/purchaseOrder.routes.js";
+import commercialLCRoutes from "./routes/purchase/commercialLC.routes.js";
 import goodsReceiptRoutes from "./routes/purchase/goodsReceipt.routes.js";
 import purchaseReturnRoutes from "./routes/purchase/purchaseReturn.routes.js";
 import purchaseWorkflowRoutes from "./routes/purchase/purchaseWorkflow.routes.js";
@@ -265,6 +266,8 @@ mountModuleRoutes("/api/suppliers", "supplier", supplierRoutes);
 // =========================
 
 mountModuleRoutes("/api/purchase/purchase-orders", "purchase", purchaseOrderRoutes);
+
+mountModuleRoutes("/api/purchase/commercial-lcs", "purchase", commercialLCRoutes);
 
 mountModuleRoutes("/api/purchase/goods-receipts", "purchase", goodsReceiptRoutes);
 

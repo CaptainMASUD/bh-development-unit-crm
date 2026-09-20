@@ -18,7 +18,10 @@ export const protect = async (req, res, next) => {
 
     if (
       req.originalUrl === "/api/users/register" ||
-      req.originalUrl === "/api/users/login"
+      req.originalUrl === "/api/users/login" ||
+      req.originalUrl === "/api/users/register-superadmin" ||
+      req.originalUrl === "/api/users/superadmin/register" ||
+      req.originalUrl === "/api/auth/register-superadmin"
     ) {
       return next();
     }

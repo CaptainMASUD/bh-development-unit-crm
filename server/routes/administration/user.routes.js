@@ -1,7 +1,7 @@
 // routes/user.route.js
 
 import express from "express";
-import { login, register } from "../../controllers/auth.controller.js";
+import { login, register, registerSuperAdmin } from "../../controllers/auth.controller.js";
 import upload from "../../middleware/multer.js";
 
 import {
@@ -48,6 +48,8 @@ const router = express.Router();
 /* AUTH */
 router.post("/login", login);
 router.post("/register", register);
+router.post("/register-superadmin", registerSuperAdmin);
+router.post("/superadmin/register", registerSuperAdmin);
 
 /* ME */
 router.get("/me", protect, getMe);

@@ -132,6 +132,18 @@ const goodsReceiptSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    commercialLC: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "CommercialLC",
+      default: null,
+      index: true,
+    },
+    importShipment: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ImportShipment",
+      default: null,
+      index: true,
+    },
     supplier: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Supplier",
@@ -262,6 +274,7 @@ const goodsReceiptSchema = new mongoose.Schema(
 );
 
 goodsReceiptSchema.index({ purchaseOrder: 1, status: 1, receiptDate: -1, _id: -1 });
+goodsReceiptSchema.index({ commercialLC: 1, importShipment: 1, status: 1, receiptDate: -1 });
 goodsReceiptSchema.index({ supplier: 1, status: 1, receiptDate: -1, _id: -1 });
 goodsReceiptSchema.index({ warehouse: 1, status: 1, receiptDate: -1, _id: -1 });
 goodsReceiptSchema.index({ status: 1, receiptDate: -1, _id: -1 });

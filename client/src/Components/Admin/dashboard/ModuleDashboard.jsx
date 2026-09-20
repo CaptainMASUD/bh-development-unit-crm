@@ -85,8 +85,8 @@ const MODULE_PRESENTATION = {
   purchase: {
     eyebrow: "Procurement operations",
     title: "Purchase Dashboard",
-    description: "Purchase orders, goods receipts, supplier returns, approvals, and procurement value overview.",
-    actions: ["Purchase Orders", "Goods Receipts", "Purchase Returns"],
+    description: "Purchase orders, import Commercial LCs, goods receipts, supplier returns, approvals, and procurement value overview.",
+    actions: ["Purchase Orders", "Import & Commercial LC", "Goods Receipts", "Purchase Returns"],
   },
   sales: {
     eyebrow: "Revenue operations",
@@ -209,6 +209,7 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
   const canViewPurchaseOrders = hasPermission(currentUser, "purchase-order:view")
   const canViewGoodsReceipts = hasPermission(currentUser, "goods-receipt:view")
   const canViewPurchaseReturns = hasPermission(currentUser, "purchase-return:view")
+  const canViewCommercialLC = hasPermission(currentUser, "commercial-lc:view")
   const canViewSalesReport = hasPermission(currentUser, "sales-report:view")
   const canViewSalesInvoices = hasPermission(currentUser, "sales-invoice:view")
 
@@ -281,6 +282,7 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
           canViewPurchaseOrders ? ["purchaseOrders", request("/purchase/purchase-orders?limit=6", signal)] : null,
           canViewGoodsReceipts ? ["goodsReceiptSummary", request("/purchase/goods-receipts/summary", signal)] : null,
           canViewPurchaseReturns ? ["purchaseReturnSummary", request("/purchase/purchase-returns/summary", signal)] : null,
+          canViewCommercialLC ? ["commercialLCSummary", request("/purchase/commercial-lcs/summary", signal)] : null,
         ].filter(Boolean)
         const results = await Promise.allSettled(sources.map(([, promise]) => promise))
         const nextData = {}
@@ -318,7 +320,7 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
     } finally {
       if (!signal?.aborted) setLoading(false)
     }
-  }, [canViewExpenses, canViewFinance, canViewGoodsReceipts, canViewInventoryReport, canViewPayroll, canViewPurchaseOrders, canViewPurchaseReturns, canViewSalesInvoices, canViewSalesReport, canViewSupplier, currentUser, moduleId])
+  }, [canViewCommercialLC, canViewExpenses, canViewFinance, canViewGoodsReceipts, canViewInventoryReport, canViewPayroll, canViewPurchaseOrders, canViewPurchaseReturns, canViewSalesInvoices, canViewSalesReport, canViewSupplier, currentUser, moduleId])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -423,7 +425,8 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
       const orders = data.purchaseOrderSummary?.summary || {}
       const receipts = data.goodsReceiptSummary?.summary || {}
       const returns = data.purchaseReturnSummary?.summary || {}
-      const hasPurchaseAccess = canViewPurchaseOrders || canViewGoodsReceipts || canViewPurchaseReturns
+      const lcs = data.commercialLCSummary?.summary || {}
+      const hasPurchaseAccess = canViewPurchaseOrders || canViewGoodsReceipts || canViewPurchaseReturns || canViewCommercialLC
       if (!hasPurchaseAccess) {
         return [
           { label: "Authorized features", value: number(Math.max(0, Object.keys(moduleSections).length - 1)), detail: "Available procurement workspaces", icon: <FiShield />, tone: "indigo" },
@@ -436,7 +439,9 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
         { label: "Purchase orders", value: number(orders.orderCount), detail: `${number(orders.submittedCount)} awaiting approval`, icon: <FiBriefcase />, tone: "indigo" },
         { label: "Ordered value", value: money(orders.totalValue), detail: `${number(orders.totalReceivedQuantity)} of ${number(orders.totalOrderedQuantity)} units received`, icon: <FiDollarSign />, tone: "sky" },
         { label: "Goods received", value: number(receipts.receiptCount), detail: `${money(receipts.totalAcceptedValue)} accepted stock value`, icon: <FiBox />, tone: "green" },
-        { label: "Purchase returns", value: number(returns.returnCount), detail: `${money(returns.totalReturnValue)} returned value`, icon: <FiArrowUpRight />, tone: numeric(returns.returnCount) ? "amber" : "green" },
+        canViewCommercialLC
+          ? { label: "Commercial LCs", value: number(lcs.count), detail: `${number(numeric(lcs.opened) + numeric(lcs.inTransit))} active · ${money(lcs.amount)} exposure`, icon: <FiCreditCard />, tone: numeric(lcs.opened) + numeric(lcs.inTransit) ? "amber" : "green" }
+          : { label: "Purchase returns", value: number(returns.returnCount), detail: `${money(returns.totalReturnValue)} returned value`, icon: <FiArrowUpRight />, tone: numeric(returns.returnCount) ? "amber" : "green" },
       ]
     }
     if (moduleId === "sales") {
@@ -460,7 +465,7 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
       { label: "Administrators", value: number(numeric(data.dashboard?.adminsCount) + numeric(data.dashboard?.superAdminsCount)), detail: "Active privileged accounts", icon: <FiShield />, tone: "gray" },
       { label: "Account status", value: currentUser?.isActive ? "Active" : "Restricted", detail: currentUser?.role || "User", icon: <FiActivity />, tone: currentUser?.isActive ? "green" : "rose" },
     ]
-  }, [canViewExpenses, canViewFinance, canViewGoodsReceipts, canViewInventoryReport, canViewPayroll, canViewPurchaseOrders, canViewPurchaseReturns, canViewSalesReport, canViewSupplier, currentUser, data, moduleId, moduleSections])
+  }, [canViewCommercialLC, canViewExpenses, canViewFinance, canViewGoodsReceipts, canViewInventoryReport, canViewPayroll, canViewPurchaseOrders, canViewPurchaseReturns, canViewSalesReport, canViewSupplier, currentUser, data, moduleId, moduleSections])
 
   const chartModel = useMemo(() => {
     if (moduleId === "administration" && currentUser?.role === "superadmin") {
@@ -616,6 +621,7 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
       const orders = data.purchaseOrderSummary?.summary || {}
       const receipts = data.goodsReceiptSummary?.summary || {}
       const returns = data.purchaseReturnSummary?.summary || {}
+      const lcs = data.commercialLCSummary?.summary || {}
       return {
         pieTitle: "Purchase Order Status",
         pieSubtitle: "Draft, submitted, approved, and received orders",
@@ -638,6 +644,7 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
           { name: "Orders", value: numeric(orders.submittedCount) },
           { name: "Receipts", value: numeric(receipts.submittedCount) + numeric(receipts.approvedCount) },
           { name: "Returns", value: numeric(returns.submittedCount) + numeric(returns.approvedCount) },
+          ...(canViewCommercialLC ? [{ name: "Import LCs", value: numeric(lcs.opened) + numeric(lcs.inTransit) }] : []),
         ],
       }
     }
@@ -671,7 +678,7 @@ export default function ModuleDashboard({ moduleId, moduleSections = {}, current
       lineSubtitle: "Current access and account indicators",
       line: [{ name: "Access", value: featureCount }, { name: "Employees", value: employees }, { name: "Admins", value: admins + superAdmins }],
     }
-  }, [currentUser?.role, data, moduleId, moduleSections])
+  }, [canViewCommercialLC, currentUser?.role, data, moduleId, moduleSections])
 
   const actions = presentation.actions.filter((name) => moduleSections[name])
   const recentItems = useMemo(() => {

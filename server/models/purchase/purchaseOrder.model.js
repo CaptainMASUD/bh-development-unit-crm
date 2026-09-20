@@ -19,6 +19,8 @@ export const PURCHASE_ORDER_OPEN_STATUSES = [
 
 export const DISCOUNT_TYPES = ["none", "percent", "fixed"];
 export const TAX_TYPES = ["none", "exclusive", "inclusive"];
+export const TRADE_TYPES = ["local", "import"];
+export const IMPORT_STATUSES = ["not_applicable", "lc_pending", "lc_open", "shipped", "customs_clearance", "goods_received", "settled", "closed"];
 
 const roundMoney = (value) =>
   Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
@@ -203,6 +205,18 @@ const purchaseOrderSchema = new mongoose.Schema(
       default: "direct_order",
       index: true,
     },
+    tradeType: {
+      type: String,
+      enum: TRADE_TYPES,
+      default: "local",
+      index: true,
+    },
+    importStatus: {
+      type: String,
+      enum: IMPORT_STATUSES,
+      default: "not_applicable",
+      index: true,
+    },
     purchaseReference: { type: String, trim: true, uppercase: true, maxlength: 80, default: "", index: true },
     requestReference: { type: String, trim: true, uppercase: true, maxlength: 80, default: "", index: true },
     purchaseIssue: { type: mongoose.Schema.Types.ObjectId, ref: "PurchaseIssue", default: null, index: true },
@@ -371,6 +385,7 @@ const purchaseOrderSchema = new mongoose.Schema(
 );
 
 purchaseOrderSchema.index({ supplier: 1, status: 1, orderDate: -1, _id: -1 });
+purchaseOrderSchema.index({ tradeType: 1, importStatus: 1, orderDate: -1, _id: -1 });
 purchaseOrderSchema.index({ status: 1, orderDate: -1, _id: -1 });
 purchaseOrderSchema.index({ expectedDeliveryDate: 1, status: 1 });
 purchaseOrderSchema.index({ "lines.product": 1, status: 1, orderDate: -1 });
@@ -439,6 +454,10 @@ purchaseOrderSchema.pre("validate", function (next) {
   this.supplierQuotationRef = clean(this.supplierQuotationRef).toUpperCase();
   this.supplierReference = clean(this.supplierReference);
   this.currency = clean(this.currency || "BDT").toUpperCase();
+  this.tradeType = clean(this.tradeType || "local").toLowerCase();
+  this.importStatus = clean(this.importStatus || (this.tradeType === "import" ? "lc_pending" : "not_applicable")).toLowerCase();
+  if (this.tradeType === "local") this.importStatus = "not_applicable";
+  if (this.tradeType === "import" && this.importStatus === "not_applicable") this.importStatus = "lc_pending";
   this.paymentTermType = clean(this.paymentTermType || "immediate").toLowerCase();
   this.incoterm = clean(this.incoterm).toUpperCase();
   this.status = clean(this.status || "draft").toLowerCase();

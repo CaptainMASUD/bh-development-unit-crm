@@ -6,6 +6,7 @@ import { motion } from "framer-motion"
 import toast, { Toaster } from "react-hot-toast"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
+  Add01Icon,
   Alert02Icon,
   Cancel01Icon,
   FilterIcon,
@@ -47,6 +48,60 @@ function pretty(value) {
 
 function normalizeId(value) {
   return value?._id || value || ""
+}
+
+const money = (value) =>
+  Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function calculateQuickPurchaseTotals(form = {}) {
+  const quantity = Number(form.quantity || 0)
+  const unitPrice = Number(form.unitPrice || 0)
+  const discountPercent = Number(form.discountPercent || 0)
+  const grossAmount = money(quantity * unitPrice)
+  const discountAmount = money(grossAmount * discountPercent / 100)
+  const netAmount = money(Math.max(grossAmount - discountAmount, 0))
+  let paidAmount = money(form.paidAmount)
+  if (form.paymentPlan === "full_payment") paidAmount = netAmount
+  if (["full_due", "after_quality_inspection"].includes(form.paymentPlan)) paidAmount = 0
+  return {
+    grossAmount,
+    discountAmount,
+    netAmount,
+    paidAmount,
+    dueAmount: money(Math.max(netAmount - paidAmount, 0)),
+  }
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function buildQuickPurchasePayload(form = {}) {
+  const totals = calculateQuickPurchaseTotals(form)
+  return {
+    supplier: clean(form.supplier),
+    product: clean(form.product),
+    quantity: Number(form.quantity || 0),
+    unitPrice: Number(form.unitPrice || 0),
+    discountPercent: Number(form.discountPercent || 0),
+    paymentPlan: clean(form.paymentPlan),
+    paidAmount: totals.paidAmount,
+    paymentAccountType: totals.paidAmount > 0 ? clean(form.paymentAccountType) : "",
+    cashAccount: totals.paidAmount > 0 && form.paymentAccountType === "cash" ? clean(form.cashAccount) || null : null,
+    bankAccount: totals.paidAmount > 0 && form.paymentAccountType === "bank" ? clean(form.bankAccount) || null : null,
+    bankCheckNumber: totals.paidAmount > 0 && form.paymentAccountType === "bank" ? clean(form.bankCheckNumber) : "",
+    paymentDeadline: totals.dueAmount > 0 && form.paymentDeadline ? form.paymentDeadline : null,
+    idempotencyKey: clean(form.idempotencyKey),
+  }
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+export function normalizeQuickPurchaseRow(item = {}) {
+  return {
+    ...item,
+    purchaseReference: item.purchaseReference || item.issueReference || "",
+    netAmount: item.netAmount ?? item.totalAmount ?? 0,
+    paidAmount: item.paidAmount ?? item.currentPaidAmount ?? 0,
+    dueAmount: item.dueAmount ?? item.remainingDue ?? 0,
+  }
 }
 
 function formatNumber(value, maximumFractionDigits = 2) {
@@ -93,16 +148,17 @@ function relationLabel(item, fallback = "-") {
   return `${name}${code ? ` (${code})` : ""}`
 }
 
-async function api(path) {
+async function api(path, options = {}) {
   const token = localStorage.getItem("token")
 
   const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
     credentials: "include",
-    headers: token
-      ? {
-          Authorization: `Bearer ${token}`,
-        }
-      : {},
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    },
   })
 
   const data = await response.json().catch(() => ({}))
@@ -677,20 +733,207 @@ function FilterModal({
   )
 }
 
+const newQuickPurchaseForm = () => ({
+  supplier: "",
+  product: "",
+  quantity: "1",
+  unitPrice: "",
+  discountPercent: "0",
+  paymentPlan: "full_due",
+  paidAmount: "0",
+  paymentAccountType: "cash",
+  cashAccount: "",
+  bankAccount: "",
+  bankCheckNumber: "",
+  paymentDeadline: "",
+  idempotencyKey: globalThis.crypto?.randomUUID?.() || `quick-purchase-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+})
+
+// The surrounding legacy page predates prop-type declarations; keep this scoped addition lint-neutral.
+// eslint-disable-next-line react/prop-types
+function QuickPurchaseFormModal({ open, onClose, onCreated }) {
+  const [form, setForm] = useState(newQuickPurchaseForm)
+  const [options, setOptions] = useState({ suppliers: [], products: [], cashAccounts: [], bankAccounts: [] })
+  const [loadingOptions, setLoadingOptions] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const totals = useMemo(() => calculateQuickPurchaseTotals(form), [form])
+
+  useEffect(() => {
+    if (!open) return
+    setForm(newQuickPurchaseForm())
+    setLoadingOptions(true)
+    api("/purchase/workflow/quick-purchase/options")
+      .then((data) => setOptions({
+        suppliers: Array.isArray(data?.suppliers) ? data.suppliers : [],
+        products: Array.isArray(data?.products) ? data.products : [],
+        cashAccounts: Array.isArray(data?.cashAccounts) ? data.cashAccounts : [],
+        bankAccounts: Array.isArray(data?.bankAccounts) ? data.bankAccounts : [],
+      }))
+      .catch((optionError) => toast.error(optionError?.message || "Failed to load Quick Purchase options"))
+      .finally(() => setLoadingOptions(false))
+  }, [open])
+
+  const update = (field, value) => setForm((current) => ({ ...current, [field]: value }))
+  const close = () => { if (!submitting) onClose() }
+
+  const submit = async (event) => {
+    event.preventDefault()
+    if (submitting) return
+    const payload = buildQuickPurchasePayload(form)
+    if (!payload.supplier || !payload.product) return toast.error("Select a supplier and product")
+    if (!(payload.quantity > 0) || payload.unitPrice < 0) return toast.error("Enter a valid quantity and unit price")
+    if (payload.discountPercent < 0 || payload.discountPercent > 100) return toast.error("Discount must be between 0 and 100")
+    if (payload.paymentPlan === "partial_payment" && !(payload.paidAmount > 0 && payload.paidAmount < totals.netAmount)) return toast.error("Partial payment must be greater than zero and less than the net amount")
+    if (payload.paidAmount > 0 && payload.paymentAccountType === "cash" && !payload.cashAccount) return toast.error("Select a cash account")
+    if (payload.paidAmount > 0 && payload.paymentAccountType === "bank" && (!payload.bankAccount || !payload.bankCheckNumber)) return toast.error("Select a bank account and enter the check/reference number")
+    setSubmitting(true)
+    try {
+      const data = await api("/purchase/workflow/quick-purchases", {
+        method: "POST",
+        headers: { "Idempotency-Key": payload.idempotencyKey },
+        body: JSON.stringify(payload),
+      })
+      toast.success(data?.duplicate ? "Quick Purchase already completed" : "Quick Purchase completed")
+      onClose()
+      await onCreated()
+    } catch (submitError) {
+      toast.error(submitError?.message || "Failed to create Quick Purchase")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <ModalShell
+      open={open}
+      onClose={close}
+      title="New Quick Purchase"
+      subtitle="Create, pay and send a purchase into the existing inventory flow"
+      icon={<Icon icon={Add01Icon} className="h-5 w-5" />}
+      maxWidthClass="max-w-5xl"
+      footer={
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <button type="button" className={cn(button, ghostButton)} onClick={close} disabled={submitting}>Cancel</button>
+          <button type="submit" form="quick-purchase-form" className={cn(button, primaryButton)} disabled={submitting || loadingOptions}>
+            {submitting ? <Spinner /> : <Icon icon={Tick02Icon} className="h-4 w-4" />}
+            {submitting ? "Completing..." : "Complete Quick Purchase"}
+          </button>
+        </div>
+      }
+    >
+      <form id="quick-purchase-form" onSubmit={submit} className="space-y-5">
+        <SectionCard title="Purchase information" description="Supplier, product, quantity and agreed pricing.">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Supplier">
+              <select className={input} value={form.supplier} onChange={(event) => update("supplier", event.target.value)} disabled={loadingOptions || submitting} required>
+                <option value="">{loadingOptions ? "Loading suppliers..." : "Select supplier"}</option>
+                {options.suppliers.map((supplier) => <option key={supplier._id} value={supplier._id}>{relationLabel(supplier, "Supplier")}</option>)}
+              </select>
+            </Field>
+            <Field label="Product / Item">
+              <select
+                className={input}
+                value={form.product}
+                onChange={(event) => {
+                  const product = options.products.find((item) => item._id === event.target.value)
+                  setForm((current) => ({ ...current, product: event.target.value, unitPrice: product?.purchasePrice != null ? String(product.purchasePrice) : current.unitPrice }))
+                }}
+                disabled={loadingOptions || submitting}
+                required
+              >
+                <option value="">{loadingOptions ? "Loading products..." : "Select product"}</option>
+                {options.products.map((product) => <option key={product._id} value={product._id}>{relationLabel(product, "Product")}</option>)}
+              </select>
+            </Field>
+            <Field label="Quantity">
+              <input className={input} type="number" min="0.000001" step="any" value={form.quantity} onChange={(event) => update("quantity", event.target.value)} disabled={submitting} required />
+            </Field>
+            <Field label="Unit Price (BDT)">
+              <input className={input} type="number" min="0" step="0.01" value={form.unitPrice} onChange={(event) => update("unitPrice", event.target.value)} disabled={submitting} required />
+            </Field>
+            <Field label="Discount (%)" hint="Applied to the quantity × unit price subtotal.">
+              <input className={input} type="number" min="0" max="100" step="0.01" value={form.discountPercent} onChange={(event) => update("discountPercent", event.target.value)} disabled={submitting} />
+            </Field>
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Payment" description="The paid and due amounts are calculated automatically.">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Payment Plan">
+              <select className={input} value={form.paymentPlan} onChange={(event) => update("paymentPlan", event.target.value)} disabled={submitting}>
+                <option value="full_payment">Full Payment</option>
+                <option value="full_due">Full Due</option>
+                <option value="partial_payment">Partial Payment</option>
+              </select>
+            </Field>
+            <Field label="Paid Amount (BDT)">
+              <input className={input} type="number" min="0" max={totals.netAmount} step="0.01" value={form.paymentPlan === "full_payment" ? totals.netAmount : ["full_due", "after_quality_inspection"].includes(form.paymentPlan) ? 0 : form.paidAmount} onChange={(event) => update("paidAmount", event.target.value)} disabled={submitting || form.paymentPlan !== "partial_payment"} />
+            </Field>
+            {totals.paidAmount > 0 ? (
+              <>
+                <Field label="Payment Account Type">
+                  <select className={input} value={form.paymentAccountType} onChange={(event) => update("paymentAccountType", event.target.value)} disabled={submitting}>
+                    <option value="cash">Cash</option>
+                    <option value="bank">Bank</option>
+                  </select>
+                </Field>
+                {form.paymentAccountType === "cash" ? (
+                  <Field label="Cash Account">
+                    <select className={input} value={form.cashAccount} onChange={(event) => update("cashAccount", event.target.value)} disabled={submitting} required>
+                      <option value="">Select cash account</option>
+                      {options.cashAccounts.map((account) => <option key={account._id} value={account._id}>{account.name}{account.account?.code ? ` · ${account.account.code}` : ""}</option>)}
+                    </select>
+                  </Field>
+                ) : (
+                  <>
+                    <Field label="Bank Account">
+                      <select className={input} value={form.bankAccount} onChange={(event) => update("bankAccount", event.target.value)} disabled={submitting} required>
+                        <option value="">Select bank account</option>
+                        {options.bankAccounts.map((account) => <option key={account._id} value={account._id}>{account.accountName}{account.accountNumber ? ` · ${account.accountNumber}` : ""}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Check / Reference Number">
+                      <input className={input} value={form.bankCheckNumber} onChange={(event) => update("bankCheckNumber", event.target.value)} disabled={submitting} required />
+                    </Field>
+                  </>
+                )}
+              </>
+            ) : null}
+            {totals.dueAmount > 0 ? (
+              <Field label="Payment Deadline" hint="Optional unless your company process requires a deadline.">
+                <input className={input} type="date" value={form.paymentDeadline} onChange={(event) => update("paymentDeadline", event.target.value)} disabled={submitting} />
+              </Field>
+            ) : null}
+          </div>
+        </SectionCard>
+
+        <div className="grid gap-3 sm:grid-cols-4">
+          {[["Gross", totals.grossAmount, "text-gray-950"], ["Discount", totals.discountAmount, "text-amber-700"], ["Net Total", totals.netAmount, "text-indigo-700"], ["Due", totals.dueAmount, "text-rose-700"]].map(([label, value, tone]) => (
+            <div key={label} className="rounded-2xl border border-gray-100 bg-gray-50 p-4">
+              <p className="text-xs font-black uppercase tracking-wide text-gray-400">{label}</p>
+              <p className={cn("mt-2 text-lg font-black", tone)}>BDT {formatNumber(value)}</p>
+            </div>
+          ))}
+        </div>
+      </form>
+    </ModalShell>
+  )
+}
+
 function DetailsModal({
   item,
   open,
   onClose,
 }) {
   const currency =
-    item?.currency || ""
+    item?.currency || "BDT"
 
   return (
     <ModalShell
       open={open}
       onClose={onClose}
       title={
-        item?.issueReference ||
+        item?.purchaseReference ||
         "Quick-purchase details"
       }
       subtitle={
@@ -775,7 +1018,7 @@ function DetailsModal({
 
               <p className="mt-2 text-lg font-black text-indigo-700">
                 {formatMoney(
-                  item.totalAmount,
+                  item.netAmount,
                   currency
                 )}
               </p>
@@ -790,7 +1033,7 @@ function DetailsModal({
               {[
                 [
                   "Reference",
-                  item.issueReference ||
+                  item.purchaseReference ||
                     "-",
                 ],
                 [
@@ -823,7 +1066,7 @@ function DetailsModal({
                 [
                   "Total Amount",
                   formatMoney(
-                    item.totalAmount,
+                    item.netAmount,
                     currency
                   ),
                 ],
@@ -855,8 +1098,8 @@ function DetailsModal({
 
           {item.paymentPlan ||
           item.paymentDeadline ||
-          item.currentPaidAmount != null ||
-          item.remainingDue != null ? (
+          item.paidAmount != null ||
+          item.dueAmount != null ? (
             <SectionCard
               title="Payment information"
               description="Available payment details associated with this quick purchase."
@@ -881,7 +1124,7 @@ function DetailsModal({
 
                   <p className="mt-1 text-sm font-bold text-emerald-700">
                     {formatMoney(
-                      item.currentPaidAmount,
+                      item.paidAmount,
                       currency
                     )}
                   </p>
@@ -894,7 +1137,7 @@ function DetailsModal({
 
                   <p className="mt-1 text-sm font-bold text-rose-700">
                     {formatMoney(
-                      item.remainingDue,
+                      item.dueAmount,
                       currency
                     )}
                   </p>
@@ -1028,6 +1271,9 @@ export default function QuickPurchase() {
     setFilterOpen,
   ] = useState(false)
 
+  const [createOpen, setCreateOpen] =
+    useState(false)
+
   const [details, setDetails] =
     useState({
       open: false,
@@ -1047,7 +1293,7 @@ export default function QuickPurchase() {
 
         setRows(
           Array.isArray(data?.items)
-            ? data.items
+            ? data.items.map(normalizeQuickPurchaseRow)
             : []
         )
 
@@ -1194,7 +1440,7 @@ export default function QuickPurchase() {
           }
 
           const haystack = [
-            item.issueReference,
+            item.purchaseReference,
             item.supplier
               ?.businessName,
             item.supplier?.name,
@@ -1202,7 +1448,7 @@ export default function QuickPurchase() {
             item.product?.sku,
             item.quantity,
             item.unitPrice,
-            item.totalAmount,
+            item.netAmount,
             item.status,
             item.paymentPlan,
           ]
@@ -1273,30 +1519,43 @@ export default function QuickPurchase() {
             </div>
           </div>
 
-          <button
-            type="button"
-            className={cn(
-              button,
-              ghostButton
-            )}
-            onClick={() =>
-              load({
-                showToast: true,
-              })
-            }
-            disabled={loading}
-          >
-            {loading ? (
-              <Spinner />
-            ) : (
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              className={cn(button, primaryButton)}
+              onClick={() => setCreateOpen(true)}
+            >
               <Icon
-                icon={RefreshIcon}
+                icon={Add01Icon}
                 className="h-4 w-4"
               />
-            )}
+              New Quick Purchase
+            </button>
+            <button
+              type="button"
+              className={cn(
+                button,
+                ghostButton
+              )}
+              onClick={() =>
+                load({
+                  showToast: true,
+                })
+              }
+              disabled={loading}
+            >
+              {loading ? (
+                <Spinner />
+              ) : (
+                <Icon
+                  icon={RefreshIcon}
+                  className="h-4 w-4"
+                />
+              )}
 
-            Refresh
-          </button>
+              Refresh
+            </button>
+          </div>
         </div>
 
         <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -1434,13 +1693,13 @@ export default function QuickPurchase() {
                   ) => {
                     const currency =
                       item.currency ||
-                      ""
+                      "BDT"
 
                     return (
                       <motion.tr
                         key={
                           item._id ||
-                          `${item.issueReference}-${index}`
+                          `${item.purchaseReference}-${index}`
                         }
                         initial={{
                           opacity: 0,
@@ -1462,7 +1721,7 @@ export default function QuickPurchase() {
                       >
                         <td className="px-5 py-4">
                           <p className="text-sm font-semibold text-gray-900">
-                            {item.issueReference ||
+                            {item.purchaseReference ||
                               "-"}
                           </p>
 
@@ -1513,7 +1772,7 @@ export default function QuickPurchase() {
 
                         <td className="px-5 py-4 text-sm font-black text-indigo-700">
                           {formatMoney(
-                            item.totalAmount,
+                            item.netAmount,
                             currency
                           )}
                         </td>
@@ -1595,13 +1854,13 @@ export default function QuickPurchase() {
               ) => {
                 const currency =
                   item.currency ||
-                  ""
+                  "BDT"
 
                 return (
                   <motion.article
                     key={
                       item._id ||
-                      `${item.issueReference}-${index}`
+                      `${item.purchaseReference}-${index}`
                     }
                     initial={{
                       opacity: 0,
@@ -1630,7 +1889,7 @@ export default function QuickPurchase() {
                         </p>
 
                         <p className="mt-1 truncate text-xs font-medium text-gray-500">
-                          {item.issueReference ||
+                          {item.purchaseReference ||
                             "-"}
                         </p>
                       </div>
@@ -1688,7 +1947,7 @@ export default function QuickPurchase() {
 
                         <p className="mt-1 text-sm font-black text-indigo-700">
                           {formatMoney(
-                            item.totalAmount,
+                            item.netAmount,
                             currency
                           )}
                         </p>
@@ -1784,6 +2043,12 @@ export default function QuickPurchase() {
             item: null,
           })
         }
+      />
+
+      <QuickPurchaseFormModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={() => load()}
       />
     </div>
   )

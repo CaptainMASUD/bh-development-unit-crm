@@ -165,6 +165,9 @@ function emptyForm() {
   return {
     receiptDate: todayInput(),
     purchaseOrder: "",
+    tradeType: "local",
+    commercialLC: "",
+    importShipment: "",
     supplier: "",
     warehouse: "",
     supplierDeliveryNote: "",
@@ -907,6 +910,8 @@ export default function GoodsReceipts({ initialPurchaseOrderId = "", onCreatePur
   const [meta, setMeta] = useState(FALLBACK_META)
   const [receipts, setReceipts] = useState([])
   const [purchaseOrders, setPurchaseOrders] = useState([])
+  const [commercialLCOptions, setCommercialLCOptions] = useState([])
+  const [shipmentOptions, setShipmentOptions] = useState([])
   const [suppliers, setSuppliers] = useState([])
   const [products, setProducts] = useState([])
   const [warehouses, setWarehouses] = useState([])
@@ -1096,8 +1101,53 @@ export default function GoodsReceipts({ initialPurchaseOrderId = "", onCreatePur
     setHasMore(false)
   }
 
+  const loadImportOptions = async (order, preferredLC = "", preferredShipment = "") => {
+    if (!order || order.tradeType !== "import") {
+      setCommercialLCOptions([])
+      setShipmentOptions([])
+      return { tradeType: order?.tradeType || "local", commercialLC: "", importShipment: "" }
+    }
+
+    const lcData = await api(`/purchase/commercial-lcs?purchaseOrder=${encodeURIComponent(order._id)}&limit=100`)
+    const allLCs = lcData.commercialLCs || []
+    const lcs = allLCs.filter((lc) => !["draft", "application_submitted", "cancelled", "closed"].includes(lc.status))
+    setCommercialLCOptions(lcs)
+    const lcId = lcs.some((lc) => String(lc._id) === String(preferredLC)) ? preferredLC : (lcs[0]?._id || "")
+
+    let shipments = []
+    let shipmentId = ""
+    if (lcId) {
+      const shipmentData = await api(`/purchase/commercial-lcs/${lcId}/shipments`)
+      shipments = (shipmentData.shipments || []).filter((shipment) => !["planned", "booked", "cancelled", "closed"].includes(shipment.status))
+      shipmentId = shipments.some((shipment) => String(shipment._id) === String(preferredShipment)) ? preferredShipment : (shipments[0]?._id || "")
+    }
+    setShipmentOptions(shipments)
+    return { tradeType: "import", commercialLC: lcId, importShipment: shipmentId }
+  }
+
+  const changeCommercialLC = async (lcId) => {
+    setForm((previous) => ({ ...previous, commercialLC: lcId, importShipment: "" }))
+    if (!lcId) {
+      setShipmentOptions([])
+      return
+    }
+    try {
+      const shipmentData = await api(`/purchase/commercial-lcs/${lcId}/shipments`)
+      const shipments = (shipmentData.shipments || []).filter((shipment) => !["planned", "booked", "cancelled", "closed"].includes(shipment.status))
+      setShipmentOptions(shipments)
+      setForm((previous) => ({ ...previous, commercialLC: lcId, importShipment: shipments[0]?._id || "" }))
+    } catch (error) {
+      setShipmentOptions([])
+      setFormError(error.message || "Failed to load import shipments")
+    }
+  }
+
   const hydrateFromOrder = async (orderId, current = emptyForm()) => {
-    if (!orderId) return { ...current, purchaseOrder: "", supplier: "", warehouse: "", lines: [] }
+    if (!orderId) {
+      setCommercialLCOptions([])
+      setShipmentOptions([])
+      return { ...current, purchaseOrder: "", tradeType: "local", commercialLC: "", importShipment: "", supplier: "", warehouse: "", lines: [] }
+    }
     const data = await api(`/purchase/purchase-orders/${orderId}`)
     const order = data.purchaseOrder
     const defaultWarehouse = normalizeId(order.defaultWarehouse) || normalizeId(order.lines?.[0]?.destinationWarehouse)
@@ -1111,9 +1161,12 @@ export default function GoodsReceipts({ initialPurchaseOrderId = "", onCreatePur
       .filter((line) => line.remainingQuantity > 0)
       .map((line) => ({ ...newLine(line), acceptedLocation: normalizeId(line.destinationLocation) || defaultLocation }))
 
+    const importLinks = await loadImportOptions(order, current.commercialLC, current.importShipment)
+
     return {
       ...current,
       purchaseOrder: order._id,
+      ...importLinks,
       supplier: normalizeId(order.supplier),
       warehouse: defaultWarehouse,
       currency: order.currency || "BDT",
@@ -1207,9 +1260,16 @@ export default function GoodsReceipts({ initialPurchaseOrderId = "", onCreatePur
       const data = await api(`/purchase/goods-receipts/${receipt._id}`)
       const item = data.goodsReceipt
       await loadLocations(normalizeId(item.warehouse))
+      const orderId = normalizeId(item.purchaseOrder)
+      let importLinks = { tradeType: "local", commercialLC: "", importShipment: "" }
+      if (orderId) {
+        const orderData = await api(`/purchase/purchase-orders/${orderId}`)
+        importLinks = await loadImportOptions(orderData.purchaseOrder, normalizeId(item.commercialLC), normalizeId(item.importShipment))
+      }
       setForm({
         receiptDate: toDateInput(item.receiptDate),
         purchaseOrder: normalizeId(item.purchaseOrder),
+        ...importLinks,
         supplier: normalizeId(item.supplier),
         warehouse: normalizeId(item.warehouse),
         supplierDeliveryNote: item.supplierDeliveryNote || "",
@@ -1270,12 +1330,16 @@ export default function GoodsReceipts({ initialPurchaseOrderId = "", onCreatePur
     if (saving && !force) return
     setFormModal({ open: false, item: null })
     setForm(emptyForm())
+    setCommercialLCOptions([])
+    setShipmentOptions([])
     setFormError("")
   }
 
   const validateForm = () => {
     if (!form.receiptDate) return "Receipt date is required."
     if (!form.purchaseOrder) return "Purchase order is required."
+    if (form.tradeType === "import" && !form.commercialLC) return "Commercial LC is required for an import purchase receipt."
+    if (form.tradeType === "import" && !form.importShipment) return "Import shipment is required for an import purchase receipt."
     if (!form.warehouse) return "Receiving warehouse is required."
     if (!form.lines.length) return "At least one goods-receipt line is required."
     for (let index = 0; index < form.lines.length; index += 1) {
@@ -1303,6 +1367,8 @@ export default function GoodsReceipts({ initialPurchaseOrderId = "", onCreatePur
   const buildPayload = () => ({
     receiptDate: form.receiptDate,
     purchaseOrder: form.purchaseOrder,
+    commercialLC: form.tradeType === "import" ? (form.commercialLC || null) : null,
+    importShipment: form.tradeType === "import" ? (form.importShipment || null) : null,
     supplier: form.supplier || null,
     warehouse: form.warehouse,
     supplierDeliveryNote: clean(form.supplierDeliveryNote),
@@ -1930,7 +1996,7 @@ export default function GoodsReceipts({ initialPurchaseOrderId = "", onCreatePur
       <ModalShell open={formModal.open} onClose={closeForm} title={formModal.item ? "Update goods receipt" : "Create goods receipt"} subtitle={formModal.item?.receiptNo || "Receive against an approved purchase order"} icon={<Icon icon={formModal.item ? Edit02Icon : Add01Icon} className="h-5 w-5" />} maxWidthClass="max-w-[1500px]" footer={<div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" className={cn(button, ghostButton)} onClick={closeForm} disabled={saving}>Cancel</button><button type="submit" form="goods-receipt-form" className={cn(button, primaryButton)} disabled={saving}><Icon icon={saving ? RefreshIcon : FloppyDiskIcon} className={cn("h-4 w-4", saving ? "animate-spin" : "")} />{saving ? "Saving" : formModal.item ? "Update Receipt" : "Save Draft"}</button></div>}>
         <form id="goods-receipt-form" onSubmit={saveReceipt} className="space-y-5">
           {formError ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{formError}</div> : null}
-          <SectionCard title="Receipt information" description="The supplier and currency are inherited from the selected purchase order."><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"><Field label="Receipt Date" required><input className={input} type="date" value={form.receiptDate} onChange={(event) => setForm((previous) => ({ ...previous, receiptDate: event.target.value }))} /></Field><Field label="Purchase Order" required><select className={input} value={form.purchaseOrder} onChange={(event) => changeOrder(event.target.value)} disabled={Boolean(formModal.item)}><option value="">Select approved order</option>{purchaseOrders.map((order) => <option key={order._id} value={order._id}>{order.orderNo} · {order.supplier?.businessName || order.supplierSnapshot?.name || "Supplier"}</option>)}</select></Field><Field label="Receiving Warehouse" required><select className={input} value={form.warehouse} onChange={(event) => changeWarehouse(event.target.value)}><option value="">Select warehouse</option>{warehouses.map((warehouse) => <option key={warehouse._id} value={warehouse._id}>{relationLabel(warehouse)}</option>)}</select></Field><Field label="Currency"><FocusPlaceholderInput className={input} value={form.currency} onChange={(event) => setForm((previous) => ({ ...previous, currency: event.target.value.toUpperCase() }))} placeholder="BDT" maxLength={12} /></Field><Field label="Supplier Delivery Note"><FocusPlaceholderInput className={input} value={form.supplierDeliveryNote} onChange={(event) => setForm((previous) => ({ ...previous, supplierDeliveryNote: event.target.value }))} placeholder="Delivery challan or note" /></Field><Field label="Supplier Invoice"><FocusPlaceholderInput className={input} value={form.supplierInvoiceNo} onChange={(event) => setForm((previous) => ({ ...previous, supplierInvoiceNo: event.target.value }))} placeholder="Supplier invoice number" /></Field><Field label="Vehicle Number"><FocusPlaceholderInput className={input} value={form.vehicleNo} onChange={(event) => setForm((previous) => ({ ...previous, vehicleNo: event.target.value }))} placeholder="Delivery vehicle" /></Field><Field label="Received By"><FocusPlaceholderInput className={input} value={form.receivedByName} onChange={(event) => setForm((previous) => ({ ...previous, receivedByName: event.target.value }))} placeholder="Receiver name" /></Field></div></SectionCard>
+          <SectionCard title="Receipt information" description="The supplier and currency are inherited from the selected purchase order."><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"><Field label="Receipt Date" required><input className={input} type="date" value={form.receiptDate} onChange={(event) => setForm((previous) => ({ ...previous, receiptDate: event.target.value }))} /></Field><Field label="Purchase Order" required><select className={input} value={form.purchaseOrder} onChange={(event) => changeOrder(event.target.value)} disabled={Boolean(formModal.item)}><option value="">Select approved order</option>{purchaseOrders.map((order) => <option key={order._id} value={order._id}>{order.orderNo} · {order.supplier?.businessName || order.supplierSnapshot?.name || "Supplier"}</option>)}</select></Field>{form.tradeType === "import" ? <><Field label="Commercial LC" required hint="The LC must be opened and linked to this import PO."><select className={input} value={form.commercialLC} onChange={(event) => changeCommercialLC(event.target.value)}><option value="">Select Commercial LC</option>{commercialLCOptions.map((lc) => <option key={lc._id} value={lc._id}>{lc.lcNumber || lc.lcNo || "Commercial LC"} · {pretty(lc.status)}</option>)}</select></Field><Field label="Import Shipment" required hint="Planned/booked shipments are not receivable yet."><select className={input} value={form.importShipment} onChange={(event) => setForm((previous) => ({ ...previous, importShipment: event.target.value }))}><option value="">Select shipment</option>{shipmentOptions.map((shipment) => <option key={shipment._id} value={shipment._id}>{shipment.shipmentNo || shipment.billOfLadingNo || shipment.airwayBillNo || "Shipment"} · {pretty(shipment.status)}</option>)}</select></Field></> : null}<Field label="Receiving Warehouse" required><select className={input} value={form.warehouse} onChange={(event) => changeWarehouse(event.target.value)}><option value="">Select warehouse</option>{warehouses.map((warehouse) => <option key={warehouse._id} value={warehouse._id}>{relationLabel(warehouse)}</option>)}</select></Field><Field label="Currency"><FocusPlaceholderInput className={input} value={form.currency} onChange={(event) => setForm((previous) => ({ ...previous, currency: event.target.value.toUpperCase() }))} placeholder="BDT" maxLength={12} /></Field><Field label="Supplier Delivery Note"><FocusPlaceholderInput className={input} value={form.supplierDeliveryNote} onChange={(event) => setForm((previous) => ({ ...previous, supplierDeliveryNote: event.target.value }))} placeholder="Delivery challan or note" /></Field><Field label="Supplier Invoice"><FocusPlaceholderInput className={input} value={form.supplierInvoiceNo} onChange={(event) => setForm((previous) => ({ ...previous, supplierInvoiceNo: event.target.value }))} placeholder="Supplier invoice number" /></Field><Field label="Vehicle Number"><FocusPlaceholderInput className={input} value={form.vehicleNo} onChange={(event) => setForm((previous) => ({ ...previous, vehicleNo: event.target.value }))} placeholder="Delivery vehicle" /></Field><Field label="Received By"><FocusPlaceholderInput className={input} value={form.receivedByName} onChange={(event) => setForm((previous) => ({ ...previous, receivedByName: event.target.value }))} placeholder="Receiver name" /></Field></div></SectionCard>
 
           <SectionCard title="Inspection lines" description="Accepted plus quarantine plus rejected quantity must exactly equal received quantity."><div className="space-y-4">
             {form.lines.map((line, index) => {
@@ -1947,7 +2013,7 @@ export default function GoodsReceipts({ initialPurchaseOrderId = "", onCreatePur
       </ModalShell>
 
       <ModalShell open={detailsModal.open} onClose={() => setDetailsModal({ open: false, item: null })} title={detailsModal.item?.receiptNo || "Goods-receipt details"} subtitle={detailsModal.item ? `${detailsModal.item.purchaseOrder?.orderNo || "Purchase order"} · ${formatDate(detailsModal.item.receiptDate)}` : ""} icon={<Icon icon={ViewIcon} className="h-5 w-5" />} maxWidthClass="max-w-6xl" footer={<div className="flex justify-end"><button type="button" className={cn(button, ghostButton)} onClick={() => setDetailsModal({ open: false, item: null })}>Close</button></div>}>
-        {detailsModal.item ? <div className="space-y-5"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{[["Status", <StatusBadge value={detailsModal.item.status} />], ["Received", formatNumber(detailsModal.item.totalReceivedQuantity)], ["Accepted", formatNumber(detailsModal.item.totalAcceptedQuantity)], ["Quarantine", formatNumber(detailsModal.item.totalQuarantineQuantity)], ["Accepted Value", formatMoney(detailsModal.item.totalAcceptedValue, detailsModal.item.currency)]].map(([label, value]) => <div key={label} className="rounded-2xl border border-gray-100 bg-gray-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-gray-400">{label}</p><div className="mt-2 font-black text-gray-950">{value}</div></div>)}</div><SectionCard title="Receipt information"><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[["Purchase Order", detailsModal.item.purchaseOrder?.orderNo || "-"], ["Supplier", relationLabel(detailsModal.item.supplier, detailsModal.item.supplierSnapshot?.name)], ["Warehouse", relationLabel(detailsModal.item.warehouse, "-")], ["Receipt Date", formatDate(detailsModal.item.receiptDate)], ["Delivery Note", detailsModal.item.supplierDeliveryNote || "-"], ["Supplier Invoice", detailsModal.item.supplierInvoiceNo || "-"], ["Vehicle", detailsModal.item.vehicleNo || "-"], ["Received By", detailsModal.item.receivedByName || "-"]].map(([label, value]) => <div key={label}><p className="text-xs font-bold text-gray-400">{label}</p><p className="mt-1 text-sm font-bold text-gray-900">{value}</p></div>)}</div></SectionCard><SectionCard title="Inspection lines"><div className="overflow-x-auto"><table className="min-w-[1000px] w-full"><thead><tr className="text-left text-xs font-black uppercase text-gray-400"><th className="pb-3">Product</th><th className="pb-3">Received</th><th className="pb-3">Accepted</th><th className="pb-3">Quarantine</th><th className="pb-3">Rejected</th><th className="pb-3">Quality</th><th className="pb-3 text-right">Value</th></tr></thead><tbody className="divide-y divide-gray-100">{(detailsModal.item.lines || []).map((line) => <tr key={line._id}><td className="py-3"><p className="font-bold text-gray-900">{line.product?.name || line.productSnapshot?.name || "-"}</p><p className="text-xs font-semibold text-gray-500">{line.product?.sku || line.productSnapshot?.code || line.lotNumber || "-"}</p></td><td className="py-3 font-bold">{formatNumber(line.receivedQuantity)}</td><td className="py-3 font-bold">{formatNumber(line.acceptedQuantity)}</td><td className="py-3 font-bold">{formatNumber(line.quarantineQuantity)}</td><td className="py-3 font-bold">{formatNumber(line.rejectedQuantity)}</td><td className="py-3"><StatusBadge value={line.qualityStatus} /></td><td className="py-3 text-right font-black">{formatMoney(line.lineValue, detailsModal.item.currency)}</td></tr>)}</tbody></table></div></SectionCard>{detailsModal.item.movement ? <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-sm font-semibold text-indigo-800">Inventory movement: {detailsModal.item.movement.movementNo} · {pretty(detailsModal.item.movement.status)}</div> : null}{detailsModal.item.reversalReason || detailsModal.item.cancellationReason ? <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">{detailsModal.item.reversalReason || detailsModal.item.cancellationReason}</div> : null}</div> : null}
+        {detailsModal.item ? <div className="space-y-5"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">{[["Status", <StatusBadge value={detailsModal.item.status} />], ["Received", formatNumber(detailsModal.item.totalReceivedQuantity)], ["Accepted", formatNumber(detailsModal.item.totalAcceptedQuantity)], ["Quarantine", formatNumber(detailsModal.item.totalQuarantineQuantity)], ["Accepted Value", formatMoney(detailsModal.item.totalAcceptedValue, detailsModal.item.currency)]].map(([label, value]) => <div key={label} className="rounded-2xl border border-gray-100 bg-gray-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-gray-400">{label}</p><div className="mt-2 font-black text-gray-950">{value}</div></div>)}</div><SectionCard title="Receipt information"><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[["Purchase Order", detailsModal.item.purchaseOrder?.orderNo || "-"], ["Commercial LC", detailsModal.item.commercialLC?.lcNumber || detailsModal.item.commercialLC?.lcNo || (detailsModal.item.commercialLC ? "Linked" : "-")], ["Import Shipment", detailsModal.item.importShipment?.shipmentNo || detailsModal.item.importShipment?.billOfLadingNo || (detailsModal.item.importShipment ? "Linked" : "-")], ["Supplier", relationLabel(detailsModal.item.supplier, detailsModal.item.supplierSnapshot?.name)], ["Warehouse", relationLabel(detailsModal.item.warehouse, "-")], ["Receipt Date", formatDate(detailsModal.item.receiptDate)], ["Delivery Note", detailsModal.item.supplierDeliveryNote || "-"], ["Supplier Invoice", detailsModal.item.supplierInvoiceNo || "-"], ["Vehicle", detailsModal.item.vehicleNo || "-"], ["Received By", detailsModal.item.receivedByName || "-"]].map(([label, value]) => <div key={label}><p className="text-xs font-bold text-gray-400">{label}</p><p className="mt-1 text-sm font-bold text-gray-900">{value}</p></div>)}</div></SectionCard><SectionCard title="Inspection lines"><div className="overflow-x-auto"><table className="min-w-[1000px] w-full"><thead><tr className="text-left text-xs font-black uppercase text-gray-400"><th className="pb-3">Product</th><th className="pb-3">Received</th><th className="pb-3">Accepted</th><th className="pb-3">Quarantine</th><th className="pb-3">Rejected</th><th className="pb-3">Quality</th><th className="pb-3 text-right">Value</th></tr></thead><tbody className="divide-y divide-gray-100">{(detailsModal.item.lines || []).map((line) => <tr key={line._id}><td className="py-3"><p className="font-bold text-gray-900">{line.product?.name || line.productSnapshot?.name || "-"}</p><p className="text-xs font-semibold text-gray-500">{line.product?.sku || line.productSnapshot?.code || line.lotNumber || "-"}</p></td><td className="py-3 font-bold">{formatNumber(line.receivedQuantity)}</td><td className="py-3 font-bold">{formatNumber(line.acceptedQuantity)}</td><td className="py-3 font-bold">{formatNumber(line.quarantineQuantity)}</td><td className="py-3 font-bold">{formatNumber(line.rejectedQuantity)}</td><td className="py-3"><StatusBadge value={line.qualityStatus} /></td><td className="py-3 text-right font-black">{formatMoney(line.lineValue, detailsModal.item.currency)}</td></tr>)}</tbody></table></div></SectionCard>{detailsModal.item.movement ? <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-sm font-semibold text-indigo-800">Inventory movement: {detailsModal.item.movement.movementNo} · {pretty(detailsModal.item.movement.status)}</div> : null}{detailsModal.item.reversalReason || detailsModal.item.cancellationReason ? <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">{detailsModal.item.reversalReason || detailsModal.item.cancellationReason}</div> : null}</div> : null}
       </ModalShell>
 
       <ConfirmActionModal

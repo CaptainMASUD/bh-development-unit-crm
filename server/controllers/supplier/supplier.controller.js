@@ -163,8 +163,10 @@ export const getSupplier = async (req, res) => {
     return res.json(
       await getSupplierService(req.params.id, {
         includeSensitive:
-          req.query.includeSensitive === "true" ||
-          req.query.includeSensitive === "1",
+          req.query.includeSensitive !== undefined
+            ? req.query.includeSensitive === "true" ||
+              req.query.includeSensitive === "1"
+            : true,
         includeStats:
           req.query.includeStats !== "false" &&
           req.query.includeStats !== "0",

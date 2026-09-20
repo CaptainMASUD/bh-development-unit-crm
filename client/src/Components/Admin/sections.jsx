@@ -106,6 +106,7 @@ const InventoryReports = lazy(() => import("./inventory/InventoryReports"))
 const Suppliers = lazy(() => import("./Supplier/SupplierSetup"))
 const SupplierProducts = lazy(() => import("./Supplier/SupplierProducts"))
 const PurchaseOrders = lazy(() => import("./purchase/PurchaseOrders"))
+const PurchaseOrderPrint = lazy(() => import("./purchase/PurchaseOrderPrint"))
 const GoodsReceipts = lazy(() => import("./purchase/GoodsReceipts"))
 const PurchaseReturns = lazy(() => import("./purchase/PurchaseReturns"))
 const QuickPurchase = lazy(() => import("./purchase/QuickPurchase"))
@@ -116,6 +117,10 @@ const PurchaseDues = lazy(() => import("./purchase/PurchaseDues"))
 const PriceAnalysis = lazy(() => import("./purchase/PriceAnalysis"))
 const PurchaseReportsPage = lazy(() => import("./purchase/PurchaseReportsPage"))
 const PurchaseQualityInspections = lazy(() => import("./purchase/PurchaseQualityInspections"))
+const CommercialLC = lazy(() => import("./purchase/CommercialLC"))
+const ImportShipments = lazy(() => import("./purchase/ImportShipments"))
+const ImportDocuments = lazy(() => import("./purchase/ImportDocuments"))
+const LandedCosts = lazy(() => import("./purchase/LandedCosts"))
 const SalesPage = lazy(() => import("./sales/SalesPage"))
 const SalesReports = lazy(() => import("./sales/SalesReports"))
 const ManufacturingDashboard = lazy(() => import("./manufacturing/ManufacturingDashboard"))
@@ -333,9 +338,61 @@ const sections = {
   },
 
   "Quick Purchase": { icon: createSectionIcon(Package01Icon), component: <QuickPurchase />, permission: "purchase-order:manage" },
-  "Purchase Operations": { icon: createSectionIcon(WorkflowSquare03Icon), subcategories: { "Purchase Requests": <PurchaseRequests />, "Purchase Analysis": <PurchaseAnalysis />, "Purchase Issues": <PurchaseIssues />, "Purchase Dues": <PurchaseDues />, "Purchase Return": <PurchaseReturns /> }, subcategoryPermissions: { "Purchase Requests":"purchase-order:view","Purchase Analysis":"purchase-order:view","Purchase Issues":"purchase-order:view","Purchase Dues":"purchase-order:view","Purchase Return":"purchase-return:view" } },
-  "Purchase Order Management": { icon: createSectionIcon(NoteEditIcon), subcategories: { "Purchase Orders": <PurchaseOrders />, "PO Print / PDF": <PurchaseOrders /> }, subcategoryPermissions: { "Purchase Orders":"purchase-order:view","PO Print / PDF":"purchase-order:view" } },
-  "Price Analysis": { icon: createSectionIcon(ChartLineData01Icon), component: <PriceAnalysis />, permission: "purchase-order:view" },
+  "Purchase Operations": {
+    icon: createSectionIcon(WorkflowSquare03Icon),
+    subcategories: {
+      "Purchase Requests": <PurchaseRequests />,
+      "Purchase Analysis": <PurchaseAnalysis />,
+      "Purchase Issues": <PurchaseIssues />,
+      "Goods Receipts": <GoodsReceipts />,
+      "Quality Inspection": <PurchaseQualityInspections />,
+    },
+    subcategoryPermissions: {
+      "Purchase Requests": "purchase-request:view",
+      "Purchase Analysis": "purchase-analysis:view",
+      "Purchase Issues": "purchase-issue:view",
+      "Goods Receipts": "goods-receipt:view",
+      "Quality Inspection": "purchase-quality:view",
+    },
+  },
+  "Purchase Order Management": {
+    icon: createSectionIcon(NoteEditIcon),
+    subcategories: {
+      "Purchase Orders": <PurchaseOrders />,
+      "PO Print / PDF": <PurchaseOrderPrint />,
+    },
+    subcategoryPermissions: {
+      "Purchase Orders": "purchase-order:view",
+      "PO Print / PDF": "purchase-order:view",
+    },
+  },
+  "Import & Commercial LC": {
+    icon: createSectionIcon(BankIcon),
+    subcategories: {
+      "Commercial LCs": <CommercialLC />,
+      "Import Shipments": <ImportShipments />,
+      "Import Documents": <ImportDocuments />,
+      "Landed Costs": <LandedCosts />,
+    },
+    subcategoryPermissions: {
+      "Commercial LCs": "commercial-lc:view",
+      "Import Shipments": "commercial-lc:view",
+      "Import Documents": "commercial-lc:view",
+      "Landed Costs": "commercial-lc:view",
+    },
+  },
+  "Financial / Review": {
+    icon: createSectionIcon(ReceiptDollarIcon),
+    subcategories: {
+      "Purchase Dues": <PurchaseDues />,
+      "Price Analysis": <PriceAnalysis />,
+    },
+    subcategoryPermissions: {
+      "Purchase Dues": "purchase-due:view",
+      "Price Analysis": "price-analysis:view",
+    },
+  },
+  "Price Analysis": { icon: createSectionIcon(ChartLineData01Icon), component: <PriceAnalysis />, permission: "price-analysis:view" },
   "Purchase Reports": { icon: createSectionIcon(FileChartColumnIcon), component: <PurchaseReportsPage />, permission: "purchase-order:view" },
 
   "Sales Quotations": { icon: createSectionIcon(NoteEditIcon), component: <SalesPage kind="quotations" />, permission: "sales-quotation:view" },

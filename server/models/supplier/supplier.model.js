@@ -10,7 +10,7 @@ export const SUPPLIER_TYPES = [
   "other",
 ];
 
-export const SUPPLIER_SCOPES = ["local", "international", "both"];
+export const SUPPLIER_SCOPES = ["local", "international", "foreign", "both"];
 
 export const SUPPLIER_STATUSES = [
   "draft",
@@ -64,6 +64,26 @@ export const PAYMENT_TERM_TYPES = [
   "net_60",
   "net_90",
   "custom",
+  "lc",
+  "sight_lc",
+  "usance_lc",
+  "deferred",
+  "cad",
+  "advance",
+];
+
+export const INCOTERMS = [
+  "EXW",
+  "FCA",
+  "CPT",
+  "CIP",
+  "DAP",
+  "DPU",
+  "DDP",
+  "FAS",
+  "FOB",
+  "CFR",
+  "CIF",
 ];
 
 const compactString = {
@@ -202,6 +222,7 @@ const bankAccountSchema = new mongoose.Schema(
     bankName: compactString,
     branchName: compactString,
     accountName: compactString,
+    beneficiaryName: compactString,
     accountNumber: {
       type: String,
       trim: true,
@@ -221,11 +242,30 @@ const bankAccountSchema = new mongoose.Schema(
       maxlength: 40,
       default: "",
     },
+    bicCode: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      maxlength: 40,
+      default: "",
+    },
     iban: {
       type: String,
       trim: true,
       uppercase: true,
       maxlength: 80,
+      default: "",
+    },
+    bankAddress: {
+      type: String,
+      trim: true,
+      maxlength: 250,
+      default: "",
+    },
+    bankCountry: {
+      type: String,
+      trim: true,
+      maxlength: 120,
       default: "",
     },
     currency: {
@@ -246,6 +286,18 @@ const bankAccountSchema = new mongoose.Schema(
   },
   { _id: true, id: false }
 );
+
+bankAccountSchema.pre("validate", function normalizeBankAccount() {
+  const account = String(this.accountName || this.beneficiaryName || "").trim();
+  const beneficiary = String(this.beneficiaryName || this.accountName || "").trim();
+  const swift = String(this.swiftCode || this.bicCode || "").trim().toUpperCase();
+  const bic = String(this.bicCode || this.swiftCode || "").trim().toUpperCase();
+
+  this.accountName = account;
+  this.beneficiaryName = beneficiary;
+  this.swiftCode = swift;
+  this.bicCode = bic;
+});
 
 const complianceDocumentSchema = new mongoose.Schema(
   {
@@ -436,6 +488,12 @@ const supplierSchema = new mongoose.Schema(
       enum: SUPPLIER_SCOPES,
       default: "local",
     },
+    country: {
+      type: String,
+      trim: true,
+      maxlength: 120,
+      default: "Bangladesh",
+    },
     isPreferred: {
       type: Boolean,
       default: false,
@@ -586,12 +644,32 @@ const supplierSchema = new mongoose.Schema(
   }
 );
 
-supplierSchema.pre("validate", function normalizeSupplier(next) {
+supplierSchema.pre("validate", function normalizeSupplier() {
   this.code = String(this.code || "").trim().toUpperCase();
   this.businessName = String(this.businessName || "").trim();
   this.businessNameLower = this.businessName.toLowerCase();
   this.primaryEmail = String(this.primaryEmail || "").trim().toLowerCase();
   this.primaryPhone = String(this.primaryPhone || "").trim();
+
+  // Normalize bank accounts aliases and fields
+  if (Array.isArray(this.bankAccounts)) {
+    for (const bank of this.bankAccounts) {
+      if (!bank.accountName && bank.beneficiaryName) bank.accountName = bank.beneficiaryName;
+      if (!bank.beneficiaryName && bank.accountName) bank.beneficiaryName = bank.accountName;
+      if (!bank.swiftCode && bank.bicCode) bank.swiftCode = bank.bicCode;
+      if (!bank.bicCode && bank.swiftCode) bank.bicCode = bank.swiftCode;
+      if (bank.swiftCode) bank.swiftCode = String(bank.swiftCode).trim().toUpperCase();
+      if (bank.bicCode) bank.bicCode = String(bank.bicCode).trim().toUpperCase();
+    }
+  }
+
+  const primaryAddress = this.addresses?.find((item) => item.isPrimary) || this.addresses?.[0];
+  if (!String(this.country || "").trim()) {
+    this.country = String(primaryAddress?.country || "Bangladesh").trim();
+  } else if (primaryAddress && !String(primaryAddress.country || "").trim()) {
+    primaryAddress.country = this.country;
+  }
+
   this.tags = [
     ...new Set(
       (this.tags || [])
@@ -611,8 +689,6 @@ supplierSchema.pre("validate", function normalizeSupplier(next) {
   ensureSinglePrimary(this.contactPersons);
   ensureSinglePrimary(this.addresses);
   ensureSinglePrimary(this.bankAccounts);
-
-  next();
 });
 
 supplierSchema.virtual("primaryContact").get(function getPrimaryContact() {
@@ -623,10 +699,19 @@ supplierSchema.virtual("primaryAddress").get(function getPrimaryAddress() {
   return this.addresses?.find((item) => item.isPrimary) || null;
 });
 
+supplierSchema.virtual("defaultCurrency").get(function getDefaultCurrency() {
+  return this.procurement?.currency || "BDT";
+});
+
+supplierSchema.virtual("defaultIncoterm").get(function getDefaultIncoterm() {
+  return this.procurement?.incoterm || "";
+});
+
 supplierSchema.index({ code: 1 }, { unique: true });
 supplierSchema.index({ businessNameLower: 1, _id: 1 });
 supplierSchema.index({ status: 1, businessNameLower: 1, _id: 1 });
 supplierSchema.index({ status: 1, supplierType: 1, supplierScope: 1, updatedAt: -1 });
+supplierSchema.index({ country: 1, status: 1 });
 supplierSchema.index({ "procurement.currency": 1, status: 1, businessNameLower: 1 });
 supplierSchema.index({ primaryEmail: 1 });
 supplierSchema.index({ primaryPhone: 1 });

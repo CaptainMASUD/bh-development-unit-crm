@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Supplier, {
   ADDRESS_TYPES,
   DOCUMENT_TYPES,
+  INCOTERMS,
   PAYMENT_TERM_TYPES,
   SupplierAudit,
   SupplierProduct,
@@ -27,6 +28,7 @@ const SUPPLIER_LIST_FIELDS = [
   "legalName",
   "supplierType",
   "supplierScope",
+  "country",
   "isPreferred",
   "primaryEmail",
   "primaryPhone",
@@ -54,11 +56,13 @@ const SUPPLIER_OPTION_FIELDS = [
   "+businessNameLower",
   "supplierType",
   "supplierScope",
+  "country",
   "primaryEmail",
   "primaryPhone",
   "procurement.currency",
   "procurement.paymentTermType",
   "procurement.paymentTermDays",
+  "procurement.incoterm",
   "isPreferred",
   "status",
 ].join(" ");
@@ -291,19 +295,27 @@ const normalizeAddresses = (items) =>
 
 const normalizeBanks = (items) =>
   normalizePrimary(
-    (Array.isArray(items) ? items : []).slice(0, 10).map((item) => ({
-      _id: isId(item?._id) ? item._id : undefined,
-      bankName: clean(item?.bankName),
-      branchName: clean(item?.branchName),
-      accountName: clean(item?.accountName),
-      accountNumber: clean(item?.accountNumber),
-      routingNumber: clean(item?.routingNumber),
-      swiftCode: upper(item?.swiftCode),
-      iban: upper(item?.iban),
-      currency: upper(item?.currency) || "BDT",
-      isPrimary: asBoolean(item?.isPrimary),
-      isActive: asBoolean(item?.isActive, true),
-    }))
+    (Array.isArray(items) ? items : []).slice(0, 10).map((item) => {
+      const accountName = clean(item?.accountName || item?.beneficiaryName);
+      const swiftCode = upper(item?.swiftCode || item?.bicCode);
+      return {
+        _id: isId(item?._id) ? item._id : undefined,
+        bankName: clean(item?.bankName),
+        branchName: clean(item?.branchName),
+        accountName,
+        beneficiaryName: clean(item?.beneficiaryName || accountName),
+        accountNumber: clean(item?.accountNumber),
+        routingNumber: clean(item?.routingNumber),
+        swiftCode,
+        bicCode: upper(item?.bicCode || swiftCode),
+        iban: upper(item?.iban),
+        bankAddress: clean(item?.bankAddress),
+        bankCountry: clean(item?.bankCountry),
+        currency: upper(item?.currency) || "BDT",
+        isPrimary: asBoolean(item?.isPrimary),
+        isActive: asBoolean(item?.isActive, true),
+      };
+    })
   );
 
 const normalizeDocuments = (items) =>
@@ -339,14 +351,32 @@ const buildSupplierPayload = (body = {}, { partial = false } = {}) => {
   assign("code", upper(body.code));
   assign("businessName", clean(body.businessName));
   assign("legalName", clean(body.legalName));
-  assign("supplierType", lower(body.supplierType) || "wholesaler");
-  assign("supplierScope", lower(body.supplierScope) || "local");
+
+  let scope = lower(body.supplierScope);
+  if (!scope && (lower(body.supplierType) === "foreign" || lower(body.supplierType) === "local")) {
+    scope = lower(body.supplierType);
+  }
+  assign("supplierScope", scope || "local");
+  assign(
+    "supplierType",
+    lower(body.supplierType) === "foreign" || lower(body.supplierType) === "local"
+      ? "wholesaler"
+      : lower(body.supplierType) || "wholesaler"
+  );
   assign("isPreferred", asBoolean(body.isPreferred));
   assign("primaryEmail", lower(body.primaryEmail));
   assign("primaryPhone", clean(body.primaryPhone));
   assign("website", clean(body.website));
   assign("contactPersons", normalizeContacts(body.contactPersons));
-  assign("addresses", normalizeAddresses(body.addresses));
+
+  const addresses = normalizeAddresses(body.addresses);
+  assign("addresses", addresses);
+  const primaryAddressCountry = addresses.find((a) => a.isPrimary)?.country || addresses[0]?.country;
+  assign(
+    "country",
+    clean(body.country || primaryAddressCountry || (scope === "foreign" || scope === "international" ? "" : "Bangladesh"))
+  );
+
   assign("bankAccounts", normalizeBanks(body.bankAccounts));
   assign("documents", normalizeDocuments(body.documents));
   assign("tags", normalizeTags(body.tags));
@@ -365,10 +395,19 @@ const buildSupplierPayload = (body = {}, { partial = false } = {}) => {
     };
   }
 
-  if (!partial || hasOwn(body, "procurement")) {
+  if (
+    !partial ||
+    hasOwn(body, "procurement") ||
+    hasOwn(body, "currency") ||
+    hasOwn(body, "defaultCurrency") ||
+    hasOwn(body, "incoterm") ||
+    hasOwn(body, "defaultIncoterm")
+  ) {
     const procurement = body.procurement || {};
+    const currencyVal = clean(procurement.currency || body.defaultCurrency || body.currency);
+    const incotermVal = clean(procurement.incoterm || body.defaultIncoterm || body.incoterm);
     payload.procurement = {
-      currency: upper(procurement.currency) || "BDT",
+      currency: upper(currencyVal) || "BDT",
       paymentTermType: PAYMENT_TERM_TYPES.includes(
         procurement.paymentTermType
       )
@@ -381,7 +420,7 @@ const buildSupplierPayload = (body = {}, { partial = false } = {}) => {
       preferredShippingMethod: clean(
         procurement.preferredShippingMethod
       ),
-      incoterm: upper(procurement.incoterm),
+      incoterm: upper(incotermVal),
     };
   }
 
@@ -899,6 +938,10 @@ const buildSupplierFilter = (query = {}, { options = false } = {}) => {
     filter.supplierScope = supplierScope;
   }
 
+  if (clean(query.country) && query.country !== "all") {
+    filter.country = clean(query.country);
+  }
+
   if (query.currency && query.currency !== "all") {
     filter["procurement.currency"] = upper(query.currency);
   }
@@ -1008,6 +1051,7 @@ export const supplierReferenceData = {
   documentTypes: DOCUMENT_TYPES,
   taxTreatments: TAX_TREATMENTS,
   paymentTermTypes: PAYMENT_TERM_TYPES,
+  incoterms: INCOTERMS,
   permissions: {
     view: "supplier:view",
     manage: "supplier:manage",

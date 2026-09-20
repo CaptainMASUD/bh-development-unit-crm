@@ -261,3 +261,13 @@ export const reverseProcurementAccounting = async ({
   await original.save(saveOptions(session));
   return reversal;
 };
+
+
+// Import/Commercial-LC accounting lives in a dedicated service but is re-exported
+// here so Purchase callers can continue using the canonical procurement accounting surface.
+export {
+  postLCMarginAccounting,
+  postLCChargeAccounting,
+  postLCSettlementAccounting,
+  postLandedCostAccounting,
+} from "./importAccounting.service.js";

@@ -91,3 +91,88 @@ export const register = async (req, res) => {
     message: "Public registration is disabled. Platform Super Admins create companies, and company Admins create tenant users.",
   });
 };
+
+export const registerSuperAdmin = async (req, res) => {
+  try {
+    const providedKey = String(
+      req.body?.key ||
+      req.body?.superAdminKey ||
+      req.body?.superadminKey ||
+      req.headers["x-superadmin-key"] ||
+      ""
+    ).trim();
+
+    const configuredKey = String(
+      process.env.SUPERADMINKEY ||
+      process.env.SUPERADMIN_KEY ||
+      ""
+    ).trim();
+
+    if (!configuredKey) {
+      return res.status(500).json({
+        message: "SUPERADMINKEY is not configured on the server.",
+      });
+    }
+
+    if (!providedKey || providedKey !== configuredKey) {
+      return res.status(401).json({
+        message: "Invalid or unauthorized Super Admin registration key.",
+      });
+    }
+
+    const name = String(req.body?.name || "").trim();
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const password = String(req.body?.password || "");
+    const phone = String(req.body?.phone || "").trim();
+
+    if (!name) {
+      return res.status(400).json({ message: "Full name is required." });
+    }
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: "A valid email address is required." });
+    }
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({ message: "Password must be at least 6 characters." });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ message: "A user with this email already exists." });
+    }
+
+    const superadmin = await User.create({
+      name,
+      email,
+      password,
+      role: "superadmin",
+      isActive: true,
+      phone,
+      tenantId: null,
+    });
+
+    const token = signToken(superadmin._id);
+    const safeUser = superadmin.toObject();
+    delete safeUser.password;
+    safeUser.enabledModules = null;
+    safeUser.permissionCatalog = [...PERMISSION_KEYS];
+    safeUser.company = null;
+    safeUser.subscription = null;
+
+    return res.status(201).json({
+      success: true,
+      message: "Super admin registered successfully.",
+      token,
+      user: safeUser,
+    });
+  } catch (err) {
+    if (err?.code === 11000) {
+      return res.status(409).json({ message: "A user with this email already exists." });
+    }
+    return res.status(500).json({
+      message: "Server error in super admin registration.",
+      error: err.message,
+    });
+  }
+};

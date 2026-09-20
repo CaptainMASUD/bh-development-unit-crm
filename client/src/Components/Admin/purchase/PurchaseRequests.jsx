@@ -8,6 +8,8 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Add01Icon,
   Alert02Icon,
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
   Cancel01Icon,
   FilterIcon,
   FolderLibraryIcon,
@@ -1132,14 +1134,28 @@ export default function PurchaseRequests() {
     item: null,
   })
   const [busy, setBusy] = useState({ id: "", type: "" })
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [limit] = useState(25)
 
-  const load = useCallback(async ({ showToast = false } = {}) => {
+  const load = useCallback(async ({ showToast = false, targetPage = 1 } = {}) => {
     setLoading(true)
     setError("")
 
     try {
-      const data = await api(ENDPOINT)
+      const params = new URLSearchParams()
+      params.set("page", String(targetPage))
+      params.set("limit", String(limit))
+      if (status && status !== "all") params.set("status", status)
+      if (purpose && purpose !== "all") params.set("purpose", purpose)
+      if (clean(query)) params.set("q", clean(query))
+
+      const data = await api(`${ENDPOINT}?${params.toString()}`)
       setRows(Array.isArray(data?.items) ? data.items : [])
+      setTotal(Number(data?.total) || 0)
+      setTotalPages(Number(data?.totalPages) || 1)
+      setPage(Number(data?.page) || targetPage)
 
       if (showToast) {
         toast.success("Purchase requests refreshed")
@@ -1151,7 +1167,7 @@ export default function PurchaseRequests() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [limit, status, purpose, query])
 
   useEffect(() => {
     load()
@@ -1628,11 +1644,40 @@ export default function PurchaseRequests() {
           )}
         </div>
 
-        <div className="flex flex-col gap-2 border-t border-gray-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs font-semibold text-gray-500">
-            {filtered.length} request{filtered.length === 1 ? "" : "s"} shown
+        <div className="flex flex-col gap-3 border-t border-gray-100 bg-gray-50/50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between text-xs font-semibold text-gray-600">
+          <p>
+            Showing {rows.length} of {total} request{total === 1 ? "" : "s"} {totalPages > 1 ? `· Page ${page} of ${totalPages}` : ""}
           </p>
-          {filtered.length ? (
+          {totalPages > 1 ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className={cn(button, ghostButton, "h-8 px-3 text-xs")}
+                disabled={page <= 1 || loading}
+                onClick={() => {
+                  const prev = Math.max(page - 1, 1)
+                  setPage(prev)
+                  load({ targetPage: prev })
+                }}
+              >
+                <Icon icon={ArrowLeft01Icon} className="h-3.5 w-3.5" />
+                Previous
+              </button>
+              <button
+                type="button"
+                className={cn(button, ghostButton, "h-8 px-3 text-xs")}
+                disabled={page >= totalPages || loading}
+                onClick={() => {
+                  const next = Math.min(page + 1, totalPages)
+                  setPage(next)
+                  load({ targetPage: next })
+                }}
+              >
+                Next
+                <Icon icon={ArrowRight01Icon} className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : filtered.length ? (
             <span className="text-xs font-semibold text-gray-400">
               Purchase Management · Purchase Requests
             </span>

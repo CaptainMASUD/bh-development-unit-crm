@@ -14,6 +14,8 @@ export const SYSTEM_ACCOUNTS = [
   { code: "1200", name: "Input VAT / Tax Receivable", type: "asset", subType: "Current Asset", parentCode: "A000", isControlAccount: true, controlType: "tax" },
   { code: "1300", name: "Inventory", type: "asset", subType: "Current Asset", parentCode: "A000", isControlAccount: true, controlType: "inventory", description: "Inventory control account for the value of stock on hand." },
   { code: "1310", name: "Inventory In Transit", type: "asset", subType: "Current Asset", parentCode: "A000", isControlAccount: true, controlType: "inventory", description: "Inventory dispatched between warehouses awaiting receipt." },
+  { code: "1320", name: "LC Margin / Restricted Cash", type: "asset", subType: "Current Asset", parentCode: "A000", description: "Cash margin lodged with a bank against import letters of credit." },
+  { code: "1330", name: "Import Cost Clearing", type: "asset", subType: "Current Asset", parentCode: "A000", description: "Temporary clearing account for capitalizable freight, duty, insurance, bank, port, C&F, and other import costs before allocation to inventory." },
   { code: "1500", name: "Furniture", type: "asset", subType: "Fixed Asset", parentCode: "A000", description: "Furniture and fixtures used in business operations." },
   { code: "2000", name: "Accounts Payable", type: "liability", subType: "Current Liability", parentCode: "L000", isControlAccount: true, controlType: "payable" },
   { code: "2050", name: "Goods Received Not Invoiced", type: "liability", subType: "Current Liability", parentCode: "L000", description: "Accrued inventory receipts awaiting a matched supplier invoice." },
@@ -37,6 +39,7 @@ export const SYSTEM_ACCOUNTS = [
   { code: "5100", name: "Payroll Expense", type: "expense", subType: "Indirect Expense", parentCode: "X200" },
   { code: "5110", name: "Salary Expense", type: "expense", subType: "Indirect Expense", parentCode: "X200" },
   { code: "5120", name: "Rent Expense", type: "expense", subType: "Indirect Expense", parentCode: "X200" },
+  { code: "5130", name: "Import & LC Charges", type: "expense", subType: "Indirect Expense", parentCode: "X200", description: "Non-capitalizable bank and import processing charges." },
   { code: "5200", name: "Tax Expense", type: "expense", subType: "Indirect Expense", parentCode: "X200" },
 ];
 

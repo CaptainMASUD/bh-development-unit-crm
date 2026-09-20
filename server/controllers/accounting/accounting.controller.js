@@ -94,7 +94,7 @@ const voucherTypeForSource = (sourceType = "manual", requested = "") => {
   if (VOUCHER_TYPES.includes(clean(requested).toLowerCase())) return clean(requested).toLowerCase();
   const map = {
     opening_balance: "opening", fiscal_closing: "closing", invoice: "sales", customer_payment: "receipt",
-    vendor_bill: "purchase", vendor_payment: "payment", expense: "payment", bank_transfer: "contra",
+    vendor_bill: "purchase", vendor_payment: "payment", lc_margin: "contra", lc_charge: "payment", lc_settlement: "payment", landed_cost: "purchase", expense: "payment", bank_transfer: "contra",
     payroll: "payroll", tax: "tax", manual: "journal",
   };
   return map[clean(sourceType).toLowerCase()] || "adjustment";
@@ -1009,6 +1009,9 @@ export const SETTINGS_ACCOUNT_FIELDS = [
   "purchasePriceVarianceAccount",
   "inventoryAdjustmentAccount",
   "inventoryRevaluationAccount",
+  "lcMarginAccount",
+  "importCostClearingAccount",
+  "importChargesExpenseAccount",
   "furnitureAccount",
   "loanAccount",
   "payrollExpenseAccount",
@@ -1035,6 +1038,9 @@ const SETTINGS_ACCOUNT_LABELS = {
   purchasePriceVarianceAccount: "Purchase Price Variance",
   inventoryAdjustmentAccount: "Inventory Adjustment Gain or Loss",
   inventoryRevaluationAccount: "Inventory Revaluation Gain or Loss",
+  lcMarginAccount: "LC Margin / Restricted Cash",
+  importCostClearingAccount: "Import Cost Clearing",
+  importChargesExpenseAccount: "Import & LC Charges",
   furnitureAccount: "Furniture",
   loanAccount: "Loan",
   payrollExpenseAccount: "Payroll Expense",
@@ -1103,6 +1109,12 @@ export const matchesSettingsAccountPurpose = (field, account, links) => {
       return isType("expense") && (account.code === "5040" || hasText("inventory adjustment", "stock adjustment"));
     case "inventoryRevaluationAccount":
       return isType("expense") && (account.code === "5090" || hasText("inventory revaluation"));
+    case "lcMarginAccount":
+      return isType("asset") && (account.code === "1320" || hasText("lc margin", "restricted cash", "letter of credit margin"));
+    case "importCostClearingAccount":
+      return isType("asset") && (account.code === "1330" || hasText("import cost clearing", "landed cost clearing", "import clearing"));
+    case "importChargesExpenseAccount":
+      return isType("expense") && (account.code === "5130" || hasText("import charges", "lc charges", "bank charges"));
     case "furnitureAccount":
       return (
         isType("asset") &&
@@ -2969,6 +2981,10 @@ export const getCashBook = async (req, res) => {
     const sourceLabels = {
       customer_payment: "Customer receipt",
       vendor_payment: "Supplier payment",
+      lc_margin: "LC margin",
+      lc_charge: "LC / import charge",
+      lc_settlement: "LC settlement",
+      landed_cost: "Landed cost capitalization",
       expense: "Expense payment",
       bank_transfer: "Bank transfer",
       payroll: "Payroll payment",

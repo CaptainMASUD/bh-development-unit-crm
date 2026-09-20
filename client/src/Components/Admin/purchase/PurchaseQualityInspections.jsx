@@ -7,6 +7,8 @@ import toast, { Toaster } from "react-hot-toast"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Alert02Icon,
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
   Cancel01Icon,
   FilterIcon,
   FolderLibraryIcon,
@@ -73,12 +75,13 @@ function relationLabel(item, fallback = "-") {
   return `${name}${code ? ` (${code})` : ""}`
 }
 
-async function api(path) {
+async function api(path, options = {}) {
   const token = localStorage.getItem("token")
 
   const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
     credentials: "include",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers },
   })
 
   const data = await response.json().catch(() => ({}))
@@ -580,13 +583,21 @@ function DetailsModal({ item, open, onClose }) {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {[
                 ["Reference", item.inspectionReference || "-"],
+                ["Goods Receipt", item.goodsReceipt?.receiptNo || "-"],
                 ["Purchase Order", item.purchaseOrder?.orderNo || "-"],
+                ["Supplier", relationLabel(item.supplier, "-")],
                 ["Product", relationLabel(item.product, "-")],
-                ["Purchased", formatNumber(purchased)],
+                ["Warehouse", relationLabel(item.warehouse, "-")],
+                ["Received", formatNumber(purchased)],
+                ["Inspected", formatNumber(item.inspectedQuantity)],
                 ["Accepted", formatNumber(accepted)],
+                ["Quarantined", formatNumber(item.quarantineQuantity)],
                 ["Rejected", formatNumber(rejected)],
                 ["Acceptance Rate", `${formatNumber(acceptanceRate, 1)}%`],
                 ["Status", pretty(item.status)],
+                ["Inspector", relationLabel(item.inspector, "-")],
+                ["Inspection Date", formatDate(item.inspectedAt)],
+                ["Notes / Findings", item.note || "-"],
               ].map(([label, value]) => (
                 <div key={label}>
                   <p className="text-xs font-bold text-gray-400">{label}</p>
@@ -701,14 +712,28 @@ export default function PurchaseQualityInspections() {
   const [status, setStatus] = useState("all")
   const [filterOpen, setFilterOpen] = useState(false)
   const [details, setDetails] = useState({ open: false, item: null })
+  const [saving, setSaving] = useState(false)
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [limit] = useState(25)
 
-  const load = useCallback(async ({ showToast = false } = {}) => {
+  const load = useCallback(async ({ showToast = false, targetPage = 1 } = {}) => {
     setLoading(true)
     setError("")
 
     try {
-      const data = await api(ENDPOINT)
+      const params = new URLSearchParams()
+      params.set("page", String(targetPage))
+      params.set("limit", String(limit))
+      if (status && status !== "all") params.set("status", status)
+      if (clean(query)) params.set("q", clean(query))
+
+      const data = await api(`${ENDPOINT}?${params.toString()}`)
       setRows(Array.isArray(data?.items) ? data.items : [])
+      setTotal(Number(data?.total) || 0)
+      setTotalPages(Number(data?.totalPages) || 1)
+      setPage(Number(data?.page) || targetPage)
 
       if (showToast) {
         toast.success("Quality inspections refreshed")
@@ -721,11 +746,38 @@ export default function PurchaseQualityInspections() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [limit, status, query])
 
   useEffect(() => {
     load()
   }, [load])
+
+  const startInspection = async (item) => {
+    try { setSaving(true); await api(`${ENDPOINT}/${item._id}/start`, { method: "POST", body: "{}" }); toast.success("Inspection started"); await load() }
+    catch (actionError) { toast.error(actionError.message) } finally { setSaving(false) }
+  }
+
+  const recordInspection = async (item) => {
+    try {
+      const received = Number(item.purchasedQuantity || 0)
+      const accepted = Number(window.prompt(`Accepted quantity (received ${received})`, String(received)))
+      if (!Number.isFinite(accepted)) return
+      const quarantine = Number(window.prompt("Quarantine quantity", "0"))
+      if (!Number.isFinite(quarantine)) return
+      const rejected = received - accepted - quarantine
+      if (rejected < 0) throw new Error("Accepted plus quarantine cannot exceed received quantity.")
+      const note = window.prompt("Inspection note", "") || ""
+      setSaving(true)
+      await api(`${ENDPOINT}/${item._id}/results`, { method: "POST", body: JSON.stringify({ inspectedQuantity: received, acceptedQuantity: accepted, quarantineQuantity: quarantine, rejectedQuantity: rejected, note }) })
+      toast.success("Quality result recorded")
+      await load()
+    } catch (actionError) { toast.error(actionError.message) } finally { setSaving(false) }
+  }
+
+  const completeInspection = async (item) => {
+    try { if (!window.confirm("Complete this inspection and release the synchronized GRN result for posting?")) return; setSaving(true); await api(`${ENDPOINT}/${item._id}/complete`, { method: "POST", body: "{}" }); toast.success("Inspection completed"); await load() }
+    catch (actionError) { toast.error(actionError.message) } finally { setSaving(false) }
+  }
 
   const purchaseOrders = useMemo(() => {
     const map = new Map()
@@ -986,7 +1038,10 @@ export default function PurchaseQualityInspections() {
                     </td>
 
                     <td className="sticky right-0 bg-white px-5 py-4 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-gray-50/70">
-                      <div className="flex justify-end">
+                      <div className="flex justify-end gap-2">
+                        {item.status === "waiting" ? <button type="button" className={cn(button, primaryButton, "h-10 px-3")} onClick={() => startInspection(item)} disabled={saving}>Start</button> : null}
+                        {["waiting", "processing"].includes(item.status) ? <button type="button" className={cn(button, primaryButton, "h-10 px-3")} onClick={() => recordInspection(item)} disabled={saving}>Results</button> : null}
+                        {["passed", "partially_accepted", "rejected"].includes(item.status) && !item.completedAt ? <button type="button" className={cn(button, primaryButton, "h-10 px-3")} onClick={() => completeInspection(item)} disabled={saving}>Complete</button> : null}
                         <button
                           type="button"
                           className={cn(button, ghostButton, "h-10 px-3")}
@@ -1101,11 +1156,40 @@ export default function PurchaseQualityInspections() {
           )}
         </div>
 
-        <div className="flex flex-col gap-2 border-t border-gray-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs font-semibold text-gray-500">
-            {filtered.length} inspection{filtered.length === 1 ? "" : "s"} shown
+        <div className="flex flex-col gap-3 border-t border-gray-100 bg-gray-50/50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between text-xs font-semibold text-gray-600">
+          <p>
+            Showing {rows.length} of {total} inspection{total === 1 ? "" : "s"} {totalPages > 1 ? `· Page ${page} of ${totalPages}` : ""}
           </p>
-          {filtered.length ? (
+          {totalPages > 1 ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className={cn(button, ghostButton, "h-8 px-3 text-xs")}
+                disabled={page <= 1 || loading}
+                onClick={() => {
+                  const prev = Math.max(page - 1, 1)
+                  setPage(prev)
+                  load({ targetPage: prev })
+                }}
+              >
+                <Icon icon={ArrowLeft01Icon} className="h-3.5 w-3.5" />
+                Previous
+              </button>
+              <button
+                type="button"
+                className={cn(button, ghostButton, "h-8 px-3 text-xs")}
+                disabled={page >= totalPages || loading}
+                onClick={() => {
+                  const next = Math.min(page + 1, totalPages)
+                  setPage(next)
+                  load({ targetPage: next })
+                }}
+              >
+                Next
+                <Icon icon={ArrowRight01Icon} className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : filtered.length ? (
             <span className="text-xs font-semibold text-gray-400">
               Purchase Management · Quality Inspection
             </span>

@@ -43,7 +43,7 @@ const FALLBACK_META = {
     "exporter",
     "other",
   ],
-  supplierScopes: ["local", "international"],
+  supplierScopes: ["local", "international", "foreign"],
   supplierStatuses: [
     "draft",
     "pending_approval",
@@ -60,6 +60,12 @@ const FALLBACK_META = {
     "net_45",
     "net_60",
     "net_90",
+    "lc",
+    "sight_lc",
+    "usance_lc",
+    "deferred",
+    "cad",
+    "advance",
     "custom",
   ],
   taxTreatments: ["unregistered", "registered", "exempt", "zero_rated"],
@@ -111,6 +117,8 @@ const successButton =
   "border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50"
 const input =
   "w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-transparent focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
+const inputError =
+  "!border-rose-400 !bg-rose-50/20 text-rose-900 focus-visible:!ring-rose-500/40"
 const chip =
   "inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-semibold ring-1"
 
@@ -235,6 +243,10 @@ function newBank(isPrimary = false) {
     swiftCode: "",
     iban: "",
     currency: "BDT",
+    beneficiaryName: "",
+    bicCode: "",
+    bankAddress: "",
+    bankCountry: "",
     isPrimary,
     isActive: true,
   }
@@ -262,6 +274,7 @@ function emptySupplierForm() {
     legalName: "",
     supplierType: "wholesaler",
     supplierScope: "local",
+    country: "Bangladesh",
     isPreferred: false,
     primaryEmail: "",
     primaryPhone: "",
@@ -322,6 +335,10 @@ function hydrateSupplierForm(supplier = {}) {
     legalName: supplier.legalName || "",
     supplierType: supplier.supplierType || "wholesaler",
     supplierScope: supplier.supplierScope || "local",
+    country:
+      supplier.country ||
+      supplier.addresses?.find((a) => a.isPrimary)?.country ||
+      "Bangladesh",
     isPreferred: Boolean(supplier.isPreferred),
     primaryEmail: supplier.primaryEmail || "",
     primaryPhone: supplier.primaryPhone || "",
@@ -496,15 +513,28 @@ function RequiredMark() {
   return <span className="ml-1 text-rose-500">*</span>
 }
 
-function Field({ label, children, hint, required = false }) {
+function Field({
+  label,
+  children,
+  hint,
+  required = false,
+  error = "",
+  id = "",
+  className = "",
+}) {
   return (
-    <div>
+    <div id={id || undefined} className={className || undefined}>
       <label className="mb-1.5 block text-sm font-semibold text-gray-800">
         {label}
         {required ? <RequiredMark /> : null}
       </label>
       {children}
-      {hint ? (
+      {error ? (
+        <p className="mt-1.5 flex items-center gap-1.5 text-xs font-semibold text-rose-600">
+          <Icon icon={Alert02Icon} className="h-3.5 w-3.5 shrink-0" />
+          <span>{error}</span>
+        </p>
+      ) : hint ? (
         <p className="mt-1 text-xs font-medium text-gray-500">
           {hint}
         </p>
@@ -658,9 +688,11 @@ function ScopeBadge({ value }) {
     <span
       className={cn(
         "inline-flex rounded-full px-3 py-1 text-xs font-black ring-1",
-        value === "international"
-          ? "bg-sky-50 text-sky-700 ring-sky-100"
-          : "bg-gray-100 text-gray-700 ring-gray-200"
+        value === "foreign"
+          ? "bg-purple-50 text-purple-700 ring-purple-100"
+          : value === "international"
+            ? "bg-sky-50 text-sky-700 ring-sky-100"
+            : "bg-gray-100 text-gray-700 ring-gray-200"
       )}
     >
       {pretty(value)}
@@ -838,6 +870,7 @@ export default function SupplierSetup() {
   const [formModal, setFormModal] = useState({ open: false, item: null })
   const [form, setForm] = useState(emptySupplierForm)
   const [formError, setFormError] = useState("")
+  const [fieldErrors, setFieldErrors] = useState({})
 
   const [detailsModal, setDetailsModal] = useState({
     open: false,
@@ -1072,12 +1105,14 @@ export default function SupplierSetup() {
   const openCreateModal = () => {
     setForm(emptySupplierForm())
     setFormError("")
+    setFieldErrors({})
     setFormModal({ open: true, item: null })
   }
 
   const openEditModal = async (supplier) => {
     setOpeningId(supplier._id)
     setFormError("")
+    setFieldErrors({})
     try {
       const data = await api(`/suppliers/${supplier._id}`)
       setForm(hydrateSupplierForm(data.supplier))
@@ -1094,6 +1129,7 @@ export default function SupplierSetup() {
     setFormModal({ open: false, item: null })
     setForm(emptySupplierForm())
     setFormError("")
+    setFieldErrors({})
   }
 
   const normalizePrimary = (items, clientId) =>
@@ -1109,6 +1145,48 @@ export default function SupplierSetup() {
         item.clientId === clientId ? { ...item, [key]: value } : item
       ),
     }))
+
+    if (field === "contactPersons") {
+      setFieldErrors((previous) => {
+        if (!previous || !Object.keys(previous).length) return previous
+        const contactIndex = form.contactPersons.findIndex(
+          (item) => item.clientId === clientId
+        )
+        if (contactIndex === -1) return previous
+        const next = { ...previous }
+        delete next[`contact_${contactIndex}_${key}`]
+        if (["email", "phone", "mobile"].includes(key) && clean(value)) {
+          delete next[`contact_${contactIndex}_group`]
+          delete next[`contact_${contactIndex}`]
+        }
+        if (key === "name" && clean(value)) {
+          delete next[`contact_${contactIndex}_name`]
+        }
+        return next
+      })
+    } else if (field === "bankAccounts") {
+      setFieldErrors((previous) => {
+        if (!previous || !Object.keys(previous).length) return previous
+        const bankIndex = form.bankAccounts.findIndex(
+          (item) => item.clientId === clientId
+        )
+        if (bankIndex === -1) return previous
+        const next = { ...previous }
+        delete next[`bank_${bankIndex}`]
+        return next
+      })
+    } else if (field === "documents") {
+      setFieldErrors((previous) => {
+        if (!previous || !Object.keys(previous).length) return previous
+        const docIndex = form.documents.findIndex(
+          (item) => item.clientId === clientId
+        )
+        if (docIndex === -1) return previous
+        const next = { ...previous }
+        delete next[`document_${docIndex}`]
+        return next
+      })
+    }
   }
 
   const setPrimaryItem = (field, clientId) => {
@@ -1142,6 +1220,7 @@ export default function SupplierSetup() {
       }
       return { ...previous, [field]: remaining }
     })
+    setFieldErrors({})
   }
 
   const changePaymentTerm = (paymentTermType) => {
@@ -1158,38 +1237,109 @@ export default function SupplierSetup() {
     }))
   }
 
+  const scrollToField = (fieldId) => {
+    if (!fieldId || typeof document === "undefined") return
+    setTimeout(() => {
+      let element = document.getElementById(fieldId)
+      if (!element && fieldId.endsWith("-group")) {
+        const cardId = fieldId.replace("-group", "")
+        element = document.getElementById(cardId)
+      }
+      if (element) {
+        element.scrollIntoView({ behavior: "smooth", block: "center" })
+        const targetInput =
+          element.querySelector(
+            "input:not([disabled]), select:not([disabled]), textarea:not([disabled])"
+          ) || element
+        if (typeof targetInput.focus === "function") {
+          try {
+            targetInput.focus({ preventScroll: true })
+          } catch {
+            targetInput.focus()
+          }
+        }
+      }
+    }, 80)
+  }
+
   const validateForm = () => {
-    if (!clean(form.code)) return "Supplier code is required."
+    const errors = {}
+    let firstKey = ""
+    let firstId = ""
+
+    const setErr = (key, id, msg) => {
+      if (!errors[key]) {
+        errors[key] = msg
+        if (!firstKey) {
+          firstKey = key
+          firstId = id
+        }
+      }
+    }
+
+    if (!clean(form.code)) {
+      setErr("code", "field-code", "Supplier code is required.")
+    }
     if (!clean(form.businessName)) {
-      return "Supplier business name is required."
+      setErr(
+        "businessName",
+        "field-businessName",
+        "Supplier business name is required."
+      )
+    }
+    if (
+      (form.supplierScope === "foreign" || form.supplierScope === "international") &&
+      !clean(form.country)
+    ) {
+      setErr(
+        "country",
+        "field-country",
+        "Country is required for foreign or international suppliers."
+      )
     }
     if (
       form.primaryEmail &&
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.primaryEmail)
     ) {
-      return "Primary email is invalid."
+      setErr("primaryEmail", "field-primaryEmail", "Primary email is invalid.")
     }
     if (form.website && !/^https?:\/\//i.test(form.website)) {
-      return "Website must start with http:// or https://."
+      setErr(
+        "website",
+        "field-website",
+        "Website must start with http:// or https://."
+      )
     }
 
     for (let index = 0; index < form.contactPersons.length; index += 1) {
       const contact = form.contactPersons[index]
       if (!clean(contact.name)) {
-        return `Contact ${index + 1} name is required.`
+        setErr(
+          `contact_${index}_name`,
+          `field-contact-${index}-name`,
+          `Contact ${index + 1} name is required.`
+        )
       }
       if (
         contact.email &&
         !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email)
       ) {
-        return `Contact ${index + 1} email is invalid.`
+        setErr(
+          `contact_${index}_email`,
+          `field-contact-${index}-email`,
+          `Contact ${index + 1} email is invalid.`
+        )
       }
       if (
         !clean(contact.email) &&
         !clean(contact.phone) &&
         !clean(contact.mobile)
       ) {
-        return `Contact ${index + 1} requires an email, phone, or mobile number.`
+        setErr(
+          `contact_${index}_group`,
+          `field-contact-${index}-group`,
+          `Contact ${index + 1} requires an email, phone, or mobile number.`
+        )
       }
     }
 
@@ -1206,7 +1356,11 @@ export default function SupplierSetup() {
           !clean(bank.accountName) ||
           !clean(bank.accountNumber))
       ) {
-        return `Bank account ${index + 1} requires bank name, account name, and account number.`
+        setErr(
+          `bank_${index}`,
+          `field-bank-${index}`,
+          `Bank account ${index + 1} requires bank name, account name, and account number.`
+        )
       }
     }
 
@@ -1222,43 +1376,76 @@ export default function SupplierSetup() {
       paymentDays < 0 ||
       paymentDays > 3650
     ) {
-      return "Payment term days must be a whole number between 0 and 3650."
+      setErr(
+        "procurement_paymentTermDays",
+        "field-paymentTermDays",
+        "Payment term days must be a whole number between 0 and 3650."
+      )
     }
     if (
       form.procurement.paymentTermType === "custom" &&
       paymentDays <= 0
     ) {
-      return "Custom payment terms require payment term days greater than zero."
+      setErr(
+        "procurement_paymentTermDays",
+        "field-paymentTermDays",
+        "Custom payment terms require payment term days greater than zero."
+      )
     }
     if (!Number.isFinite(creditLimit) || creditLimit < 0) {
-      return "Credit limit must be a valid non-negative number."
+      setErr(
+        "procurement_creditLimit",
+        "field-creditLimit",
+        "Credit limit must be a valid non-negative number."
+      )
     }
     if (!Number.isFinite(minimumOrderValue) || minimumOrderValue < 0) {
-      return "Minimum order value must be a valid non-negative number."
+      setErr(
+        "procurement_minimumOrderValue",
+        "field-minimumOrderValue",
+        "Minimum order value must be a valid non-negative number."
+      )
     }
     if (
       !Number.isInteger(leadTimeDays) ||
       leadTimeDays < 0 ||
       leadTimeDays > 3650
     ) {
-      return "Lead time must be a whole number between 0 and 3650."
+      setErr(
+        "procurement_leadTimeDays",
+        "field-leadTimeDays",
+        "Lead time must be a whole number between 0 and 3650."
+      )
     }
 
     for (let index = 0; index < form.documents.length; index += 1) {
       const document = form.documents[index]
       if (document.url && !/^https?:\/\//i.test(document.url)) {
-        return `Document ${index + 1} URL must start with http:// or https://.`
+        setErr(
+          `document_${index}`,
+          `field-document-${index}`,
+          `Document ${index + 1} URL must start with http:// or https://.`
+        )
       }
       if (
         document.issuedAt &&
         document.expiresAt &&
         new Date(document.expiresAt) < new Date(document.issuedAt)
       ) {
-        return `Document ${index + 1} expiry date cannot be before its issue date.`
+        setErr(
+          `document_${index}`,
+          `field-document-${index}`,
+          `Document ${index + 1} expiry date cannot be before its issue date.`
+        )
       }
     }
 
-    return ""
+    return {
+      isValid: Object.keys(errors).length === 0,
+      errors,
+      firstKey,
+      firstId,
+    }
   }
 
   const buildPayload = () => ({
@@ -1267,6 +1454,7 @@ export default function SupplierSetup() {
     legalName: clean(form.legalName),
     supplierType: form.supplierType,
     supplierScope: form.supplierScope,
+    country: clean(form.country),
     isPreferred: Boolean(form.isPreferred),
     primaryEmail: clean(form.primaryEmail).toLowerCase(),
     primaryPhone: clean(form.primaryPhone),
@@ -1302,9 +1490,18 @@ export default function SupplierSetup() {
     bankAccounts: form.bankAccounts.map(
       ({ clientId: _clientId, ...bank }) => ({
         ...bank,
+        bankName: clean(bank.bankName),
+        branchName: clean(bank.branchName),
+        accountName: clean(bank.accountName),
+        accountNumber: clean(bank.accountNumber),
+        routingNumber: clean(bank.routingNumber),
         currency: clean(bank.currency || "BDT").toUpperCase(),
         swiftCode: clean(bank.swiftCode).toUpperCase(),
+        bicCode: clean(bank.bicCode).toUpperCase(),
         iban: clean(bank.iban).toUpperCase(),
+        beneficiaryName: clean(bank.beneficiaryName),
+        bankAddress: clean(bank.bankAddress),
+        bankCountry: clean(bank.bankCountry),
       })
     ),
     documents: form.documents.map(
@@ -1329,9 +1526,14 @@ export default function SupplierSetup() {
   const saveSupplier = async (event) => {
     event.preventDefault()
     setFormError("")
+    setFieldErrors({})
 
-    const validationError = validateForm()
-    if (validationError) return setFormError(validationError)
+    const validation = validateForm()
+    if (!validation.isValid) {
+      setFieldErrors(validation.errors)
+      scrollToField(validation.firstId)
+      return
+    }
 
     setSaving(true)
     try {
@@ -1351,9 +1553,102 @@ export default function SupplierSetup() {
       setFormModal({ open: false, item: null })
       setForm(emptySupplierForm())
       setFormError("")
+      setFieldErrors({})
       await loadSuppliers()
     } catch (error) {
-      setFormError(error.message || "Failed to save supplier.")
+      const message = error.message || "Failed to save supplier."
+      const errorsList = Array.isArray(error.data?.errors)
+        ? error.data.errors
+        : [message]
+
+      const parsedErrors = {}
+      let firstScrollId = ""
+
+      for (const msg of errorsList) {
+        const contactReqMatch = msg.match(
+          /Contact (\d+) requires an email, phone, or mobile number/i
+        )
+        if (contactReqMatch) {
+          const idx = parseInt(contactReqMatch[1], 10) - 1
+          parsedErrors[`contact_${idx}_group`] = msg
+          if (!firstScrollId) firstScrollId = `field-contact-${idx}-group`
+          continue
+        }
+
+        const contactNameMatch = msg.match(/Contact (\d+) name is required/i)
+        if (contactNameMatch) {
+          const idx = parseInt(contactNameMatch[1], 10) - 1
+          parsedErrors[`contact_${idx}_name`] = msg
+          if (!firstScrollId) firstScrollId = `field-contact-${idx}-name`
+          continue
+        }
+
+        const contactEmailMatch = msg.match(/Contact (\d+) email is invalid/i)
+        if (contactEmailMatch) {
+          const idx = parseInt(contactEmailMatch[1], 10) - 1
+          parsedErrors[`contact_${idx}_email`] = msg
+          if (!firstScrollId) firstScrollId = `field-contact-${idx}-email`
+          continue
+        }
+
+        if (/primary supplier contact requires an email/i.test(msg)) {
+          const primaryIdx = Math.max(
+            0,
+            form.contactPersons.findIndex((c) => c.isPrimary)
+          )
+          parsedErrors[`contact_${primaryIdx}_group`] = msg
+          if (!firstScrollId) firstScrollId = `field-contact-${primaryIdx}-group`
+          continue
+        }
+
+        if (/Supplier code is required/i.test(msg)) {
+          parsedErrors.code = msg
+          if (!firstScrollId) firstScrollId = "field-code"
+          continue
+        }
+
+        if (/Supplier business name is required/i.test(msg)) {
+          parsedErrors.businessName = msg
+          if (!firstScrollId) firstScrollId = "field-businessName"
+          continue
+        }
+
+        if (/Primary email is invalid/i.test(msg)) {
+          parsedErrors.primaryEmail = msg
+          if (!firstScrollId) firstScrollId = "field-primaryEmail"
+          continue
+        }
+
+        if (/Website must start with/i.test(msg)) {
+          parsedErrors.website = msg
+          if (!firstScrollId) firstScrollId = "field-website"
+          continue
+        }
+
+        const bankMatch = msg.match(/Bank account (\d+) requires/i)
+        if (bankMatch) {
+          const idx = parseInt(bankMatch[1], 10) - 1
+          parsedErrors[`bank_${idx}`] = msg
+          if (!firstScrollId) firstScrollId = `field-bank-${idx}`
+          continue
+        }
+
+        const docMatch = msg.match(/Document (\d+)/i)
+        if (docMatch) {
+          const idx = parseInt(docMatch[1], 10) - 1
+          parsedErrors[`document_${idx}`] = msg
+          if (!firstScrollId) firstScrollId = `field-document-${idx}`
+          continue
+        }
+      }
+
+      if (Object.keys(parsedErrors).length > 0) {
+        setFieldErrors(parsedErrors)
+        setFormError("")
+        scrollToField(firstScrollId)
+      } else {
+        setFormError(message)
+      }
     } finally {
       setSaving(false)
     }
@@ -1923,6 +2218,8 @@ export default function SupplierSetup() {
         setForm={setForm}
         meta={meta}
         error={formError}
+        fieldErrors={fieldErrors}
+        setFieldErrors={setFieldErrors}
         saving={saving}
         onClose={closeFormModal}
         onSubmit={saveSupplier}
@@ -2286,7 +2583,7 @@ function SupplierList({
                       <p className="min-w-[180px] truncate text-sm font-semibold text-gray-800">{supplier.primaryEmail || "—"}</p>
                       <p className="mt-0.5 truncate text-xs font-medium text-gray-500">{supplier.primaryPhone || "—"}</p>
                     </td>
-                    <td className={cn("border-b border-gray-100 px-5 py-3 text-sm font-medium text-gray-700 transition", selected ? "bg-indigo-50/80" : "bg-white group-hover:bg-indigo-50/40")}>{address?.city || address?.country || "—"}</td>
+                    <td className={cn("border-b border-gray-100 px-5 py-3 text-sm font-medium text-gray-700 transition", selected ? "bg-indigo-50/80" : "bg-white group-hover:bg-indigo-50/40")}>{[address?.city, supplier.country || address?.country].filter(Boolean).join(", ") || "—"}</td>
                     <td className={cn("border-b border-gray-100 px-5 py-3 transition", selected ? "bg-indigo-50/80" : "bg-white group-hover:bg-indigo-50/40")}>
                       <p className="min-w-[140px] text-sm font-semibold text-gray-800">{pretty(supplier.procurement?.paymentTermType || "immediate")}</p>
                       <p className="mt-0.5 text-xs font-medium text-gray-500">{supplier.procurement?.paymentTermDays || 0} days</p>
@@ -2419,7 +2716,7 @@ function SupplierMobileCard(props) {
 
           <div className="mt-3 grid grid-cols-2 gap-3 rounded-xl bg-white/80 p-3 text-xs ring-1 ring-gray-100">
             <MiniValue label="Contact" value={supplier.primaryPhone || supplier.primaryEmail || "—"} />
-            <MiniValue label="Location" value={address?.city || address?.country || "—"} />
+            <MiniValue label="Location" value={[address?.city, supplier.country || address?.country].filter(Boolean).join(", ") || "—"} />
             <MiniValue label="Terms" value={`${pretty(supplier.procurement?.paymentTermType || "immediate")} · ${supplier.procurement?.paymentTermDays || 0}d`} />
             <MiniValue label="Credit" value={formatMoney(supplier.procurement?.creditLimit, supplier.procurement?.currency)} />
           </div>
@@ -2612,6 +2909,8 @@ function SupplierFormModal({
   setForm,
   meta,
   error,
+  fieldErrors = {},
+  setFieldErrors,
   saving,
   onClose,
   onSubmit,
@@ -2621,6 +2920,16 @@ function SupplierFormModal({
   onRemoveArray,
   onPaymentTermChange,
 }) {
+  const clearFieldError = (key) => {
+    if (!fieldErrors || !fieldErrors[key]) return
+    setFieldErrors?.((previous) => {
+      if (!previous?.[key]) return previous
+      const next = { ...previous }
+      delete next[key]
+      return next
+    })
+  }
+
   return (
     <ModalShell
       open={state.open}
@@ -2667,44 +2976,56 @@ function SupplierFormModal({
         </div>
       }
     >
-      {error ? (
+      {error && !Object.keys(fieldErrors).length ? (
         <div className="mb-4 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">
           <Icon icon={Alert02Icon} className="mt-0.5 h-4 w-4" />
           <span>{error}</span>
         </div>
       ) : null}
 
-      <form id="supplier-form" onSubmit={onSubmit}>
+      <form id="supplier-form" onSubmit={onSubmit} noValidate>
         <div className="space-y-4">
           <SectionCard
             title="Supplier identity"
           >
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-              <Field label="Supplier Code" required>
+              <Field
+                id="field-code"
+                label="Supplier Code"
+                required
+                error={fieldErrors.code}
+              >
                 <FocusPlaceholderInput
-                  className={input}
+                  className={cn(input, fieldErrors.code && inputError)}
                   value={form.code}
-                  onChange={(event) =>
+                  onChange={(event) => {
                     setForm((previous) => ({
                       ...previous,
                       code: event.target.value.toUpperCase(),
                     }))
-                  }
+                    clearFieldError("code")
+                  }}
                   placeholder="Example: SUP-0001"
                   maxLength={60}
                   required
                 />
               </Field>
-              <Field label="Business Name" required>
+              <Field
+                id="field-businessName"
+                label="Business Name"
+                required
+                error={fieldErrors.businessName}
+              >
                 <FocusPlaceholderInput
-                  className={input}
+                  className={cn(input, fieldErrors.businessName && inputError)}
                   value={form.businessName}
-                  onChange={(event) =>
+                  onChange={(event) => {
                     setForm((previous) => ({
                       ...previous,
                       businessName: event.target.value,
                     }))
-                  }
+                    clearFieldError("businessName")
+                  }}
                   placeholder="Example: ABC Traders"
                   maxLength={180}
                   required
@@ -2746,12 +3067,18 @@ function SupplierFormModal({
                 <select
                   className={input}
                   value={form.supplierScope}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const newScope = event.target.value
                     setForm((previous) => ({
                       ...previous,
-                      supplierScope: event.target.value,
+                      supplierScope: newScope,
+                      country:
+                        newScope === "local" && (!previous.country || previous.country === "")
+                          ? "Bangladesh"
+                          : previous.country,
                     }))
-                  }
+                    clearFieldError("country")
+                  }}
                 >
                   {meta.supplierScopes.map((scope) => (
                     <option key={scope} value={scope}>
@@ -2760,17 +3087,45 @@ function SupplierFormModal({
                   ))}
                 </select>
               </Field>
-              <Field label="Primary Email">
+              <Field
+                id="field-country"
+                label="Country"
+                required={
+                  form.supplierScope === "foreign" ||
+                  form.supplierScope === "international"
+                }
+                error={fieldErrors.country}
+              >
                 <FocusPlaceholderInput
-                  className={input}
+                  className={cn(input, fieldErrors.country && inputError)}
+                  value={form.country}
+                  onChange={(event) => {
+                    setForm((previous) => ({
+                      ...previous,
+                      country: event.target.value,
+                    }))
+                    clearFieldError("country")
+                  }}
+                  placeholder="e.g. Bangladesh, China, Germany"
+                  maxLength={120}
+                />
+              </Field>
+              <Field
+                id="field-primaryEmail"
+                label="Primary Email"
+                error={fieldErrors.primaryEmail}
+              >
+                <FocusPlaceholderInput
+                  className={cn(input, fieldErrors.primaryEmail && inputError)}
                   type="email"
                   value={form.primaryEmail}
-                  onChange={(event) =>
+                  onChange={(event) => {
                     setForm((previous) => ({
                       ...previous,
                       primaryEmail: event.target.value,
                     }))
-                  }
+                    clearFieldError("primaryEmail")
+                  }}
                   placeholder="supplier@example.com"
                   maxLength={180}
                 />
@@ -2790,17 +3145,22 @@ function SupplierFormModal({
                   maxLength={60}
                 />
               </Field>
-              <Field label="Website">
+              <Field
+                id="field-website"
+                label="Website"
+                error={fieldErrors.website}
+              >
                 <FocusPlaceholderInput
-                  className={input}
+                  className={cn(input, fieldErrors.website && inputError)}
                   type="url"
                   value={form.website}
-                  onChange={(event) =>
+                  onChange={(event) => {
                     setForm((previous) => ({
                       ...previous,
                       website: event.target.value,
                     }))
-                  }
+                    clearFieldError("website")
+                  }}
                   placeholder="https://example.com"
                   maxLength={500}
                 />
@@ -2852,6 +3212,7 @@ function SupplierFormModal({
                   key={contact.clientId}
                   contact={contact}
                   index={index}
+                  errors={fieldErrors}
                   onChange={(key, value) =>
                     onUpdateArray(
                       "contactPersons",
@@ -2953,15 +3314,22 @@ function SupplierFormModal({
                     ))}
                   </select>
                 </Field>
-                <Field label="Payment Term Days">
+                <Field
+                  id="field-paymentTermDays"
+                  label="Payment Term Days"
+                  error={fieldErrors.procurement_paymentTermDays}
+                >
                   <FocusPlaceholderInput
-                    className={input}
+                    className={cn(
+                      input,
+                      fieldErrors.procurement_paymentTermDays && inputError
+                    )}
                     type="number"
                     min="0"
                     max="3650"
                     step="1"
                     value={form.procurement.paymentTermDays}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setForm((previous) => ({
                         ...previous,
                         procurement: {
@@ -2969,21 +3337,29 @@ function SupplierFormModal({
                           paymentTermDays: event.target.value,
                         },
                       }))
-                    }
+                      clearFieldError("procurement_paymentTermDays")
+                    }}
                     placeholder="Example: 30"
                     disabled={
                       form.procurement.paymentTermType !== "custom"
                     }
                   />
                 </Field>
-                <Field label="Credit Limit">
+                <Field
+                  id="field-creditLimit"
+                  label="Credit Limit"
+                  error={fieldErrors.procurement_creditLimit}
+                >
                   <FocusPlaceholderInput
-                    className={input}
+                    className={cn(
+                      input,
+                      fieldErrors.procurement_creditLimit && inputError
+                    )}
                     type="number"
                     min="0"
                     step="0.01"
                     value={form.procurement.creditLimit}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setForm((previous) => ({
                         ...previous,
                         procurement: {
@@ -2991,18 +3367,26 @@ function SupplierFormModal({
                           creditLimit: event.target.value,
                         },
                       }))
-                    }
+                      clearFieldError("procurement_creditLimit")
+                    }}
                     placeholder="Example: 100000"
                   />
                 </Field>
-                <Field label="Minimum Order Value">
+                <Field
+                  id="field-minimumOrderValue"
+                  label="Minimum Order Value"
+                  error={fieldErrors.procurement_minimumOrderValue}
+                >
                   <FocusPlaceholderInput
-                    className={input}
+                    className={cn(
+                      input,
+                      fieldErrors.procurement_minimumOrderValue && inputError
+                    )}
                     type="number"
                     min="0"
                     step="0.01"
                     value={form.procurement.minimumOrderValue}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setForm((previous) => ({
                         ...previous,
                         procurement: {
@@ -3010,19 +3394,27 @@ function SupplierFormModal({
                           minimumOrderValue: event.target.value,
                         },
                       }))
-                    }
+                      clearFieldError("procurement_minimumOrderValue")
+                    }}
                     placeholder="Example: 5000"
                   />
                 </Field>
-                <Field label="Lead Time Days">
+                <Field
+                  id="field-leadTimeDays"
+                  label="Lead Time Days"
+                  error={fieldErrors.procurement_leadTimeDays}
+                >
                   <FocusPlaceholderInput
-                    className={input}
+                    className={cn(
+                      input,
+                      fieldErrors.procurement_leadTimeDays && inputError
+                    )}
                     type="number"
                     min="0"
                     max="3650"
                     step="1"
                     value={form.procurement.leadTimeDays}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setForm((previous) => ({
                         ...previous,
                         procurement: {
@@ -3030,7 +3422,8 @@ function SupplierFormModal({
                           leadTimeDays: event.target.value,
                         },
                       }))
-                    }
+                      clearFieldError("procurement_leadTimeDays")
+                    }}
                     placeholder="Example: 7"
                   />
                 </Field>
@@ -3192,6 +3585,7 @@ function SupplierFormModal({
                     key={bank.clientId}
                     bank={bank}
                     index={index}
+                    errors={fieldErrors}
                     onChange={(key, value) =>
                       onUpdateArray(
                         "bankAccounts",
@@ -3236,6 +3630,7 @@ function SupplierFormModal({
                     key={document.clientId}
                     document={document}
                     index={index}
+                    errors={fieldErrors}
                     documentTypes={meta.documentTypes}
                     onChange={(key, value) =>
                       onUpdateArray(
@@ -3296,19 +3691,55 @@ function SupplierFormModal({
   )
 }
 
-function ContactEditor({ contact, index, onChange, onPrimary, onRemove }) {
+function ContactEditor({
+  contact,
+  index,
+  errors = {},
+  onChange,
+  onPrimary,
+  onRemove,
+}) {
+  const nameError = errors[`contact_${index}_name`] || ""
+  const emailError = errors[`contact_${index}_email`] || ""
+  const phoneError = errors[`contact_${index}_phone`] || ""
+  const mobileError = errors[`contact_${index}_mobile`] || ""
+  const groupError =
+    errors[`contact_${index}_group`] ||
+    errors[`contact_${index}`] ||
+    ""
+
   return (
-    <article className="rounded-2xl border border-gray-200 bg-white p-4">
+    <article
+      id={`field-contact-${index}`}
+      className={cn(
+        "rounded-2xl border bg-white p-4 transition-all duration-200",
+        groupError ? "border-rose-300 ring-2 ring-rose-200/50" : "border-gray-200"
+      )}
+    >
       <EditorHeader
         title={`Contact ${index + 1}`}
         primary={contact.isPrimary}
         onPrimary={onPrimary}
         onRemove={onRemove}
       />
+      {groupError ? (
+        <div
+          id={`field-contact-${index}-group`}
+          className="mb-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-xs font-semibold text-rose-700"
+        >
+          <Icon icon={Alert02Icon} className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+          <span>{groupError}</span>
+        </div>
+      ) : null}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Field label="Name" required>
+        <Field
+          id={`field-contact-${index}-name`}
+          label="Name"
+          required
+          error={nameError}
+        >
           <FocusPlaceholderInput
-            className={input}
+            className={cn(input, nameError && inputError)}
             value={contact.name}
             onChange={(event) => onChange("name", event.target.value)}
             placeholder="Contact person name"
@@ -3338,9 +3769,14 @@ function ContactEditor({ contact, index, onChange, onPrimary, onRemove }) {
             maxLength={120}
           />
         </Field>
-        <Field label="Email">
+        <Field
+          id={`field-contact-${index}-email`}
+          label="Email"
+          required
+          error={emailError}
+        >
           <FocusPlaceholderInput
-            className={input}
+            className={cn(input, (emailError || groupError) && inputError)}
             type="email"
             value={contact.email}
             onChange={(event) => onChange("email", event.target.value)}
@@ -3348,18 +3784,28 @@ function ContactEditor({ contact, index, onChange, onPrimary, onRemove }) {
             maxLength={180}
           />
         </Field>
-        <Field label="Phone">
+        <Field
+          id={`field-contact-${index}-phone`}
+          label="Phone"
+          required
+          error={phoneError}
+        >
           <FocusPlaceholderInput
-            className={input}
+            className={cn(input, (phoneError || groupError) && inputError)}
             value={contact.phone}
             onChange={(event) => onChange("phone", event.target.value)}
             placeholder="Office phone"
             maxLength={60}
           />
         </Field>
-        <Field label="Mobile">
+        <Field
+          id={`field-contact-${index}-mobile`}
+          label="Mobile"
+          required
+          error={mobileError}
+        >
           <FocusPlaceholderInput
-            className={input}
+            className={cn(input, (mobileError || groupError) && inputError)}
             value={contact.mobile}
             onChange={(event) => onChange("mobile", event.target.value)}
             placeholder="Mobile number"
@@ -3500,34 +3946,51 @@ function AddressEditor({
   )
 }
 
-function BankEditor({ bank, index, onChange, onPrimary, onRemove }) {
+function BankEditor({ bank, index, errors = {}, onChange, onPrimary, onRemove }) {
+  const bankError = errors[`bank_${index}`] || ""
   return (
-    <article className="rounded-2xl border border-gray-200 bg-white p-4">
+    <article
+      id={`field-bank-${index}`}
+      className={cn(
+        "rounded-2xl border bg-white p-4 transition-all duration-200",
+        bankError ? "border-rose-300 ring-2 ring-rose-200/50" : "border-gray-200"
+      )}
+    >
       <EditorHeader
         title={`Bank Account ${index + 1}`}
         primary={bank.isPrimary}
         onPrimary={onPrimary}
         onRemove={onRemove}
       />
+      {bankError ? (
+        <div className="mb-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-xs font-semibold text-rose-700">
+          <Icon icon={Alert02Icon} className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+          <span>{bankError}</span>
+        </div>
+      ) : null}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {[
           ["Bank Name", "bankName", "Example: BRAC Bank"],
           ["Branch Name", "branchName", "Example: Gulshan"],
           ["Account Name", "accountName", "Account holder name"],
+          ["Beneficiary Name", "beneficiaryName", "Beneficiary name if different"],
           ["Account Number", "accountNumber", "Account number"],
           ["Routing Number", "routingNumber", "Routing number"],
           ["SWIFT Code", "swiftCode", "SWIFT code"],
+          ["BIC Code", "bicCode", "Bank Identifier Code (BIC)"],
           ["IBAN", "iban", "IBAN"],
-          ["Currency", "currency", "Example: BDT"],
+          ["Currency", "currency", "Example: BDT, USD, EUR"],
+          ["Bank Country", "bankCountry", "e.g. Bangladesh, China, Germany"],
+          ["Bank Address", "bankAddress", "Bank address / city"],
         ].map(([label, key, placeholder]) => (
           <Field key={key} label={label}>
             <FocusPlaceholderInput
               className={input}
-              value={bank[key]}
+              value={bank[key] || ""}
               onChange={(event) =>
                 onChange(
                   key,
-                  ["swiftCode", "iban", "currency"].includes(key)
+                  ["swiftCode", "bicCode", "iban", "currency"].includes(key)
                     ? event.target.value.toUpperCase()
                     : event.target.value
                 )
@@ -3549,17 +4012,31 @@ function BankEditor({ bank, index, onChange, onPrimary, onRemove }) {
 function DocumentEditor({
   document,
   index,
+  errors = {},
   documentTypes,
   onChange,
   onRemove,
 }) {
+  const docError = errors[`document_${index}`] || ""
   return (
-    <article className="rounded-2xl border border-gray-200 bg-white p-4">
+    <article
+      id={`field-document-${index}`}
+      className={cn(
+        "rounded-2xl border bg-white p-4 transition-all duration-200",
+        docError ? "border-rose-300 ring-2 ring-rose-200/50" : "border-gray-200"
+      )}
+    >
       <EditorHeader
         title={`Document ${index + 1}`}
         primary={false}
         onRemove={onRemove}
       />
+      {docError ? (
+        <div className="mb-3 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-xs font-semibold text-rose-700">
+          <Icon icon={Alert02Icon} className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+          <span>{docError}</span>
+        </div>
+      ) : null}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Field label="Document Type">
           <select
@@ -3804,6 +4281,7 @@ function SupplierOverview({ supplier, stats }) {
             <DetailRow label="Legal name" value={supplier.legalName || "-"} />
             <DetailRow label="Type" value={<TypeBadge value={supplier.supplierType} />} />
             <DetailRow label="Scope" value={<ScopeBadge value={supplier.supplierScope} />} />
+            <DetailRow label="Country" value={supplier.country || supplier.addresses?.find((a) => a.isPrimary)?.country || "Bangladesh"} />
             <DetailRow label="Preferred" value={supplier.isPreferred ? "Yes" : "No"} />
             <DetailRow label="Email" value={supplier.primaryEmail || "-"} />
             <DetailRow label="Phone" value={supplier.primaryPhone || "-"} />
@@ -3963,10 +4441,44 @@ function SupplierFinancial({ supplier }) {
                 </div>
                 <p className="mt-3 text-sm font-black text-gray-700">
                   {bank.accountName || "-"}
+                  {bank.beneficiaryName && bank.beneficiaryName !== bank.accountName ? (
+                    <span className="ml-1.5 text-xs font-normal text-gray-500">
+                      (Beneficiary: {bank.beneficiaryName})
+                    </span>
+                  ) : null}
                 </p>
                 <p className="mt-1 text-sm font-semibold text-gray-600">
                   {bank.accountNumber || "-"} · {bank.currency || "BDT"}
                 </p>
+                {(bank.swiftCode || bank.bicCode || bank.iban || bank.routingNumber) ? (
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
+                    {bank.swiftCode ? (
+                      <span>
+                        SWIFT: <strong className="font-semibold text-gray-700">{bank.swiftCode}</strong>
+                      </span>
+                    ) : null}
+                    {bank.bicCode ? (
+                      <span>
+                        BIC: <strong className="font-semibold text-gray-700">{bank.bicCode}</strong>
+                      </span>
+                    ) : null}
+                    {bank.iban ? (
+                      <span>
+                        IBAN: <strong className="font-semibold text-gray-700">{bank.iban}</strong>
+                      </span>
+                    ) : null}
+                    {bank.routingNumber ? (
+                      <span>
+                        Routing: <strong className="font-semibold text-gray-700">{bank.routingNumber}</strong>
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+                {(bank.bankCountry || bank.bankAddress) ? (
+                  <p className="mt-1.5 text-xs text-gray-500">
+                    {[bank.bankAddress, bank.bankCountry].filter(Boolean).join(", ")}
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>

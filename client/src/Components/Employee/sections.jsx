@@ -137,6 +137,13 @@ export const sections = {
     permission: PERMISSIONS.PURCHASE_RETURN_VIEW,
   },
 
+  "Quick Purchase": adminSections["Quick Purchase"],
+  "Purchase Operations": adminSections["Purchase Operations"],
+  "Purchase Order Management": adminSections["Purchase Order Management"],
+  "Import & Commercial LC": adminSections["Import & Commercial LC"],
+  "Price Analysis": adminSections["Price Analysis"],
+  "Purchase Reports": adminSections["Purchase Reports"],
+
   "Sales Quotations": { icon: <FaClipboardList className="w-5 h-5" />, component: <SalesPage kind="quotations" />, permission: PERMISSIONS.SALES_QUOTATION_VIEW },
   "Sales Orders": { icon: <FiCreditCard className="w-5 h-5" />, component: <SalesPage kind="orders" />, permission: PERMISSIONS.SALES_ORDER_VIEW },
   Deliveries: { icon: <FiPackage className="w-5 h-5" />, component: <SalesPage kind="deliveries" />, permission: PERMISSIONS.SALES_DELIVERY_VIEW },

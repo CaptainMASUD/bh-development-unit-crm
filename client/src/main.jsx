@@ -14,7 +14,8 @@ import EmployeeDashboard from './Components/Employee/Dashboard';
 import { installSessionExpiryInterceptors } from './Components/Auth/sessionEvents';
 import OdooStyleModulesPage from './Components/MainPage/MianPage';
 import AccountingCurvedTopBar from './Components/CurvedTopBar/CurvedTopBar';
-
+import Register from './Components/Register/Register';
+import RegisterSuperAdmin from './Components/Auth/RegisterSuperAdmin';
 
 installSessionExpiryInterceptors();
 
@@ -33,6 +34,12 @@ const router = createBrowserRouter([
       { path: 'crm', element: <Navigate to="/login" replace /> },
       { path: 'module', element: <OdooStyleModulesPage /> },
       { path: 't', element: <AccountingCurvedTopBar /> },
+      { path: 'register', element: <RegisterSuperAdmin /> },
+      { path: 'register-superadmin', element: <RegisterSuperAdmin /> },
+      { path: 'superadmin-register', element: <RegisterSuperAdmin /> },
+      { path: 'superadmin/register', element: <RegisterSuperAdmin /> },
+      { path: 'legacy-register', element: <Register /> },
+
   
       
     ],

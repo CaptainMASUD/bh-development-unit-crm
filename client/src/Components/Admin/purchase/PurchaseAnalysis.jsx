@@ -7,6 +7,8 @@ import toast, { Toaster } from "react-hot-toast"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Alert02Icon,
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
   Cancel01Icon,
   FilterIcon,
   FolderLibraryIcon,
@@ -73,16 +75,13 @@ function relationLabel(item, fallback = "-") {
   return `${name}${code ? ` (${code})` : ""}`
 }
 
-async function api(path) {
+async function api(path, options = {}) {
   const token = localStorage.getItem("token")
 
   const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
     credentials: "include",
-    headers: token
-      ? {
-          Authorization: `Bearer ${token}`,
-        }
-      : {},
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers },
   })
 
   const data = await response.json().catch(() => ({}))
@@ -557,8 +556,11 @@ function DetailsModal({ item, open, onClose }) {
                 ["Supplier", relationLabel(item.selectedSupplier, "-")],
                 ["Actual Demand", formatNumber(item.actualDemand)],
                 ["Final Quantity", formatNumber(item.finalQuantity)],
+                ["Catalogue Unit Price", formatNumber(item.catalogueUnitPrice)],
+                ["Purchase Unit Price", formatNumber(item.purchaseUnitPrice)],
                 ["Net Amount", formatNumber(item.netAmount)],
                 ["Status", pretty(item.status)],
+                ["Recommendation", item.note || "-"],
               ].map(([label, value]) => (
                 <div key={label}>
                   <p className="text-xs font-bold text-gray-400">{label}</p>
@@ -663,14 +665,28 @@ export default function PurchaseAnalysis() {
   const [supplier, setSupplier] = useState("all")
   const [filterOpen, setFilterOpen] = useState(false)
   const [details, setDetails] = useState({ open: false, item: null })
+  const [saving, setSaving] = useState(false)
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [limit] = useState(25)
 
-  const load = useCallback(async ({ showToast = false } = {}) => {
+  const load = useCallback(async ({ showToast = false, targetPage = 1 } = {}) => {
     setLoading(true)
     setError("")
 
     try {
-      const data = await api(ENDPOINT)
+      const params = new URLSearchParams()
+      params.set("page", String(targetPage))
+      params.set("limit", String(limit))
+      if (supplier && supplier !== "all") params.set("supplier", supplier)
+      if (clean(query)) params.set("q", clean(query))
+
+      const data = await api(`${ENDPOINT}?${params.toString()}`)
       setRows(Array.isArray(data?.items) ? data.items : [])
+      setTotal(Number(data?.total) || 0)
+      setTotalPages(Number(data?.totalPages) || 1)
+      setPage(Number(data?.page) || targetPage)
 
       if (showToast) {
         toast.success("Purchase analysis refreshed")
@@ -682,11 +698,46 @@ export default function PurchaseAnalysis() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [limit, supplier, query])
 
   useEffect(() => {
     load()
   }, [load])
+
+  const createDraft = async () => {
+    try {
+      setSaving(true)
+      const data = await api(`${ENDPOINT}/options`)
+      const choices = data?.requests || []
+      if (!choices.length) throw new Error("No approved Purchase Request is available for analysis.")
+      const selected = window.prompt(`Select request number:\n${choices.map((item, index) => `${index + 1}. ${item.requestReference} — ${item.product?.name || "Product"}`).join("\n")}`, "1")
+      if (!selected) return
+      const request = choices[Number(selected) - 1]
+      if (!request) throw new Error("Select a valid request number.")
+      const note = window.prompt("Analysis note / recommendation", "") || ""
+      await api(ENDPOINT, { method: "POST", body: JSON.stringify({ request: request._id, finalQuantity: request.approvedQuantity, note }) })
+      toast.success("Purchase Analysis draft created")
+      await load()
+    } catch (actionError) { toast.error(actionError.message) } finally { setSaving(false) }
+  }
+
+  const complete = async (item) => {
+    try {
+      setSaving(true)
+      const offersData = await api(`/purchase/workflow/supplier-offers/${normalizeId(item.product)}?quantity=${item.finalQuantity}`)
+      const offers = offersData?.items || []
+      if (!offers.length) throw new Error("No active Supplier Catalogue offer is available.")
+      const selected = window.prompt(`Select supplier offer:\n${offers.map((offer, index) => `${index + 1}. ${relationLabel(offer.supplier)} — ${formatNumber(offer.unitPrice)}`).join("\n")}`, "1")
+      if (!selected) return
+      const offer = offers[Number(selected) - 1]
+      if (!offer) throw new Error("Select a valid supplier offer.")
+      if (!window.confirm("Complete this Purchase Analysis with the selected supplier?")) return
+      const note = window.prompt("Final recommendation", item.note || "") || ""
+      await api(`${ENDPOINT}/${item._id}/complete`, { method: "POST", body: JSON.stringify({ supplierProduct: offer._id, finalQuantity: item.finalQuantity, unitPrice: offer.unitPrice, discountPercent: offer.discountPercent, note }) })
+      toast.success("Purchase Analysis completed")
+      await load()
+    } catch (actionError) { toast.error(actionError.message) } finally { setSaving(false) }
+  }
 
 
   const suppliers = useMemo(() => {
@@ -791,7 +842,7 @@ export default function PurchaseAnalysis() {
             </div>
           </div>
 
-          <button
+          <div className="flex gap-2"><button type="button" className={cn(button, primaryButton)} onClick={createDraft} disabled={saving}>New Analysis</button><button
             type="button"
             className={cn(button, ghostButton)}
             onClick={() => load({ showToast: true })}
@@ -803,7 +854,7 @@ export default function PurchaseAnalysis() {
               <Icon icon={RefreshIcon} className="h-4 w-4" />
             )}
             Refresh
-          </button>
+          </button></div>
         </div>
 
         <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -940,7 +991,8 @@ export default function PurchaseAnalysis() {
                     </td>
 
                     <td className="sticky right-0 bg-white px-5 py-4 shadow-[-16px_0_24px_-24px_rgba(15,23,42,0.7)] group-hover:bg-gray-50/70">
-                      <div className="flex justify-end">
+                      <div className="flex justify-end gap-2">
+                        {item.status === "pending" ? <button type="button" className={cn(button, primaryButton, "h-10 px-3")} onClick={() => complete(item)} disabled={saving}>Complete</button> : null}
                         <button
                           type="button"
                           className={cn(button, ghostButton, "h-10 px-3")}
@@ -1062,11 +1114,40 @@ export default function PurchaseAnalysis() {
           )}
         </div>
 
-        <div className="flex flex-col gap-2 border-t border-gray-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-xs font-semibold text-gray-500">
-            {filtered.length} record{filtered.length === 1 ? "" : "s"} shown
+        <div className="flex flex-col gap-3 border-t border-gray-100 bg-gray-50/50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between text-xs font-semibold text-gray-600">
+          <p>
+            Showing {rows.length} of {total} analysis record{total === 1 ? "" : "s"} {totalPages > 1 ? `· Page ${page} of ${totalPages}` : ""}
           </p>
-          {filtered.length ? (
+          {totalPages > 1 ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className={cn(button, ghostButton, "h-8 px-3 text-xs")}
+                disabled={page <= 1 || loading}
+                onClick={() => {
+                  const prev = Math.max(page - 1, 1)
+                  setPage(prev)
+                  load({ targetPage: prev })
+                }}
+              >
+                <Icon icon={ArrowLeft01Icon} className="h-3.5 w-3.5" />
+                Previous
+              </button>
+              <button
+                type="button"
+                className={cn(button, ghostButton, "h-8 px-3 text-xs")}
+                disabled={page >= totalPages || loading}
+                onClick={() => {
+                  const next = Math.min(page + 1, totalPages)
+                  setPage(next)
+                  load({ targetPage: next })
+                }}
+              >
+                Next
+                <Icon icon={ArrowRight01Icon} className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : filtered.length ? (
             <span className="text-xs font-semibold text-gray-400">
               Purchase Management · Purchase Analysis
             </span>

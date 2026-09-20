@@ -31,6 +31,7 @@ test("legacy defaults are a fixed compatibility snapshot", () => {
 test("permission catalogs exclude disabled modules", () => {
   const catalog = permissionsForModules(PERMISSION_KEYS, ["purchase"]);
   assert.ok(catalog.includes("purchase-order:view"));
+  assert.ok(catalog.includes("commercial-lc:view"));
   assert.ok(catalog.includes("company:view"));
   assert.ok(!catalog.includes("inventory-product:view"));
   assert.ok(!catalog.includes("customers:view"));

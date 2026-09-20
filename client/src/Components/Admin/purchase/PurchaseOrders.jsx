@@ -14,6 +14,7 @@ import {
   FilterIcon,
   FloppyDiskIcon,
   FolderLibraryIcon,
+  PrinterIcon,
   RefreshIcon,
   RestoreBinIcon,
   Search01Icon,
@@ -21,6 +22,7 @@ import {
   ViewIcon,
 } from "@hugeicons/core-free-icons"
 import { hasPermission, PERMISSIONS } from "../../Auth/permissions"
+import PurchaseOrderPrint from "./PurchaseOrderPrint"
 
 const API_BASE = `${import.meta.env.VITE_API_URL}/api`
 
@@ -46,6 +48,8 @@ const FALLBACK_META = {
   openStatuses: ["approved", "partially_received"],
   discountTypes: ["none", "percent", "fixed"],
   taxTypes: ["none", "exclusive", "inclusive"],
+  tradeTypes: ["local", "import"],
+  importStatuses: ["not_applicable", "lc_pending", "lc_open", "shipped", "customs_clearance", "goods_received", "settled", "closed"],
 }
 
 
@@ -212,6 +216,7 @@ function emptyForm() {
   return {
     orderDate: todayInput(),
     expectedDeliveryDate: "",
+    tradeType: "local",
     supplier: "",
     supplierQuotationRef: "",
     supplierReference: "",
@@ -529,6 +534,22 @@ function HeaderSearchFilters({
           />
         ) : null}
 
+        {filters.tradeType !== "all" ? (
+          <FilterChip
+            label="Trade"
+            value={pretty(filters.tradeType)}
+            onClear={() => updateFilter("tradeType", "all")}
+          />
+        ) : null}
+
+        {filters.importStatus !== "all" ? (
+          <FilterChip
+            label="Import"
+            value={pretty(filters.importStatus)}
+            onClear={() => updateFilter("importStatus", "all")}
+          />
+        ) : null}
+
         {filters.supplier !== "all" ? (
           <FilterChip
             label="Supplier"
@@ -702,6 +723,7 @@ function PurchaseOrderActions({
   onCloseOrder,
   onReceipt,
   onDelete,
+  onPrint,
   mobile = false,
 }) {
   const [open, setOpen] = useState(false)
@@ -747,7 +769,14 @@ function PurchaseOrderActions({
     setOpen((previous) => !previous)
   }
 
-  const menuItems = []
+  const menuItems = [
+    {
+      key: "print",
+      label: "Print / PDF",
+      icon: PrinterIcon,
+      onClick: () => onPrint?.(order),
+    },
+  ]
 
   if (canManage && meta.editableStatuses.includes(order.status)) {
     menuItems.push({
@@ -939,6 +968,7 @@ function PurchaseOrderList({
   onCloseOrder,
   onReceipt,
   onDelete,
+  onPrint,
   onLoadMore,
 }) {
   const actionProps = {
@@ -956,6 +986,7 @@ function PurchaseOrderList({
     onCloseOrder,
     onReceipt,
     onDelete,
+    onPrint,
   }
 
   return (
@@ -999,6 +1030,10 @@ function PurchaseOrderList({
                       <p className="mt-1 text-xs font-medium text-gray-500">
                         {formatDate(order.orderDate)}
                       </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <span className={cn("rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wide", order.tradeType === "import" ? "bg-blue-50 text-blue-700" : "bg-gray-100 text-gray-600")}>{pretty(order.tradeType || "local")}</span>
+                        {order.tradeType === "import" ? <span className="rounded-full bg-amber-50 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-amber-700">{pretty(order.importStatus || "lc_pending")}</span> : null}
+                      </div>
                     </td>
 
                     <td className="px-5 py-4">
@@ -1094,6 +1129,7 @@ function PurchaseOrderList({
                   <p className="mt-1 text-xs font-medium text-gray-500">
                     {formatDate(order.orderDate)}
                   </p>
+                  <p className="mt-1 text-[11px] font-bold text-gray-400">{pretty(order.tradeType || "local")}{order.tradeType === "import" ? ` · ${pretty(order.importStatus || "lc_pending")}` : ""}</p>
                 </div>
                 <StatusBadge value={order.status} />
               </div>
@@ -1291,6 +1327,8 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
     supplier: "all",
     warehouse: "all",
     product: "all",
+    tradeType: "all",
+    importStatus: "all",
     currency: "",
     dateFrom: "",
     dateTo: "",
@@ -1307,6 +1345,7 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
   const [formError, setFormError] = useState("")
   const [saving, setSaving] = useState(false)
   const [detailsModal, setDetailsModal] = useState({ open: false, item: null })
+  const [printOrder, setPrintOrder] = useState(null)
   const [reasonState, setReasonState] = useState({
     open: false,
     item: null,
@@ -1413,6 +1452,8 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
     if (filters.supplier !== "all") params.set("supplier", filters.supplier)
     if (filters.warehouse !== "all") params.set("warehouse", filters.warehouse)
     if (filters.product !== "all") params.set("product", filters.product)
+    if (filters.tradeType !== "all") params.set("tradeType", filters.tradeType)
+    if (filters.importStatus !== "all") params.set("importStatus", filters.importStatus)
     if (clean(filters.currency)) params.set("currency", clean(filters.currency).toUpperCase())
     if (filters.dateFrom) params.set("dateFrom", filters.dateFrom)
     if (filters.dateTo) params.set("dateTo", filters.dateTo)
@@ -1462,6 +1503,8 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
     filters.supplier,
     filters.warehouse,
     filters.product,
+    filters.tradeType,
+    filters.importStatus,
     filters.currency,
     filters.dateFrom,
     filters.dateTo,
@@ -1484,6 +1527,8 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
       supplier: "all",
       warehouse: "all",
       product: "all",
+      tradeType: "all",
+      importStatus: "all",
       currency: "",
       dateFrom: "",
       dateTo: "",
@@ -1521,6 +1566,7 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
       setForm({
         orderDate: toDateInput(item.orderDate),
         expectedDeliveryDate: toDateInput(item.expectedDeliveryDate),
+        tradeType: item.tradeType || "local",
         supplier: normalizeId(item.supplier),
         supplierQuotationRef: item.supplierQuotationRef || "",
         supplierReference: item.supplierReference || "",
@@ -1700,6 +1746,7 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
   const buildPayload = () => ({
     orderDate: form.orderDate,
     expectedDeliveryDate: form.expectedDeliveryDate || null,
+    tradeType: form.tradeType || "local",
     supplier: form.supplier,
     supplierQuotationRef: clean(form.supplierQuotationRef),
     supplierReference: clean(form.supplierReference),
@@ -1899,6 +1946,8 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
         filters.supplier !== "all",
         filters.warehouse !== "all",
         filters.product !== "all",
+        filters.tradeType !== "all",
+        filters.importStatus !== "all",
         Boolean(clean(filters.currency)),
         Boolean(filters.dateFrom),
         Boolean(filters.dateTo),
@@ -2069,6 +2118,7 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
         onCloseOrder={(order) => openReason(order, "close")}
         onReceipt={onCreateGoodsReceipt}
         onDelete={(order) => openConfirm(order, "delete")}
+        onPrint={(order) => setPrintOrder(order)}
         onLoadMore={() => loadOrders({ append: true })}
       />
 
@@ -2120,6 +2170,20 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
                   {status === "all" ? "All statuses" : pretty(status)}
                 </option>
               ))}
+            </select>
+          </Field>
+
+          <Field label="Trade Type">
+            <select className={input} value={filters.tradeType} onChange={(event) => updateFilter("tradeType", event.target.value)}>
+              <option value="all">All trade types</option>
+              {(meta.tradeTypes || FALLBACK_META.tradeTypes).map((value) => <option key={value} value={value}>{pretty(value)}</option>)}
+            </select>
+          </Field>
+
+          <Field label="Import Status">
+            <select className={input} value={filters.importStatus} onChange={(event) => updateFilter("importStatus", event.target.value)} disabled={filters.tradeType === "local"}>
+              <option value="all">All import statuses</option>
+              {(meta.importStatuses || FALLBACK_META.importStatuses).map((value) => <option key={value} value={value}>{pretty(value)}</option>)}
             </select>
           </Field>
 
@@ -2215,6 +2279,7 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <Field label="Order Date" required><input className={input} type="date" value={form.orderDate} onChange={(event) => setForm((previous) => ({ ...previous, orderDate: event.target.value }))} /></Field>
               <Field label="Expected Delivery"><input className={input} type="date" value={form.expectedDeliveryDate} onChange={(event) => setForm((previous) => ({ ...previous, expectedDeliveryDate: event.target.value }))} /></Field>
+              <Field label="Trade Type" required><select className={input} value={form.tradeType} onChange={(event) => setForm((previous) => ({ ...previous, tradeType: event.target.value }))} disabled={Boolean(formModal.item && formModal.item.status !== "draft" && formModal.item.status !== "rejected")}><option value="local">Local Purchase</option><option value="import">Import Purchase</option></select></Field>
               <Field label="Supplier" hint="Pending or inactive suppliers remain visible but require approval before purchasing." required><select className={input} value={form.supplier} onChange={(event) => changeSupplier(event.target.value)} disabled={Boolean(formModal.item)}><option value="">Select active supplier</option>{suppliers.map((supplier) => <option key={supplier._id} value={supplier._id} disabled={supplier.isSelectable === false}>{relationLabel(supplier)}{supplier.isSelectable === false ? ` — ${pretty(supplier.status)}` : ""}</option>)}</select></Field>
               <Field label="Currency" required><FocusPlaceholderInput className={input} value={form.currency} onChange={(event) => setForm((previous) => ({ ...previous, currency: event.target.value.toUpperCase() }))} placeholder="BDT" maxLength={12} /></Field>
               <Field label="Default Warehouse"><select className={input} value={form.defaultWarehouse} onChange={(event) => changeDefaultWarehouse(event.target.value)}><option value="">Select warehouse</option>{warehouses.map((warehouse) => <option key={warehouse._id} value={warehouse._id}>{relationLabel(warehouse)}</option>)}</select></Field>
@@ -2286,12 +2351,36 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
         subtitle={detailsModal.item ? `${detailsModal.item.supplier?.businessName || detailsModal.item.supplierSnapshot?.name || "Supplier"} · ${formatDate(detailsModal.item.orderDate)}` : ""}
         icon={<Icon icon={ViewIcon} className="h-5 w-5" />}
         maxWidthClass="max-w-6xl"
-        footer={<div className="flex justify-end"><button type="button" className={cn(button, ghostButton)} onClick={() => setDetailsModal({ open: false, item: null })}>Close</button></div>}
+        footer={
+          <div className="flex w-full items-center justify-between">
+            {detailsModal.item ? (
+              <button
+                type="button"
+                className={cn(button, ghostButton)}
+                onClick={() => {
+                  const target = detailsModal.item
+                  setDetailsModal({ open: false, item: null })
+                  setPrintOrder(target)
+                }}
+              >
+                <Icon icon={PrinterIcon} className="h-4 w-4 text-indigo-600" />
+                Print / PDF
+              </button>
+            ) : <div />}
+            <button
+              type="button"
+              className={cn(button, ghostButton)}
+              onClick={() => setDetailsModal({ open: false, item: null })}
+            >
+              Close
+            </button>
+          </div>
+        }
       >
         {detailsModal.item ? (
           <div className="space-y-5">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[["Status", <StatusBadge value={detailsModal.item.status} />], ["Grand Total", formatMoney(detailsModal.item.grandTotal, detailsModal.item.currency)], ["Ordered", formatNumber(detailsModal.item.totalOrderedQuantity)], ["Received", formatNumber(detailsModal.item.totalReceivedQuantity)]].map(([label, value]) => <div key={label} className="rounded-2xl border border-gray-100 bg-gray-50 p-4"><p className="text-xs font-black uppercase tracking-wide text-gray-400">{label}</p><div className="mt-2 font-black text-gray-950">{value}</div></div>)}</div>
-            <SectionCard title="Order information"><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[["Supplier", relationLabel(detailsModal.item.supplier, detailsModal.item.supplierSnapshot?.name)], ["Order Date", formatDate(detailsModal.item.orderDate)], ["Delivery Date", formatDate(detailsModal.item.expectedDeliveryDate)], ["Warehouse", relationLabel(detailsModal.item.defaultWarehouse, "-")], ["Payment Terms", `${pretty(detailsModal.item.paymentTermType)} · ${formatNumber(detailsModal.item.paymentTermDays, 0)} days`], ["Incoterm", detailsModal.item.incoterm || "-"], ["Quotation", detailsModal.item.supplierQuotationRef || "-"], ["Supplier Ref", detailsModal.item.supplierReference || "-"]].map(([label, value]) => <div key={label}><p className="text-xs font-bold text-gray-400">{label}</p><p className="mt-1 text-sm font-bold text-gray-900">{value}</p></div>)}</div></SectionCard>
+            <SectionCard title="Order information"><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[["Supplier", relationLabel(detailsModal.item.supplier, detailsModal.item.supplierSnapshot?.name)], ["Trade Type", pretty(detailsModal.item.tradeType || "local")], ["Import Status", detailsModal.item.tradeType === "import" ? pretty(detailsModal.item.importStatus || "lc_pending") : "Not applicable"], ["Order Date", formatDate(detailsModal.item.orderDate)], ["Delivery Date", formatDate(detailsModal.item.expectedDeliveryDate)], ["Warehouse", relationLabel(detailsModal.item.defaultWarehouse, "-")], ["Payment Terms", `${pretty(detailsModal.item.paymentTermType)} · ${formatNumber(detailsModal.item.paymentTermDays, 0)} days`], ["Incoterm", detailsModal.item.incoterm || "-"], ["Quotation", detailsModal.item.supplierQuotationRef || "-"], ["Supplier Ref", detailsModal.item.supplierReference || "-"]].map(([label, value]) => <div key={label}><p className="text-xs font-bold text-gray-400">{label}</p><p className="mt-1 text-sm font-bold text-gray-900">{value}</p></div>)}</div></SectionCard>
             <SectionCard title="Order lines"><div className="overflow-x-auto"><table className="min-w-[900px] w-full"><thead><tr className="text-left text-xs font-black uppercase text-gray-400"><th className="pb-3">Product</th><th className="pb-3">Quantity</th><th className="pb-3">Received</th><th className="pb-3">Unit Price</th><th className="pb-3">Discount</th><th className="pb-3">Tax</th><th className="pb-3 text-right">Total</th></tr></thead><tbody className="divide-y divide-gray-100">{(detailsModal.item.lines || []).map((line) => <tr key={line._id}><td className="py-3"><p className="font-bold text-gray-900">{line.product?.name || line.productSnapshot?.name || "-"}</p><p className="text-xs font-semibold text-gray-500">{line.product?.sku || line.productSnapshot?.code || line.supplierSku || "-"}</p></td><td className="py-3 font-bold">{formatNumber(line.orderedQuantity)}</td><td className="py-3 font-bold">{formatNumber(line.receivedQuantity)}</td><td className="py-3 font-bold">{formatMoney(line.unitPrice, detailsModal.item.currency)}</td><td className="py-3 font-bold">{formatMoney(line.discountAmount, detailsModal.item.currency)}</td><td className="py-3 font-bold">{formatMoney(line.taxAmount, detailsModal.item.currency)}</td><td className="py-3 text-right font-black">{formatMoney(line.lineTotal, detailsModal.item.currency)}</td></tr>)}</tbody></table></div></SectionCard>
             {(detailsModal.item.rejectionReason || detailsModal.item.cancellationReason || detailsModal.item.closeReason) ? <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-800">{detailsModal.item.rejectionReason || detailsModal.item.cancellationReason || detailsModal.item.closeReason}</div> : null}
           </div>
@@ -2325,6 +2414,33 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
           runAction(reasonState.item, reasonState.type, clean(reasonState.reason))
         }}
       />
+
+      {printOrder ? (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-3 sm:p-6 lg:p-8 backdrop-blur-sm flex justify-center">
+          <div className="w-full max-w-5xl rounded-3xl bg-white shadow-2xl overflow-hidden self-start my-auto">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 bg-gray-50 no-print">
+              <div>
+                <h2 className="text-lg font-black text-gray-900">Purchase Order Document Preview</h2>
+                <p className="text-xs font-semibold text-gray-500">{printOrder.orderNo}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPrintOrder(null)}
+                className="rounded-xl border border-gray-200 bg-white px-3.5 py-1.5 text-xs font-bold text-gray-700 hover:bg-gray-100 transition shadow-sm"
+              >
+                ✕ Close Preview
+              </button>
+            </div>
+            <div className="p-4 sm:p-6">
+              <PurchaseOrderPrint
+                initialOrderId={printOrder._id}
+                embedded
+                onClose={() => setPrintOrder(null)}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

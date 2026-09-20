@@ -8,6 +8,7 @@ import {
   Globe02Icon,
   LockPasswordIcon,
   Mail01Icon,
+  SecurityCheckIcon,
   ViewIcon,
   ViewOffSlashIcon,
   WhatsappIcon,
@@ -18,7 +19,7 @@ import {
   signInSuccess,
   signOut,
 } from "../../Redux/UserSlice/UserSlice"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, Link } from "react-router-dom"
 import axios from "axios"
 import {
   getDashboardPathForRole,
@@ -689,8 +690,19 @@ export default function LoginForm() {
             </button>
           </form>
 
+          {/* Developer Super Admin Link */}
+          <div className="mt-5 text-center">
+            <Link
+              to="/register-superadmin"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-400/80 transition-colors hover:text-purple-300"
+            >
+              <HugeiconsIcon icon={SecurityCheckIcon} size={14} />
+              Developer: Register Super Admin
+            </Link>
+          </div>
+
           {/* Copyright */}
-          <div className="mt-8 border-t border-gray-800 pt-4 text-center text-xs text-gray-400">
+          <div className="mt-6 border-t border-gray-800 pt-4 text-center text-xs text-gray-400">
             &copy; {new Date().getFullYear()} Business
             Hub SUITE. All rights reserved.
           </div>

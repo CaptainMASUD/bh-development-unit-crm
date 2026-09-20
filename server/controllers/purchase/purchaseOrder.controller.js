@@ -13,6 +13,8 @@ import PurchaseOrder, {
   PURCHASE_ORDER_OPEN_STATUSES,
   PURCHASE_ORDER_STATUSES,
   TAX_TYPES,
+  TRADE_TYPES,
+  IMPORT_STATUSES,
   roundMoney,
   roundQuantity,
 } from "../../models/purchaseOrder.model.js";
@@ -22,6 +24,8 @@ const LIST_FIELDS = [
   "orderNo",
   "orderDate",
   "expectedDeliveryDate",
+  "tradeType",
+  "importStatus",
   "supplier",
   "supplierSnapshot",
   "defaultWarehouse",
@@ -157,6 +161,8 @@ const buildPayload = (body = {}) => {
     if (body[field] !== undefined) payload[field] = nullableId(body[field]);
   }
 
+  if (body.tradeType !== undefined) payload.tradeType = clean(body.tradeType).toLowerCase();
+
   for (const field of [
     "supplierQuotationRef",
     "supplierReference",
@@ -219,6 +225,9 @@ const validatePayload = (payload, { partial = false } = {}) => {
   }
   if (Array.isArray(payload.lines) && payload.lines.length > 500) {
     errors.push("A purchase order cannot contain more than 500 lines.");
+  }
+  if (payload.tradeType !== undefined && !TRADE_TYPES.includes(payload.tradeType)) {
+    errors.push("Trade type must be either local or import.");
   }
   if (payload.exchangeRate !== undefined && (!Number.isFinite(payload.exchangeRate) || payload.exchangeRate <= 0)) {
     errors.push("Exchange rate must be greater than zero.");
@@ -537,6 +546,16 @@ const buildListFilter = (query = {}) => {
   }
   if (isId(query.product)) filter["lines.product"] = query.product;
   if (clean(query.currency)) filter.currency = clean(query.currency).toUpperCase();
+  if (clean(query.tradeType)) {
+    const tradeType = clean(query.tradeType).toLowerCase();
+    if (!TRADE_TYPES.includes(tradeType)) throw Object.assign(new Error("Trade-type filter is invalid."), { statusCode: 400 });
+    filter.tradeType = tradeType;
+  }
+  if (clean(query.importStatus)) {
+    const importStatus = clean(query.importStatus).toLowerCase();
+    if (!IMPORT_STATUSES.includes(importStatus)) throw Object.assign(new Error("Import-status filter is invalid."), { statusCode: 400 });
+    filter.importStatus = importStatus;
+  }
 
   const from = parseDate(query.dateFrom);
   const to = parseDate(query.dateTo);
@@ -564,6 +583,8 @@ export const getPurchaseOrderMeta = async (_req, res) =>
     openStatuses: PURCHASE_ORDER_OPEN_STATUSES,
     discountTypes: DISCOUNT_TYPES,
     taxTypes: TAX_TYPES,
+    tradeTypes: TRADE_TYPES,
+    importStatuses: IMPORT_STATUSES,
   });
 
 export const listPurchaseOrders = async (req, res) => {
@@ -667,6 +688,8 @@ export const listPurchaseOrderOptions = async (req, res) => {
         "orderNo",
         "orderDate",
         "expectedDeliveryDate",
+        "tradeType",
+        "importStatus",
         "supplier",
         "supplierSnapshot",
         "currency",

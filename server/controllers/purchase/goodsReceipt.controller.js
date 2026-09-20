@@ -16,6 +16,12 @@ import GoodsReceipt, {
 } from "../../models/goodsReceipt.model.js";
 import StockMovement from "../../models/inventory/stockMovement.model.js";
 import PurchaseReturn from "../../models/purchaseReturn.model.js";
+import CommercialLC from "../../models/commercialLC.model.js";
+import ImportShipment from "../../models/importShipment.model.js";
+import {
+  updateLCStatus,
+  updatePurchaseOrderImportStatus,
+} from "../../services/commercialLC.service.js";
 import {
   postGoodsReceiptAccounting,
   reverseProcurementAccounting,
@@ -25,11 +31,14 @@ import {
   reverseGoodsReceiptStock,
 } from "../../services/inventoryPosting.service.js";
 import { runMongoTransaction } from "../../utils/mongoTransaction.js";
+import { PurchaseIssue, PurchaseQualityInspection } from "../../models/purchaseWorkflow.model.js";
 
 const LIST_FIELDS = [
   "receiptNo",
   "receiptDate",
   "purchaseOrder",
+  "commercialLC",
+  "importShipment",
   "supplier",
   "supplierSnapshot",
   "warehouse",
@@ -163,7 +172,7 @@ const buildLinePayload = (line = {}) => ({
 const buildPayload = (body = {}) => {
   const payload = {};
   if (body.receiptDate !== undefined) payload.receiptDate = parseDate(body.receiptDate);
-  for (const field of ["purchaseOrder", "supplier", "warehouse"]) {
+  for (const field of ["purchaseOrder", "commercialLC", "importShipment", "supplier", "warehouse"]) {
     if (body[field] !== undefined) payload[field] = nullableId(body[field]);
   }
   for (const field of [
@@ -197,6 +206,12 @@ const validatePayload = (payload, { partial = false } = {}) => {
   }
   if ((!partial || payload.warehouse !== undefined) && !payload.warehouse) {
     errors.push("A valid receiving warehouse is required.");
+  }
+  for (const field of ["commercialLC", "importShipment"]) {
+    if (payload[field] === undefined) continue;
+    if (payload[field] !== null && !payload[field]) {
+      errors.push(`A valid ${field === "commercialLC" ? "Commercial LC" : "import shipment"} is required.`);
+    }
   }
   if (
     (!partial || payload.lines !== undefined) &&
@@ -254,7 +269,7 @@ const validatePayload = (payload, { partial = false } = {}) => {
 
 const loadAndEnrichReferences = async (payload, { session = null } = {}) => {
   const orderQuery = PurchaseOrder.findById(payload.purchaseOrder).select(
-    "orderNo orderDate supplier supplierSnapshot defaultWarehouse currency status lines totalOrderedQuantity totalReceivedQuantity"
+    "orderNo orderDate supplier supplierSnapshot defaultWarehouse currency status tradeType importStatus purchaseIssue purchaseType lines totalOrderedQuantity totalReceivedQuantity"
   );
   const warehouseQuery = Warehouse.findOne({
     _id: payload.warehouse,
@@ -303,6 +318,42 @@ const loadAndEnrichReferences = async (payload, { session = null } = {}) => {
     throw Object.assign(new Error("The purchase-order supplier is unavailable."), {
       statusCode: 409,
     });
+  }
+
+  let commercialLC = null;
+  let importShipment = null;
+  if (order.tradeType === "import") {
+    if (!payload.commercialLC) {
+      throw Object.assign(new Error("A Commercial LC is required when receiving an import purchase order."), { statusCode: 409 });
+    }
+    const lcQuery = CommercialLC.findById(payload.commercialLC).select("purchaseOrder supplier status lcNumber");
+    if (session) lcQuery.session(session);
+    commercialLC = await lcQuery;
+    if (!commercialLC || String(commercialLC.purchaseOrder) !== String(order._id) || String(commercialLC.supplier) !== String(order.supplier)) {
+      throw Object.assign(new Error("The selected Commercial LC does not belong to this purchase order and supplier."), { statusCode: 409 });
+    }
+    if (["draft", "application_submitted", "cancelled", "closed"].includes(commercialLC.status)) {
+      throw Object.assign(new Error("The Commercial LC must be opened and active before imported goods can be received."), { statusCode: 409 });
+    }
+    if (!payload.importShipment) {
+      throw Object.assign(new Error("An import shipment is required when receiving an import purchase order."), { statusCode: 409 });
+    }
+    const shipmentQuery = ImportShipment.findById(payload.importShipment).select("commercialLC purchaseOrder supplier status shipmentNo");
+    if (session) shipmentQuery.session(session);
+    importShipment = await shipmentQuery;
+    if (
+      !importShipment ||
+      String(importShipment.commercialLC) !== String(commercialLC._id) ||
+      String(importShipment.purchaseOrder) !== String(order._id) ||
+      String(importShipment.supplier) !== String(order.supplier)
+    ) {
+      throw Object.assign(new Error("The selected import shipment does not belong to this Commercial LC and purchase order."), { statusCode: 409 });
+    }
+    if (["planned", "booked", "cancelled", "closed"].includes(importShipment.status)) {
+      throw Object.assign(new Error("The import shipment must be shipped or later before goods can be received."), { statusCode: 409 });
+    }
+  } else if (payload.commercialLC || payload.importShipment) {
+    throw Object.assign(new Error("Commercial LC and import shipment can only be linked to an import purchase order."), { statusCode: 409 });
   }
 
   const locationIds = uniqueIds(
@@ -446,6 +497,8 @@ const loadAndEnrichReferences = async (payload, { session = null } = {}) => {
       name: supplier.businessName || order.supplierSnapshot?.name || "",
     },
     currency: payload.currency || order.currency || "BDT",
+    commercialLC: commercialLC?._id || null,
+    importShipment: importShipment?._id || null,
     lines,
     order,
   };
@@ -491,7 +544,7 @@ const updatePurchaseOrderReceiptState = async ({ order, receiptLines, direction,
   await order.save({ session });
 };
 
-const movementLinesFromReceipt = (receipt) => {
+export const movementLinesFromReceipt = (receipt) => {
   const lines = [];
   for (const line of receipt.lines) {
     const common = {
@@ -526,6 +579,33 @@ const movementLinesFromReceipt = (receipt) => {
   return lines;
 };
 
+const createIndustrialQualityInspections = async ({ receipt, order, actorId, session }) => {
+  if (!order.purchaseIssue) return [];
+  const issue = await PurchaseIssue.findOne({ _id: order.purchaseIssue, purchaseType: "industrial_purchase" }).session(session);
+  if (!issue) return [];
+  const existing = await PurchaseQualityInspection.find({ goodsReceipt: receipt._id }).session(session);
+  if (existing.length) return existing;
+  const inspections = await PurchaseQualityInspection.create(receipt.lines.map((line) => ({
+    inspectionReference: `PQI-${String(receipt._id).slice(-6).toUpperCase()}-${String(line._id).slice(-4).toUpperCase()}`,
+    issue: issue._id,
+    purchaseOrder: order._id,
+    goodsReceipt: receipt._id,
+    goodsReceiptLine: line._id,
+    supplier: receipt.supplier,
+    warehouse: receipt.warehouse,
+    product: line.product,
+    itemName: line.productSnapshot?.name || "",
+    purchasedQuantity: line.receivedQuantity,
+    status: "waiting",
+  })), { session });
+  if (!issue.qualityInspection && inspections[0]) {
+    issue.qualityInspection = inspections[0]._id;
+    issue.updatedBy = actorId;
+    await issue.save({ session });
+  }
+  return inspections;
+};
+
 const duplicateMessage = (error) => {
   const fields = Object.keys(error?.keyPattern || error?.keyValue || {});
   if (fields.includes("receiptNo")) return "A goods receipt with this number already exists.";
@@ -552,7 +632,9 @@ const sendError = (res, error, fallbackMessage) => {
 
 const populateReceipt = (query) =>
   query
-    .populate("purchaseOrder", "orderNo orderDate status currency grandTotal")
+    .populate("purchaseOrder", "orderNo orderDate status tradeType importStatus currency grandTotal")
+    .populate("commercialLC", "lcNumber status currency amount openedDate expiryDate")
+    .populate("importShipment", "shipmentNo status shipmentMode billOfLadingNo airwayBillNo etd eta")
     .populate("supplier", "code businessName primaryEmail primaryPhone status")
     .populate("warehouse", "name code status")
     .populate("lines.product", "name sku barcode productType trackingType status")
@@ -578,6 +660,8 @@ const buildListFilter = (query = {}) => {
     filter.status = status;
   }
   if (isId(query.purchaseOrder)) filter.purchaseOrder = query.purchaseOrder;
+  if (isId(query.commercialLC)) filter.commercialLC = query.commercialLC;
+  if (isId(query.importShipment)) filter.importShipment = query.importShipment;
   if (isId(query.supplier)) filter.supplier = query.supplier;
   if (isId(query.warehouse)) filter.warehouse = query.warehouse;
   if (isId(query.product)) filter["lines.product"] = query.product;
@@ -857,6 +941,8 @@ export const updateGoodsReceipt = async (req, res) => {
         ...current.toObject(),
         ...payload,
         purchaseOrder: payload.purchaseOrder ?? current.purchaseOrder,
+        commercialLC: payload.commercialLC ?? current.commercialLC,
+        importShipment: payload.importShipment ?? current.importShipment,
         supplier: payload.supplier ?? current.supplier,
         warehouse: payload.warehouse ?? current.warehouse,
         lines: payload.lines ?? current.lines.map((line) => line.toObject()),
@@ -911,12 +997,13 @@ export const approveGoodsReceipt = async (req, res) => {
           statusCode: 409,
         });
       }
-      await loadAndEnrichReferences(receipt.toObject(), { session });
+      const enriched = await loadAndEnrichReferences(receipt.toObject(), { session });
       receipt.status = "approved";
       receipt.approvedAt = new Date();
       receipt.approvedBy = req.user?._id || null;
       receipt.updatedBy = req.user?._id || null;
       await receipt.save({ session });
+      await createIndustrialQualityInspections({ receipt, order: enriched.order, actorId: req.user?._id || null, session });
     });
     return res.json({ message: "Goods receipt approved.", goodsReceipt: receipt });
   } catch (error) {
@@ -948,6 +1035,27 @@ export const postGoodsReceipt = async (req, res) => {
       }
 
       const enriched = await loadAndEnrichReferences(receipt.toObject(), { session });
+      if (enriched.order.purchaseIssue) {
+        const issue = await PurchaseIssue.findOne({
+          _id: enriched.order.purchaseIssue,
+          purchaseType: "industrial_purchase",
+        }).session(session);
+        if (issue) {
+          const inspections = await PurchaseQualityInspection.find({ goodsReceipt: receipt._id }).session(session);
+          const inspectionByLine = new Map(inspections.map((item) => [String(item.goodsReceiptLine), item]));
+          const ready = receipt.lines.every((line) => {
+            const inspection = inspectionByLine.get(String(line._id));
+            return inspection && inspection.completedAt &&
+              ["passed", "partially_accepted", "rejected"].includes(inspection.status) &&
+              roundQuantity(inspection.acceptedQuantity) === roundQuantity(line.acceptedQuantity) &&
+              roundQuantity(inspection.quarantineQuantity) === roundQuantity(line.quarantineQuantity) &&
+              roundQuantity(inspection.rejectedQuantity) === roundQuantity(line.rejectedQuantity);
+          });
+          if (!ready || inspections.length !== receipt.lines.length) {
+            throw Object.assign(new Error("Complete quality inspection for every Goods Receipt line before posting inventory."), { statusCode: 409 });
+          }
+        }
+      }
       receipt.lines = enriched.lines;
       movement = await postGoodsReceiptStock({
         tenantId: req.tenantId || receipt.tenantId,
@@ -963,6 +1071,27 @@ export const postGoodsReceipt = async (req, res) => {
         userId: actorId,
         session,
       });
+
+      if (receipt.importShipment) {
+        await ImportShipment.updateOne(
+          { _id: receipt.importShipment },
+          { $addToSet: { goodsReceipts: receipt._id }, $set: { updatedBy: actorId } },
+          { session }
+        );
+      }
+      if (receipt.commercialLC) {
+        const lc = await CommercialLC.findById(receipt.commercialLC).session(session);
+        if (lc && !["goods_received", "settlement_pending", "settled", "closed"].includes(lc.status)) {
+          await updateLCStatus({ lc, status: "goods_received", userId: actorId, session });
+        } else {
+          await updatePurchaseOrderImportStatus({
+            purchaseOrderId: enriched.order._id,
+            importStatus: "goods_received",
+            userId: actorId,
+            session,
+          });
+        }
+      }
 
       journalEntry = await postGoodsReceiptAccounting({
         document: receipt,
