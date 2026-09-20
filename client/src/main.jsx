@@ -39,6 +39,7 @@ const router = createBrowserRouter([
       { path: 'superadmin-register', element: <RegisterSuperAdmin /> },
       { path: 'superadmin/register', element: <RegisterSuperAdmin /> },
       { path: 'legacy-register', element: <Register /> },
+      { path: 'legacy', element: <Register /> },
 
   
       
