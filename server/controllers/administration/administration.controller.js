@@ -9,6 +9,7 @@ import {
   updateSystemSettings,
 } from "../../services/administration/systemSettings.service.js";
 import { getReqMeta } from "../../utils/audit.js";
+import { getAdministrationDashboard } from "../../services/administration/administrationDashboard.service.js";
 
 export const asyncAdministrationHandler = (handler) => (req, res, next) => {
   Promise.resolve(handler(req, res, next)).catch(next);
@@ -78,4 +79,9 @@ export const patchCurrentSystemSettings = asyncAdministrationHandler(async (req,
     message: "System defaults updated.",
     data: { settings },
   });
+});
+
+export const getCurrentAdministrationDashboard = asyncAdministrationHandler(async (req, res) => {
+  const dashboard = await getAdministrationDashboard({ tenantId: req.tenantId });
+  return res.json({ success: true, data: dashboard });
 });

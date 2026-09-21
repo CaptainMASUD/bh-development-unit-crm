@@ -4,6 +4,7 @@ import multer from "multer";
 import {
   deleteCurrentCompanyLogo,
   getCurrentCompany,
+  getCurrentAdministrationDashboard,
   getCurrentSystemSettings,
   patchCurrentCompany,
   patchCurrentSystemSettings,
@@ -30,6 +31,12 @@ const companyLogoUpload = multer({
 });
 
 router.use(protect, requireModule("administration"), isTenantUser);
+
+router.get(
+  "/dashboard",
+  requirePermission("administration-dashboard:view"),
+  getCurrentAdministrationDashboard
+);
 
 router.get("/company", requirePermission("company:view"), getCurrentCompany);
 router.patch("/company", requirePermission("company:manage"), patchCurrentCompany);
