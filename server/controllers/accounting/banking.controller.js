@@ -232,7 +232,9 @@ export const createTreasuryVoucher = async (req, res) => {
       const flexible = inputLines.map((line) => ({
         account: line.account, amount: money(line.amount), description: clean(line.description),
         contactType: clean(line.contactType), contactId: isId(line.contactId) ? line.contactId : null,
-        costCenter: isId(line.costCenter) ? line.costCenter : null, project: isId(line.project) ? line.project : null, taxCode: clean(line.taxCode),
+        costCenter: isId(line.costCenter) ? line.costCenter : null, project: isId(line.project) ? line.project : null,
+        branch: isId(line.branch) ? line.branch : null, department: isId(line.department) ? line.department : null,
+        dimensions: line.dimensions || new Map(), taxCode: clean(line.taxCode),
       })).filter((line) => isId(line.account) && line.amount > 0);
       if (!flexible.length) return res.status(400).json({ message: "Add at least one voucher allocation line." });
       const total = money(flexible.reduce((sum, line) => sum + line.amount, 0));

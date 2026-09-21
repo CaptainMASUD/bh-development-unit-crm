@@ -56,6 +56,8 @@ const BankReconciliation = lazy(() => import("./banking/BankReconciliation"))
 const CashManagement = lazy(() => import("./banking/CashManagement"))
 const TreasuryVouchers = lazy(() => import("./banking/TreasuryVouchers"))
 const ChartOfAccounts = lazy(() => import("./accounting/ChartOfAccounts"))
+const CostCenters = lazy(() => import("./accounting/CostCenters"))
+const AccountingDimensions = lazy(() => import("./accounting/AccountingDimensions"))
 const JournalEntries = lazy(() => import("./accounting/JournalEntries"))
 const GeneralLedger = lazy(() => import("./accounting/GeneralLedger"))
 const CashBook = lazy(() => import("./accounting/CashBook"))
@@ -571,6 +573,8 @@ const sections = {
     permission: "finance:view",
     subcategories: {
       "Chart of Accounts": <ChartOfAccounts />,
+      "Cost Centers": <CostCenters />,
+      "Accounting Dimensions": <AccountingDimensions />,
       "Fiscal Year / Period": <FiscalYearPeriods />,
       "Accounting Settings": <AccountingSettings />,
       "Opening Balance": <OpeningBalances />,
@@ -578,6 +582,8 @@ const sections = {
     subcategoryPermissions: {
       "Accounting Settings": "finance:manage",
       "Chart of Accounts": "finance:manage",
+      "Cost Centers": "finance:cost-center:view",
+      "Accounting Dimensions": "finance:dimension:view",
       "Opening Balance": "finance:manage",
       "Fiscal Year / Period": "finance:manage",
     },

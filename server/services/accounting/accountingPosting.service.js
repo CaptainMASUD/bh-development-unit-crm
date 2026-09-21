@@ -52,51 +52,26 @@ export const parsePostingDate = (value, fallback = new Date()) => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
-export const assertOpenAccountingPeriod = async (date, session = null, tenantId = null) => {
-  const postingDay = new Date(date);
-  postingDay.setUTCHours(0, 0, 0, 0);
+import {
+  assertAccountingPeriodOpen,
+  validatePostingDate,
+  assertTransactionMutationAllowed,
+  getPeriodForDate,
+  getFiscalYearForDate,
+} from "./accountingPeriod.service.js";
+import { validatePostingDimensions } from "./accountingDimension.service.js";
 
-  const settingsFilter = tenantId ? { tenantId } : { key: "company" };
-  let settingsQuery = AccountingSettings.findOne(settingsFilter).select("lockDate");
-  if (session) settingsQuery.session(session);
-  let settings = await settingsQuery.lean();
-  if (!settings && tenantId) {
-    const fallbackQuery = AccountingSettings.findOne({ key: "company" }).select("lockDate");
-    if (session) fallbackQuery.session(session);
-    settings = await fallbackQuery.lean();
-  }
+export {
+  assertAccountingPeriodOpen,
+  validatePostingDate,
+  assertTransactionMutationAllowed,
+  getPeriodForDate,
+  getFiscalYearForDate,
+  validatePostingDimensions,
+};
 
-  if (settings?.lockDate && postingDay <= settings.lockDate) {
-    throw Object.assign(new Error(`Posting is locked through ${new Date(settings.lockDate).toISOString().slice(0, 10)}.`), { statusCode: 409 });
-  }
-
-  const periodFilter = { startDate: { $lte: postingDay }, endDate: { $gte: postingDay } };
-  if (tenantId) periodFilter.tenantId = tenantId;
-  let periodQuery = AccountingPeriod.findOne(periodFilter);
-  if (session) periodQuery.session(session);
-  let period = await periodQuery.lean();
-  if (!period && tenantId) {
-    const globalPeriodQuery = AccountingPeriod.findOne({ startDate: { $lte: postingDay }, endDate: { $gte: postingDay } });
-    if (session) globalPeriodQuery.session(session);
-    period = await globalPeriodQuery.lean();
-  }
-
-  const fiscalYearFilter = tenantId ? { tenantId } : {};
-  let fiscalYearQuery = FiscalYear.exists(fiscalYearFilter);
-  if (session) fiscalYearQuery.session(session);
-  let hasFiscalYear = await fiscalYearQuery;
-  if (!hasFiscalYear && tenantId) {
-    const globalFyQuery = FiscalYear.exists({});
-    if (session) globalFyQuery.session(session);
-    hasFiscalYear = await globalFyQuery;
-  }
-
-  if (!period && hasFiscalYear) {
-    throw Object.assign(new Error("Posting date is not inside a configured accounting period."), { statusCode: 409 });
-  }
-  if (period && period.status !== "open") {
-    throw Object.assign(new Error(`Accounting period ${period.periodKey} is ${period.status}.`), { statusCode: 409 });
-  }
+export const assertOpenAccountingPeriod = async (date, session = null, tenantId = null, options = {}) => {
+  return assertAccountingPeriodOpen(date, { session, tenantId, ...options });
 };
 
 export const assertPostableLedgerAccounts = async (lines = [], session = null) => {
@@ -199,12 +174,22 @@ export const createPostedJournal = async ({
   bankAccount = null,
   origin = "system",
   userId = null,
+  user = null,
+  overrideReason = "",
+  allowClosedPeriod = false,
   session = null,
 }) => {
   const postingDate = parsePostingDate(date);
   if (!postingDate) throw Object.assign(new Error("Valid posting date is required."), { statusCode: 400 });
-  await assertOpenAccountingPeriod(postingDate, session, tenantId);
+  await assertAccountingPeriodOpen(postingDate, {
+    session,
+    tenantId,
+    user: user || (userId ? { _id: userId } : null),
+    overrideReason,
+    allowClosedPeriod,
+  });
   await assertPostableLedgerAccounts(lines, session);
+  const validatedLines = await validatePostingDimensions({ lines, tenantId, session });
   const periodQuery = AccountingPeriod.findOne({ startDate: { $lte: postingDate }, endDate: { $gte: postingDate } }).select("_id fiscalYearRef");
   if (session) periodQuery.session(session);
   const period = await periodQuery.lean();
@@ -237,7 +222,7 @@ export const createPostedJournal = async ({
       : "",
     cashAccount: isId(cashAccount) ? cashAccount : null,
     bankAccount: isId(bankAccount) ? bankAccount : null,
-    lines: lines.map((line) => ({
+    lines: validatedLines.map((line) => ({
       account: line.account,
       debit: roundMoney(line.debit),
       credit: roundMoney(line.credit),
@@ -246,6 +231,9 @@ export const createPostedJournal = async ({
       contactId: isId(line.contactId) ? line.contactId : null,
       costCenter: isId(line.costCenter) ? line.costCenter : null,
       project: isId(line.project) ? line.project : null,
+      branch: isId(line.branch) ? line.branch : null,
+      department: isId(line.department) ? line.department : null,
+      dimensions: line.dimensions || new Map(),
       taxCode: clean(line.taxCode).toUpperCase(),
     })),
     createdBy: userId,
@@ -262,6 +250,8 @@ export const createReversalJournal = async ({
   date = new Date(),
   reason = "Compensating reversal",
   userId = null,
+  user = null,
+  overrideReason = "",
   session = null,
 }) => {
   const originalQuery = JournalEntry.findById(originalJournalId);
@@ -276,10 +266,15 @@ export const createReversalJournal = async ({
 
   const postingDate = parsePostingDate(date);
   if (!postingDate) throw Object.assign(new Error("Valid posting date is required."), { statusCode: 400 });
-  await assertOpenAccountingPeriod(postingDate, session, original.tenantId);
+  await assertAccountingPeriodOpen(postingDate, {
+    session,
+    tenantId: original.tenantId,
+    user: user || (userId ? { _id: userId } : null),
+    overrideReason,
+  });
 
   const reversedLines = original.lines.map((l) => ({
-    account: l.account,
+    account: l.account?._id || l.account,
     debit: l.credit,
     credit: l.debit,
     description: `Reversal: ${l.description || ""}`.trim(),
@@ -287,6 +282,9 @@ export const createReversalJournal = async ({
     contactId: l.contactId,
     costCenter: l.costCenter,
     project: l.project,
+    branch: l.branch,
+    department: l.department,
+    dimensions: l.dimensions,
     taxCode: l.taxCode,
   }));
 
@@ -303,6 +301,8 @@ export const createReversalJournal = async ({
     voucherType: original.voucherType,
     origin: "system",
     userId,
+    user,
+    overrideReason,
     session,
   });
 

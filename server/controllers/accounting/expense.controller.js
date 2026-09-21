@@ -1,6 +1,10 @@
 import mongoose from "mongoose";
 import ExpenseCategory from "../../models/expenseCategory.model.js";
 import Expense from "../../models/expense.model.js";
+import {
+  assertAccountingPeriodOpen,
+  assertTransactionMutationAllowed,
+} from "../../services/accounting/accountingPeriod.service.js";
 
 const clean = (value) => String(value ?? "").trim();
 const money = (value) => Math.round(Number(value || 0) * 100) / 100;
@@ -82,6 +86,9 @@ const normalizeExpensePayload = async (body = {}, { isCreate = false } = {}) => 
   if (body.referenceNo !== undefined) patch.referenceNo = clean(body.referenceNo);
   if (body.description !== undefined) patch.description = clean(body.description);
   if (body.branch !== undefined) patch.branch = clean(body.branch);
+  if (body.costCenter !== undefined) patch.costCenter = isValidObjectId(body.costCenter) ? body.costCenter : null;
+  if (body.department !== undefined) patch.department = isValidObjectId(body.department) ? body.department : null;
+  if (body.dimensions !== undefined && typeof body.dimensions === "object") patch.dimensions = body.dimensions;
 
   if (body.attachment !== undefined) {
     const attachment = body.attachment && typeof body.attachment === "object" ? body.attachment : {};
@@ -192,10 +199,14 @@ export const listExpenses = async (req, res) => {
       const rx = new RegExp(escapeRegex(req.query.q), "i");
       filter.$or = [{ title: rx }, { payeeVendor: rx }, { invoiceBillNo: rx }, { referenceNo: rx }];
     }
+    if (req.query.costCenter && isValidObjectId(req.query.costCenter)) filter.costCenter = req.query.costCenter;
+    if (req.query.department && isValidObjectId(req.query.department)) filter.department = req.query.department;
 
     const [expenses, total, summary] = await Promise.all([
       Expense.find(filter)
         .populate("category", "name parent")
+        .populate("costCenter", "code name")
+        .populate("department", "name")
         .populate("createdBy", "name email")
         .sort({ expenseDate: -1, createdAt: -1, _id: -1 })
         .skip(skip)
@@ -230,10 +241,19 @@ export const createExpense = async (req, res) => {
   try {
     const built = await normalizeExpensePayload(req.body, { isCreate: true });
     if (!built.ok) return res.status(400).json({ message: built.message });
+
+    await assertAccountingPeriodOpen({
+      date: built.patch.expenseDate,
+      companyId: req.user?.companyId || req.headers?.["x-company-id"] || null,
+      user: req.user,
+      overrideReason: req.body?.overrideReason || "",
+    });
+
     const expense = await Expense.create({ ...built.patch, createdBy: req.user?._id || null, updatedBy: req.user?._id || null });
     const full = await Expense.findById(expense._id).populate("category", "name").lean();
     return res.status(201).json({ message: "Expense created.", expense: full });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message, code: error.code });
     return res.status(500).json({ message: "Failed to create expense.", error: error.message });
   }
 };
@@ -241,16 +261,29 @@ export const createExpense = async (req, res) => {
 export const updateExpense = async (req, res) => {
   try {
     if (!isValidObjectId(req.params.id)) return res.status(400).json({ message: "Invalid expense." });
+    const existing = await Expense.findById(req.params.id);
+    if (!existing) return res.status(404).json({ message: "Expense not found." });
+
     const built = await normalizeExpensePayload(req.body);
     if (!built.ok) return res.status(400).json({ message: built.message });
+
+    await assertTransactionMutationAllowed({
+      transactionDate: existing.expenseDate,
+      newDate: built.patch.expenseDate || null,
+      companyId: req.user?.companyId || req.headers?.["x-company-id"] || null,
+      user: req.user,
+      overrideReason: req.body?.overrideReason || "",
+      action: "modify",
+    });
+
     const expense = await Expense.findByIdAndUpdate(
       req.params.id,
       { ...built.patch, updatedBy: req.user?._id || null },
       { new: true, runValidators: true }
     ).populate("category", "name");
-    if (!expense) return res.status(404).json({ message: "Expense not found." });
     return res.json({ message: "Expense updated.", expense });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message, code: error.code });
     return res.status(500).json({ message: "Failed to update expense.", error: error.message });
   }
 };
@@ -258,10 +291,21 @@ export const updateExpense = async (req, res) => {
 export const deleteExpense = async (req, res) => {
   try {
     if (!isValidObjectId(req.params.id)) return res.status(400).json({ message: "Invalid expense." });
+    const existing = await Expense.findById(req.params.id);
+    if (!existing) return res.status(404).json({ message: "Expense not found." });
+
+    await assertTransactionMutationAllowed({
+      transactionDate: existing.expenseDate,
+      companyId: req.user?.companyId || req.headers?.["x-company-id"] || null,
+      user: req.user,
+      overrideReason: req.body?.overrideReason || "",
+      action: "delete",
+    });
+
     const expense = await Expense.findByIdAndDelete(req.params.id);
-    if (!expense) return res.status(404).json({ message: "Expense not found." });
     return res.json({ message: "Expense deleted." });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message, code: error.code });
     return res.status(500).json({ message: "Failed to delete expense.", error: error.message });
   }
 };
