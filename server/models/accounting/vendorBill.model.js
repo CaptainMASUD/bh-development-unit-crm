@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { paymentScheduleLineSchema } from "./paymentTerm.model.js";
 
 const roundMoney = (value) => Math.round(Number(value || 0) * 100) / 100;
 
@@ -31,11 +32,16 @@ const vendorBillSchema = new mongoose.Schema(
     currency: { type: String, trim: true, default: "BDT", index: true },
     billDate: { type: Date, required: true, index: true },
     dueDate: { type: Date, default: null, index: true },
+    finalDueDate: { type: Date, default: null },
+    paymentTerm: { type: mongoose.Schema.Types.ObjectId, ref: "PaymentTerm", default: null, index: true },
+    paymentSchedule: { type: [paymentScheduleLineSchema], default: [] },
     subtotal: { type: Number, default: 0, min: 0, set: roundMoney },
     taxAmount: { type: Number, default: 0, min: 0, set: roundMoney },
     total: { type: Number, required: true, min: 0, set: roundMoney },
     paidTotal: { type: Number, default: 0, min: 0, set: roundMoney },
     dueTotal: { type: Number, default: 0, min: 0, set: roundMoney, index: true },
+    creditedAmount: { type: Number, default: 0, min: 0, set: roundMoney },
+    debitedAmount: { type: Number, default: 0, min: 0, set: roundMoney },
     status: { type: String, enum: ["draft", "approved", "partially_paid", "paid", "void"], default: "draft", index: true },
     journalEntry: { type: mongoose.Schema.Types.ObjectId, ref: "JournalEntry", default: null },
     matchStatus: { type: String, enum: ["unlinked", "pending", "matched", "exception"], default: "unlinked", index: true },
@@ -67,10 +73,11 @@ vendorBillSchema.pre("validate", function (next) {
   this.taxAmount = roundMoney(this.taxAmount);
   this.total = roundMoney(this.total || Number(this.subtotal || 0) + Number(this.taxAmount || 0));
   this.paidTotal = roundMoney((this.payments || []).reduce((sum, item) => sum + Number(item.amount || 0), 0));
-  this.dueTotal = roundMoney(Math.max(this.total - this.paidTotal, 0));
+  const netPayable = roundMoney(Number(this.total || 0) + Number(this.debitedAmount || 0) - Number(this.creditedAmount || 0));
+  this.dueTotal = roundMoney(Math.max(netPayable - this.paidTotal, 0));
   if (this.status !== "void" && this.status !== "draft") {
-    if (this.dueTotal <= 0 && this.total > 0) this.status = "paid";
-    else if (this.paidTotal > 0) this.status = "partially_paid";
+    if (this.dueTotal <= 0 && (this.paidTotal > 0 || Number(this.creditedAmount || 0) > 0)) this.status = "paid";
+    else if (this.paidTotal > 0 || Number(this.creditedAmount || 0) > 0) this.status = "partially_paid";
     else this.status = "approved";
   }
   if (!this.billNo) {

@@ -13,6 +13,12 @@ import {
   reverseCustomerPayment,
   voidInvoiceInAccounting,
 } from "../../services/salesIntegration.service.js";
+import {
+  generatePaymentSchedule,
+  resolveEffectivePaymentTerm,
+  allocatePaymentToSchedule,
+  reversePaymentFromSchedule,
+} from "../../services/accounting/paymentTerms.service.js";
 import { runSalesTransaction } from "../../services/salesTransaction.service.js";
 import { SalesError, assertTenant } from "../../utils/salesError.js";
 import { getReqMeta, writeAudit } from "../../utils/audit.js";
@@ -149,13 +155,31 @@ export const createSalesInvoice = async (req, res) => {
       });
       const invoiceDate = new Date(req.body.invoiceDate || Date.now());
       const paymentTermsDays = Number(req.body.paymentTermsDays ?? order.paymentTermsDays ?? 0);
-      const dueDate = req.body.dueDate
+      const fallbackDueDate = req.body.dueDate
         ? new Date(req.body.dueDate)
         : new Date(invoiceDate.getTime() + paymentTermsDays * 86_400_000);
-      if (Number.isNaN(invoiceDate.getTime()) || Number.isNaN(dueDate.getTime())) {
+
+      const effectiveTerm = await resolveEffectivePaymentTerm({
+        tenantId,
+        transactionTermId: req.body.paymentTermId || req.body.paymentTerm || null,
+        customerId: order.customerId,
+        side: "sales",
+        session,
+      });
+
+      const { paymentSchedule, finalDueDate } = generatePaymentSchedule({
+        documentType: "SalesInvoice",
+        documentDate: invoiceDate,
+        documentTotal: calculated.totals.grandTotal,
+        paymentTerm: effectiveTerm,
+        customSchedule: req.body.customSchedule,
+      });
+
+      const resolvedDueDate = finalDueDate || fallbackDueDate;
+      if (Number.isNaN(invoiceDate.getTime()) || Number.isNaN(resolvedDueDate.getTime())) {
         throw new SalesError("Invoice date and due date must be valid dates.", 400);
       }
-      if (dueDate < invoiceDate) throw new SalesError("Invoice due date cannot be before the invoice date.", 400);
+      if (resolvedDueDate < invoiceDate) throw new SalesError("Invoice due date cannot be before the invoice date.", 400);
 
       [invoice] = await SalesInvoice.create(
         [
@@ -172,7 +196,10 @@ export const createSalesInvoice = async (req, res) => {
             currency: order.currency,
             status: "draft",
             invoiceDate,
-            dueDate,
+            dueDate: resolvedDueDate,
+            finalDueDate: resolvedDueDate,
+            paymentTerm: effectiveTerm?._id || null,
+            paymentSchedule,
             lines: calculated.lines,
             totals: calculated.totals,
             paidAmount: 0,
@@ -425,8 +452,16 @@ export const allocatePayment = async (req, res) => {
   });
 
   invoice.paidAmount = roundMoney(invoice.paidAmount + amount);
-  invoice.dueAmount = roundMoney(Math.max(invoice.totals.grandTotal - Number(invoice.creditedAmount || 0) - invoice.paidAmount, 0));
+  invoice.dueAmount = roundMoney(Math.max(invoice.totals.grandTotal + Number(invoice.debitedAmount || 0) - Number(invoice.creditedAmount || 0) - invoice.paidAmount, 0));
   invoice.status = invoice.dueAmount === 0 ? "paid" : "partially_paid";
+
+  const scheduleAlloc = allocatePaymentToSchedule(
+    invoice.paymentSchedule,
+    amount,
+    req.body.installmentSequence || null
+  );
+  invoice.paymentSchedule = scheduleAlloc.schedule;
+
   invoice.updatedBy = req.user._id;
   await invoice.save();
   await writeAudit({ actorId: req.user._id, action: "payment_received", entityType: "SalesInvoice", entityId: invoice._id, after: { status: invoice.status, paidAmount: invoice.paidAmount, dueAmount: invoice.dueAmount }, meta: { ...getReqMeta(req), amount } });
@@ -441,10 +476,10 @@ export const allocatePayment = async (req, res) => {
       tenantId: invoice.tenantId,
       salesOrderId: order._id,
       status: { $nin: ["void", "cancelled"] },
-    }).select("totals.grandTotal paidAmount");
+    }).select("totals.grandTotal creditedAmount debitedAmount paidAmount");
 
     const total = siblingInvoices.reduce(
-      (sum, item) => sum + item.totals.grandTotal,
+      (sum, item) => sum + Number(item.totals?.grandTotal || 0) + Number(item.debitedAmount || 0) - Number(item.creditedAmount || 0),
       0
     );
     const paid = siblingInvoices.reduce(
@@ -479,9 +514,17 @@ export const reversePayment = async (req, res) => {
     performedBy: req.user._id,
   });
   invoice.paidAmount = roundMoney(Math.max(Number(invoice.paidAmount || 0) - Number(allocation.amount || 0), 0));
-  invoice.dueAmount = roundMoney(Math.max(Number(invoice.totals.grandTotal || 0) - Number(invoice.creditedAmount || 0) - invoice.paidAmount, 0));
+  invoice.dueAmount = roundMoney(Math.max(Number(invoice.totals.grandTotal || 0) + Number(invoice.debitedAmount || 0) - Number(invoice.creditedAmount || 0) - invoice.paidAmount, 0));
   invoice.paymentAllocations.pull(allocation._id);
   invoice.status = invoice.paidAmount > 0 ? "partially_paid" : invoice.sentAt ? "sent" : "posted";
+
+  const scheduleRev = reversePaymentFromSchedule(
+    invoice.paymentSchedule,
+    allocation.amount,
+    null
+  );
+  invoice.paymentSchedule = scheduleRev.schedule;
+
   invoice.updatedBy = req.user._id;
   await invoice.save();
   await writeAudit({ actorId: req.user._id, action: "reverse", entityType: "SalesInvoice", entityId: invoice._id, after: { paidAmount: invoice.paidAmount, dueAmount: invoice.dueAmount }, meta: { ...getReqMeta(req), reason: req.body.reason, amount: allocation.amount } });
@@ -491,8 +534,8 @@ export const reversePayment = async (req, res) => {
       tenantId: invoice.tenantId,
       salesOrderId: order._id,
       status: { $nin: ["void", "cancelled"] },
-    }).select("totals.grandTotal creditedAmount paidAmount");
-    const total = siblings.reduce((sum, item) => sum + Number(item.totals?.grandTotal || 0) - Number(item.creditedAmount || 0), 0);
+    }).select("totals.grandTotal creditedAmount debitedAmount paidAmount");
+    const total = siblings.reduce((sum, item) => sum + Number(item.totals?.grandTotal || 0) + Number(item.debitedAmount || 0) - Number(item.creditedAmount || 0), 0);
     const paid = siblings.reduce((sum, item) => sum + Number(item.paidAmount || 0), 0);
     order.paymentStatus = total > 0 && paid >= total ? "paid" : paid > 0 ? "partially_paid" : "unpaid";
     order.updatedBy = req.user._id;
@@ -512,8 +555,8 @@ export const voidSalesInvoice = async (req, res) => {
   if (invoice.paidAmount > 0) {
     throw new SalesError("Reverse allocated payments before voiding the invoice.", 409);
   }
-  if (Number(invoice.creditedAmount || 0) > 0) {
-    throw new SalesError("Reverse linked sales returns before voiding this invoice.", 409);
+  if (Number(invoice.creditedAmount || 0) > 0 || Number(invoice.debitedAmount || 0) > 0) {
+    throw new SalesError("Reverse linked adjustment notes/sales returns before voiding this invoice.", 409);
   }
   if (!req.body.reason) throw new SalesError("Void reason is required.");
 

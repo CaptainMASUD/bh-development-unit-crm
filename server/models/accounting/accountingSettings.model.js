@@ -25,6 +25,8 @@ const accountingSettingsSchema = new mongoose.Schema(
     multiCurrencyEnabled: { type: Boolean, default: false },
     accountingMethod: { type: String, enum: ["accrual", "cash"], default: "accrual" },
     roundingPrecision: { type: Number, min: 0, max: 6, default: 2 },
+    defaultSalesPaymentTerm: { type: mongoose.Schema.Types.ObjectId, ref: "PaymentTerm", default: null },
+    defaultPurchasePaymentTerm: { type: mongoose.Schema.Types.ObjectId, ref: "PaymentTerm", default: null },
     defaultCashAccount: { type: mongoose.Schema.Types.ObjectId, ref: "Account", default: null },
     defaultBankAccount: { type: mongoose.Schema.Types.ObjectId, ref: "Account", default: null },
     salesAccount: { type: mongoose.Schema.Types.ObjectId, ref: "Account", default: null },

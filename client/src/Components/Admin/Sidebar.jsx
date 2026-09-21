@@ -86,6 +86,8 @@ const SIDEBAR_GROUPS = [
       "expense",
       "payable",
       "receivable",
+      "credit",
+      "debit",
       "ledger",
       "opening balance",
       "trial balance",
@@ -93,6 +95,8 @@ const SIDEBAR_GROUPS = [
       "cash flow",
       "cash",
       "bank",
+      "terms",
+      "schedule",
     ],
   },
   {

@@ -64,6 +64,8 @@ import {
 } from "../../middleware/auth.middleware.js";
 import costCenterRoutes from "./costCenter.routes.js";
 import accountingDimensionRoutes from "./accountingDimension.routes.js";
+import adjustmentNoteRoutes from "./adjustmentNote.routes.js";
+import paymentTermRoutes from "./paymentTerm.routes.js";
 
 const router = express.Router();
 
@@ -71,6 +73,8 @@ router.use(protect);
 
 router.use("/cost-centers", costCenterRoutes);
 router.use("/dimensions", accountingDimensionRoutes);
+router.use("/adjustment-notes", adjustmentNoteRoutes);
+router.use("/payment-terms", paymentTermRoutes);
 
 router.get(
   "/payables",
