@@ -92,6 +92,7 @@ const isValidFiscalStart = (value) => {
 
 export function validateCompanyProfileInput(input = {}) {
   if (has(input, "name") && !clean(input.name)) fail("Company name is required.");
+  if (has(input, "address") && !clean(input.address?.country)) fail("Country is required when updating the company address.");
   if (input.email && !EMAIL_PATTERN.test(input.email)) fail("Enter a valid company email address.");
   if (input.website && !isValidWebUrl(input.website)) fail("Enter a valid HTTP or HTTPS company website.");
   if (input.contactPerson?.email && !EMAIL_PATTERN.test(input.contactPerson.email)) {

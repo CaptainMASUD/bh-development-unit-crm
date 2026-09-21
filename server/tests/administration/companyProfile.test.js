@@ -47,6 +47,7 @@ test("company profile validation rejects malformed contact and localization valu
   assert.throws(() => validateCompanyProfileInput({ name: "" }), /Company name is required/i);
   assert.throws(() => validateCompanyProfileInput({ email: "invalid" }), /company email/i);
   assert.throws(() => validateCompanyProfileInput({ website: "javascript:alert(1)" }), /website/i);
+  assert.throws(() => validateCompanyProfileInput({ address: { country: "" } }), /country/i);
   assert.throws(() => validateCompanyProfileInput({ settings: { currency: "TAKA" } }), /three-letter/i);
   assert.throws(() => validateCompanyProfileInput({ settings: { timezone: "Moon/Base" } }), /time zone/i);
   assert.throws(() => validateCompanyProfileInput({ settings: { fiscalYearStart: "02-31" } }), /fiscal year/i);

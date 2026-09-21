@@ -71,9 +71,42 @@ test("Company Details payload cannot mutate platform-owned company fields", asyn
 test("Company Details validation catches required and malformed fields before submission", async (t) => {
   const page = await loadPage(t, "/src/Components/Admin/administration/CompanyDetails.jsx")
   assert.match(page.validateCompanyForm(page.toCompanyForm({ name: "" })), /company name/i)
+  assert.match(page.validateCompanyForm(page.toCompanyForm({ name: "Acme", address: { country: "" } })), /country/i)
   assert.match(page.validateCompanyForm(page.toCompanyForm({ name: "Acme", email: "broken" })), /email/i)
   assert.match(page.validateCompanyForm(page.toCompanyForm({ name: "Acme", website: "javascript:bad" })), /website/i)
   assert.equal(page.validateCompanyForm(page.toCompanyForm({ name: "Acme" })), "")
+})
+
+test("Company Details preserves drafts on conflict, enforces read-only access, and validates logo files", async (t) => {
+  const page = await loadPage(t, "/src/Components/Admin/administration/CompanyDetails.jsx")
+  const form = page.toCompanyForm({ name: "Draft Company" })
+  assert.deepEqual(page.preserveCompanyDraftOnConflict(form), form)
+  assert.equal(page.validateCompanyLogoFile({ type: "image/png", size: 1024 }), "")
+  assert.match(page.validateCompanyLogoFile({ type: "image/svg+xml", size: 1024 }), /PNG, JPG, or WEBP/i)
+  assert.match(page.validateCompanyLogoFile({ type: "image/png", size: 6 * 1024 * 1024 }), /5 MB/i)
+
+  const html = renderToStaticMarkup(React.createElement(page.CompanyDetailsView, {
+    form,
+    company: { name: "Saved Company" },
+    canManage: false,
+    conflict: true,
+    loading: false,
+    saving: false,
+    onChange() {},
+    onNestedChange() {},
+    onSave() {},
+    onReset() {},
+    onReload() {},
+    onKeepDraft() {},
+    onLogoSelected() {},
+    onLogoRemove() {},
+  }))
+  assert.match(html, /Company details changed in another session/i)
+  assert.match(html, /Reload/)
+  assert.match(html, /Keep Draft/)
+  assert.match(html, /read-only/i)
+  assert.doesNotMatch(html, /Save Changes/)
+  assert.match(html, /disabled=""/)
 })
 
 test("System Defaults renders exact operational bounds, retention choices, and warning copy", async (t) => {

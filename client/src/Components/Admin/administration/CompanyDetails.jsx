@@ -42,6 +42,7 @@ export function toCompanyForm(company = {}) {
 
 export function validateCompanyForm(form) {
   if (!clean(form?.name)) return "Company name is required."
+  if (!clean(form?.address?.country)) return "Country is required."
   if (form?.email && !emailPattern.test(clean(form.email))) return "Enter a valid company email address."
   if (form?.contactPerson?.email && !emailPattern.test(clean(form.contactPerson.email))) return "Enter a valid contact-person email address."
   if (form?.website) {
@@ -55,6 +56,16 @@ export function validateCompanyForm(form) {
   if (!/^[A-Z]{3}$/.test(clean(form?.settings?.currency).toUpperCase())) return "Default currency must be a three-letter ISO code."
   if (!/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(clean(form?.settings?.fiscalYearStart))) return "Fiscal year start must use MM-DD."
   return ""
+}
+
+export function validateCompanyLogoFile(file) {
+  if (!["image/png", "image/jpeg", "image/webp"].includes(file?.type)) return "Logo must be PNG, JPG, or WEBP."
+  if (Number(file?.size || 0) > 5 * 1024 * 1024) return "Logo must not exceed 5 MB."
+  return ""
+}
+
+export function preserveCompanyDraftOnConflict(draft) {
+  return toCompanyForm(draft)
 }
 
 export function buildCompanyProfilePayload(form) {
@@ -98,11 +109,14 @@ export function CompanyDetailsView({
   error,
   saving,
   logoBusy,
+  logoPreviewUrl,
+  conflict,
   onChange,
   onNestedChange,
   onSave,
   onReset,
   onReload,
+  onKeepDraft,
   onLogoSelected,
   onLogoRemove,
 }) {
@@ -113,6 +127,7 @@ export function CompanyDetailsView({
   const field = (key) => ({ value: form[key] || "", onChange: (event) => onChange(key, event.target.value), disabled })
   const nested = (group, key) => ({ value: form[group]?.[key] || "", onChange: (event) => onNestedChange(group, key, event.target.value), disabled })
   const initials = clean(form.name).split(/\s+/).slice(0, 2).map((word) => word[0]).join("").toUpperCase() || "CO"
+  const logoUrl = logoPreviewUrl || form.logo?.url
 
   return <AdministrationPage>
     <AdministrationHeader
@@ -127,13 +142,14 @@ export function CompanyDetailsView({
 
     {error ? <div role="alert" className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div> : null}
     {!canManage ? <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">You have read-only access to Company Details.</div> : null}
+    {conflict ? <div role="alert" className="mb-4 flex flex-col gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900 sm:flex-row sm:items-center sm:justify-between"><span>Company details changed in another session. Reload the current values or keep your draft while you review it.</span><span className="flex shrink-0 gap-2"><AdministrationButton type="button" onClick={onReload}>Reload</AdministrationButton><AdministrationButton type="button" variant="soft" onClick={onKeepDraft}>Keep Draft</AdministrationButton></span></div> : null}
 
     <form id="company-details-form" onSubmit={onSave} className="space-y-5">
       <AdministrationCard className="p-5">
         <div className="mb-5 flex flex-col gap-4 border-b border-gray-100 pb-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-gray-200 bg-indigo-50 text-xl font-black text-indigo-700">
-              {form.logo?.url ? <img src={form.logo.url} alt={`${form.name || "Company"} logo`} className="h-full w-full object-cover" /> : initials}
+              {logoUrl ? <img src={logoUrl} alt={`${form.name || "Company"} logo`} className="h-full w-full object-cover" /> : initials}
             </div>
             <div><h2 className="text-lg font-black text-gray-950">Company identity</h2><p className="mt-1 text-sm font-medium text-gray-500">Logo, legal identity, registration and tax details.</p><div className="mt-2"><AdministrationStatus value={form.status} /></div></div>
           </div>
@@ -197,6 +213,12 @@ export default function CompanyDetails() {
   const [saving, setSaving] = useState(false)
   const [logoBusy, setLogoBusy] = useState(false)
   const [error, setError] = useState("")
+  const [conflict, setConflict] = useState(false)
+  const [logoPreviewUrl, setLogoPreviewUrl] = useState("")
+
+  useEffect(() => () => {
+    if (logoPreviewUrl) URL.revokeObjectURL(logoPreviewUrl)
+  }, [logoPreviewUrl])
 
   const loadCompany = useCallback(async () => {
     setLoading(true)
@@ -206,6 +228,7 @@ export default function CompanyDetails() {
       const next = payload.data?.company || {}
       setCompany(next)
       setForm(toCompanyForm(next))
+      setConflict(false)
     } catch (requestError) {
       setError(requestError.message)
     } finally {
@@ -230,9 +253,15 @@ export default function CompanyDetails() {
       const next = payload.data?.company || {}
       setCompany(next)
       setForm(toCompanyForm(next))
+      setConflict(false)
       toast.success(payload.message || "Company details updated.")
     } catch (requestError) {
-      setError(requestError.message)
+      if (requestError.status === 409) {
+        setForm((draft) => preserveCompanyDraftOnConflict(draft))
+        setConflict(true)
+      } else {
+        setError(requestError.message)
+      }
       toast.error(requestError.message)
     } finally {
       setSaving(false)
@@ -243,8 +272,9 @@ export default function CompanyDetails() {
     const file = event.target.files?.[0]
     event.target.value = ""
     if (!file || !canManage) return
-    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) return toast.error("Logo must be PNG, JPG, or WEBP.")
-    if (file.size > 5 * 1024 * 1024) return toast.error("Logo must not exceed 5 MB.")
+    const validation = validateCompanyLogoFile(file)
+    if (validation) return toast.error(validation)
+    setLogoPreviewUrl(URL.createObjectURL(file))
     const data = new FormData()
     data.append("logo", file)
     setLogoBusy(true)
@@ -258,6 +288,7 @@ export default function CompanyDetails() {
       toast.error(requestError.message)
     } finally {
       setLogoBusy(false)
+      setLogoPreviewUrl("")
     }
   }
 
@@ -285,11 +316,14 @@ export default function CompanyDetails() {
     error={error}
     saving={saving}
     logoBusy={logoBusy}
+    logoPreviewUrl={logoPreviewUrl}
+    conflict={conflict}
     onChange={updateField}
     onNestedChange={updateNested}
     onSave={save}
-    onReset={() => setForm(toCompanyForm(company || {}))}
+    onReset={() => { setForm(toCompanyForm(company || {})); setConflict(false) }}
     onReload={loadCompany}
+    onKeepDraft={() => setConflict(false)}
     onLogoSelected={uploadLogo}
     onLogoRemove={removeLogo}
   />
