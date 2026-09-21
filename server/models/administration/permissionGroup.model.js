@@ -215,6 +215,9 @@ export const PERMISSION_KEYS = [
   "company:manage",
   "branch:view",
   "branch:manage",
+  "administration-dashboard:view",
+  "system-settings:view",
+  "system-settings:manage",
 ];
 
 const permissionGroupSchema = new mongoose.Schema(

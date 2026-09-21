@@ -175,3 +175,21 @@ test("Payroll exposes Departments and Positions directly in sidebar and excludes
   })
 })
 
+test("Administration exposes the approved feature order", async (t) => {
+  const config = await loadModuleConfig(t)
+
+  assert.deepEqual(config.MODULES.administration.adminSections, [
+    "Dashboard",
+    "Company Details",
+    "System Defaults",
+    "Document Numbering",
+    "Audit Trail",
+    "Role Management",
+    "Departments",
+    "Employee Access Control",
+    "Add Employee",
+    "Employee Account Control",
+    "System Security Settings",
+  ])
+})
+
