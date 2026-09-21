@@ -1,6 +1,7 @@
 import AuditLog from "../models/auditLog.model.js";
 import ActivityLog from "../models/activityLog.model.js";
 import ConversionLog from "../models/conversionLog.model.js";
+import { redactAuditValue } from "./auditRedaction.js";
 
 export const getReqMeta = (req = {}) => {
   return {
@@ -55,7 +56,7 @@ export const writeAudit = async ({
   before = null,
   after = null,
   meta = {},
-}) => {
+}, { strict = false } = {}) => {
   try {
     if (!actorId || !action || !entityType || !entityId) return null;
 
@@ -65,8 +66,8 @@ export const writeAudit = async ({
       action: normalizeAuditAction(action),
       entityType,
       entityId,
-      before,
-      after,
+      before: redactAuditValue(before),
+      after: redactAuditValue(after),
       meta: {
         ip: meta?.ip || "",
         userAgent: meta?.userAgent || "",
@@ -78,7 +79,7 @@ export const writeAudit = async ({
         newStatus: meta?.newStatus || "",
         reason: meta?.reason || "",
         amount: Number(meta?.amount || 0),
-        extra: meta?.extra || null,
+        extra: redactAuditValue(meta?.extra || null),
       },
     };
 
@@ -89,6 +90,7 @@ export const writeAudit = async ({
 
     return await AuditLog.create(payload);
   } catch (err) {
+    if (strict) throw err;
     console.error("Audit log failed:", err.message);
     return null;
   }
