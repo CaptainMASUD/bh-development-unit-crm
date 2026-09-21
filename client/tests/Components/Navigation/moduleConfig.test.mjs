@@ -193,3 +193,24 @@ test("Administration exposes the approved feature order", async (t) => {
   ])
 })
 
+test("Administration resolves all approved sections and identifies real Phase 1 pages", async (t) => {
+  const server = await createServer({ root: process.cwd(), server: { middlewareMode: true }, appType: "custom" })
+  t.after(() => server.close())
+  const config = await server.ssrLoadModule("/src/Components/Navigation/moduleConfig.js")
+  const registry = await server.ssrLoadModule("/src/Components/Admin/sections.jsx")
+  const built = config.buildModuleSections(registry.sections, "administration", "admin")
+
+  assert.deepEqual(Object.keys(built), config.MODULES.administration.adminSections)
+  assert.equal(built.Dashboard.permission, "administration-dashboard:view")
+  assert.equal(built["Company Details"].permission, "company:view")
+  assert.equal(built["System Defaults"].permission, "system-settings:view")
+  assert.equal(built.Dashboard.comingSoon, undefined)
+  assert.equal(built["Company Details"].comingSoon, undefined)
+  assert.equal(built["System Defaults"].comingSoon, undefined)
+
+  for (const name of config.MODULES.administration.adminSections.slice(3)) {
+    assert.equal(built[name].comingSoon, true, `${name} must be an honest upcoming feature`)
+    assert.ok(built[name].component)
+  }
+})
+

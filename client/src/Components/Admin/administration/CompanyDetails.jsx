@@ -1,4 +1,4 @@
-/* eslint-disable react/prop-types -- page view is exported for focused rendering tests */
+/* eslint-disable react/prop-types, react-refresh/only-export-components -- page view and form contracts are exported for focused tests */
 import { useCallback, useEffect, useState } from "react"
 import { useSelector } from "react-redux"
 import { FiBriefcase, FiImage, FiRefreshCw, FiSave, FiTrash2, FiUpload, FiUser } from "react-icons/fi"

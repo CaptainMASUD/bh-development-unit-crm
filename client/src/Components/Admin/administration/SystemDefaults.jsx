@@ -1,4 +1,4 @@
-/* eslint-disable react/prop-types -- view is exported for focused SSR contract tests */
+/* eslint-disable react/prop-types, react-refresh/only-export-components -- view and form contracts are exported for focused tests */
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSelector } from "react-redux"
 import { FiDatabase, FiRefreshCw, FiRotateCcw, FiSave, FiShield } from "react-icons/fi"

@@ -1,4 +1,4 @@
-/* eslint-disable react/prop-types -- shared Administration presentation primitives */
+/* eslint-disable react/prop-types, react-refresh/only-export-components -- shared Administration presentation primitives and utilities */
 import { useEffect, useId } from "react"
 import { createPortal } from "react-dom"
 import { FiAlertCircle, FiFilter, FiRefreshCw, FiSearch, FiSettings, FiX } from "react-icons/fi"

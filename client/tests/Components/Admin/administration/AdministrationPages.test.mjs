@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import React from "react"
 import { renderToStaticMarkup } from "react-dom/server"
+import { MemoryRouter } from "react-router-dom"
 import { createServer } from "vite"
 
 async function loadPage(t, path) {
@@ -149,4 +150,46 @@ test("System Defaults is read-only without manage permission and preserves a con
   assert.match(html, /Keep Draft/)
   assert.match(html, /read-only/i)
   assert.match(html, /disabled=""/)
+})
+
+test("Administration Dashboard renders summary, completeness, ordered internal task links, and empty state", async (t) => {
+  const page = await loadPage(t, "/src/Components/Admin/administration/AdministrationDashboard.jsx")
+  const tasks = page.sortAdministrationTasks([
+    { key: "low", title: "Low", priority: "low", dueDate: null, navigationTarget: "/admin/administration/company-details" },
+    { key: "later", title: "Later", priority: "high", dueDate: "2026-10-02", navigationTarget: "/admin/administration/company-details" },
+    { key: "overdue", title: "Overdue", priority: "medium", dueDate: "2026-09-01", navigationTarget: "/admin/administration/company-details" },
+  ], new Date("2026-09-22T00:00:00Z"))
+  assert.deepEqual(tasks.map((task) => task.key), ["overdue", "later", "low"])
+
+  const props = {
+    data: {
+      summary: { companyStatus: "active", activeEmployees: 8, inactiveEmployees: 1, lockedAccounts: 2, auditRecords: 120 },
+      completeness: { percent: 80, missing: ["Company logo"] },
+      tasks: [{ key: "logo", title: "Upload company logo", description: "Required for documents", priority: "medium", navigationTarget: "/admin/administration/company-details" }],
+    },
+    loading: false,
+    onReload() {},
+  }
+  const html = renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(page.AdministrationDashboardView, props)))
+  assert.match(html, /Active Employees/)
+  assert.match(html, /Locked Accounts/)
+  assert.match(html, /Audit Records/)
+  assert.match(html, /80%/)
+  assert.match(html, /Nearby Tasks/)
+  assert.match(html, /href="\/admin\/administration\/company-details"/)
+
+  const emptyHtml = renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(page.AdministrationDashboardView, { ...props, data: { ...props.data, tasks: [] } })))
+  assert.match(emptyHtml, /No administrative actions need attention/i)
+})
+
+test("Administration Dashboard renders retryable API failure state", async (t) => {
+  const page = await loadPage(t, "/src/Components/Admin/administration/AdministrationDashboard.jsx")
+  const html = renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(page.AdministrationDashboardView, {
+    data: null,
+    loading: false,
+    error: "Network unavailable",
+    onReload() {},
+  })))
+  assert.match(html, /Unable to load Administration Dashboard/i)
+  assert.match(html, /Retry/i)
 })

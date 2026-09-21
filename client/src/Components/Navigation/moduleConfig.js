@@ -169,8 +169,8 @@ export const MODULES = {
   administration: {
     id: "administration",
     name: "Administration",
-    description: "Users, access control, profile, workflow guidance, and system information.",
-    permissions: ["users:view", "users:manage", "access-control:view", "access-control:manage", "profile:view", "workflow:view", "branch:view", "branch:manage"],
+    description: "Company configuration, system defaults, access control, employees, security, and audit oversight.",
+    permissions: ["administration-dashboard:view", "company:view", "company:manage", "system-settings:view", "system-settings:manage", "users:view", "users:manage", "access-control:view", "access-control:manage", "employees:view", "profile:view", "workflow:view", "branch:view", "branch:manage"],
     adminSections: [
       "Dashboard",
       "Company Details",
@@ -184,6 +184,10 @@ export const MODULES = {
       "Employee Account Control",
       "System Security Settings",
     ],
+    sectionAliases: {
+      Dashboard: "Administration Dashboard",
+      Departments: "Administration Departments",
+    },
     employeeSections: ["Dashboard", "Profile Settings", "Access Control", "Workflow Procedure"],
   },
 }
