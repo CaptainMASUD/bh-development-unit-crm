@@ -167,6 +167,10 @@ export const requirePermission = (permission) => (req, res, next) => {
     "expenses:view": ["expenses:manage"],
     "expense-setup:view": ["expense-setup:manage", "expenses:manage"],
     "bank-setup:view": ["bank-setup:manage", "finance:manage", "payroll:manage"],
+    "finance:cost-center:view": ["finance:cost-center:manage", "finance:manage", "finance:view"],
+    "finance:cost-center:manage": ["finance:manage"],
+    "finance:dimension:view": ["finance:dimension:manage", "finance:manage", "finance:view"],
+    "finance:dimension:manage": ["finance:manage"],
   };
   const manageEquivalent = String(permission).endsWith(":view")
     ? String(permission).replace(/:view$/, ":manage")

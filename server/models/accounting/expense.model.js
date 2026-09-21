@@ -36,6 +36,9 @@ const expenseSchema = new mongoose.Schema(
     description: { type: String, trim: true, default: "" },
     attachment: { type: attachmentSchema, default: () => ({}) },
     branch: { type: String, trim: true, default: "", index: true },
+    costCenter: { type: mongoose.Schema.Types.ObjectId, ref: "CostCenter", default: null, index: true },
+    department: { type: mongoose.Schema.Types.ObjectId, ref: "Department", default: null, index: true },
+    dimensions: { type: Map, of: mongoose.Schema.Types.Mixed, default: () => new Map() },
     status: {
       type: String,
       enum: ["pending", "approved", "paid", "rejected"],

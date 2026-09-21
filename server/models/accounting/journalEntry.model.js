@@ -22,8 +22,11 @@ const journalLineSchema = new mongoose.Schema(
     description: { type: String, trim: true, default: "" },
     contactType: { type: String, enum: ["customer", "vendor", "employee", "other", ""], default: "", index: true },
     contactId: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
-    costCenter: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
+    costCenter: { type: mongoose.Schema.Types.ObjectId, ref: "CostCenter", default: null, index: true },
     project: { type: mongoose.Schema.Types.ObjectId, default: null, index: true },
+    branch: { type: mongoose.Schema.Types.ObjectId, ref: "Branch", default: null, index: true },
+    department: { type: mongoose.Schema.Types.ObjectId, ref: "Department", default: null, index: true },
+    dimensions: { type: Map, of: mongoose.Schema.Types.Mixed, default: () => new Map() },
     taxCode: { type: String, trim: true, uppercase: true, default: "", index: true },
   },
   { _id: true }
@@ -156,6 +159,9 @@ journalEntrySchema.index({ voucherType: 1, status: 1, date: -1, _id: -1 });
 journalEntrySchema.index({ sourceType: 1, sourceId: 1, status: 1 });
 journalEntrySchema.index({ "lines.account": 1, date: -1, _id: -1 });
 journalEntrySchema.index({ reference: 1, date: -1 });
+journalEntrySchema.index({ tenantId: 1, "lines.costCenter": 1 });
+journalEntrySchema.index({ tenantId: 1, "lines.branch": 1 });
+journalEntrySchema.index({ tenantId: 1, "lines.department": 1 });
 
 journalEntrySchema.pre("validate", function () {
   let totalDebit = 0;

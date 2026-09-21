@@ -132,9 +132,12 @@ function StatusBadge({ status }) {
 
   const styles = {
     open: "bg-emerald-50 text-emerald-700 ring-emerald-600/10",
-    closed: "bg-amber-50 text-amber-700 ring-amber-600/10",
+    soft_closed: "bg-amber-50 text-amber-700 ring-amber-600/10",
+    closed: "bg-orange-50 text-orange-700 ring-orange-600/10",
     locked: "bg-rose-50 text-rose-700 ring-rose-600/10",
   };
+
+  const label = normalized.replace(/_/g, " ");
 
   return (
     <span
@@ -144,7 +147,7 @@ function StatusBadge({ status }) {
       )}
     >
       <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50" />
-      {normalized}
+      {label}
     </span>
   );
 }
@@ -501,7 +504,15 @@ function FiscalYearModal({
   );
 }
 
-function ConfirmActionModal({ open, action, loading, onClose, onConfirm }) {
+function ConfirmActionModal({
+  open,
+  action,
+  loading,
+  reason,
+  setReason,
+  onClose,
+  onConfirm,
+}) {
   useEffect(() => {
     if (!open) return undefined;
 
@@ -536,31 +547,37 @@ function ConfirmActionModal({ open, action, loading, onClose, onConfirm }) {
       }
     : {
         title:
-          operation === "close"
-            ? "Close accounting period?"
-            : operation === "lock"
-              ? "Lock accounting period?"
-              : operation === "reopen"
-                ? "Reopen accounting period?"
-                : "Unlock accounting period?",
+          operation === "soft_close"
+            ? "Soft close accounting period?"
+            : operation === "close"
+              ? "Close accounting period?"
+              : operation === "lock"
+                ? "Lock accounting period?"
+                : operation === "reopen"
+                  ? "Reopen accounting period?"
+                  : "Unlock accounting period?",
         subtitle:
           action.item?.name || action.item?.periodKey || "Accounting period",
         message:
-          operation === "lock"
-            ? "Posting and editing will remain unavailable until the period is unlocked."
-            : operation === "close"
-              ? "The system will check for unfinished draft journals before closing."
-              : operation === "reopen"
-                ? "The period will become available for accounting activity again."
-                : "The administrative freeze will be removed.",
-        confirm:
-          operation === "close"
-            ? "Close period"
+          operation === "soft_close"
+            ? "Normal postings will be blocked. Only authorized users with an explicit override reason can post entries."
             : operation === "lock"
-              ? "Lock period"
-              : operation === "reopen"
-                ? "Reopen period"
-                : "Unlock period",
+              ? "Posting and editing will remain unavailable until the period is unlocked."
+              : operation === "close"
+                ? "The system will check for unfinished draft journals before closing."
+                : operation === "reopen"
+                  ? "The period will become available for accounting activity again."
+                  : "The administrative freeze will be removed.",
+        confirm:
+          operation === "soft_close"
+            ? "Soft close period"
+            : operation === "close"
+              ? "Close period"
+              : operation === "lock"
+                ? "Lock period"
+                : operation === "reopen"
+                  ? "Reopen period"
+                  : "Unlock period",
         danger: operation === "lock",
       };
 
@@ -614,7 +631,7 @@ function ConfirmActionModal({ open, action, loading, onClose, onConfirm }) {
             </button>
           </div>
 
-          <div className="p-5">
+          <div className="p-5 space-y-4">
             <div
               className={cn(
                 "rounded-2xl border p-4 text-sm font-medium leading-6",
@@ -624,6 +641,20 @@ function ConfirmActionModal({ open, action, loading, onClose, onConfirm }) {
               )}
             >
               {content.message}
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-bold text-gray-700">
+                Reason / Audit Note (Optional)
+              </label>
+              <input
+                type="text"
+                className={input}
+                placeholder="Audit trail note or reason..."
+                value={reason || ""}
+                onChange={(e) => setReason?.(e.target.value)}
+                disabled={loading}
+              />
             </div>
           </div>
 
@@ -682,6 +713,7 @@ export default function FiscalYearPeriods() {
     year: null,
   });
   const [confirmAction, setConfirmAction] = useState(null);
+  const [actionReason, setActionReason] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
 
   const load = useCallback(async (requestedId = "", options = {}) => {
@@ -818,6 +850,7 @@ export default function FiscalYearPeriods() {
   };
 
   const requestPeriodAction = (period, operation) => {
+    setActionReason("");
     setConfirmAction({
       kind: "period",
       item: period,
@@ -826,6 +859,7 @@ export default function FiscalYearPeriods() {
   };
 
   const requestCloseYear = (fiscalYear) => {
+    setActionReason("");
     setConfirmAction({
       kind: "year",
       item: fiscalYear,
@@ -835,6 +869,7 @@ export default function FiscalYearPeriods() {
 
   const closeConfirmModal = () => {
     if (actionLoading) return;
+    setActionReason("");
     setConfirmAction(null);
   };
 
@@ -844,13 +879,18 @@ export default function FiscalYearPeriods() {
     setActionLoading(true);
 
     try {
+      const payload = {
+        reason: actionReason.trim(),
+        note: actionReason.trim(),
+      };
+
       if (confirmAction.kind === "year") {
         const fiscalYear = confirmAction.item;
         const data = await api(
           `/accounting/fiscal-years/${fiscalYear._id}/close`,
           {
             method: "PATCH",
-            body: "{}",
+            body: JSON.stringify(payload),
           },
         );
 
@@ -862,16 +902,18 @@ export default function FiscalYearPeriods() {
       } else {
         const period = confirmAction.item;
         const operation = confirmAction.operation;
+        const endpoint =
+          operation === "soft_close"
+            ? `/accounting/periods/${encodeURIComponent(period.periodKey)}/soft-close`
+            : `/accounting/periods/${encodeURIComponent(period.periodKey)}/${operation}`;
 
-        await api(
-          `/accounting/periods/${encodeURIComponent(period.periodKey)}/${operation}`,
-          {
-            method: "PATCH",
-            body: "{}",
-          },
-        );
+        await api(endpoint, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
 
         const labels = {
+          soft_close: "soft closed",
           close: "closed",
           lock: "locked",
           reopen: "reopened",
@@ -882,6 +924,7 @@ export default function FiscalYearPeriods() {
       }
 
       setConfirmAction(null);
+      setActionReason("");
       await load(selected);
     } catch (error) {
       toast.error(error?.message || "Action failed");
@@ -1168,6 +1211,55 @@ export default function FiscalYearPeriods() {
                           <>
                             <button
                               type="button"
+                              className={cn(button, buttonGhost, "h-10")}
+                              onClick={() =>
+                                requestPeriodAction(period, "soft_close")
+                              }
+                              disabled={busy}
+                            >
+                              <Icon icon={UnavailableIcon} size={16} />
+                              Soft close
+                            </button>
+                            <button
+                              type="button"
+                              className={cn(button, buttonWarning, "h-10")}
+                              onClick={() =>
+                                requestPeriodAction(period, "close")
+                              }
+                              disabled={busy}
+                            >
+                              <Icon icon={CheckmarkCircle02Icon} size={16} />
+                              Close
+                            </button>
+                            <button
+                              type="button"
+                              className={cn(button, buttonDanger, "h-10")}
+                              onClick={() =>
+                                requestPeriodAction(period, "lock")
+                              }
+                              disabled={busy}
+                            >
+                              <Icon icon={UnavailableIcon} size={16} />
+                              Lock
+                            </button>
+                          </>
+                        ) : null}
+
+                        {period.status === "soft_closed" ? (
+                          <>
+                            <button
+                              type="button"
+                              className={cn(button, buttonGhost, "h-10")}
+                              onClick={() =>
+                                requestPeriodAction(period, "reopen")
+                              }
+                              disabled={busy}
+                            >
+                              <Icon icon={RefreshIcon} size={16} />
+                              Reopen
+                            </button>
+                            <button
+                              type="button"
                               className={cn(button, buttonWarning, "h-10")}
                               onClick={() =>
                                 requestPeriodAction(period, "close")
@@ -1275,6 +1367,8 @@ export default function FiscalYearPeriods() {
         open={Boolean(confirmAction)}
         action={confirmAction}
         loading={actionLoading}
+        reason={actionReason}
+        setReason={setActionReason}
         onClose={closeConfirmModal}
         onConfirm={runConfirmedAction}
       />

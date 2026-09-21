@@ -37,6 +37,8 @@ const TaxReport = lazy(() => import("../Admin/reports/TaxReport"))
 const Expenses = lazy(() => import("../Admin/accounting/Expenses"))
 const ExpenseSetup = lazy(() => import("../Admin/accounting/ExpenseSetup"))
 const ChartOfAccounts = lazy(() => import("../Admin/accounting/ChartOfAccounts"))
+const CostCenters = lazy(() => import("../Admin/accounting/CostCenters"))
+const AccountingDimensions = lazy(() => import("../Admin/accounting/AccountingDimensions"))
 const AccountingSettings = lazy(() => import("../Admin/accounting/AccountingSettings"))
 const FiscalYearPeriods = lazy(() => import("../Admin/accounting/FiscalYearPeriods"))
 const JournalEntries = lazy(() => import("../Admin/accounting/JournalEntries"))
@@ -181,12 +183,16 @@ export const sections = {
     permission: PERMISSIONS.FINANCE_VIEW,
     subcategories: {
       "Chart of Accounts": <ChartOfAccounts />,
+      "Cost Centers": <CostCenters />,
+      "Accounting Dimensions": <AccountingDimensions />,
       "Fiscal Year / Period": <FiscalYearPeriods />,
       "Accounting Settings": <AccountingSettings />,
       "Opening Balance": <OpeningBalances />,
     },
     subcategoryPermissions: {
       "Chart of Accounts": PERMISSIONS.FINANCE_MANAGE,
+      "Cost Centers": PERMISSIONS.COST_CENTER_VIEW,
+      "Accounting Dimensions": PERMISSIONS.DIMENSION_VIEW,
       "Fiscal Year / Period": PERMISSIONS.FINANCE_MANAGE,
       "Accounting Settings": PERMISSIONS.FINANCE_MANAGE,
       "Opening Balance": PERMISSIONS.FINANCE_MANAGE,

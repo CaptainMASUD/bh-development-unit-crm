@@ -4,6 +4,7 @@ import {
   bootstrapChartOfAccounts,
   carryForwardOpeningBalance,
   closeAccountingPeriod,
+  softCloseAccountingPeriod,
   closeFiscalYear,
   createAccount,
   createCashAccount,
@@ -61,10 +62,15 @@ import {
   requireAnyPermission,
   requirePermission,
 } from "../../middleware/auth.middleware.js";
+import costCenterRoutes from "./costCenter.routes.js";
+import accountingDimensionRoutes from "./accountingDimension.routes.js";
 
 const router = express.Router();
 
 router.use(protect);
+
+router.use("/cost-centers", costCenterRoutes);
+router.use("/dimensions", accountingDimensionRoutes);
 
 router.get(
   "/payables",
@@ -171,6 +177,11 @@ router.post(
   "/periods",
   requirePermission("finance:manage"),
   upsertAccountingPeriod
+);
+router.patch(
+  "/periods/:periodKey/soft-close",
+  requirePermission("finance:manage"),
+  softCloseAccountingPeriod
 );
 router.patch(
   "/periods/:periodKey/close",

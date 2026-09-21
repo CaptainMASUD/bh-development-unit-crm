@@ -32,14 +32,20 @@ export default function GeneralLedger() {
   const [to, setTo] = useState(initial.get("to") || today())
   const [voucherType, setVoucherType] = useState("all")
   const [contactType, setContactType] = useState("all")
+  const [costCenters, setCostCenters] = useState([])
+  const [costCenter, setCostCenter] = useState("all")
   const [q, setQ] = useState("")
   const [data, setData] = useState({ rows: [], accounts: [], totals: {} })
   const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState(null)
 
   useEffect(() => {
-    api("/accounting/accounts?limit=500&active=all").then((result) => {
+    Promise.all([
+      api("/accounting/accounts?limit=500&active=all"),
+      api("/accounting/cost-centers?active=true").catch(() => ({ costCenters: [] }))
+    ]).then(([result, ccResult]) => {
       setAccounts((result.accounts || []).filter((account) => !account.isGroup))
+      setCostCenters((ccResult.costCenters || []).filter((cc) => !cc.isGroup))
     }).catch((error) => toast.error(error.message))
   }, [])
 
@@ -50,10 +56,11 @@ export default function GeneralLedger() {
       const params = new URLSearchParams({ accounts: selected.join(","), from, to, limit: "2000" })
       if (voucherType !== "all") params.set("voucherType", voucherType)
       if (contactType !== "all") params.set("contactType", contactType)
+      if (costCenter !== "all") params.set("costCenter", costCenter)
       if (q.trim()) params.set("q", q.trim())
       setData(await api(`/accounting/general-ledger?${params.toString()}`))
     } catch (error) { toast.error(error.message) } finally { setLoading(false) }
-  }, [contactType, from, q, selected, to, voucherType])
+  }, [contactType, costCenter, from, q, selected, to, voucherType])
 
   useEffect(() => { const timer = setTimeout(load, 250); return () => clearTimeout(timer) }, [load])
 
@@ -63,7 +70,7 @@ export default function GeneralLedger() {
 
   const exportCsv = () => {
     if (!data.rows?.length) return toast.error("No ledger rows to export.")
-    const rows = [["Date", "Voucher No", "Voucher Type", "Account", "Description", "Debit", "Credit", "Balance"], ...data.rows.map((row) => [dateText(row.date), row.entryNo, pretty(row.voucherType), `${row.account?.code} - ${row.account?.name}`, row.description, row.debit, row.credit, `${row.balance} ${row.balanceSide}`])]
+    const rows = [["Date", "Voucher No", "Voucher Type", "Account", "Description", "Cost Center", "Debit", "Credit", "Balance"], ...data.rows.map((row) => [dateText(row.date), row.entryNo, pretty(row.voucherType), `${row.account?.code} - ${row.account?.name}`, row.description, row.costCenter?.name || "-", row.debit, row.credit, `${row.balance} ${row.balanceSide}`])]
     const blob = new Blob([rows.map((row) => row.map(csvCell).join(",")).join("\n")], { type: "text/csv;charset=utf-8" })
     const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `general-ledger-${from}-${to}.csv`; link.click(); URL.revokeObjectURL(url)
   }
@@ -80,13 +87,14 @@ export default function GeneralLedger() {
           <div className="flex items-center gap-4"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-600 text-white"><FiBookOpen className="h-6 w-6" /></div><div><p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-600">Accounting source of truth</p><h1 className="text-2xl font-black text-gray-950">General Ledger</h1><p className="mt-1 text-sm font-semibold text-gray-500">Live posted-voucher history with opening and running balances.</p></div></div>
           <div className="flex flex-wrap gap-2 print:hidden"><button className={cn(btn, btnGhost)} onClick={load} disabled={!selected.length || loading}><FiRefreshCcw className={loading ? "animate-spin" : ""} /> Refresh</button><button className={cn(btn, btnGhost)} onClick={exportCsv}><FiDownload /> Excel / CSV</button><button className={cn(btn, btnPrimary)} onClick={() => window.print()}><FiPrinter /> Print / PDF</button></div>
         </div>
-        <div className="mt-5 grid gap-3 border-t border-gray-100 pt-4 lg:grid-cols-6 print:hidden">
-          <details className="relative lg:col-span-2"><summary className={`${input} flex cursor-pointer list-none items-center justify-between`}><span>{selected.length ? `${selected.length} account${selected.length === 1 ? "" : "s"} selected` : "Select ledger account"}</span><FiChevronDown /></summary><div className="absolute z-30 mt-2 max-h-80 w-full overflow-hidden rounded-2xl border border-gray-200 bg-white p-3 shadow-2xl"><input className={cn(input, "mb-2")} value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} placeholder="Search Chart of Accounts" /><div className="max-h-56 space-y-1 overflow-y-auto">{visibleAccounts.map((account) => <button type="button" key={account._id} onClick={() => toggleAccount(account._id)} className={cn("flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-bold hover:bg-indigo-50", selected.includes(account._id) && "bg-indigo-50 text-indigo-700")}><span className={cn("flex h-5 w-5 items-center justify-center rounded border", selected.includes(account._id) ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-300")}>{selected.includes(account._id) ? <FiCheck /> : null}</span><span>{account.code} - {account.name}</span></button>)}</div></div></details>
+        <div className="mt-5 grid gap-3 border-t border-gray-100 pt-4 lg:grid-cols-4 xl:grid-cols-8 print:hidden">
+          <details className="relative lg:col-span-2 xl:col-span-2"><summary className={`${input} flex cursor-pointer list-none items-center justify-between`}><span>{selected.length ? `${selected.length} account${selected.length === 1 ? "" : "s"} selected` : "Select ledger account"}</span><FiChevronDown /></summary><div className="absolute z-30 mt-2 max-h-80 w-full overflow-hidden rounded-2xl border border-gray-200 bg-white p-3 shadow-2xl"><input className={cn(input, "mb-2")} value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} placeholder="Search Chart of Accounts" /><div className="max-h-56 space-y-1 overflow-y-auto">{visibleAccounts.map((account) => <button type="button" key={account._id} onClick={() => toggleAccount(account._id)} className={cn("flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-bold hover:bg-indigo-50", selected.includes(account._id) && "bg-indigo-50 text-indigo-700")}><span className={cn("flex h-5 w-5 items-center justify-center rounded border", selected.includes(account._id) ? "border-indigo-600 bg-indigo-600 text-white" : "border-gray-300")}>{selected.includes(account._id) ? <FiCheck /> : null}</span><span>{account.code} - {account.name}</span></button>)}</div></div></details>
           <button type="button" className={cn(btn, consolidated ? btnPrimary : btnGhost)} onClick={toggleMode}>{consolidated ? "Consolidated On" : "Single Account"}</button>
           <input className={input} type="date" value={from} onChange={(event) => setFrom(event.target.value)} aria-label="From date" />
           <input className={input} type="date" value={to} onChange={(event) => setTo(event.target.value)} aria-label="To date" />
           <div className="relative"><FiSearch className="absolute left-3 top-3.5 text-gray-400" /><input className={cn(input, "pl-10")} value={q} onChange={(event) => setQ(event.target.value)} placeholder="Voucher or narration" /></div>
           <select className={input} value={voucherType} onChange={(event) => setVoucherType(event.target.value)}><option value="all">All Voucher Types</option>{["journal", "payment", "receipt", "contra", "opening", "closing", "sales", "purchase", "payroll", "tax", "adjustment"].map((value) => <option key={value} value={value}>{pretty(value)}</option>)}</select>
+          <select className={input} value={costCenter} onChange={(event) => setCostCenter(event.target.value)}><option value="all">All Cost Centers</option>{costCenters.map((cc) => <option key={cc._id} value={cc._id}>{cc.code} - {cc.name}</option>)}</select>
           <select className={input} value={contactType} onChange={(event) => setContactType(event.target.value)}><option value="all">All Parties</option><option value="customer">Customers</option><option value="vendor">Suppliers</option><option value="employee">Employees</option><option value="other">Other</option></select>
         </div>
         {selected.length ? <div className="mt-4 flex flex-wrap gap-2 print:hidden">{selected.map((id) => { const account = accounts.find((item) => item._id === id); return <button key={id} type="button" onClick={() => setSelected((current) => current.filter((item) => item !== id))} className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1.5 text-xs font-black text-indigo-700">{account?.code} {account?.name}<FiX /></button> })}</div> : null}
@@ -97,10 +105,10 @@ export default function GeneralLedger() {
       </div>
 
       <section className={`${card} overflow-hidden`}>
-        <div className="overflow-x-auto"><table className="min-w-full divide-y divide-gray-100 text-left"><thead className="bg-gray-50 text-xs font-black uppercase tracking-[0.11em] text-gray-400"><tr>{["Date", "Voucher", "Type", "Account", "Description", "Debit", "Credit", "Balance", ""].map((heading) => <th key={heading || "action"} className="px-4 py-3">{heading}</th>)}</tr></thead><tbody className="divide-y divide-gray-100">
-          {selected.length ? <tr className="bg-indigo-50/60"><td className="px-4 py-3 text-sm font-black" colSpan={5}>Opening balance as of {dateText(from)}</td><td className="px-4 py-3" /><td className="px-4 py-3" /><td className="px-4 py-3 text-sm font-black text-indigo-700">{amount(data.openingBalance?.amount)} {data.openingBalance?.side}</td><td /></tr> : null}
-          {(data.rows || []).map((row) => <tr key={`${row.journalEntryId}-${row._id}`} className="hover:bg-gray-50"><td className="whitespace-nowrap px-4 py-3 text-sm font-bold">{dateText(row.date)}</td><td className="px-4 py-3 text-sm font-black text-indigo-700">{row.entryNo || "-"}</td><td className="px-4 py-3 text-sm font-bold">{pretty(row.voucherType || row.sourceType)}</td><td className="px-4 py-3 text-sm font-bold">{row.account?.code} - {row.account?.name}</td><td className="max-w-xs px-4 py-3 text-sm font-semibold text-gray-600">{row.description || row.reference || "-"}</td><td className="px-4 py-3 text-right text-sm font-black">{row.debit ? amount(row.debit) : "-"}</td><td className="px-4 py-3 text-right text-sm font-black">{row.credit ? amount(row.credit) : "-"}</td><td className="whitespace-nowrap px-4 py-3 text-right text-sm font-black">{amount(row.balance)} {row.balanceSide}</td><td className="px-4 py-3 print:hidden"><button className={cn(btn, btnGhost, "px-3")} onClick={() => openDetail(row.journalEntryId)} title="Open source voucher"><FiEye /></button></td></tr>)}
-          {!data.rows?.length ? <tr><td colSpan={9} className="px-5 py-16 text-center text-sm font-bold text-gray-500">{selected.length ? "No posted voucher lines match these filters." : "Select a leaf account to view its General Ledger."}</td></tr> : null}
+        <div className="overflow-x-auto"><table className="min-w-full divide-y divide-gray-100 text-left"><thead className="bg-gray-50 text-xs font-black uppercase tracking-[0.11em] text-gray-400"><tr>{["Date", "Voucher", "Type", "Account", "Description", "Cost Center", "Debit", "Credit", "Balance", ""].map((heading) => <th key={heading || "action"} className="px-4 py-3">{heading}</th>)}</tr></thead><tbody className="divide-y divide-gray-100">
+          {selected.length ? <tr className="bg-indigo-50/60"><td className="px-4 py-3 text-sm font-black" colSpan={6}>Opening balance as of {dateText(from)}</td><td className="px-4 py-3" /><td className="px-4 py-3" /><td className="px-4 py-3 text-sm font-black text-indigo-700">{amount(data.openingBalance?.amount)} {data.openingBalance?.side}</td><td /></tr> : null}
+          {(data.rows || []).map((row) => <tr key={`${row.journalEntryId}-${row._id}`} className="hover:bg-gray-50"><td className="whitespace-nowrap px-4 py-3 text-sm font-bold">{dateText(row.date)}</td><td className="px-4 py-3 text-sm font-black text-indigo-700">{row.entryNo || "-"}</td><td className="px-4 py-3 text-sm font-bold">{pretty(row.voucherType || row.sourceType)}</td><td className="px-4 py-3 text-sm font-bold">{row.account?.code} - {row.account?.name}</td><td className="max-w-xs px-4 py-3 text-sm font-semibold text-gray-600">{row.description || row.reference || "-"}</td><td className="px-4 py-3 text-xs font-bold text-gray-600">{row.costCenter?.code ? `${row.costCenter.code} - ${row.costCenter.name}` : "-"}</td><td className="px-4 py-3 text-right text-sm font-black">{row.debit ? amount(row.debit) : "-"}</td><td className="px-4 py-3 text-right text-sm font-black">{row.credit ? amount(row.credit) : "-"}</td><td className="whitespace-nowrap px-4 py-3 text-right text-sm font-black">{amount(row.balance)} {row.balanceSide}</td><td className="px-4 py-3 print:hidden"><button className={cn(btn, btnGhost, "px-3")} onClick={() => openDetail(row.journalEntryId)} title="Open source voucher"><FiEye /></button></td></tr>)}
+          {!data.rows?.length ? <tr><td colSpan={10} className="px-5 py-16 text-center text-sm font-bold text-gray-500">{selected.length ? "No posted voucher lines match these filters." : "Select a leaf account to view its General Ledger."}</td></tr> : null}
         </tbody></table></div>
         {data.pageInfo?.hasNextPage ? <p className="border-t border-amber-100 bg-amber-50 px-5 py-3 text-sm font-bold text-amber-800">The report reached 2,000 vouchers. Narrow the date range for a complete export.</p> : null}
       </section>

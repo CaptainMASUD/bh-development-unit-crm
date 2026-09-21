@@ -25,6 +25,19 @@ import { nextAccountingNumber } from "../../services/accountingNumbering.service
 import { createPostedJournal } from "../../services/accountingPosting.service.js";
 import { provisionSystemAccounts } from "../../services/accountingSetup.service.js";
 import { runMongoTransaction } from "../../utils/mongoTransaction.js";
+import {
+  assertAccountingPeriodOpen,
+  assertTransactionMutationAllowed,
+  softClosePeriod,
+  closePeriod,
+  lockPeriod,
+  reopenPeriod,
+  unlockPeriod,
+  getPeriodForDate,
+  getFiscalYearForDate,
+  PERIOD_STATES,
+  PERIOD_ERROR_CODES,
+} from "../../services/accounting/accountingPeriod.service.js";
 
 const money = (value) => Math.round(Number(value || 0) * 100) / 100;
 const clean = (value) => String(value ?? "").trim();
@@ -191,31 +204,13 @@ const parsePostingDate = (value, fallback = new Date()) => {
 };
 
 const isPeriodClosed = async (date) => {
-  const period = await AccountingPeriod.findOne({
-    startDate: { $lte: date },
-    endDate: { $gte: date },
-    status: { $in: ["closed", "locked"] },
-  }).lean();
-  return period;
+  const period = await getPeriodForDate({ date });
+  return period && ["closed", "locked"].includes(period.status) ? period : null;
 };
 
-const assertOpenPeriod = async (date) => {
-  const postingDay = new Date(date);
-  postingDay.setUTCHours(0, 0, 0, 0);
-  const settings = await AccountingSettings.findOne({ key: "company" }).select("lockDate").lean();
-  if (settings?.lockDate && postingDay <= settings.lockDate) {
-    const err = new Error(`Posting is locked through ${new Date(settings.lockDate).toISOString().slice(0, 10)}.`);
-    err.statusCode = 409;
-    throw err;
-  }
-  const period = await AccountingPeriod.findOne({ startDate: { $lte: postingDay }, endDate: { $gte: postingDay } }).lean();
-  if (!period && await FiscalYear.exists({})) {
-    const err = new Error("Posting date is not inside a configured accounting period."); err.statusCode = 409; throw err;
-  }
-  if (period && period.status !== "open") {
-    const err = new Error(`Accounting period ${period.periodKey} is ${period.status}.`); err.statusCode = 409; throw err;
-  }
-  return period;
+const assertOpenPeriod = async (date, options = {}) => {
+  const validation = await assertAccountingPeriodOpen(date, options);
+  return validation.period;
 };
 
 const normalizeLines = (lines = []) =>
@@ -228,6 +223,9 @@ const normalizeLines = (lines = []) =>
     contactId: isId(line.contactId) ? line.contactId : null,
     costCenter: isId(line.costCenter) ? line.costCenter : null,
     project: isId(line.project) ? line.project : null,
+    branch: isId(line.branch) ? line.branch : null,
+    department: isId(line.department) ? line.department : null,
+    dimensions: line.dimensions || new Map(),
     taxCode: clean(line.taxCode).toUpperCase(),
   }));
 
@@ -269,6 +267,8 @@ const postJournalEntry = async ({
   bankAccount = null,
   attachment = {},
   userId = null,
+  user = null,
+  overrideReason = "",
   allowClosedPeriod = false,
 }) => {
   const postingDate = parsePostingDate(date);
@@ -277,8 +277,13 @@ const postJournalEntry = async ({
     err.statusCode = 400;
     throw err;
   }
-  const period = !allowClosedPeriod ? await assertOpenPeriod(postingDate) : await AccountingPeriod.findOne({ startDate: { $lte: postingDate }, endDate: { $gte: postingDate } }).lean();
-  const fiscalYear = period?.fiscalYearRef || (await FiscalYear.findOne({ startDate: { $lte: postingDate }, endDate: { $gte: postingDate } }).select("_id").lean())?._id || null;
+  const validation = await assertAccountingPeriodOpen(postingDate, {
+    user: user || (userId ? { _id: userId } : null),
+    overrideReason,
+    allowClosedPeriod,
+  });
+  const period = validation.period;
+  const fiscalYear = period?.fiscalYearRef || validation.fiscalYear || null;
   await assertPostableAccounts(lines);
   const resolvedVoucherType = voucherTypeForSource(sourceType, voucherType);
   const entryNo = await nextAccountingNumber(await numberingRuleForVoucher(resolvedVoucherType), postingDate);
@@ -815,20 +820,28 @@ const profitLossGroupForAccount = (account = {}) => {
   return "operating_expenses";
 };
 
-const aggregateAccrualProfitLoss = async (range) => JournalEntry.aggregate([
-  { $match: { ...ledgerMatchForRange(range), sourceType: { $nin: ["opening_balance", "fiscal_closing"] } } },
-  { $unwind: "$lines" },
-  { $lookup: { from: "accounts", localField: "lines.account", foreignField: "_id", as: "account" } },
-  { $unwind: "$account" },
-  { $match: { "account.type": { $in: ["revenue", "expense"] }, "account.isGroup": { $ne: true } } },
-  { $group: {
-    _id: "$account._id",
-    account: { $first: { _id: "$account._id", code: "$account.code", name: "$account.name", type: "$account.type", subType: "$account.subType", currency: "$account.currency" } },
-    debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" }, voucherCount: { $sum: 1 },
-  } },
-  { $project: { account: 1, voucherCount: 1, amount: { $cond: [{ $eq: ["$account.type", "revenue"] }, { $subtract: ["$credit", "$debit"] }, { $subtract: ["$debit", "$credit"] }] } } },
-  { $sort: { "account.code": 1 } },
-]).allowDiskUse(true);
+const aggregateAccrualProfitLoss = async (range) => {
+  const lineMatch = { "account.type": { $in: ["revenue", "expense"] }, "account.isGroup": { $ne: true } };
+  if (isId(range.costCenter)) lineMatch["lines.costCenter"] = toId(range.costCenter);
+  if (isId(range.branch)) lineMatch["lines.branch"] = toId(range.branch);
+  if (isId(range.department)) lineMatch["lines.department"] = toId(range.department);
+  if (isId(range.project)) lineMatch["lines.project"] = toId(range.project);
+
+  return JournalEntry.aggregate([
+    { $match: { ...ledgerMatchForRange(range), sourceType: { $nin: ["opening_balance", "fiscal_closing"] } } },
+    { $unwind: "$lines" },
+    { $lookup: { from: "accounts", localField: "lines.account", foreignField: "_id", as: "account" } },
+    { $unwind: "$account" },
+    { $match: lineMatch },
+    { $group: {
+      _id: "$account._id",
+      account: { $first: { _id: "$account._id", code: "$account.code", name: "$account.name", type: "$account.type", subType: "$account.subType", currency: "$account.currency" } },
+      debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" }, voucherCount: { $sum: 1 },
+    } },
+    { $project: { account: 1, voucherCount: 1, amount: { $cond: [{ $eq: ["$account.type", "revenue"] }, { $subtract: ["$credit", "$debit"] }, { $subtract: ["$debit", "$credit"] }] } } },
+    { $sort: { "account.code": 1 } },
+  ]).allowDiskUse(true);
+};
 
 const aggregateDirectCashProfitLoss = async (range, cashLedgerIds) => {
   if (!cashLedgerIds.length) return [];
@@ -909,16 +922,22 @@ const aggregateCashProfitLoss = async (range) => {
 };
 
 const previousProfitLossRanges = (range, comparison) => {
+  const extra = {};
+  if (range.costCenter) extra.costCenter = range.costCenter;
+  if (range.branch) extra.branch = range.branch;
+  if (range.department) extra.department = range.department;
+  if (range.project) extra.project = range.project;
+
   const ranges = { current: range };
   const duration = range.to.getTime() - range.from.getTime();
   if (["prior_period", "both"].includes(comparison)) {
     const to = new Date(range.from.getTime() - 1); const from = new Date(to.getTime() - duration);
-    ranges.priorPeriod = { from, to };
+    ranges.priorPeriod = { from, to, ...extra };
   }
   if (["prior_year", "both"].includes(comparison)) {
     const from = new Date(range.from); const to = new Date(range.to);
     from.setUTCFullYear(from.getUTCFullYear() - 1); to.setUTCFullYear(to.getUTCFullYear() - 1);
-    ranges.priorYear = { from, to };
+    ranges.priorYear = { from, to, ...extra };
   }
   return ranges;
 };
@@ -935,6 +954,10 @@ export const getProfitLoss = async (req, res) => {
   try {
     let range = parseDateRange(req.query);
     if (range.error) return res.status(400).json({ message: range.error });
+    if (isId(req.query.costCenter)) range.costCenter = req.query.costCenter;
+    if (isId(req.query.branch)) range.branch = req.query.branch;
+    if (isId(req.query.department)) range.department = req.query.department;
+    if (isId(req.query.project)) range.project = req.query.project;
     const settings = await AccountingSettings.findOne({ key: "company" }).select("legalName currency accountingMethod defaultFiscalYear").lean();
     if (!range.to) { range.to = new Date(); range.to.setHours(23, 59, 59, 999); }
     if (!range.from) {
@@ -1740,11 +1763,15 @@ export const listJournalEntries = async (req, res) => {
     if (range.from || range.to) filter.date = {};
     if (range.from) filter.date.$gte = range.from;
     if (range.to) filter.date.$lte = range.to;
+    if (isId(req.query.costCenter)) filter["lines.costCenter"] = req.query.costCenter;
+    if (isId(req.query.branch)) filter["lines.branch"] = req.query.branch;
+    if (isId(req.query.department)) filter["lines.department"] = req.query.department;
     if (cursor) {
       filter.$or = [{ date: { $lt: cursor.date } }, { date: cursor.date, _id: { $lt: cursor.id } }];
     }
     const rows = await JournalEntry.find(filter)
       .populate("lines.account", "code name type normalBalance")
+      .populate("lines.costCenter", "code name isGroup")
       .populate("createdBy submittedBy approvedBy postedBy reversedBy", "name email role")
       .populate("reversalOf reversedByEntry", "entryNo date status voucherType")
       .sort({ date: -1, _id: -1 })
@@ -1761,6 +1788,9 @@ export const listJournalEntries = async (req, res) => {
 
 const populateJournal = (query) => query
   .populate("lines.account", "code name type normalBalance isActive isGroup")
+  .populate("lines.costCenter", "code name isGroup")
+  .populate("lines.branch", "name code")
+  .populate("lines.department", "name code")
   .populate("createdBy submittedBy approvedBy postedBy reversedBy", "name email role")
   .populate("fiscalYear", "name startDate endDate status")
   .populate("accountingPeriod", "periodKey name startDate endDate status")
@@ -1772,11 +1802,12 @@ const journalApprovalRequired = async (entry) => {
   return Boolean(settings?.approvalEnabled && Number(entry.totalDebit || 0) > Number(settings.journalApprovalThreshold || 0));
 };
 
-const journalPeriodContext = async (date) => {
+const journalPeriodContext = async (date, { user = null, overrideReason = "", allowClosedPeriod = false } = {}) => {
   const postingDate = parsePostingDate(date, null);
   if (!postingDate) throw Object.assign(new Error("Valid journal date is required."), { statusCode: 400 });
-  const period = await assertOpenPeriod(postingDate);
-  const fiscalYear = period?.fiscalYearRef || (await FiscalYear.findOne({ startDate: { $lte: postingDate }, endDate: { $gte: postingDate } }).select("_id").lean())?._id || null;
+  const validation = await assertAccountingPeriodOpen(postingDate, { user, overrideReason, allowClosedPeriod });
+  const period = validation.period;
+  const fiscalYear = period?.fiscalYearRef || validation.fiscalYear || null;
   return { postingDate, period: period?._id || null, fiscalYear };
 };
 
@@ -1797,7 +1828,10 @@ export const createJournalEntry = async (req, res) => {
     if (!["draft", "posted"].includes(status)) return res.status(400).json({ message: "Journal status must be draft or posted." });
     const normalizedLines = normalizeLines(req.body.lines);
     await assertPostableAccounts(normalizedLines);
-    const context = await journalPeriodContext(req.body.date);
+    const context = await journalPeriodContext(req.body.date, {
+      user: req.user,
+      overrideReason: req.body.overrideReason,
+    });
     const sourceType = clean(req.body.sourceType || "manual");
     const draftEntry = new JournalEntry({
       date: context.postingDate,
@@ -1825,8 +1859,12 @@ export const createJournalEntry = async (req, res) => {
         currency: req.body.currency,
         voucherType: req.body.voucherType,
         paymentMode: req.body.paymentMode,
+        cashAccount: req.body.cashAccount,
+        bankAccount: req.body.bankAccount,
         attachment: req.body.attachment,
         userId: req.user?._id || null,
+        user: req.user,
+        overrideReason: req.body.overrideReason,
       });
       await writeAudit({ actorId: req.user?._id, action: "create", entityType: "JournalEntry", entityId: entry._id, after: entry.toObject(), meta: getReqMeta(req) });
       return res.status(201).json({ message: "Journal entry posted.", journalEntry: entry });
@@ -1850,7 +1888,17 @@ export const updateDraftJournalEntry = async (req, res) => {
     const entry = await JournalEntry.findById(req.params.id);
     if (!entry) return res.status(404).json({ message: "Journal entry not found." });
     if (entry.status !== "draft") return res.status(409).json({ message: "Only draft journal entries can be edited." });
-    const context = await journalPeriodContext(req.body.date ?? entry.date);
+    await assertTransactionMutationAllowed({
+      existingDate: entry.date,
+      newDate: req.body.date ? parsePostingDate(req.body.date) : null,
+      user: req.user,
+      overrideReason: req.body.overrideReason,
+      action: "edit",
+    });
+    const context = await journalPeriodContext(req.body.date ?? entry.date, {
+      user: req.user,
+      overrideReason: req.body.overrideReason,
+    });
     const lines = req.body.lines ? normalizeLines(req.body.lines) : entry.lines;
     await assertPostableAccounts(lines);
     entry.date = context.postingDate; entry.fiscalYear = context.fiscalYear; entry.accountingPeriod = context.period;
@@ -1863,7 +1911,7 @@ export const updateDraftJournalEntry = async (req, res) => {
     await writeAudit({ actorId: req.user?._id, action: "update", entityType: "JournalEntry", entityId: entry._id, after: entry.toObject(), meta: getReqMeta(req) });
     return res.json({ message: "Draft journal updated.", journalEntry: entry });
   } catch (error) {
-    return res.status(error.statusCode || 500).json({ message: "Failed to update draft journal.", error: error.message });
+    return res.status(error.statusCode || 500).json({ message: error.statusCode ? error.message : "Failed to update draft journal.", error: error.message });
   }
 };
 
@@ -1873,7 +1921,16 @@ export const submitJournalEntry = async (req, res) => {
     const entry = await JournalEntry.findById(req.params.id);
     if (!entry) return res.status(404).json({ message: "Journal entry not found." });
     if (entry.status !== "draft") return res.status(409).json({ message: "Only draft journal entries can be submitted." });
-    await journalPeriodContext(entry.date);
+    await assertTransactionMutationAllowed({
+      existingDate: entry.date,
+      user: req.user,
+      overrideReason: req.body.overrideReason,
+      action: "submit",
+    });
+    await journalPeriodContext(entry.date, {
+      user: req.user,
+      overrideReason: req.body.overrideReason,
+    });
     await assertPostableAccounts(entry.lines);
     entry.submittedAt = new Date(); entry.submittedBy = req.user?._id || null;
     const approvalRequired = await journalApprovalRequired(entry);
@@ -1901,7 +1958,17 @@ export const approveJournalEntry = async (req, res) => {
     const entry = await JournalEntry.findById(req.params.id);
     if (!entry) return res.status(404).json({ message: "Journal entry not found." });
     if (entry.status !== "pending_approval") return res.status(409).json({ message: "Only pending journal entries can be approved." });
-    await journalPeriodContext(entry.date); await assertPostableAccounts(entry.lines);
+    await assertTransactionMutationAllowed({
+      existingDate: entry.date,
+      user: req.user,
+      overrideReason: req.body.overrideReason,
+      action: "approve",
+    });
+    await journalPeriodContext(entry.date, {
+      user: req.user,
+      overrideReason: req.body.overrideReason,
+    });
+    await assertPostableAccounts(entry.lines);
     await validateVoucherSettlements(entry);
     if (!entry.entryNo) entry.entryNo = await nextAccountingNumber(await numberingRuleForVoucher(entry.voucherType), entry.date);
     entry.status = "posted"; entry.approvedAt = new Date(); entry.approvedBy = req.user?._id || null; entry.postedAt = new Date(); entry.postedBy = req.user?._id || null;
@@ -1933,8 +2000,8 @@ export const reverseJournalEntry = async (req, res) => {
       reversal = await createPostedJournal({
         date: reversalDate, sourceType: "manual", sourceId: original._id, voucherType: original.voucherType, origin: "manual",
         reference: clean(req.body.reference) || `REV-${original.entryNo}`, memo: clean(req.body.reason) || `Reversal of ${original.entryNo}`,
-        currency: original.currency, userId: req.user?._id || null, session,
-        lines: original.lines.map((line) => ({ account: line.account, debit: line.credit, credit: line.debit, description: `Reversal: ${line.description || original.memo}`, contactType: line.contactType, contactId: line.contactId, costCenter: line.costCenter, project: line.project, taxCode: line.taxCode })),
+        currency: original.currency, userId: req.user?._id || null, user: req.user, overrideReason: req.body.overrideReason, session,
+        lines: original.lines.map((line) => ({ account: line.account, debit: line.credit, credit: line.debit, description: `Reversal: ${line.description || original.memo}`, contactType: line.contactType, contactId: line.contactId, costCenter: line.costCenter, project: line.project, branch: line.branch, department: line.department, dimensions: line.dimensions, taxCode: line.taxCode })),
       });
       reversal.reversalOf = original._id; reversal.reversalReason = clean(req.body.reason);
       reversal.treasuryAccountType = original.treasuryAccountType; reversal.cashAccount = original.cashAccount; reversal.bankAccount = original.bankAccount;
@@ -1946,7 +2013,7 @@ export const reverseJournalEntry = async (req, res) => {
     await writeAudit({ actorId: req.user?._id, action: "reverse", entityType: "JournalEntry", entityId: original._id, before: { status: "posted" }, after: original.toObject(), meta: { ...getReqMeta(req), reason: clean(req.body.reason) } });
     return res.json({ message: "Reversal journal posted with a complete audit link.", journalEntry: original, reversalEntry: reversal });
   } catch (error) {
-    return res.status(error.statusCode || 500).json({ message: "Failed to reverse journal entry.", error: error.message });
+    return res.status(error.statusCode || 500).json({ message: error.statusCode ? error.message : "Failed to reverse journal entry.", error: error.message });
   }
 };
 
@@ -1957,7 +2024,12 @@ export const voidJournalEntry = async (req, res) => {
     if (!entry) return res.status(404).json({ message: "Journal entry not found." });
     if (entry.status !== "posted") return res.status(409).json({ message: "Only posted journal entries can be voided." });
     if (entry.origin === "manual") return res.status(409).json({ message: "Manual posted journals must be corrected with a reversal entry." });
-    await assertOpenPeriod(entry.date);
+    await assertTransactionMutationAllowed({
+      existingDate: entry.date,
+      user: req.user,
+      overrideReason: req.body.overrideReason,
+      action: "void",
+    });
     entry.status = "void";
     entry.voidedAt = new Date();
     entry.voidedBy = req.user?._id || null;
@@ -1966,7 +2038,7 @@ export const voidJournalEntry = async (req, res) => {
     accountingCache.flushAll();
     return res.json({ message: "Journal entry voided.", journalEntry: entry });
   } catch (error) {
-    return res.status(error.statusCode || 500).json({ message: "Failed to void journal entry.", error: error.message });
+    return res.status(error.statusCode || 500).json({ message: error.statusCode ? error.message : "Failed to void journal entry.", error: error.message });
   }
 };
 
@@ -2009,77 +2081,98 @@ export const upsertAccountingPeriod = async (req, res) => {
   }
 };
 
+export const softCloseAccountingPeriod = async (req, res) => {
+  try {
+    const period = await softClosePeriod({
+      periodKey: req.params.periodKey,
+      tenantId: req.tenantId,
+      user: req.user,
+      reason: req.body.note || req.body.reason,
+      req,
+    });
+    return res.json({ message: "Accounting period soft-closed.", period });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({
+      message: error.message || "Failed to soft-close accounting period.",
+      code: error.code,
+      error: error.message,
+    });
+  }
+};
+
 export const closeAccountingPeriod = async (req, res) => {
   try {
-    const current = await AccountingPeriod.findOne({ periodKey: req.params.periodKey }).lean();
-    if (!current) return res.status(404).json({ message: "Accounting period not found." });
-    const drafts = await JournalEntry.countDocuments({ status: "draft", date: { $gte: current.startDate, $lte: current.endDate } });
-    if (drafts) return res.status(409).json({ message: `Period has ${drafts} unposted draft journal entr${drafts === 1 ? "y" : "ies"}. Post or void them before closing.` });
-    const settings = await AccountingSettings.findOne({ key: "company" }).select("periodCloseRequireReconciliation").lean();
-    if (settings?.periodCloseRequireReconciliation) {
-      const [legacyUnreconciled, reconciledBankIds] = await Promise.all([
-        CashAccount.countDocuments({ type: { $in: ["bank", "mobile_banking", "card"] }, isActive: true, $or: [{ lastReconciledAt: null }, { lastReconciledAt: { $lt: current.endDate } }] }),
-        BankReconciliation.distinct("bankAccount", { status: "reconciled", statementDate: { $gte: current.endDate } }),
-      ]);
-      const connectedUnreconciled = await BankAccount.countDocuments({ status: "active", _id: { $nin: reconciledBankIds } });
-      const unreconciled = legacyUnreconciled + connectedUnreconciled;
-      if (unreconciled) return res.status(409).json({ message: `${unreconciled} active bank account(s) are not reconciled through the period end.` });
-    }
-    const period = await AccountingPeriod.findOneAndUpdate(
-      { periodKey: req.params.periodKey, status: "open" },
-      { status: "closed", closedAt: new Date(), closedBy: req.user?._id || null, note: clean(req.body.note) },
-      { new: true, runValidators: true }
-    );
-    if (!period) return res.status(404).json({ message: "Accounting period not found." });
-    await writeAudit({ actorId: req.user?._id, action: "close", entityType: "AccountingPeriod", entityId: period._id, before: current, after: period.toObject(), meta: getReqMeta(req) });
+    const period = await closePeriod({
+      periodKey: req.params.periodKey,
+      tenantId: req.tenantId,
+      user: req.user,
+      reason: req.body.note || req.body.reason,
+      req,
+    });
     return res.json({ message: "Accounting period closed.", period });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to close period.", error: error.message });
+    return res.status(error.statusCode || 500).json({
+      message: error.message || "Failed to close period.",
+      code: error.code,
+      error: error.message,
+    });
   }
 };
 
 export const reopenAccountingPeriod = async (req, res) => {
   try {
-    const period = await AccountingPeriod.findOneAndUpdate(
-      { periodKey: req.params.periodKey, status: { $ne: "locked" } },
-      { status: "open", closedAt: null, closedBy: null, note: clean(req.body.note) },
-      { new: true, runValidators: true }
-    );
-    if (!period) return res.status(404).json({ message: "Accounting period not found or locked." });
-    await writeAudit({ actorId: req.user?._id, action: "unlock", entityType: "AccountingPeriod", entityId: period._id, after: period.toObject(), meta: getReqMeta(req) });
+    const period = await reopenPeriod({
+      periodKey: req.params.periodKey,
+      tenantId: req.tenantId,
+      user: req.user,
+      reason: req.body.note || req.body.reason || "Reopened by administrator",
+      req,
+    });
     return res.json({ message: "Accounting period reopened.", period });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to reopen period.", error: error.message });
+    return res.status(error.statusCode || 500).json({
+      message: error.message || "Failed to reopen period.",
+      code: error.code,
+      error: error.message,
+    });
   }
 };
 
 export const lockAccountingPeriod = async (req, res) => {
   try {
-    const period = await AccountingPeriod.findOneAndUpdate(
-      { periodKey: req.params.periodKey },
-      { status: "locked", lockedAt: new Date(), lockedBy: req.user?._id || null, note: clean(req.body.note) },
-      { new: true, runValidators: true }
-    );
-    if (!period) return res.status(404).json({ message: "Accounting period not found." });
-    await writeAudit({ actorId: req.user?._id, action: "lock", entityType: "AccountingPeriod", entityId: period._id, after: period.toObject(), meta: getReqMeta(req) });
+    const period = await lockPeriod({
+      periodKey: req.params.periodKey,
+      tenantId: req.tenantId,
+      user: req.user,
+      reason: req.body.note || req.body.reason,
+      req,
+    });
     return res.json({ message: "Accounting period locked.", period });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to lock period.", error: error.message });
+    return res.status(error.statusCode || 500).json({
+      message: error.message || "Failed to lock period.",
+      code: error.code,
+      error: error.message,
+    });
   }
 };
 
 export const unlockAccountingPeriod = async (req, res) => {
   try {
-    const period = await AccountingPeriod.findOneAndUpdate(
-      { periodKey: req.params.periodKey, status: "locked" },
-      { status: "open", lockedAt: null, lockedBy: null, closedAt: null, closedBy: null, note: clean(req.body.note) },
-      { new: true, runValidators: true }
-    );
-    if (!period) return res.status(404).json({ message: "Locked accounting period not found." });
-    await writeAudit({ actorId: req.user?._id, action: "unlock", entityType: "AccountingPeriod", entityId: period._id, after: period.toObject(), meta: getReqMeta(req) });
+    const period = await unlockPeriod({
+      periodKey: req.params.periodKey,
+      tenantId: req.tenantId,
+      user: req.user,
+      reason: req.body.note || req.body.reason || "Administrative unlock",
+      req,
+    });
     return res.json({ message: "Accounting period unlocked.", period });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to unlock period.", error: error.message });
+    return res.status(error.statusCode || 500).json({
+      message: error.message || "Failed to unlock period.",
+      code: error.code,
+      error: error.message,
+    });
   }
 };
 
@@ -2118,8 +2211,15 @@ export const closeFiscalYear = async (req, res) => {
     const fiscalYear = await FiscalYear.findById(req.params.id);
     if (!fiscalYear) return res.status(404).json({ message: "Fiscal year not found." });
     if (fiscalYear.status !== "open") return res.status(409).json({ message: "Only an open fiscal year can be closed." });
-    const openPeriods = await AccountingPeriod.countDocuments({ fiscalYearRef: fiscalYear._id, status: "open" });
-    if (openPeriods) return res.status(409).json({ message: `${openPeriods} accounting period(s) are still open.` });
+    const unclosedPeriods = await AccountingPeriod.countDocuments({
+      fiscalYearRef: fiscalYear._id,
+      status: { $in: ["open", "soft_closed"] },
+    });
+    if (unclosedPeriods) {
+      return res.status(409).json({
+        message: `${unclosedPeriods} accounting period(s) are still open or soft-closed. Close all periods before closing the fiscal year.`,
+      });
+    }
     const drafts = await JournalEntry.countDocuments({ status: "draft", date: { $gte: fiscalYear.startDate, $lte: fiscalYear.endDate } });
     if (drafts) return res.status(409).json({ message: `${drafts} draft journal entr${drafts === 1 ? "y is" : "ies are"} still unposted.` });
     const settings = await AccountingSettings.findOne({ key: "company" }).lean();
@@ -2748,6 +2848,9 @@ export const getGeneralLedger = async (req, res) => {
     const entries = await JournalEntry.find(filter)
       .select("entryNo date status voucherType sourceType sourceId origin reference memo currency paymentMode reversalOf reversedByEntry lines createdAt")
       .populate("lines.account", "code name type normalBalance")
+      .populate("lines.costCenter", "code name")
+      .populate("lines.branch", "code name")
+      .populate("lines.department", "name")
       .sort({ date: 1, createdAt: 1, _id: 1 })
       .limit(reportLimit + 1)
       .lean();
@@ -2766,8 +2869,10 @@ export const getGeneralLedger = async (req, res) => {
       if (!accountRunning.has(String(line.account?._id || line.account))) return false;
       if (req.query.contactType && req.query.contactType !== "all" && line.contactType !== req.query.contactType) return false;
       if (isId(req.query.party) && String(line.contactId || "") !== String(req.query.party)) return false;
-      if (isId(req.query.costCenter) && String(line.costCenter || "") !== String(req.query.costCenter)) return false;
-      if (isId(req.query.project) && String(line.project || "") !== String(req.query.project)) return false;
+      if (isId(req.query.costCenter) && String(line.costCenter?._id || line.costCenter || "") !== String(req.query.costCenter)) return false;
+      if (isId(req.query.project) && String(line.project?._id || line.project || "") !== String(req.query.project)) return false;
+      if (isId(req.query.branch) && String(line.branch?._id || line.branch || "") !== String(req.query.branch)) return false;
+      if (isId(req.query.department) && String(line.department?._id || line.department || "") !== String(req.query.department)) return false;
       return true;
     };
     const rows = [];
@@ -2782,7 +2887,8 @@ export const getGeneralLedger = async (req, res) => {
         rows.push({
           _id: line._id, journalEntryId: entry._id, date: entry.date, entryNo: entry.entryNo, voucherType: entry.voucherType,
           sourceType: entry.sourceType, reference: entry.reference, description: line.description || entry.memo, debit: money(line.debit), credit: money(line.credit),
-          currency: entry.currency, account: line.account, contactType: line.contactType, contactId: line.contactId, costCenter: line.costCenter, project: line.project, taxCode: line.taxCode,
+          currency: entry.currency, account: line.account, contactType: line.contactType, contactId: line.contactId,
+          costCenter: line.costCenter, project: line.project, branch: line.branch, department: line.department, dimensions: line.dimensions, taxCode: line.taxCode,
           accountBalance: Math.abs(nextAccountBalance), accountBalanceSide: nextAccountBalance >= 0 ? "Dr" : "Cr",
           balance: Math.abs(consolidatedRunning), balanceSide: consolidatedRunning >= 0 ? "Dr" : "Cr",
         });
@@ -3113,10 +3219,22 @@ export const getTrialBalance = async (req, res) => {
     if (from) from = new Date(new Date(from).setHours(0, 0, 0, 0));
     if (from && from > asOf) return res.status(400).json({ message: "Period start date cannot be after the as-of date." });
 
-    const aggregateAccountTotals = async (match) => JournalEntry.aggregate([
-      { $match: match }, { $unwind: "$lines" },
-      { $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } } },
-    ]).allowDiskUse(true);
+    const lineFilter = {};
+    if (isId(req.query.costCenter)) lineFilter["lines.costCenter"] = toId(req.query.costCenter);
+    if (isId(req.query.branch)) lineFilter["lines.branch"] = toId(req.query.branch);
+    if (isId(req.query.department)) lineFilter["lines.department"] = toId(req.query.department);
+    if (isId(req.query.project)) lineFilter["lines.project"] = toId(req.query.project);
+
+    const aggregateAccountTotals = async (match) => {
+      const pipeline = [{ $match: match }, { $unwind: "$lines" }];
+      if (Object.keys(lineFilter).length > 0) {
+        pipeline.push({ $match: lineFilter });
+      }
+      pipeline.push({
+        $group: { _id: "$lines.account", debit: { $sum: "$lines.debit" }, credit: { $sum: "$lines.credit" } },
+      });
+      return JournalEntry.aggregate(pipeline).allowDiskUse(true);
+    };
     const openingDateCondition = from
       ? { $or: [{ date: { $lt: from } }, { sourceType: "opening_balance", date: { $lte: asOf } }] }
       : { sourceType: "opening_balance", date: { $lte: asOf } };
