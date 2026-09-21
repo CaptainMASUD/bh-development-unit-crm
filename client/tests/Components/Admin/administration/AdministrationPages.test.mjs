@@ -74,3 +74,79 @@ test("Company Details validation catches required and malformed fields before su
   assert.match(page.validateCompanyForm(page.toCompanyForm({ name: "Acme", website: "javascript:bad" })), /website/i)
   assert.equal(page.validateCompanyForm(page.toCompanyForm({ name: "Acme" })), "")
 })
+
+test("System Defaults renders exact operational bounds, retention choices, and warning copy", async (t) => {
+  const page = await loadPage(t, "/src/Components/Admin/administration/SystemDefaults.jsx")
+  const form = page.toSystemDefaultsForm({
+    tablePageSize: 20,
+    auditStorageLimit: 100000,
+    auditRetentionMode: "warn_only",
+    revision: 3,
+  })
+  const html = renderToStaticMarkup(React.createElement(page.SystemDefaultsView, {
+    form,
+    saved: form,
+    canManage: true,
+    loading: false,
+    saving: false,
+    onChange() {},
+    onSave() {},
+    onReset() {},
+    onReload() {},
+    onKeepDraft() {},
+  }))
+
+  assert.match(html, /min="10"/)
+  assert.match(html, /max="200"/)
+  assert.match(html, /min="1000"/)
+  assert.match(html, /max="10000000"/)
+  assert.match(html, /Warn only/)
+  assert.match(html, /Archive then purge/)
+  assert.match(html, /does not delete audit records/i)
+})
+
+test("System Defaults validates and submits only the documented settings contract", async (t) => {
+  const page = await loadPage(t, "/src/Components/Admin/administration/SystemDefaults.jsx")
+  assert.match(page.validateSystemDefaults({ tablePageSize: 9, auditStorageLimit: 100000, auditRetentionMode: "warn_only" }), /10 and 200/)
+  assert.match(page.validateSystemDefaults({ tablePageSize: 20, auditStorageLimit: 999, auditRetentionMode: "warn_only" }), /1,000 and 10,000,000/)
+
+  const payload = page.buildSystemDefaultsPayload({
+    tablePageSize: "50",
+    auditStorageLimit: "250000",
+    auditRetentionMode: "archive_then_purge",
+    revision: 4,
+    tenantId: "must-not-leak",
+  })
+  assert.deepEqual(payload, {
+    tablePageSize: 50,
+    auditStorageLimit: 250000,
+    auditRetentionMode: "archive_then_purge",
+    revision: 4,
+  })
+})
+
+test("System Defaults is read-only without manage permission and preserves a conflicting draft", async (t) => {
+  const page = await loadPage(t, "/src/Components/Admin/administration/SystemDefaults.jsx")
+  const saved = page.toSystemDefaultsForm({ tablePageSize: 20, auditStorageLimit: 100000, auditRetentionMode: "warn_only", revision: 1 })
+  const draft = { ...saved, tablePageSize: "75" }
+  assert.deepEqual(page.preserveSettingsDraftOnConflict(draft, { revision: 2 }), draft)
+
+  const html = renderToStaticMarkup(React.createElement(page.SystemDefaultsView, {
+    form: draft,
+    saved,
+    canManage: false,
+    conflict: true,
+    loading: false,
+    saving: false,
+    onChange() {},
+    onSave() {},
+    onReset() {},
+    onReload() {},
+    onKeepDraft() {},
+  }))
+  assert.match(html, /Settings changed in another session/i)
+  assert.match(html, /Reload/)
+  assert.match(html, /Keep Draft/)
+  assert.match(html, /read-only/i)
+  assert.match(html, /disabled=""/)
+})
