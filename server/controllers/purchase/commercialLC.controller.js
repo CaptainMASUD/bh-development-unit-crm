@@ -177,7 +177,7 @@ export const createCommercialLC = async (req, res) => {
       const patch = buildPatch(req.body);
       const errors = validatePatch(patch, req.body);
       if (errors.length) throw Object.assign(new Error(errors[0]), { statusCode: 400 });
-      const applicationNo = await nextImportDocumentNumber({ prefix: "LCAPP", date: patch.applicationDate || new Date(), session });
+      const applicationNo = await nextImportDocumentNumber({ prefix: "LCAPP", tenantId: req.tenantId, date: patch.applicationDate || new Date(), session, providedValue: req.body.applicationNo });
 
       let beneficiaryBankName = patch.beneficiaryBankName || "";
       let beneficiaryBankSwift = patch.beneficiaryBankSwift || "";

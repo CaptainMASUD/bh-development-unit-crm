@@ -18,7 +18,7 @@ import {
   updateAccessRole,
   deleteAccessRole,
 } from "../../controllers/accessControl.controller.js";
-import { protect, requirePermission } from "../../middleware/auth.middleware.js";
+import { protect, requireModule, requirePermission } from "../../middleware/auth.middleware.js";
 
 const router = express.Router();
 
@@ -27,9 +27,9 @@ router.use(protect, requirePermission("access-control:view"));
 router.get("/permissions", getPermissionCatalog);
 
 router.get("/departments", listDepartments);
-router.post("/departments", requirePermission("access-control:manage"), createDepartment);
-router.patch("/departments/:id", requirePermission("access-control:manage"), updateDepartment);
-router.delete("/departments/:id", requirePermission("access-control:manage"), deleteDepartment);
+router.post("/departments", requireModule("administration"), requirePermission("access-control:manage"), createDepartment);
+router.patch("/departments/:id", requireModule("administration"), requirePermission("access-control:manage"), updateDepartment);
+router.delete("/departments/:id", requireModule("administration"), requirePermission("access-control:manage"), deleteDepartment);
 
 router.get("/positions", listPositions);
 router.post("/positions", requirePermission("access-control:manage"), createPosition);

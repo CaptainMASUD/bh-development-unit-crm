@@ -154,7 +154,7 @@ function WarehouseFormModal({ state, form, setForm, managers, error, saving, onC
   return <Modal open={state.open} onClose={onClose} title={editing ? "Update Warehouse" : "Create Warehouse"} subtitle="Fields are designed from the Inventory & Purchase business workflow." footer={<div className="flex justify-end gap-2"><button type="button" className={`${buttonClass} border-gray-200 bg-white text-gray-800 hover:bg-gray-50`} onClick={onClose} disabled={saving}>Cancel</button><button type="submit" form="warehouse-form" className={`${buttonClass} border-indigo-600 bg-indigo-600 text-white hover:bg-indigo-700`} disabled={saving}>{saving ? "Saving..." : editing ? "Update Record" : "Create Record"}</button></div>}>
     {error ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div> : null}
     <form id="warehouse-form" onSubmit={onSubmit} className="grid gap-5 sm:grid-cols-2">
-      <Field label="Warehouse Code" required><input className={inputClass} value={form.code} onChange={(event) => setForm((previous) => ({ ...previous, code: event.target.value.toUpperCase() }))} placeholder="Enter warehouse code" maxLength={50} required autoFocus /></Field>
+      <Field label="Warehouse Code (leave blank for automatic numbering)"><input className={inputClass} value={form.code} onChange={(event) => setForm((previous) => ({ ...previous, code: event.target.value.toUpperCase() }))} placeholder="Enter code for Manual mode" maxLength={50} autoFocus /></Field>
       <Field label="Warehouse Name" required><input className={inputClass} value={form.name} onChange={(event) => setForm((previous) => ({ ...previous, name: event.target.value }))} placeholder="Enter warehouse name" maxLength={160} required /></Field>
       <Field label="Physical Location" required><input className={inputClass} value={form.physicalLocation} onChange={(event) => setForm((previous) => ({ ...previous, physicalLocation: event.target.value }))} placeholder="Enter physical location" maxLength={500} required /></Field>
       <Field label="Warehouse Manager (Optional)"><select className={inputClass} value={form.manager} onChange={(event) => setForm((previous) => ({ ...previous, manager: event.target.value }))}><option value="">Select Warehouse Manager (Optional)</option>{managers.map((manager) => <option key={manager._id} value={manager._id}>{managerLabel(manager)}</option>)}</select></Field>
@@ -214,7 +214,6 @@ export default function WarehouseSetup() {
   const saveWarehouse = async (event) => {
     event.preventDefault()
     const payload = buildWarehousePayload(form, { editing: Boolean(formState.item), originalPhysicalLocation: formState.originalPhysicalLocation })
-    if (!payload.code) return setFormError("Warehouse code is required.")
     if (!payload.name) return setFormError("Warehouse name is required.")
     if (!clean(form.physicalLocation)) return setFormError("Physical location is required.")
     if (!payload.branch) return setFormError("An active company branch is required.")

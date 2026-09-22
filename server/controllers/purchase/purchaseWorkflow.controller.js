@@ -10,10 +10,14 @@ import { PriceAnalysis, PurchaseAnalysis, PurchaseDue, PurchaseIssue, PurchasePa
 import { finalizePurchaseIssue, postPurchasePayment } from "../../services/purchaseExecution.service.js";
 import { runMongoTransaction } from "../../utils/mongoTransaction.js";
 import { sameTenant } from "../../config/tenantContext.js";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
+
+const number = async (tenantId, typeKey, { providedValue, session, idempotencyKey } = {}) => (
+  await assignDocumentNumber({ tenantId, typeKey, providedValue, session, idempotencyKey, source: "purchase.workflow" })
+).value;
 
 const clean = (v) => String(v ?? "").trim(); const n = (v) => Number(v || 0); const round = (v) => Math.round((n(v) + Number.EPSILON) * 1e6) / 1e6;
 const pretty = (v) => String(v || "").replace(/_/g, " ");
-const ref = (p) => `${p}-${new Date().toISOString().slice(0,10).replaceAll("-","")}-${new mongoose.Types.ObjectId().toString().slice(-6).toUpperCase()}`;
 const paging = (q = {}) => {
   const limit = Math.min(Math.max(Number(q.limit) || 30, 1), 200);
   const page = Math.max(Number(q.page) || 1, 1);
@@ -169,7 +173,7 @@ export const createRequest = async (req, res) => {
     const current = n(stock[0]?.available);
     const suggested = Math.max(n(product.generalOrderQuantity), n(product.minimumStock) - current, 0);
     const item = await PurchaseRequest.create({
-      requestReference: ref("PRQ"),
+      requestReference: await number(req.tenantId, "purchase.request", { providedValue: req.body.requestReference }),
       product: product._id,
       purpose: req.body.purpose || "manual",
       requiredQuantity: round(req.body.requiredQuantity),
@@ -308,7 +312,7 @@ export const createAnalysis = async (req, res) => {
       const finalQuantity = round(req.body.finalQuantity || request.approvedQuantity);
       if (!(finalQuantity > 0)) throw Object.assign(new Error("Final quantity must be greater than zero."), { statusCode: 400 });
       item = new PurchaseAnalysis({
-        analysisReference: ref("PAN"),
+        analysisReference: await number(req.tenantId, "purchase.analysis", { providedValue: req.body.analysisReference, session }),
         request: request._id,
         product: request.product._id,
         actualDemand: request.approvedQuantity,
@@ -373,7 +377,7 @@ export const completeAnalysis = async (req, res) => {
           await inSession(
             PriceAnalysis.create([
               {
-                analysisReference: ref("PRA"),
+                analysisReference: await number(req.tenantId, "purchase.price-analysis", { session }),
                 analysis: item._id,
                 product: item.product,
                 supplier: supplierProduct.supplier._id,
@@ -437,7 +441,7 @@ export const createIndustrialPurchaseIssue = async (req, res) => {
       const draft = prepareIndustrialIssueDraft(analysis, req.body);
       item = new PurchaseIssue({
         ...draft,
-        purchaseReference: ref("IPI"),
+        purchaseReference: await number(req.tenantId, "purchase.issue", { providedValue: req.body.purchaseReference, session }),
         status: "draft",
         createdBy: req.user._id,
         updatedBy: req.user._id,
@@ -503,7 +507,7 @@ export const createQuickPurchase = async (req, res) => {
       if (!supplier) throw Object.assign(new Error("Select an active Supplier."), { statusCode: 400 });
       if (!product) throw Object.assign(new Error("Select an active Product."), { statusCode: 400 });
       const item = new PurchaseIssue({
-        purchaseReference: ref("QP"),
+        purchaseReference: await number(req.tenantId, "purchase.issue", { providedValue: req.body.purchaseReference, session, idempotencyKey }),
         purchaseType: "quick_purchase",
         product: product._id,
         supplier: supplier._id,

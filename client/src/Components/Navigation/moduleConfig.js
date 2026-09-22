@@ -161,7 +161,7 @@ export const MODULES = {
     name: "HR Payroll",
     description: "Employees, departments, positions, attendance, salary, payroll, loans, leave, roster, and tax.",
     permissions: ["employees:view", "attendance:view", "salary:view", "payroll:view", "loans:view", "leaves:view", "roster:view", "tax.view"],
-    adminSections: ["Payroll Manager", "Employee", "Departments", "Positions", "Attendance", "Salary", "Employee Loans", "Leave Requests", "Setup"],
+    adminSections: ["Payroll Manager", "Departments", "Positions", "Attendance", "Salary", "Employee Loans", "Leave Requests", "Setup"],
     employeeSections: ["My Payroll", "My Attendance", "My Roster", "My Loans", "My Leave", "Employee Management", "Departments", "Positions", "Attendance Management", "Salary Management", "Payroll Management", "Tax Setup", "Tax Report", "Loan Management", "Leave Management", "Roster Management"],
     sectionAliases: { "Departments & Positions": "Departments" },
     subcategories: { Setup: ["Roster / Shift Setup", "Leave Setup", "Tax Setup"] },

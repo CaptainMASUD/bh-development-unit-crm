@@ -252,15 +252,9 @@ const uniqueValues = (values = []) => {
 const normalizeSerialNumbers = (values = []) =>
   [...new Set((Array.isArray(values) ? values : []).map((value) => clean(value).toUpperCase()).filter(Boolean))];
 
-const adjustmentNumber = (doc) => {
-  const date = new Date(doc.adjustmentDate || Date.now());
-  const datePart = [date.getUTCFullYear(), String(date.getUTCMonth() + 1).padStart(2, "0"), String(date.getUTCDate()).padStart(2, "0")].join("");
-  return `SA-${datePart}-${String(doc._id).slice(-10).toUpperCase()}`;
-};
-
 stockAdjustmentSchema.pre("validate", function (next) {
   this.adjustmentDate = this.adjustmentDate || new Date();
-  this.adjustmentNo = clean(this.adjustmentNo || adjustmentNumber(this)).toUpperCase();
+  this.adjustmentNo = clean(this.adjustmentNo).toUpperCase();
   this.adjustmentType = clean(this.adjustmentType || "physical_count").toLowerCase();
   this.adjustmentMode = clean(this.adjustmentMode || "count").toLowerCase();
   this.status = clean(this.status || "draft").toLowerCase();

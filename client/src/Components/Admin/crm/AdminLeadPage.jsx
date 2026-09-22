@@ -879,6 +879,7 @@ function ProposalPreviewModal({ open, onClose, lead, form, items, editingProposa
 
 function SavedProposalPreviewModal({ open, onClose, proposal, lead }) {
   const [form, setForm] = useState({
+    proposalNo: "",
     title: "",
     currency: "BDT",
     validTill: "",
@@ -1666,7 +1667,7 @@ function appendTemplateText(current, text) {
 }
 
 function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved, users = [], canAssignOwner = true }) {
-  const [form, setForm] = useState({ name: "", email: "", phone: "", companyName: "", source: "", priority: "medium", leadTemperature: "warm", leadScore: 0, purchaseType: "", tags: "", website: "", industry: "", address: "", assignedTo: "", nextFollowUpAt: "", requirementSummary: "", expectedSolution: "", painPoints: "", budgetMin: "", budgetMax: "", expectedValue: "", timeline: "", decisionMaker: "" })
+  const [form, setForm] = useState({ leadNumber: "", name: "", email: "", phone: "", companyName: "", source: "", priority: "medium", leadTemperature: "warm", leadScore: 0, purchaseType: "", tags: "", website: "", industry: "", address: "", assignedTo: "", nextFollowUpAt: "", requirementSummary: "", expectedSolution: "", painPoints: "", budgetMin: "", budgetMax: "", expectedValue: "", timeline: "", decisionMaker: "" })
   const [purchaseTypes, setPurchaseTypes] = useState([])
   const [addPtOpen, setAddPtOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -1676,7 +1677,7 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved, use
     const c = initial || {}
     const r = c.requirement || {}
     setErr("")
-    setForm({ name: c?.contact?.name || "", email: c?.contact?.email || "", phone: c?.contact?.phone || "", companyName: c?.contact?.companyName || "", source: c?.source || "", priority: c?.priority || "medium", leadTemperature: c?.leadTemperature || "warm", leadScore: c?.leadScore || 0, purchaseType: c?.purchaseType || "", tags: Array.isArray(c?.tags) ? c.tags.join(", ") : "", website: c?.company?.website || "", industry: c?.company?.industry || "", address: c?.company?.address || "", assignedTo: typeof c?.assignedTo === "string" ? c.assignedTo : c?.assignedTo?._id || "", nextFollowUpAt: formatDateInput(c?.nextFollowUpAt), requirementSummary: r.summary || "", expectedSolution: r.expectedSolution || "", painPoints: Array.isArray(r.painPoints) ? r.painPoints.join(", ") : "", budgetMin: r.budgetMin || "", budgetMax: r.budgetMax || "", expectedValue: r.expectedValue || "", timeline: r.timeline || "", decisionMaker: r.decisionMaker || "" })
+    setForm({ leadNumber: "", name: c?.contact?.name || "", email: c?.contact?.email || "", phone: c?.contact?.phone || "", companyName: c?.contact?.companyName || "", source: c?.source || "", priority: c?.priority || "medium", leadTemperature: c?.leadTemperature || "warm", leadScore: c?.leadScore || 0, purchaseType: c?.purchaseType || "", tags: Array.isArray(c?.tags) ? c.tags.join(", ") : "", website: c?.company?.website || "", industry: c?.company?.industry || "", address: c?.company?.address || "", assignedTo: typeof c?.assignedTo === "string" ? c.assignedTo : c?.assignedTo?._id || "", nextFollowUpAt: formatDateInput(c?.nextFollowUpAt), requirementSummary: r.summary || "", expectedSolution: r.expectedSolution || "", painPoints: Array.isArray(r.painPoints) ? r.painPoints.join(", ") : "", budgetMin: r.budgetMin || "", budgetMax: r.budgetMax || "", expectedValue: r.expectedValue || "", timeline: r.timeline || "", decisionMaker: r.decisionMaker || "" })
     apiListPurchaseTypes().then(setPurchaseTypes).catch(() => setPurchaseTypes([]))
   }, [open, initial])
   const update = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }))
@@ -1684,7 +1685,7 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved, use
     setErr("")
     if (!form.name.trim()) return setErr("Contact name is required.")
     if (!form.companyName.trim()) return setErr("Company name is required.")
-    const payload = { contact: { name: form.name.trim(), email: form.email.trim().toLowerCase(), phone: form.phone.trim(), companyName: form.companyName.trim() }, source: form.source.trim(), priority: form.priority, leadTemperature: form.leadTemperature, leadScore: Number(form.leadScore || 0), purchaseType: form.purchaseType.trim(), tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean), company: { website: form.website.trim(), industry: form.industry.trim(), address: form.address.trim() }, requirement: { summary: form.requirementSummary.trim(), expectedSolution: form.expectedSolution.trim(), painPoints: form.painPoints.split(",").map((p) => p.trim()).filter(Boolean), budgetMin: Number(form.budgetMin || 0), budgetMax: Number(form.budgetMax || 0), expectedValue: Number(form.expectedValue || 0), timeline: form.timeline.trim(), decisionMaker: form.decisionMaker.trim() }, ...(form.assignedTo.trim() ? { assignedTo: form.assignedTo.trim() } : {}), ...(form.nextFollowUpAt ? { nextFollowUpAt: new Date(form.nextFollowUpAt).toISOString() } : {}) }
+    const payload = { contact: { name: form.name.trim(), email: form.email.trim().toLowerCase(), phone: form.phone.trim(), companyName: form.companyName.trim() }, source: form.source.trim(), priority: form.priority, leadTemperature: form.leadTemperature, leadScore: Number(form.leadScore || 0), purchaseType: form.purchaseType.trim(), tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean), company: { website: form.website.trim(), industry: form.industry.trim(), address: form.address.trim() }, requirement: { summary: form.requirementSummary.trim(), expectedSolution: form.expectedSolution.trim(), painPoints: form.painPoints.split(",").map((p) => p.trim()).filter(Boolean), budgetMin: Number(form.budgetMin || 0), budgetMax: Number(form.budgetMax || 0), expectedValue: Number(form.expectedValue || 0), timeline: form.timeline.trim(), decisionMaker: form.decisionMaker.trim() }, ...(mode === "create" && form.leadNumber.trim() ? { leadNumber: form.leadNumber.trim() } : {}), ...(form.assignedTo.trim() ? { assignedTo: form.assignedTo.trim() } : {}), ...(form.nextFollowUpAt ? { nextFollowUpAt: new Date(form.nextFollowUpAt).toISOString() } : {}) }
     setLoading(true)
     try { if (mode === "edit") await apiUpdateLead(getLeadId(initial), payload); else await apiCreateLead(payload); onSaved?.(); onClose?.() } catch (e) { setErr(e?.message || "Save failed") } finally { setLoading(false) }
   }
@@ -1693,6 +1694,7 @@ function LeadUpsertModal({ open, onClose, mode = "create", initial, onSaved, use
       <ModalShell open={open} onClose={onClose} title={mode === "edit" ? "Edit Lead" : "Create Lead"} subtitle="Contact, score, source, discovery and assignment fields" icon={mode === "edit" ? <HEditIcon className="h-5 w-5" /> : <HPlusIcon className="h-5 w-5" />} maxWidthClass="max-w-5xl" footer={<div className="flex flex-col justify-end gap-2 sm:flex-row"><button className={cn(btn, btnGhost)} onClick={onClose} disabled={loading}>Cancel</button><button className={cn(btn, btnPrimary)} onClick={submit} disabled={loading}>{loading ? "Saving..." : mode === "edit" ? "Update lead" : "Create lead"}</button></div>}>
         {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {mode === "create" ? <div className="md:col-span-2"><Field label="Lead number (Manual mode only)" hint="Leave blank when automatic numbering is enabled."><input className={input} value={form.leadNumber} onChange={update("leadNumber")} /></Field></div> : null}
           <Field label="Contact name *"><input className={input} value={form.name} onChange={update("name")} /></Field><Field label="Company name *"><input className={input} value={form.companyName} onChange={update("companyName")} /></Field><Field label="Email"><input className={input} value={form.email} onChange={update("email")} /></Field><Field label="Phone"><input className={input} value={form.phone} onChange={update("phone")} /></Field>
           <Field label="Priority"><select className={input} value={form.priority} onChange={update("priority")}>{PRIORITIES.map((x) => <option key={x} value={x}>{x}</option>)}</select></Field><Field label="Lead temperature"><select className={input} value={form.leadTemperature} onChange={update("leadTemperature")}>{TEMPERATURES.map((x) => <option key={x} value={x}>{x}</option>)}</select></Field><Field label="Lead score"><input className={input} type="number" min="0" max="100" value={form.leadScore} onChange={update("leadScore")} /></Field>
           <Field label="Purchase type"><div className="flex gap-2"><select className={cn(input, "flex-1")} value={form.purchaseType} onChange={update("purchaseType")}><option value="">Select purchase type</option>{purchaseTypes.map((pt) => <option key={pt.key || pt._id} value={pt.key || pt.name}>{pt.name || pt.key}</option>)}</select><button type="button" className={cn(btn, btnGhost, "px-3")} onClick={() => setAddPtOpen(true)}><HPlusIcon className="h-4 w-4" /></button></div></Field>
@@ -2295,6 +2297,7 @@ function ProposalModal({ open, onClose, lead, onSaved, users = [] }) {
     const theme = getProposalTheme(decoded.themeId)
     setErr("")
     setForm({
+      proposalNo: "",
       title: editingProposal?.title || (lead?.contact?.companyName ? `${lead.contact.companyName} Proposal` : `${getLeadClientName(lead)} Proposal`),
       currency: editingProposal?.currency || "BDT",
       validTill: formatDateInput(editingProposal?.validTill, "date"),
@@ -2350,6 +2353,7 @@ function ProposalModal({ open, onClose, lead, onSaved, users = [] }) {
       const payload = {
         leadId: getLeadId(lead),
         customerId: lead?.customerId?._id || lead?.customerId || null,
+        ...(!editingProposal?._id && form.proposalNo.trim() ? { proposalNo: form.proposalNo.trim() } : {}),
         title: form.title.trim(),
         currency: form.currency.trim() || "BDT",
         validTill: form.validTill ? new Date(form.validTill).toISOString() : null,
@@ -2434,6 +2438,7 @@ function ProposalModal({ open, onClose, lead, onSaved, users = [] }) {
           <span className="text-xs font-bold text-gray-400">{theme.category}</span>
         </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {!editingProposal ? <div className="md:col-span-2"><Field label="Proposal number (Manual mode only)" hint="Leave blank when automatic numbering is enabled."><input className={input} value={form.proposalNo} onChange={(e) => setForm((p) => ({ ...p, proposalNo: e.target.value }))} /></Field></div> : null}
           <div className="md:col-span-2"><Field label="Title *"><input className={input} value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} /></Field></div>
           <Field label="Currency"><input className={input} value={form.currency} onChange={(e) => setForm((p) => ({ ...p, currency: e.target.value }))} /></Field>
           <Field label="Valid till"><input type="date" className={input} value={form.validTill} onChange={(e) => setForm((p) => ({ ...p, validTill: e.target.value }))} /></Field>
@@ -2494,7 +2499,7 @@ function ProposalModal({ open, onClose, lead, onSaved, users = [] }) {
 
 function DealModal({ open, onClose, lead, onSaved, users = [] }) {
   const proposal = lead?._dealProposal || null
-  const [form, setForm] = useState({ title: "", currency: "BDT", probability: 60, expectedCloseDate: "", ownerId: "", notes: "", nextDealAction: "", nextDealActionAt: "", stuckReason: "" })
+  const [form, setForm] = useState({ dealNo: "", title: "", currency: "BDT", probability: 60, expectedCloseDate: "", ownerId: "", notes: "", nextDealAction: "", nextDealActionAt: "", stuckReason: "" })
   const [items, setItems] = useState([{ productId: "", nameSnapshot: "", qty: 1, unitPrice: 0, discount: 0 }])
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(false)
@@ -2515,6 +2520,7 @@ function DealModal({ open, onClose, lead, onSaved, users = [] }) {
     if (open) {
       setErr("")
       setForm({
+        dealNo: "",
         title: lead?.contact?.companyName ? `${lead.contact.companyName} Deal` : proposal?.title ? `${proposal.title} Deal` : "",
         currency: proposal?.currency || "BDT",
         probability: 60,
@@ -2553,6 +2559,7 @@ function DealModal({ open, onClose, lead, onSaved, users = [] }) {
     try {
       await apiCreateDealFromProposal(proposal._id, {
         leadId: getLeadId(lead),
+        ...(form.dealNo.trim() ? { dealNo: form.dealNo.trim() } : {}),
         title: form.title.trim(),
         stage: "negotiation",
         currency: form.currency.trim() || "BDT",
@@ -2592,6 +2599,7 @@ function DealModal({ open, onClose, lead, onSaved, users = [] }) {
     {err ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{err}</div> : null}
     <div className={cn("mb-4 rounded-xl border p-3 text-sm font-semibold", proposal ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800")}>{proposal ? `Creating from ${proposal.proposalNo || proposal.title} (${proposal.status}). Deal record created for this lead.` : "Send or accept a proposal before creating the deal."}</div>
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="md:col-span-2"><Field label="Deal number (Manual mode only)" hint="Leave blank when automatic numbering is enabled."><input className={input} value={form.dealNo} onChange={(e) => setForm((p) => ({ ...p, dealNo: e.target.value }))} /></Field></div>
       <Field label="Source proposal"><input className={input} value={proposal?.proposalNo || proposal?.title || "No eligible proposal"} disabled readOnly /></Field>
       <Field label="Title *"><input className={input} value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} /></Field>
       <Field label="Stage"><input className={input} value="Negotiation" disabled readOnly /></Field>

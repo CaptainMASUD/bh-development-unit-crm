@@ -3,10 +3,17 @@ import test from "node:test";
 
 import Company from "../../models/administration/company.model.js";
 import {
+  mergeCompanyProfilePatch,
   normalizeCompanyProfileInput,
   validateCompanyLogo,
   validateCompanyProfileInput,
 } from "../../services/administration/companyProfile.service.js";
+
+test("company profile edits preserve canonical currency and date format", () => {
+  assert.deepEqual(mergeCompanyProfilePatch({ settings: { timezone: "Asia/Dhaka" } }, {
+    settings: { currency: "USD", dateFormat: "YYYY-MM-DD", fiscalYearStart: "01-01" },
+  }).settings, { currency: "USD", dateFormat: "YYYY-MM-DD", fiscalYearStart: "01-01", timezone: "Asia/Dhaka" });
+});
 
 test("Company schema supports operational profile and managed-logo fields", () => {
   for (const path of [

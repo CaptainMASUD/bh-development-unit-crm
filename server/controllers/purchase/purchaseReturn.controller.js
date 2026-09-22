@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 import Supplier from "../../models/supplier.model.js";
 import Product from "../../models/inventory/product.model.js";
 import Warehouse from "../../models/inventory/warehouse.model.js";
@@ -108,28 +109,6 @@ const decodeCursor = (value) => {
   }
 };
 
-const nextDocumentNumber = async ({ prefix, date, session }) => {
-  const year = new Date(date || Date.now()).getUTCFullYear();
-  const key = `${prefix}:${year}`;
-  const result = await mongoose.connection
-    .collection("documentSequences")
-    .findOneAndUpdate(
-      { _id: key },
-      {
-        $inc: { sequence: 1 },
-        $setOnInsert: { prefix, year, createdAt: new Date() },
-        $set: { updatedAt: new Date() },
-      },
-      { upsert: true, returnDocument: "after", session }
-    );
-  const sequence = result?.sequence ?? result?.value?.sequence;
-  if (!Number.isFinite(sequence)) {
-    throw Object.assign(new Error("Failed to allocate a purchase-return number."), {
-      statusCode: 500,
-    });
-  }
-  return `${prefix}-${year}-${String(sequence).padStart(4, "0")}`;
-};
 
 const sanitizeSerials = (values = []) => [
   ...new Set(
@@ -717,11 +696,11 @@ export const createPurchaseReturn = async (req, res) => {
         }
       }
       const enriched = await loadAndEnrichReferences(payload, { session });
-      const returnNo = await nextDocumentNumber({
-        prefix: "PRT",
-        date: enriched.returnDate,
-        session,
-      });
+      const returnNo = (await assignDocumentNumber({
+        tenantId: req.tenantId, typeKey: "purchase.return",
+        providedValue: req.body.returnNo, date: enriched.returnDate,
+        session, idempotencyKey: payload.idempotencyKey, source: "purchase.return.create",
+      })).value;
       purchaseReturn = new PurchaseReturn({
         ...enriched,
         receipt: undefined,

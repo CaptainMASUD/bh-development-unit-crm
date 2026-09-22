@@ -112,7 +112,7 @@ export const createImportShipment = async (req, res) => {
       if (["draft", "application_submitted", "settled", "closed", "cancelled"].includes(lc.status)) {
         throw Object.assign(new Error("LC must be opened and active before creating a shipment."), { statusCode: 409 });
       }
-      const shipmentNo = await nextImportDocumentNumber({ prefix: "IMPSHP", date: parseDate(req.body.etd) || new Date(), session });
+      const shipmentNo = await nextImportDocumentNumber({ prefix: "IMPSHP", tenantId: req.tenantId, date: parseDate(req.body.etd) || new Date(), session, providedValue: req.body.shipmentNo });
       const requestedStatus = clean(req.body.status || "planned").toLowerCase();
       if (!IMPORT_SHIPMENT_STATUSES.includes(requestedStatus)) throw Object.assign(new Error("Invalid shipment status."), { statusCode: 400 });
       const [created] = await ImportShipment.create([{

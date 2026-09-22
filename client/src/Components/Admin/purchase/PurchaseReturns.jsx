@@ -154,6 +154,7 @@ function sourceKey(goodsReceiptLine, stockBucket) {
 
 function emptyForm() {
   return {
+    returnNo: "",
     returnDate: todayInput(),
     supplier: "",
     purchaseOrder: "",
@@ -1676,6 +1677,7 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
   }
 
   const buildPayload = () => ({
+    ...(!formModal.item && clean(form.returnNo) ? { returnNo: clean(form.returnNo).toUpperCase() } : {}),
     returnDate: form.returnDate,
     supplier: form.supplier || null,
     purchaseOrder: form.purchaseOrder || null,
@@ -2274,6 +2276,7 @@ export default function PurchaseReturns({ initialGoodsReceiptId = "" }) {
             description="A purchase return must reference a posted goods receipt with remaining returnable stock."
           >
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {!formModal.item ? <Field label="Return No. (blank for Auto)"><input className={input} value={form.returnNo} onChange={(event) => setForm((previous) => ({ ...previous, returnNo: event.target.value.toUpperCase() }))} placeholder="Enter a number in Manual mode" /></Field> : null}
               <Field label="Return Date" required>
                 <input
                   className={input}

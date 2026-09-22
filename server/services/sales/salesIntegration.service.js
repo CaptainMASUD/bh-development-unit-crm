@@ -474,7 +474,7 @@ export const convertLeadAndGenerateWonDeal = async (req, { quotation, session = 
 
     if (!deal) {
       const dealData = {
-        dealNo: await nextAccountingNumber("deal", new Date()),
+        dealNo: await nextAccountingNumber("deal", new Date(), { tenantId, session }),
         title: quotation.notes || `Deal for Quotation ${quotation.quotationNumber}`,
         customerId,
         leadId: quotation.leadId || null,

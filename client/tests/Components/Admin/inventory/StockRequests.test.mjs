@@ -20,6 +20,7 @@ test("stock request form maps the approved modal fields to the API payload", asy
   assert.deepEqual(page.buildStockRequestPayload({ department: "d1", requester: "u1", product: "p1", requestedQuantity: "10", purpose: "Internal use", requiredDate: "2026-08-26" }), {
     department: "d1", requester: "u1", product: "p1", requestedQuantity: 10, notes: "Internal use", requiredDate: "2026-08-26",
   })
+  assert.equal(page.buildStockRequestPayload({ requestReference: " sr-manual-7 " }).requestReference, "SR-MANUAL-7")
 })
 
 test("stock request dashboard summarizes completed history separately from pending approvals", async (t) => {

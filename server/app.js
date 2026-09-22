@@ -1,5 +1,6 @@
 // app.js
 import "./config/tenant.plugin.js";
+import "./config/audit.plugin.js";
 import express from "express";
 import cors from "cors";
 import mongoose from "mongoose";

@@ -39,7 +39,13 @@ export async function administrationRequest(path, {
 
 export const administrationApi = {
   get: (path, options) => administrationRequest(path, options),
+  post: (path, body, options) => administrationRequest(path, { ...options, method: "POST", body }),
   patch: (path, body, options) => administrationRequest(path, { ...options, method: "PATCH", body }),
   upload: (path, formData, options) => administrationRequest(path, { ...options, method: "PUT", body: formData }),
-  remove: (path, options) => administrationRequest(path, { ...options, method: "DELETE" }),
+  remove: (path, bodyOrOptions, options) => {
+    const hasBody = bodyOrOptions && typeof bodyOrOptions === "object" && !("headers" in bodyOrOptions) && !("fetchImpl" in bodyOrOptions);
+    const body = hasBody ? bodyOrOptions : undefined;
+    const opts = hasBody ? options : bodyOrOptions;
+    return administrationRequest(path, { ...opts, method: "DELETE", body });
+  },
 }

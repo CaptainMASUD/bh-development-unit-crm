@@ -76,6 +76,10 @@ const AdminCompanySetupPage = lazy(() => import("./CompanySetup/AdminCompanySetu
 const AdministrationDashboard = lazy(() => import("./administration/AdministrationDashboard"))
 const CompanyDetails = lazy(() => import("./administration/CompanyDetails"))
 const SystemDefaults = lazy(() => import("./administration/SystemDefaults"))
+const DocumentNumbering = lazy(() => import("./administration/DocumentNumbering"))
+const AdministrationDepartments = lazy(() => import("./administration/AdministrationDepartments"))
+const AuditTrail = lazy(() => import("./administration/AuditTrail"))
+const RoleManagement = lazy(() => import("./administration/RoleManagement"))
 const UpcomingAdministrationFeature = lazy(() => import("./administration/AdministrationDashboard").then((module) => ({ default: module.UpcomingAdministrationFeature })))
 const TitlesAdd = lazy(() => import("./workflow/TittlesAdd"))
 const EngagementTemplatePage = lazy(() => import("./workflow/EngagementTemplatePage"))
@@ -187,30 +191,26 @@ const sections = {
 
   "Document Numbering": {
     icon: createSectionIcon(NoteEditIcon),
-    component: <UpcomingAdministrationFeature title="Document Numbering" />,
+    component: <DocumentNumbering />,
     permission: "system-settings:view",
-    comingSoon: true,
   },
 
   "Audit Trail": {
     icon: createSectionIcon(FileChartColumnIcon),
-    component: <UpcomingAdministrationFeature title="Audit Trail" />,
+    component: <AuditTrail />,
     permission: "access-control:view",
-    comingSoon: true,
   },
 
   "Role Management": {
     icon: createSectionIcon(ShieldUserIcon),
-    component: <UpcomingAdministrationFeature title="Role Management" />,
+    component: <RoleManagement />,
     permission: "access-control:view",
-    comingSoon: true,
   },
 
   "Administration Departments": {
     icon: createSectionIcon(Layers01Icon),
-    component: <UpcomingAdministrationFeature title="Departments" />,
-    permission: "employees:view",
-    comingSoon: true,
+    component: <AdministrationDepartments />,
+    permission: "access-control:view",
   },
 
   "Employee Access Control": {
@@ -222,9 +222,8 @@ const sections = {
 
   "Add Employee": {
     icon: createSectionIcon(UserMultiple02Icon),
-    component: <UpcomingAdministrationFeature title="Add Employee" />,
+    component: <Employee />,
     permission: "users:manage",
-    comingSoon: true,
   },
 
   "Employee Account Control": {

@@ -16,6 +16,25 @@ import {
   requireModule,
   requirePermission,
 } from "../../middleware/auth.middleware.js";
+import {
+  getDocumentNumbering, patchDocumentNumbering, previewDocumentNumbering,
+} from "../../controllers/administration/documentNumbering.controller.js";
+import {
+  createDepartment, deleteDepartment, listDepartmentHeads, listDepartments, updateDepartment,
+} from "../../controllers/administration/accessControl.controller.js";
+import {
+  getAuditTrail,
+  getAuditTrailDetail,
+  getAuditTrailFilters,
+} from "../../controllers/administration/auditTrail.controller.js";
+import {
+  getMatrixCatalog,
+  getRole,
+  getRoles,
+  patchRole,
+  postRole,
+  removeRole,
+} from "../../controllers/administration/roleManagement.controller.js";
 
 const router = express.Router();
 const companyLogoUpload = multer({
@@ -62,6 +81,27 @@ router.patch(
   requirePermission("system-settings:manage"),
   patchCurrentSystemSettings
 );
+
+router.get("/document-numbering", requirePermission("system-settings:view"), getDocumentNumbering);
+router.patch("/document-numbering/:typeKey", requirePermission("system-settings:manage"), patchDocumentNumbering);
+router.post("/document-numbering/:typeKey/preview", requirePermission("system-settings:view"), previewDocumentNumbering);
+
+router.get("/departments", requirePermission("access-control:view"), listDepartments);
+router.get("/department-heads", requirePermission("access-control:view"), listDepartmentHeads);
+router.post("/departments", requirePermission("access-control:manage"), createDepartment);
+router.patch("/departments/:id", requirePermission("access-control:manage"), updateDepartment);
+router.delete("/departments/:id", requirePermission("access-control:manage"), deleteDepartment);
+
+router.get("/audit-trail", requirePermission("access-control:view"), getAuditTrail);
+router.get("/audit-trail/filters", requirePermission("access-control:view"), getAuditTrailFilters);
+router.get("/audit-trail/:id", requirePermission("access-control:view"), getAuditTrailDetail);
+
+router.get("/roles", requirePermission("access-control:view"), getRoles);
+router.get("/roles/matrix", requirePermission("access-control:view"), getMatrixCatalog);
+router.get("/roles/:id", requirePermission("access-control:view"), getRole);
+router.post("/roles", requirePermission("access-control:manage"), postRole);
+router.patch("/roles/:id", requirePermission("access-control:manage"), patchRole);
+router.delete("/roles/:id", requirePermission("access-control:manage"), removeRole);
 
 router.use((error, _req, _res, next) => {
   if (error instanceof multer.MulterError) {

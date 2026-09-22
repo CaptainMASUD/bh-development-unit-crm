@@ -43,6 +43,13 @@ export default function AdminDashboard() {
   }, [currentUser, navigate])
 
   useEffect(() => {
+    const clean = location.pathname.replace(/\/+$/, "")
+    if (clean === "/admin/payroll/employee" || clean === "/admin/employee") {
+      navigate("/admin/administration/add-employee", { replace: true })
+    }
+  }, [location.pathname, navigate])
+
+  useEffect(() => {
     if (!currentUser || !["admin", "superadmin"].includes(currentUser.role) || !currentUser.isActive || validModule) return
     if (location.pathname.replace(/\/+$/, "") === "/admin") {
       navigate("/module", { replace: true })

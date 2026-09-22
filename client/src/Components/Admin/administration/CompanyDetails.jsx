@@ -53,7 +53,6 @@ export function validateCompanyForm(form) {
       return "Enter a valid HTTP or HTTPS website."
     }
   }
-  if (!/^[A-Z]{3}$/.test(clean(form?.settings?.currency).toUpperCase())) return "Default currency must be a three-letter ISO code."
   if (!/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(clean(form?.settings?.fiscalYearStart))) return "Fiscal year start must use MM-DD."
   return ""
 }
@@ -83,10 +82,8 @@ export function buildCompanyProfilePayload(form) {
     website: clean(form.website),
     address: Object.fromEntries(Object.entries(form.address || {}).map(([key, value]) => [key, clean(value)])),
     settings: {
-      currency: clean(form.settings?.currency).toUpperCase(),
       timezone: clean(form.settings?.timezone),
       fiscalYearStart: clean(form.settings?.fiscalYearStart),
-      dateFormat: clean(form.settings?.dateFormat),
     },
     contactPerson: {
       name: clean(form.contactPerson?.name),
@@ -175,7 +172,7 @@ export function CompanyDetailsView({
       </AdministrationCard>
 
       <AdministrationCard className="p-5">
-        <div className="mb-5 flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-700"><FiImage /></span><div><h2 className="font-black text-gray-950">Address and localization</h2><p className="text-sm text-gray-500">Used by documents, reporting and date/financial defaults.</p></div></div>
+        <div className="mb-5 flex items-center gap-3"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-50 text-sky-700"><FiImage /></span><div><h2 className="font-black text-gray-950">Address and localization</h2><p className="text-sm text-gray-500">Company address, time zone, and fiscal-year start. Currency and display formats are managed in System Defaults.</p></div></div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           <AdministrationField label="Address Line 1" htmlFor="address-line-1"><Input id="address-line-1" {...nested("address", "line1")} /></AdministrationField>
           <AdministrationField label="Address Line 2" htmlFor="address-line-2"><Input id="address-line-2" {...nested("address", "line2")} /></AdministrationField>
@@ -183,7 +180,6 @@ export function CompanyDetailsView({
           <AdministrationField label="State / Division" htmlFor="state"><Input id="state" {...nested("address", "state")} /></AdministrationField>
           <AdministrationField label="Postal Code" htmlFor="postal-code"><Input id="postal-code" {...nested("address", "postalCode")} /></AdministrationField>
           <AdministrationField label="Country" htmlFor="country"><Input id="country" {...nested("address", "country")} /></AdministrationField>
-          <AdministrationField label="Default Currency" htmlFor="currency"><Input id="currency" maxLength={3} {...nested("settings", "currency")} /></AdministrationField>
           <AdministrationField label="Time Zone" htmlFor="timezone"><Input id="timezone" {...nested("settings", "timezone")} placeholder="Asia/Dhaka" /></AdministrationField>
           <AdministrationField label="Fiscal Year Start" htmlFor="fiscal-start" hint="MM-DD"><Input id="fiscal-start" {...nested("settings", "fiscalYearStart")} placeholder="01-01" /></AdministrationField>
         </div>

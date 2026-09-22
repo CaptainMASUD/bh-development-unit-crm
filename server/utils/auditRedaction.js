@@ -1,4 +1,8 @@
-const SENSITIVE_AUDIT_KEY = /(password|passcode|token|secret|otp|credential|authorization|cookie|sessionid|resetcode)/i;
+export const SENSITIVE_AUDIT_KEY = /(password|passcode|token|secret|otp|credential|authorization|cookie|sessionid|resetcode)/i;
+
+export function isSensitiveAuditKey(key) {
+  return SENSITIVE_AUDIT_KEY.test(String(key || ""));
+}
 
 export function redactAuditValue(value, seen = new WeakSet()) {
   if (value == null || typeof value !== "object") return value;

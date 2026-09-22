@@ -129,7 +129,7 @@ export const createLandedCost = async (req, res) => {
       if (receipts.length !== receiptIds.length) throw Object.assign(new Error("Every selected goods receipt must be posted and belong to the LC purchase order."), { statusCode: 409 });
       const invalid = receipts.find((receipt) => receipt.commercialLC && String(receipt.commercialLC) !== String(lc._id));
       if (invalid) throw Object.assign(new Error("A selected goods receipt belongs to a different Commercial LC."), { statusCode: 409 });
-      const landedCostNo = await nextImportDocumentNumber({ prefix: "LDC", date: new Date(), session });
+      const landedCostNo = await nextImportDocumentNumber({ prefix: "LDC", tenantId: req.tenantId, date: new Date(), session, providedValue: req.body.landedCostNo });
       const [created] = await LandedCost.create([{
         landedCostNo,
         commercialLC: lc._id,

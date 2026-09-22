@@ -61,6 +61,15 @@ export function normalizeCompanyProfileInput(input = {}) {
   return result;
 }
 
+export function mergeCompanyProfilePatch(patch, before = {}) {
+  return {
+    ...patch,
+    ...(patch.settings ? { settings: { ...(before.settings || {}), ...patch.settings } } : {}),
+    ...(patch.address ? { address: { ...(before.address || {}), ...patch.address } } : {}),
+    ...(patch.contactPerson ? { contactPerson: { ...(before.contactPerson || {}), ...patch.contactPerson } } : {}),
+  };
+}
+
 const isValidWebUrl = (value) => {
   if (!value) return true;
   try {
@@ -166,9 +175,10 @@ export async function updateCompanyProfile({ tenantId, actorId, input, reqMeta =
   return runMongoTransaction(async (session) => {
     const before = await withSession(Company.findById(tenantId), session).lean();
     if (!before) fail("Company not found.", 404);
+    const mergedPatch = mergeCompanyProfilePatch(patch, before);
     const company = await Company.findByIdAndUpdate(
       tenantId,
-      { $set: { ...patch, updatedBy: actorId } },
+      { $set: { ...mergedPatch, updatedBy: actorId } },
       { new: true, runValidators: true, ...sessionOptions(session) }
     );
     await writeAudit({

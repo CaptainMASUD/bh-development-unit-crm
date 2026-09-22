@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { getTenantContext, sameTenant } from "./tenantContext.js";
+import { DOCUMENT_NUMBER_TYPES } from "./documentNumberTypes.js";
 
 // Tenant middleware belongs on persisted root models, not embedded schemas.
 // Applying it to child schemas creates invalid paths such as
@@ -228,6 +229,23 @@ function tenantPlugin(schema) {
     }
     return next();
   });
+
+  const numberedFields = DOCUMENT_NUMBER_TYPES.filter((type) => schema.path(type.field));
+  if (numberedFields.length) {
+    schema.post("save", async function linkNumberClaimToRecord() {
+      const claimModel = mongoose.models.DocumentNumberClaim;
+      if (!claimModel || !this.tenantId) return;
+      for (const type of numberedFields) {
+        const value = type.model === this.constructor.modelName && this[type.field];
+        if (!value) continue;
+        await claimModel.collection.updateOne(
+          { tenantId: this.tenantId, typeKey: type.key, value: String(value).trim().toUpperCase(), recordId: null },
+          { $set: { recordId: this._id } },
+          { session: this.$session?.() || undefined },
+        );
+      }
+    });
+  }
 }
 
 mongoose.plugin(tenantPlugin);

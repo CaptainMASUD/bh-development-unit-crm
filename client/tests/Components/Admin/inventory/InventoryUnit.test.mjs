@@ -12,7 +12,7 @@ async function loadUnitPage(t) {
   return server.ssrLoadModule("/src/Components/Admin/inventory/InventoryUnit.jsx")
 }
 
-test("unit form maps Short Name to the required code and symbol fields", async (t) => {
+test("unit form keeps Short Name separate from the optional numbered code", async (t) => {
   const unitPage = await loadUnitPage(t)
 
   assert.equal(typeof unitPage.buildUnitPayload, "function")
@@ -26,7 +26,6 @@ test("unit form maps Short Name to the required code and symbol fields", async (
     }),
     {
       name: "Kilogram",
-      code: "KG",
       symbol: "KG",
       unitType: "weight",
       allowDecimal: true,
@@ -34,6 +33,7 @@ test("unit form maps Short Name to the required code and symbol fields", async (
       status: "active",
     }
   )
+  assert.equal(unitPage.buildUnitPayload({ shortName: "kg", code: "u-42" }).code, "U-42")
 })
 
 test("unit summary counts inactive records as needing attention", async (t) => {

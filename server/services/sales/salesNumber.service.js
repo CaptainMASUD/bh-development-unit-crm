@@ -1,39 +1,19 @@
-import { SalesSequence } from "../../models/sales/salesSequence.model.js";
-
-const pad = (value, width = 6) => String(value).padStart(width, "0");
+import { assignDocumentNumber } from "../administration/documentNumbering.service.js";
 
 export const nextSalesNumber = async ({
   tenantId,
   documentType,
   session = null,
   date = new Date(),
+  providedValue,
+  idempotencyKey,
 }) => {
-  const prefixes = {
-    quotation: "QTN",
-    order: "SO",
-    delivery: "DN",
-    invoice: "INV",
-    return: "SRT",
-  };
-
-  const prefix = prefixes[documentType];
-  if (!prefix) {
+  if (!["quotation", "order", "delivery", "invoice", "return"].includes(documentType)) {
     throw new Error(`Unsupported sales document type: ${documentType}`);
   }
-
-  const period = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}`;
-  const key = `${documentType}:${period}`;
-
-  const sequence = await SalesSequence.findOneAndUpdate(
-    { tenantId, key },
-    { $inc: { current: 1 } },
-    {
-      new: true,
-      upsert: true,
-      setDefaultsOnInsert: true,
-      session,
-    }
-  );
-
-  return `${prefix}-${period}-${pad(sequence.current)}`;
+  const allocation = await assignDocumentNumber({
+    tenantId, typeKey: `sales.${documentType}`, session, date,
+    providedValue, idempotencyKey, source: "sales",
+  });
+  return allocation.value;
 };

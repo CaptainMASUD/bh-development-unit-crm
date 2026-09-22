@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import User from "../../models/user.model.js";
 import EmployeeLoan from "../../models/employeeLoan.model.js";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
@@ -117,26 +118,6 @@ const loadEmployee = async (employeeId) => {
     .lean();
 };
 
-const generateLoanNo = async () => {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-
-  const prefix = `EL-${y}${m}${d}`;
-
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-
-  const end = new Date(now);
-  end.setHours(23, 59, 59, 999);
-
-  const count = await EmployeeLoan.countDocuments({
-    createdAt: { $gte: start, $lte: end },
-  });
-
-  return `${prefix}-${String(count + 1).padStart(4, "0")}`;
-};
 
 const buildLoanFilter = (req) => {
   const filter = {};
@@ -227,7 +208,10 @@ export const createEmployeeLoan = async (req, res) => {
     }
 
     const loan = await EmployeeLoan.create({
-      loanNo: req.body.loanNo ? clean(req.body.loanNo).toUpperCase() : await generateLoanNo(),
+      loanNo: (await assignDocumentNumber({
+        tenantId: req.tenantId, typeKey: "payroll.loan", date: issueDate,
+        providedValue: req.body.loanNo, source: "payroll.employee-loan.create",
+      })).value,
       employee: employee._id,
       department: employee.department || null,
       position: employee.position || null,

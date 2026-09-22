@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 import StockMovement, {
   MOVEMENT_STATUSES,
   MOVEMENT_TYPES,
@@ -337,6 +338,11 @@ export const createStockMovement = async (req, res) => {
     }
 
     await StockMovement.validateDraftLines(payload.lines, { tenantId: req.tenantId });
+    payload.movementNo = (await assignDocumentNumber({
+      tenantId: req.tenantId, typeKey: "inventory.stock-movement",
+      providedValue: payload.movementNo, idempotencyKey: payload.idempotencyKey,
+      source: "inventory.stock-movement.create",
+    })).value;
     const movement = await StockMovement.create({
       ...payload,
       status: "draft",
@@ -364,6 +370,7 @@ export const createAndPostStockMovement = async (req, res) => {
     const movement = await postStockMovementService({
       tenantId: req.tenantId,
       movementType: payload.movementType,
+      movementNo: payload.movementNo,
       movementDate: payload.movementDate,
       reference: payload.reference,
       sourceType: payload.sourceType,

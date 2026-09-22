@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 import Product from "../../models/inventory/product.model.js";
 import Warehouse from "../../models/inventory/warehouse.model.js";
 import WarehouseLocation from "../../models/inventory/warehouseLocation.model.js";
@@ -538,6 +539,12 @@ export const createStockAdjustment = async (req, res) => {
       mode: payload.adjustmentMode,
       lines: payload.lines,
     });
+
+    payload.adjustmentNo = (await assignDocumentNumber({
+      tenantId: req.tenantId, typeKey: "inventory.stock-adjustment",
+      providedValue: payload.adjustmentNo, idempotencyKey: payload.idempotencyKey,
+      source: "inventory.stock-adjustment.create",
+    })).value;
 
     const adjustment = await StockAdjustment.create({
       ...payload,

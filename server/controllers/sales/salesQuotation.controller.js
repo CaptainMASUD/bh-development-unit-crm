@@ -52,6 +52,7 @@ export const createQuotation = async (req, res) => {
   const quotationNumber = await nextSalesNumber({
     tenantId,
     documentType: "quotation",
+    providedValue: req.body.quotationNumber,
   });
 
   const leadContact = req.body.leadContact || (party.lead ? {
@@ -308,6 +309,7 @@ export const convertQuotationToOrder = async (req, res) => {
         tenantId,
         documentType: "order",
         session,
+        providedValue: req.body.orderNumber,
       });
 
       const orderLines = quotation.lines.map((line) => ({

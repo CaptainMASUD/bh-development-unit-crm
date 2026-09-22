@@ -249,11 +249,7 @@ dealSchema.pre("validate", function (next) {
     this.dealHealth = "critical";
   }
 
-  if (!this.dealNo) {
-    const idSuffix = String(this._id).slice(-4).toUpperCase();
-    const y = new Date().getFullYear();
-    this.dealNo = `DL-${y}-${Date.now()}-${idSuffix}`;
-  }
+  if (this.isNew && !this.dealNo) return next(new Error("Deal number must be allocated before save."));
 
   if (!this.lastStageChangedAt) {
     this.lastStageChangedAt = new Date();

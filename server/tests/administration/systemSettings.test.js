@@ -4,10 +4,17 @@ import mongoose from "mongoose";
 
 import SystemSettings from "../../models/administration/systemSettings.model.js";
 import {
+  deriveTenantSystemDefaults,
   SYSTEM_DEFAULTS,
   resolveConfiguredPageSize,
   validateSystemSettingsInput,
 } from "../../services/administration/systemSettings.service.js";
+
+test("new tenant settings inherit existing company currency and date format", () => {
+  const defaults = deriveTenantSystemDefaults({ settings: { currency: "USD", dateFormat: "YYYY-MM-DD" } });
+  assert.equal(defaults.defaultCurrency, "USD");
+  assert.equal(defaults.defaultDateFormat, "YYYY-MM-DD");
+});
 
 test("System Settings schema allows exactly one settings document per tenant", () => {
   const uniqueTenantIndex = SystemSettings.schema.indexes().find(
@@ -22,9 +29,54 @@ test("system defaults are safe and explicit", () => {
     schemaVersion: 1,
     revision: 1,
     tablePageSize: 20,
+    defaultDateFormat: "DD-MM-YYYY",
+    defaultTimeFormat: "24-hour",
+    defaultCurrency: "BDT",
+    currencyDecimalPlaces: 2,
+    numberDecimalPlaces: 2,
+    defaultSortOrder: "newest_first",
+    defaultFileUploadLimitMb: 10,
+    allowedFileTypes: ["PDF", "JPG", "PNG", "XLSX", "DOCX"],
     auditStorageLimit: 100000,
     auditRetentionMode: "warn_only",
   });
+});
+
+test("system preference values normalize and reject unsupported or unsafe choices", () => {
+  assert.deepEqual(validateSystemSettingsInput({
+    defaultDateFormat: "YYYY-MM-DD",
+    defaultTimeFormat: "12-hour",
+    defaultCurrency: " usd ",
+    currencyDecimalPlaces: "3",
+    numberDecimalPlaces: "4",
+    defaultSortOrder: "oldest_first",
+    defaultFileUploadLimitMb: "25",
+    allowedFileTypes: ["pdf", "PNG"],
+  }), {
+    defaultDateFormat: "YYYY-MM-DD",
+    defaultTimeFormat: "12-hour",
+    defaultCurrency: "USD",
+    currencyDecimalPlaces: 3,
+    numberDecimalPlaces: 4,
+    defaultSortOrder: "oldest_first",
+    defaultFileUploadLimitMb: 25,
+    allowedFileTypes: ["PDF", "PNG"],
+  });
+  for (const patch of [
+    { defaultDateFormat: "DD-YY-MM" }, { defaultTimeFormat: "13-hour" },
+    { defaultCurrency: "$$$" }, { currencyDecimalPlaces: -1 },
+    { numberDecimalPlaces: 7 }, { defaultSortOrder: "random" },
+    { defaultFileUploadLimitMb: 0 }, { allowedFileTypes: [] },
+    { allowedFileTypes: ["EXE"] }, { allowedFileTypes: ["PDF", "pdf"] },
+  ]) assert.throws(() => validateSystemSettingsInput(patch));
+});
+
+test("stored system preferences are schema validated", () => {
+  const settings = new SystemSettings({ tenantId: new mongoose.Types.ObjectId(), defaultCurrency: "BAD1", defaultFileUploadLimitMb: 101, allowedFileTypes: ["EXE"] });
+  const validation = settings.validateSync();
+  assert.ok(validation.errors.defaultCurrency);
+  assert.ok(validation.errors.defaultFileUploadLimitMb);
+  assert.ok(validation.errors.allowedFileTypes);
 });
 
 test("settings validation rejects unsafe values and unknown retention behavior", () => {

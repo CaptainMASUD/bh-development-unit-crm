@@ -209,11 +209,7 @@ proposalSchema.pre("validate", function (next) {
     this.lastClientResponseAt = new Date();
   }
 
-  if (!this.proposalNo) {
-    const idSuffix = String(this._id).slice(-4).toUpperCase();
-    const y = new Date().getFullYear();
-    this.proposalNo = `PR-${y}-${Date.now()}-${idSuffix}`;
-  }
+  if (this.isNew && !this.proposalNo) return next(new Error("Proposal number must be allocated before save."));
 
   next();
 });

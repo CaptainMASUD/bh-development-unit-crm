@@ -115,7 +115,6 @@ test("Payroll exposes Departments and Positions directly in sidebar and excludes
 
   assert.deepEqual(config.MODULES.payroll.adminSections, [
     "Payroll Manager",
-    "Employee",
     "Departments",
     "Positions",
     "Attendance",
@@ -207,8 +206,21 @@ test("Administration resolves all approved sections and identifies real Phase 1 
   assert.equal(built.Dashboard.comingSoon, undefined)
   assert.equal(built["Company Details"].comingSoon, undefined)
   assert.equal(built["System Defaults"].comingSoon, undefined)
+  assert.equal(built["Document Numbering"].comingSoon, undefined)
+  assert.equal(built["Audit Trail"].comingSoon, undefined)
+  assert.ok(built["Audit Trail"].component)
+  assert.equal(built["Role Management"].comingSoon, undefined)
+  assert.ok(built["Role Management"].component)
+  assert.equal(built.Departments.comingSoon, undefined)
+  assert.equal(built["Add Employee"].comingSoon, undefined)
+  assert.ok(built["Add Employee"].component)
 
-  for (const name of config.MODULES.administration.adminSections.slice(3)) {
+  const upcomingSections = [
+    "Employee Access Control",
+    "Employee Account Control",
+    "System Security Settings",
+  ]
+  for (const name of upcomingSections) {
     assert.equal(built[name].comingSoon, true, `${name} must be an honest upcoming feature`)
     assert.ok(built[name].component)
   }

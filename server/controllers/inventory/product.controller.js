@@ -12,6 +12,7 @@ import Supplier, {
   SupplierProduct,
 } from "../../models/supplier.model.js";
 import { assertCostingMethodCanBeChanged } from "../../services/inventoryCosting.service.js";
+import { assignDocumentNumber, finalizeDocumentNumberClaim } from "../../services/administration/documentNumbering.service.js";
 
 /* =========================================================
    RESPONSE FIELD SELECTION
@@ -90,24 +91,6 @@ export const buildCategoryProductCode = (categoryCode, usedSkus = []) => {
   }, 0);
 
   return `${prefix}${highest + 1}`;
-};
-
-const generateProductSku = async (categoryId, tenantId = null) => {
-  if (!isId(categoryId)) return "";
-
-  const category = await ProductCategory.findOne({
-    _id: categoryId,
-    ...(tenantId ? { tenantId } : {}),
-  }).select("code").lean();
-  if (!category?.code) return "";
-
-  const prefix = clean(category.code).toUpperCase();
-  const products = await Product.find({
-    ...(tenantId ? { tenantId } : {}),
-    sku: new RegExp(`^${escapeRegex(prefix)}\\d+$`, "i"),
-  }).select("sku").lean();
-
-  return buildCategoryProductCode(prefix, products.map((product) => product.sku));
 };
 
 const money = (value) =>
@@ -965,14 +948,8 @@ export const createProduct = async (
       );
     if (tenantId) payload.tenantId = tenantId;
 
-    const usesGeneratedSku = !clean(payload.sku);
-
-    if (usesGeneratedSku && payload.category) {
-      payload.sku = await generateProductSku(payload.category, tenantId);
-    }
-
     const errors = [
-      ...validatePayloadShape(payload),
+      ...validatePayloadShape(payload, { partial: true }),
       ...validateProductState(payload),
     ];
 
@@ -988,6 +965,16 @@ export const createProduct = async (
       tenantId
     );
 
+    const category = payload.category && isId(payload.category)
+      ? await ProductCategory.findOne({ _id: payload.category, tenantId }).select("code").lean()
+      : null;
+    if (!category?.code) return res.status(400).json({ message: "A valid category with a code is required." });
+    const allocatedSku = await assignDocumentNumber({
+      tenantId, typeKey: "inventory.product", providedValue: payload.sku,
+      context: { categoryCode: category.code }, source: "inventory.product.create",
+    });
+    payload.sku = allocatedSku.value;
+
     for (const field of [
       "purchasePrice",
       "sellingPrice",
@@ -1001,23 +988,13 @@ export const createProduct = async (
       }
     }
 
-    let product = null;
-
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      try {
-        product = await Product.create({
-          ...payload,
-          ...(tenantId ? { tenantId } : {}),
-          createdBy: userId,
-          updatedBy: userId,
-        });
-        break;
-      } catch (error) {
-        const skuCollision = usesGeneratedSku && error?.code === 11000 && error?.keyPattern?.sku;
-        if (!skuCollision || attempt === 4) throw error;
-        payload.sku = await generateProductSku(payload.category, tenantId);
-      }
-    }
+    const product = await Product.create({
+      ...payload,
+      ...(tenantId ? { tenantId } : {}),
+      createdBy: userId,
+      updatedBy: userId,
+    });
+    await finalizeDocumentNumberClaim({ tenantId, typeKey: "inventory.product", value: payload.sku, recordId: product._id });
 
     let supplierProduct = null;
 
