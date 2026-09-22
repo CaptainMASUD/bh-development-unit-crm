@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 import Product from "../../models/inventory/product.model.js";
 import ProductCategory, { CATEGORY_STATUSES } from "../../models/inventory/productCategory.model.js";
 
@@ -381,11 +382,13 @@ export const createProductCategory = async (req, res) => {
     const tenantId = req.tenantId;
     const payload = buildCategoryPayload(req.body, userId);
     if (tenantId) payload.tenantId = tenantId;
-    const errors = validatePayload(payload);
+    const errors = validatePayload(payload, { partial: true });
 
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
 
-    payload.code = clean(payload.code).toUpperCase();
+    payload.code = (await assignDocumentNumber({ tenantId, typeKey: "inventory.category", providedValue: payload.code, source: "inventory.category.create" })).value;
+    const fullErrors = validatePayload(payload);
+    if (fullErrors.length) return res.status(400).json({ message: fullErrors[0], errors: fullErrors });
     payload.slug = slugify(payload.slug || `${payload.name}-${payload.code}`);
     if (!payload.slug) return res.status(400).json({ message: "A valid category slug could not be generated." });
 

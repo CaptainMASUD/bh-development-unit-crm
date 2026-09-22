@@ -3,6 +3,7 @@ import User from "../models/user.model.js";
 import { ERP_MODULE_IDS, normalizeModuleIds, permissionModule } from "../config/erpModules.js";
 import { runWithTenant } from "../config/tenantContext.js";
 import { resolveVerifiedTenant } from "../services/tenant.service.js";
+import { getReqMeta } from "../utils/audit.js";
 
 const normalizeSystemRole = async (user) => {
   if (["superadmin", "admin", "employee"].includes(user?.role)) return;
@@ -52,11 +53,20 @@ export const protect = async (req, res, next) => {
 
     if (req.body && typeof req.body === "object") delete req.body.tenantId;
 
+    const actorName = `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.username || user.email || (user.role === "superadmin" ? "Superadmin" : "User");
+    const actorUser = {
+      _id: user._id,
+      name: actorName,
+      email: user.email || "",
+      role: user.role || "employee",
+    };
+    const reqMeta = getReqMeta(req);
+
     if (user.role === "superadmin") {
       req.user = user;
       req.tenantId = null;
       req.enabledModules = null;
-      return runWithTenant({ bypassTenant: true, userId: user._id }, () => next());
+      return runWithTenant({ bypassTenant: true, userId: user._id, user: actorUser, reqMeta }, () => next());
     }
 
     const verified = await resolveVerifiedTenant(user);
@@ -79,7 +89,7 @@ export const protect = async (req, res, next) => {
     req.enabledModules = normalizeModuleIds(verified.company.enabledModules);
     req.subscription = verified.subscription;
     return runWithTenant(
-      { tenantId: req.tenantId, userId: user._id, bypassTenant: false },
+      { tenantId: req.tenantId, userId: user._id, user: actorUser, reqMeta, bypassTenant: false },
       () => next()
     );
   } catch (err) {

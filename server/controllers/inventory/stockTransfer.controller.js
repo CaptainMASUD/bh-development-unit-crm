@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 import Product from "../../models/inventory/product.model.js";
 import Warehouse from "../../models/inventory/warehouse.model.js";
 import WarehouseLocation from "../../models/inventory/warehouseLocation.model.js";
@@ -339,7 +340,9 @@ const buildListFilter = (query = {}, tenantId = null) => {
 };
 
 const createMovement = async ({ transfer, lines, idempotencyKey, reference, notes, userId, session }) => {
+  const movementNo = (await assignDocumentNumber({ tenantId: transfer.tenantId, typeKey: "inventory.stock-movement", session, idempotencyKey, source: "inventory.stock-transfer.movement" })).value;
   const movement = new StockMovement({
+    movementNo,
     movementDate: new Date(),
     movementType: "warehouse_transfer",
     status: "draft",
@@ -464,6 +467,11 @@ export const createStockTransfer = async (req, res) => {
     payload.currency = payload.currency || "BDT";
     if (req.tenantId) payload.tenantId = req.tenantId;
     await validateTransferPayload(payload, { tenantId: req.tenantId });
+    payload.transferNo = (await assignDocumentNumber({
+      tenantId: req.tenantId, typeKey: "inventory.stock-transfer",
+      providedValue: payload.transferNo, idempotencyKey: payload.clientRequestId,
+      source: "inventory.stock-transfer.create",
+    })).value;
 
     const transfer = await StockTransfer.create({
       ...payload,

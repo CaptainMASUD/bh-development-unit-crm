@@ -56,7 +56,7 @@ export const createSalesReturn = async (req, res) => {
   const salesReturn = await SalesReturn.create({
     tenantId,
     branchId: invoice.branchId,
-    returnNumber: await nextSalesNumber({ tenantId, documentType: "return" }),
+    returnNumber: await nextSalesNumber({ tenantId, documentType: "return", providedValue: req.body.returnNumber }),
     salesOrderId: order._id,
     salesInvoiceId: invoice._id,
     customerId: invoice.customerId,

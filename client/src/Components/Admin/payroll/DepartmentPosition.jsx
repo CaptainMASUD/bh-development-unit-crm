@@ -268,6 +268,7 @@ export default function DepartmentPosition({ defaultTab = "departments", initial
   }, [positions, searchTerm])
 
   const openCreateModal = (type) => {
+    if (type === "departments") return toast.error("Manage departments from Administration.")
     if (!canManage) return toast.error("You do not have permission to create organizational units")
     setEditingItem(null)
     if (type === "departments") setDepartmentForm({ name: "", description: "" })
@@ -276,6 +277,7 @@ export default function DepartmentPosition({ defaultTab = "departments", initial
   }
 
   const openEditModal = (type, item) => {
+    if (type === "departments") return toast.error("Manage departments from Administration.")
     if (!canManage) return toast.error("You do not have permission to edit organizational units")
     setEditingItem(item)
     if (type === "departments") {
@@ -408,7 +410,7 @@ export default function DepartmentPosition({ defaultTab = "departments", initial
                 <span>•</span>
                 <span>{positions.length} Positions</span>
               </div>
-              {canManage ? (
+              {canManage && activeTab === "positions" ? (
                 <button
                   type="button"
                   className={`${btn} ${btnPrimary}`}
@@ -510,7 +512,7 @@ export default function DepartmentPosition({ defaultTab = "departments", initial
                           <StatusBadge active={dept.isActive !== false} />
                         </td>
                         <td className="px-6 py-4 text-right align-middle">
-                          {canManage ? (
+                          {false ? (
                             <div className="flex items-center justify-end gap-1.5">
                               <button
                                 type="button"

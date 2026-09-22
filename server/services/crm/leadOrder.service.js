@@ -33,8 +33,8 @@ export async function prepareLeadOrder(req, lead, session) {
   return { data, proposal, quotation };
 }
 
-export async function createLeadOrder({ prepared, customer, deal, session }) {
-  const orderNumber = await nextSalesNumber({ tenantId: prepared.data.tenantId, documentType: "order", session });
+export async function createLeadOrder({ prepared, customer, deal, session, providedValue }) {
+  const orderNumber = await nextSalesNumber({ tenantId: prepared.data.tenantId, documentType: "order", session, providedValue });
   const [order] = await SalesOrder.create([{ ...prepared.data, orderNumber, customerId: customer._id, dealId: deal._id }], session ? { session } : {});
   deal.salesOrderId = order._id;
   deal.customerId = customer._id;

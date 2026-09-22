@@ -10,6 +10,7 @@ import {
   logCrmActivity,
 } from "../../services/salesIntegration.service.js";
 import { nextSalesNumber } from "../../services/salesNumber.service.js";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 import { runSalesTransaction } from "../../services/salesTransaction.service.js";
 import { SalesError, assertTenant } from "../../utils/salesError.js";
 import { assertCustomerCreditAvailable, validateSalesWarehouse } from "../../services/salesReference.service.js";
@@ -357,6 +358,7 @@ export const createSalesOrderFromDeal = async (req, res) => {
       tenantId,
       documentType: "order",
       session,
+      providedValue: req.body.orderNumber,
     });
 
     const dealLines = Array.isArray(deal.items) && deal.items.length ? deal.items : [];
@@ -378,7 +380,10 @@ export const createSalesOrderFromDeal = async (req, res) => {
 
       if (!prod) {
         const name = item.nameSnapshot?.trim() || `Deal Item ${index + 1}`;
-        const sku = `SVC-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+        const { value: sku } = await assignDocumentNumber({
+          tenantId, typeKey: "inventory.product", context: { categoryCode: "SVC" },
+          session, source: "sales.deal.service-product",
+        });
         const [created] = await Product.create(
           [
             {
@@ -433,7 +438,10 @@ export const createSalesOrderFromDeal = async (req, res) => {
 
     if (!lines.length) {
       const name = deal.title || "Custom Deal Service";
-      const sku = `SVC-${Date.now().toString(36).toUpperCase()}`;
+      const { value: sku } = await assignDocumentNumber({
+        tenantId, typeKey: "inventory.product", context: { categoryCode: "SVC" },
+        session, source: "sales.deal.service-product",
+      });
       const [created] = await Product.create(
         [
           {

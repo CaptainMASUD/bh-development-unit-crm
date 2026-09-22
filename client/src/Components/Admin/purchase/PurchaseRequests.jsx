@@ -45,6 +45,7 @@ const input =
   "w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-300 focus:border-transparent focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
 
 const EMPTY_FORM = {
+  requestReference: "",
   product: "",
   purpose: "manual",
   requiredQuantity: "",
@@ -696,6 +697,7 @@ function CreateRequestModal({ open, onClose, onCreated }) {
       await api(ENDPOINT, {
         method: "POST",
         body: JSON.stringify({
+          ...(clean(form.requestReference) ? { requestReference: clean(form.requestReference).toUpperCase() } : {}),
           product: form.product,
           purpose: form.purpose,
           requiredQuantity: Number(form.requiredQuantity),
@@ -754,6 +756,9 @@ function CreateRequestModal({ open, onClose, onCreated }) {
 
       <form id="purchase-request-create-form" onSubmit={submit}>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <Field label="Request No. (blank for Auto)">
+            <input className={input} value={form.requestReference} onChange={(event) => setForm((previous) => ({ ...previous, requestReference: event.target.value.toUpperCase() }))} placeholder="Enter a number in Manual mode" />
+          </Field>
           <div className="lg:col-span-2">
             <Field label="Product" required>
               <select

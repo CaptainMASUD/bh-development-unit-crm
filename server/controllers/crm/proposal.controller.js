@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 import Proposal from "../../models/proposal.model.js";
 import Lead from "../../models/lead.model.js";
 import Deal from "../../models/deal.model.js";
@@ -312,6 +313,7 @@ export const createProposal = async (req, res) => {
     const totals = calculateItems(items);
 
     const proposal = await Proposal.create({
+      proposalNo: (await assignDocumentNumber({ tenantId: req.tenantId, typeKey: "crm.proposal", providedValue: req.body.proposalNo, source: "crm.proposal.create" })).value,
       leadId: safeLeadId,
       customerId: safeCustomerId,
       dealId: safeDealId,

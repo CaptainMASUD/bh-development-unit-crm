@@ -75,6 +75,14 @@ const CashFlowStatement = lazy(() => import("./accounting/CashFlowStatement"))
 const ProfileSettings = lazy(() => import("./system/ProfileSettings"))
 const InventoryRevaluations = lazy(() => import("./inventory/InventoryRevaluations"))
 const AdminCompanySetupPage = lazy(() => import("./CompanySetup/AdminCompanySetupPage"))
+const AdministrationDashboard = lazy(() => import("./administration/AdministrationDashboard"))
+const CompanyDetails = lazy(() => import("./administration/CompanyDetails"))
+const SystemDefaults = lazy(() => import("./administration/SystemDefaults"))
+const DocumentNumbering = lazy(() => import("./administration/DocumentNumbering"))
+const AdministrationDepartments = lazy(() => import("./administration/AdministrationDepartments"))
+const AuditTrail = lazy(() => import("./administration/AuditTrail"))
+const RoleManagement = lazy(() => import("./administration/RoleManagement"))
+const UpcomingAdministrationFeature = lazy(() => import("./administration/AdministrationDashboard").then((module) => ({ default: module.UpcomingAdministrationFeature })))
 const TitlesAdd = lazy(() => import("./workflow/TittlesAdd"))
 const EngagementTemplatePage = lazy(() => import("./workflow/EngagementTemplatePage"))
 const PurchaseTypePage = lazy(() => import("./workflow/PurchaseTypePage"))
@@ -165,6 +173,75 @@ const withInventoryTheme = (component) => (
 )
 
 const sections = {
+  "Administration Dashboard": {
+    icon: createSectionIcon(DashboardSquare01Icon),
+    component: <AdministrationDashboard />,
+    permission: "administration-dashboard:view",
+  },
+
+  "Company Details": {
+    icon: createSectionIcon(Briefcase01Icon),
+    component: <CompanyDetails />,
+    permission: "company:view",
+  },
+
+  "System Defaults": {
+    icon: createSectionIcon(Setup02Icon),
+    component: <SystemDefaults />,
+    permission: "system-settings:view",
+  },
+
+  "Document Numbering": {
+    icon: createSectionIcon(NoteEditIcon),
+    component: <DocumentNumbering />,
+    permission: "system-settings:view",
+  },
+
+  "Audit Trail": {
+    icon: createSectionIcon(FileChartColumnIcon),
+    component: <AuditTrail />,
+    permission: "access-control:view",
+  },
+
+  "Role Management": {
+    icon: createSectionIcon(ShieldUserIcon),
+    component: <RoleManagement />,
+    permission: "access-control:view",
+  },
+
+  "Administration Departments": {
+    icon: createSectionIcon(Layers01Icon),
+    component: <AdministrationDepartments />,
+    permission: "access-control:view",
+  },
+
+  "Employee Access Control": {
+    icon: createSectionIcon(UserSettings01Icon),
+    component: <UpcomingAdministrationFeature title="Employee Access Control" />,
+    permission: "access-control:view",
+    comingSoon: true,
+  },
+
+  "Add Employee": {
+    icon: createSectionIcon(UserMultiple02Icon),
+    component: <Employee />,
+    permission: "users:manage",
+  },
+
+  "Employee Account Control": {
+    icon: createSectionIcon(UserIcon),
+    component: <UpcomingAdministrationFeature title="Employee Account Control" />,
+    permission: "users:view",
+    comingSoon: true,
+  },
+
+  "System Security Settings": {
+    icon: createSectionIcon(ShieldUserIcon),
+    component: <UpcomingAdministrationFeature title="System Security Settings" />,
+    permission: "access-control:view",
+    comingSoon: true,
+  },
+
   Dashboard: {
     icon: createSectionIcon(DashboardSquare01Icon),
     component: <Dashboard />,

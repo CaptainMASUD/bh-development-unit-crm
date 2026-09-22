@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { assignDocumentNumber } from "../administration/documentNumbering.service.js";
 import Supplier, {
   ADDRESS_TYPES,
   DOCUMENT_TYPES,
@@ -1312,8 +1313,14 @@ export const createSupplierService = async ({
   body,
   actorId,
   meta,
+  tenantId,
 }) => {
   const payload = buildSupplierPayload(body, { partial: false });
+  throwValidation(validateSupplierPayload(payload, { partial: true }));
+  payload.code = (await assignDocumentNumber({
+    tenantId, typeKey: "supplier.company", providedValue: payload.code,
+    source: "supplier.company.create",
+  })).value;
   throwValidation(validateSupplierPayload(payload));
 
   const supplier = await Supplier.create({

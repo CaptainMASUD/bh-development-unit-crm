@@ -74,6 +74,7 @@ export const createDeliveryNote = async (req, res) => {
         tenantId,
         documentType: "delivery",
         session,
+        providedValue: req.body.deliveryNumber,
       });
 
       [delivery] = await DeliveryNote.create(

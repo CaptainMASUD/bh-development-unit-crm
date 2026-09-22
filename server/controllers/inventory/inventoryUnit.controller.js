@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 import Product from "../../models/inventory/product.model.js";
 import InventoryUnit, { UNIT_STATUSES, UNIT_TYPES } from "../../models/inventory/inventoryUnit.model.js";
 
@@ -313,8 +314,11 @@ export const createInventoryUnit = async (req, res) => {
     if (payload.allowDecimal === false) payload.decimalPlaces = 0;
     if (payload.allowDecimal === true && payload.decimalPlaces === undefined) payload.decimalPlaces = 2;
 
-    const errors = validatePayload(payload);
+    const errors = validatePayload(payload, { partial: true });
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
+    payload.code = (await assignDocumentNumber({ tenantId, typeKey: "inventory.unit", providedValue: payload.code, source: "inventory.unit.create" })).value;
+    const fullErrors = validatePayload(payload);
+    if (fullErrors.length) return res.status(400).json({ message: fullErrors[0], errors: fullErrors });
 
     const unit = await InventoryUnit.create({
       ...payload,

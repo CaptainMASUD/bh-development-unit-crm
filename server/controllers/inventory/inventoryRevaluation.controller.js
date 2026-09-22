@@ -15,6 +15,7 @@ import {
   resolveInventoryAssetAccount,
 } from "../../services/inventoryAccounting.service.js";
 import { resolveAccountingAccount } from "../../services/accountingPosting.service.js";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
 const clean = (value) => String(value ?? "").trim();
@@ -88,7 +89,13 @@ export const createAndPostRevaluation = async (req, res) => {
         );
       }
 
-      const revalNo = `REV-${Date.now()}-${String(productId).slice(-4).toUpperCase()}`;
+      const { value: revalNo } = await assignDocumentNumber({
+        tenantId,
+        typeKey: "inventory.revaluation",
+        providedValue: req.body.revaluationNo,
+        session,
+        source: "inventory.revaluation.create",
+      });
 
       const assetAccount = await resolveInventoryAssetAccount({
         tenantId,

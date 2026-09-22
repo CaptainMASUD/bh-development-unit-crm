@@ -36,7 +36,7 @@ const UNIT_TYPES = [
   ["other", "Other"],
 ]
 
-const emptyForm = { name: "", shortName: "", unitType: "", allowDecimal: "", status: "" }
+const emptyForm = { name: "", shortName: "", code: "", unitType: "", allowDecimal: "", status: "" }
 const inputClass = "w-full rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-indigo-400 focus:ring-4 focus:ring-indigo-500/10 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
 const buttonClass = "inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-bold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/15 disabled:cursor-not-allowed disabled:opacity-50"
 
@@ -47,15 +47,16 @@ function clean(value) {
 export function buildUnitPayload(form = {}) {
   const shortName = clean(form.shortName).toUpperCase()
   const allowDecimal = form.allowDecimal === true || String(form.allowDecimal).toLowerCase() === "true"
-  return {
+  const payload = {
     name: clean(form.name),
-    code: shortName,
     symbol: shortName,
     unitType: clean(form.unitType || "count").toLowerCase(),
     allowDecimal,
     decimalPlaces: allowDecimal ? 2 : 0,
     status: clean(form.status || "active").toLowerCase(),
   }
+  if (clean(form.code)) payload.code = clean(form.code).toUpperCase()
+  return payload
 }
 
 export function filterUnits(units = [], filters = {}) {
@@ -225,6 +226,7 @@ function UnitFormModal({ state, form, setForm, error, saving, onClose, onSubmit 
       <form id="unit-form" onSubmit={onSubmit} className="grid gap-5 sm:grid-cols-2">
         <Field label="Unit Name" required><input className={inputClass} value={form.name} onChange={(event) => setForm((previous) => ({ ...previous, name: event.target.value }))} placeholder="Enter unit name" maxLength={100} required autoFocus /></Field>
         <Field label="Short Name" required><input className={inputClass} value={form.shortName} onChange={(event) => setForm((previous) => ({ ...previous, shortName: event.target.value.toUpperCase() }))} placeholder="Enter short name" maxLength={20} required /></Field>
+        <Field label="Unit Code"><input className={inputClass} value={form.code || ""} onChange={(event) => setForm((previous) => ({ ...previous, code: event.target.value.toUpperCase() }))} placeholder="Generated in Auto mode; enter a code in Manual mode" maxLength={50} disabled={Boolean(state.item)} /></Field>
         <Field label="Type" required><select className={inputClass} value={form.unitType} onChange={(event) => setForm((previous) => ({ ...previous, unitType: event.target.value }))} required><option value="">Select Type</option>{UNIT_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
         <Field label="Allow Decimal" required><select className={inputClass} value={form.allowDecimal} onChange={(event) => setForm((previous) => ({ ...previous, allowDecimal: event.target.value }))} required><option value="">Select Allow Decimal</option><option value="true">Yes</option><option value="false">No</option></select></Field>
         <Field label="Status" required><select className={inputClass} value={form.status} onChange={(event) => setForm((previous) => ({ ...previous, status: event.target.value }))} required><option value="">Select Status</option><option value="active">Active</option><option value="inactive">Inactive</option></select></Field>
@@ -310,6 +312,7 @@ export default function InventoryUnitSetup() {
     setForm({
       name: unit.name || "",
       shortName: unit.symbol || unit.code || "",
+      code: unit.code || "",
       unitType: unit.unitType || "",
       allowDecimal: String(Boolean(unit.allowDecimal)),
       status: unit.status || "",

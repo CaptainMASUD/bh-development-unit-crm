@@ -1,6 +1,9 @@
 import AuditLog from "../models/auditLog.model.js";
 import ActivityLog from "../models/activityLog.model.js";
 import ConversionLog from "../models/conversionLog.model.js";
+import { redactAuditValue } from "./auditRedaction.js";
+import { getTenantContext } from "../config/tenantContext.js";
+import { computeFieldDiff, getModuleForModel, getRecordIdentifier } from "../config/auditRegistry.js";
 
 export const getReqMeta = (req = {}) => {
   return {
@@ -48,38 +51,70 @@ const normalizeActivityType = (type = "") => {
 export const writeAudit = async ({
   session = null,
   tenantId = null,
-  actorId,
+  actorId = null,
+  actorName = "",
+  actorEmail = "",
+  actorRole = "",
   action,
+  module = "",
   entityType,
   entityId,
+  recordIdentifier = "",
+  changes = null,
   before = null,
   after = null,
   meta = {},
-}) => {
+}, { strict = false } = {}) => {
   try {
-    if (!actorId || !action || !entityType || !entityId) return null;
+    const ctx = getTenantContext();
+    const effectiveTenantId = tenantId || meta?.tenantId || ctx?.tenantId || null;
+    const effectiveActorId = actorId || ctx?.userId || ctx?.user?._id || null;
+    const effectiveActorName =
+      actorName ||
+      ctx?.user?.name ||
+      (ctx?.user?.firstName ? `${ctx.user.firstName} ${ctx.user.lastName || ""}`.trim() : "") ||
+      ctx?.user?.username ||
+      (effectiveActorId ? "User" : "System");
+    const effectiveActorEmail = actorEmail || ctx?.user?.email || "";
+    const effectiveActorRole = actorRole || ctx?.user?.role || "";
+    const effectiveModule = module || getModuleForModel(entityType);
+    const effectiveRecordId = recordIdentifier || getRecordIdentifier(after || before || { _id: entityId });
+
+    if (!action || !entityType || !entityId) return null;
+
+    let computedChanges = changes;
+    if (!computedChanges && before && after && typeof before === "object" && typeof after === "object") {
+      computedChanges = computeFieldDiff(before, after).changes;
+    }
 
     const payload = {
-      ...(tenantId ? { tenantId } : meta?.tenantId ? { tenantId: meta.tenantId } : {}),
-      actorId,
+      tenantId: effectiveTenantId,
+      actorId: effectiveActorId,
+      actorName: effectiveActorName,
+      actorEmail: effectiveActorEmail,
+      actorRole: effectiveActorRole,
       action: normalizeAuditAction(action),
+      module: effectiveModule,
       entityType,
       entityId,
-      before,
-      after,
+      recordIdentifier: effectiveRecordId,
+      changes: computedChanges ? redactAuditValue(computedChanges) : [],
+      before: redactAuditValue(before),
+      after: redactAuditValue(after),
       meta: {
-        ip: meta?.ip || "",
-        userAgent: meta?.userAgent || "",
-        method: meta?.method || "",
-        path: meta?.path || "",
+        ip: meta?.ip || ctx?.reqMeta?.ip || "",
+        userAgent: meta?.userAgent || ctx?.reqMeta?.userAgent || "",
+        method: meta?.method || ctx?.reqMeta?.method || "",
+        path: meta?.path || ctx?.reqMeta?.path || "",
         oldStage: meta?.oldStage || "",
         newStage: meta?.newStage || "",
         oldStatus: meta?.oldStatus || "",
         newStatus: meta?.newStatus || "",
         reason: meta?.reason || "",
         amount: Number(meta?.amount || 0),
-        extra: meta?.extra || null,
+        extra: redactAuditValue(meta?.extra || null),
       },
+      createdAt: new Date(),
     };
 
     if (session) {
@@ -89,6 +124,7 @@ export const writeAudit = async ({
 
     return await AuditLog.create(payload);
   } catch (err) {
+    if (strict) throw err;
     console.error("Audit log failed:", err.message);
     return null;
   }

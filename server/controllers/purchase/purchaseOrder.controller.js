@@ -19,6 +19,7 @@ import PurchaseOrder, {
   roundQuantity,
 } from "../../models/purchaseOrder.model.js";
 import { runMongoTransaction } from "../../utils/mongoTransaction.js";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 
 const LIST_FIELDS = [
   "orderNo",
@@ -105,29 +106,6 @@ const decodeCursor = (value) => {
   }
 };
 
-const nextDocumentNumber = async ({ prefix, date, session }) => {
-  const year = new Date(date || Date.now()).getUTCFullYear();
-  const key = `${prefix}:${year}`;
-  const result = await mongoose.connection
-    .collection("documentSequences")
-    .findOneAndUpdate(
-      { _id: key },
-      {
-        $inc: { sequence: 1 },
-        $setOnInsert: { prefix, year, createdAt: new Date() },
-        $set: { updatedAt: new Date() },
-      },
-      { upsert: true, returnDocument: "after", ...sessionOptions(session) }
-    );
-
-  const sequence = result?.sequence ?? result?.value?.sequence;
-  if (!Number.isFinite(sequence)) {
-    throw Object.assign(new Error("Failed to allocate a purchase-order number."), {
-      statusCode: 500,
-    });
-  }
-  return `${prefix}-${year}-${String(sequence).padStart(4, "0")}`;
-};
 
 const buildLinePayload = (line = {}) => ({
   _id: isId(line._id) ? line._id : undefined,
@@ -779,11 +757,11 @@ export const createPurchaseOrder = async (req, res) => {
       }
 
       const enriched = await validateAndEnrichReferences(payload, { session });
-      const orderNo = await nextDocumentNumber({
-        prefix: "PPO",
-        date: enriched.orderDate,
-        session,
-      });
+      const orderNo = (await assignDocumentNumber({
+        tenantId: req.tenantId, typeKey: "purchase.order",
+        providedValue: req.body.orderNo, date: enriched.orderDate,
+        session, idempotencyKey: payload.idempotencyKey, source: "purchase.order.create",
+      })).value;
       const created = new PurchaseOrder({
         ...enriched,
         orderNo,

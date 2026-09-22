@@ -163,6 +163,9 @@ export const PERMISSIONS = {
   COMPANY_MANAGE: "company:manage",
   BRANCH_VIEW: "branch:view",
   BRANCH_MANAGE: "branch:manage",
+  ADMINISTRATION_DASHBOARD_VIEW: "administration-dashboard:view",
+  SYSTEM_SETTINGS_VIEW: "system-settings:view",
+  SYSTEM_SETTINGS_MANAGE: "system-settings:manage",
 }
 
 export function getUserPermissions(user) {

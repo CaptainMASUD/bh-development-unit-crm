@@ -5,6 +5,7 @@ import AccessRole from "../../models/accessRole.model.js";
 import User from "../../models/user.model.js";
 import SalaryProfile from "../../models/salaryProfile.model.js";
 import { delegablePermissionsForModules } from "../../config/erpModules.js";
+import mongoose from "mongoose";
 
 const clean = (value) => String(value ?? "").trim();
 const allowedPermissions = (req) => req.user?.role === "superadmin"
@@ -26,6 +27,22 @@ const roundMoney = (value) => {
 const duplicateMessage = (err, fallback) => {
   if (err?.code === 11000) return fallback;
   return null;
+};
+
+const departmentCode = (value) => clean(value).toUpperCase();
+const validDepartmentCode = (value) => /^[A-Z0-9][A-Z0-9_-]{0,29}$/.test(value);
+const departmentStatus = (body = {}) => {
+  if (body.status !== undefined) {
+    if (!['active', 'inactive'].includes(body.status)) return { error: 'Status must be Active or Inactive.' };
+    return { isActive: body.status === 'active' };
+  }
+  if (body.isActive !== undefined && typeof body.isActive !== 'boolean') return { error: 'Status must be Active or Inactive.' };
+  return { isActive: body.isActive ?? true };
+};
+const validateDepartmentHead = async (tenantId, head) => {
+  if (!head) return true;
+  if (!mongoose.isValidObjectId(head)) return false;
+  return Boolean(await User.exists({ _id: head, tenantId, isActive: true }));
 };
 
 const requireRequesterPassword = async (req, res) => {
@@ -148,19 +165,36 @@ export const getPermissionCatalog = async (req, res) => {
    DEPARTMENTS
 ================================ */
 export const listDepartments = async (req, res) => {
-  const departments = await Department.find({}).sort({ nameLower: 1 }).lean();
+  const departments = await Department.find({}).populate("head", "name email employeeId").sort({ nameLower: 1 }).lean();
   return res.json({ departments });
+};
+
+export const listDepartmentHeads = async (req, res) => {
+  const heads = await User.find({ tenantId: req.tenantId, isActive: true })
+    .select("name email employeeId")
+    .sort({ name: 1 })
+    .lean();
+  return res.json({ heads });
 };
 
 export const createDepartment = async (req, res) => {
   try {
     const name = clean(req.body.name);
     if (!name) return res.status(400).json({ message: "Department name is required." });
+    const code = departmentCode(req.body.code);
+    if (!code) return res.status(400).json({ message: "Department code is required." });
+    if (!validDepartmentCode(code)) return res.status(400).json({ message: "Department code must use letters, numbers, hyphens, or underscores (maximum 30 characters)." });
+    const status = departmentStatus(req.body);
+    if (status.error) return res.status(400).json({ message: status.error });
+    const head = clean(req.body.head) || null;
+    if (!(await validateDepartmentHead(req.tenantId, head))) return res.status(400).json({ message: "Department head must be an active user in this company." });
 
     const department = await Department.create({
       name,
+      code,
       description: clean(req.body.description),
-      isActive: req.body.isActive ?? true,
+      isActive: status.isActive,
+      head,
       createdBy: req.user?._id || null,
     });
 
@@ -182,7 +216,19 @@ export const updateDepartment = async (req, res) => {
     }
 
     if (req.body.description !== undefined) patch.description = clean(req.body.description);
-    if (typeof req.body.isActive === "boolean") patch.isActive = req.body.isActive;
+    if (req.body.code !== undefined) {
+      patch.code = departmentCode(req.body.code);
+      if (!validDepartmentCode(patch.code)) return res.status(400).json({ message: "Department code must use letters, numbers, hyphens, or underscores (maximum 30 characters)." });
+    }
+    if (req.body.status !== undefined || req.body.isActive !== undefined) {
+      const status = departmentStatus(req.body);
+      if (status.error) return res.status(400).json({ message: status.error });
+      patch.isActive = status.isActive;
+    }
+    if (req.body.head !== undefined) {
+      patch.head = clean(req.body.head) || null;
+      if (!(await validateDepartmentHead(req.tenantId, patch.head))) return res.status(400).json({ message: "Department head must be an active user in this company." });
+    }
 
     const department = await Department.findByIdAndUpdate(req.params.id, patch, {
       new: true,

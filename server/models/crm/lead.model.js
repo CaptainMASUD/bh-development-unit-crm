@@ -312,11 +312,7 @@ leadSchema.index(
 );
 
 leadSchema.pre("save", function (next) {
-  if (!this.leadNumber) {
-    const idSuffix = String(this._id).slice(-4).toUpperCase();
-    const y = new Date().getFullYear();
-    this.leadNumber = `LD-${y}-${Date.now()}-${idSuffix}`;
-  }
+  if (this.isNew && !this.leadNumber) return next(new Error("Lead number must be allocated before save."));
 
   if (this.pipelineStage === "lost" && !this.lostAt) {
     this.lostAt = new Date();

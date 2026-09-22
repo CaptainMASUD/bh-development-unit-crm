@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 import Warehouse, { WAREHOUSE_STATUSES, WAREHOUSE_TYPES } from "../../models/inventory/warehouse.model.js";
 import WarehouseLocation from "../../models/inventory/warehouseLocation.model.js";
 import ProductStock from "../../models/inventory/productStock.model.js";
@@ -462,8 +463,11 @@ export const createWarehouse = async (req, res) => {
     const tenantId = req.tenantId;
     const payload = buildWarehousePayload(req.body, userId);
     if (tenantId) payload.tenantId = tenantId;
-    const errors = validatePayload(payload);
+    const errors = validatePayload(payload, { partial: true });
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
+    payload.code = (await assignDocumentNumber({ tenantId, typeKey: "inventory.warehouse", providedValue: payload.code, source: "inventory.warehouse.create" })).value;
+    const fullErrors = validatePayload(payload);
+    if (fullErrors.length) return res.status(400).json({ message: fullErrors[0], errors: fullErrors });
     await validateRelations(payload, { requireBranch: true, tenantId });
 
     payload.warehouseType = payload.warehouseType || "store";

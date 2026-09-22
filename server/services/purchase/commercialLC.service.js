@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import { assignDocumentNumber } from "../administration/documentNumbering.service.js";
 import PurchaseOrder from "../../models/purchaseOrder.model.js";
 import CommercialLC, { LC_STATUSES } from "../../models/commercialLC.model.js";
 
@@ -30,23 +30,10 @@ export const assertLCTransition = (from, to) => {
   }
 };
 
-export const nextImportDocumentNumber = async ({ prefix, date = new Date(), session = null }) => {
-  const year = new Date(date).getUTCFullYear();
-  const key = `${prefix}:${year}`;
-  const result = await mongoose.connection.collection("documentSequences").findOneAndUpdate(
-    { _id: key },
-    {
-      $inc: { sequence: 1 },
-      $setOnInsert: { prefix, year, createdAt: new Date() },
-      $set: { updatedAt: new Date() },
-    },
-    { upsert: true, returnDocument: "after", ...sessionOptions(session) }
-  );
-  const sequence = result?.sequence ?? result?.value?.sequence;
-  if (!Number.isFinite(sequence)) {
-    throw Object.assign(new Error(`Failed to allocate ${prefix} document number.`), { statusCode: 500 });
-  }
-  return `${prefix}-${year}-${String(sequence).padStart(5, "0")}`;
+export const nextImportDocumentNumber = async ({ prefix, tenantId, date = new Date(), session = null, providedValue }) => {
+  const typeKey = { LCAPP: "purchase.lc-application", IMPSHP: "purchase.import-shipment", LDC: "purchase.landed-cost" }[prefix];
+  if (!typeKey) throw Object.assign(new Error("Unknown import document number type."), { statusCode: 400 });
+  return (await assignDocumentNumber({ tenantId, typeKey, date, session, providedValue, source: "purchase.import" })).value;
 };
 
 export const assertImportPurchaseOrder = async ({ purchaseOrderId, supplierId = null, session = null, requireApproved = true }) => {

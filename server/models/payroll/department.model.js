@@ -9,9 +9,11 @@ const departmentSchema = new mongoose.Schema(
       default: null,
     },
     name: { type: String, required: true, trim: true },
+    code: { type: String, trim: true, uppercase: true, maxlength: 30 },
     nameLower: { type: String, trim: true, default: "", index: true },
     description: { type: String, trim: true, default: "" },
     isActive: { type: Boolean, default: true, index: true },
+    head: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     expenseAccount: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Account",
@@ -27,6 +29,7 @@ const departmentSchema = new mongoose.Schema(
 );
 
 departmentSchema.index({ tenantId: 1, nameLower: 1 }, { unique: true });
+departmentSchema.index({ tenantId: 1, code: 1 }, { unique: true, partialFilterExpression: { code: { $type: "string" } } });
 
 departmentSchema.pre("save", function (next) {
   if (this.isModified("name")) {

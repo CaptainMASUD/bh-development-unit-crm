@@ -12,17 +12,36 @@ const addressSchema = new mongoose.Schema({
   longitude: { type: String, trim: true, default: "" },
 }, { _id: false });
 
+const contactPersonSchema = new mongoose.Schema({
+  name: { type: String, trim: true, default: "" },
+  designation: { type: String, trim: true, default: "" },
+  email: { type: String, trim: true, lowercase: true, default: "" },
+  phone: { type: String, trim: true, default: "" },
+}, { _id: false });
+
+const companyLogoSchema = new mongoose.Schema({
+  url: { type: String, trim: true, default: "" },
+  storageProvider: { type: String, enum: ["", "cloudinary"], default: "" },
+  storageKey: { type: String, trim: true, default: "" },
+  updatedAt: { type: Date, default: null },
+}, { _id: false });
+
 const companySchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   legalName: { type: String, trim: true, default: "" },
   code: { type: String, required: true, trim: true, uppercase: true, unique: true, index: true },
   industry: { type: String, trim: true, default: "" },
+  businessType: { type: String, trim: true, default: "" },
   registrationNo: { type: String, trim: true, default: "" },
   taxId: { type: String, trim: true, default: "" },
+  vatNumber: { type: String, trim: true, default: "" },
+  tinNumber: { type: String, trim: true, default: "" },
   email: { type: String, trim: true, lowercase: true, default: "" },
   phone: { type: String, trim: true, default: "" },
   website: { type: String, trim: true, default: "" },
   logoUrl: { type: String, trim: true, default: "" },
+  logo: { type: companyLogoSchema, default: () => ({}) },
+  contactPerson: { type: contactPersonSchema, default: () => ({}) },
   address: { type: addressSchema, default: () => ({}) },
   settings: {
     currency: { type: String, trim: true, uppercase: true, default: "BDT" },

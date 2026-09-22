@@ -8,123 +8,67 @@ const auditLogSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+
     actorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      default: null,
       index: true,
+    },
+
+    actorName: {
+      type: String,
+      default: "System",
+      index: true,
+    },
+
+    actorEmail: {
+      type: String,
+      default: "",
+    },
+
+    actorRole: {
+      type: String,
+      default: "",
     },
 
     action: {
       type: String,
-      enum: [
-        "create",
-        "update",
-        "delete",
-        "restore",
-
-        "stage_change",
-        "stage_changed",
-        "status_change",
-        "status_changed",
-        "requirement_updated",
-        "contacted",
-        "followup_set",
-        "won",
-        "lost",
-        "convert",
-        "converted",
-
-        "complete",
-        "completed",
-        "cancel",
-        "cancelled",
-
-        "send",
-        "sent",
-        "accept",
-        "accepted",
-        "reject",
-        "rejected",
-
-        "assign",
-        "reassign",
-        "auto_assign",
-
-        "queue_created",
-        "queue_done",
-        "queue_snoozed",
-
-        "notification_created",
-        "template_used",
-
-        "confirm",
-        "confirmed",
-        "payment_received",
-        "paid",
-        "void",
-        "publish",
-        "close",
-        "lock",
-        "unlock",
-        "submit",
-        "approve",
-        "reverse",
-      ],
       required: true,
+      index: true,
+    },
+
+    module: {
+      type: String,
+      default: "general",
       index: true,
     },
 
     entityType: {
       type: String,
-      enum: [
-        "Lead",
-        "Customer",
-        "Activity",
-        "Deal",
-        "Proposal",
-        "Order",
-        "Invoice",
-        "Product",
-        "PurchaseType",
-        "User",
-        "Payment",
-        "Dashboard",
-        "ViewPreference",
-        "WorkQueue",
-        "AutomationRule",
-        "Notification",
-        "MessageTemplate",
-        "LeadAssignmentRule",
-        "AccountingSettings",
-        "Account",
-        "FiscalYear",
-        "AccountingPeriod",
-        "OpeningBalance",
-        "JournalEntry",
-        "SalesQuotation",
-        "SalesOrder",
-        "SalesDelivery",
-        "SalesInvoice",
-        "SalesReturn",
-        "StockMovement",
-        "StockAdjustment",
-        "StockTransfer",
-        "InventoryValuation",
-        "InventoryRevaluation",
-        "InventoryLoss",
-        "WarehouseCheck",
-        "InventoryPreference",
-      ],
       required: true,
       index: true,
     },
 
     entityId: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: mongoose.Schema.Types.Mixed,
       required: true,
       index: true,
     },
+
+    recordIdentifier: {
+      type: String,
+      default: "",
+      index: true,
+    },
+
+    changes: [
+      {
+        path: { type: String, required: true },
+        before: { type: mongoose.Schema.Types.Mixed, default: null },
+        after: { type: mongoose.Schema.Types.Mixed, default: null },
+      },
+    ],
 
     before: {
       type: mongoose.Schema.Types.Mixed,
@@ -162,9 +106,13 @@ const auditLogSchema = new mongoose.Schema(
   }
 );
 
+auditLogSchema.index({ tenantId: 1, createdAt: -1 });
+auditLogSchema.index({ tenantId: 1, module: 1, createdAt: -1 });
+auditLogSchema.index({ tenantId: 1, action: 1, createdAt: -1 });
+auditLogSchema.index({ tenantId: 1, entityType: 1, createdAt: -1 });
+auditLogSchema.index({ tenantId: 1, actorId: 1, createdAt: -1 });
 auditLogSchema.index({ actorId: 1, createdAt: -1 });
 auditLogSchema.index({ entityType: 1, entityId: 1, createdAt: -1 });
 auditLogSchema.index({ action: 1, createdAt: -1 });
-auditLogSchema.index({ tenantId: 1, entityType: 1, createdAt: -1 });
 
-export default mongoose.model("AuditLog", auditLogSchema);
+export default mongoose.models.AuditLog || mongoose.model("AuditLog", auditLogSchema);

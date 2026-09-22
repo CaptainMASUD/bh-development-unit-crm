@@ -209,7 +209,7 @@ export const createPostedJournal = async ({
   const voucherQuery = VoucherType.findOne({ key: resolvedVoucherType, isActive: true }).select("numberingRule");
   if (session) voucherQuery.session(session);
   const numberingRule = (await voucherQuery.lean())?.numberingRule || (resolvedVoucherType === "journal" ? "journal" : "voucher");
-  const entryNo = await nextAccountingNumber(numberingRule, postingDate);
+  const entryNo = await nextAccountingNumber(numberingRule, postingDate, { tenantId, session });
   const payload = {
     tenantId: isId(tenantId) ? tenantId : null,
     inventoryMovement: isId(inventoryMovement) ? inventoryMovement : null,

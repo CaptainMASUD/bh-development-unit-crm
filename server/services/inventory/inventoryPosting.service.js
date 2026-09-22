@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { assignDocumentNumber } from "../administration/documentNumbering.service.js";
 import ProductStock, { roundMoney, roundQuantity } from "../../models/inventory/productStock.model.js";
 import StockMovement from "../../models/inventory/stockMovement.model.js";
 import Product from "../../models/inventory/product.model.js";
@@ -34,6 +35,7 @@ export const postStockMovement = async ({
   movementId = null,
   movementDate = null,
   movementType,
+  movementNo,
   reference,
   sourceType = "manual",
   sourceId = null,
@@ -68,7 +70,13 @@ export const postStockMovement = async ({
 
     await StockMovement.validateDraftLines(lines, { tenantId: tid, session: s });
 
+    const allocatedMovementNo = (await assignDocumentNumber({
+      tenantId: tid, typeKey: "inventory.stock-movement", session: s,
+      providedValue: movementNo, idempotencyKey: key, source: "inventory.posting",
+    })).value;
+
     const movement = new StockMovement({
+      movementNo: allocatedMovementNo,
       tenantId: tid,
       movementType,
       status: "draft",

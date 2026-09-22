@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 import Warehouse from "../../models/inventory/warehouse.model.js";
 import WarehouseLocation, { LOCATION_STATUSES, LOCATION_TYPES } from "../../models/inventory/warehouseLocation.model.js";
 import ProductStock from "../../models/inventory/productStock.model.js";
@@ -470,8 +471,11 @@ export const createWarehouseLocation = async (req, res) => {
     const tenantId = req.tenantId;
     const payload = buildLocationPayload(req.body, userId);
     if (tenantId) payload.tenantId = tenantId;
-    const errors = validatePayload(payload);
+    const errors = validatePayload(payload, { partial: true });
     if (errors.length) return res.status(400).json({ message: errors[0], errors });
+    payload.code = (await assignDocumentNumber({ tenantId, typeKey: "inventory.location", providedValue: payload.code, source: "inventory.location.create" })).value;
+    const fullErrors = validatePayload(payload);
+    if (fullErrors.length) return res.status(400).json({ message: fullErrors[0], errors: fullErrors });
 
     await loadWarehouse(payload.warehouse, { requireActive: payload.status !== "inactive", tenantId });
     const hierarchy = await resolveParent({

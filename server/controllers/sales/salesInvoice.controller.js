@@ -152,6 +152,7 @@ export const createSalesInvoice = async (req, res) => {
         tenantId,
         documentType: "invoice",
         session,
+        providedValue: req.body.invoiceNumber,
       });
       const invoiceDate = new Date(req.body.invoiceDate || Date.now());
       const paymentTermsDays = Number(req.body.paymentTermsDays ?? order.paymentTermsDays ?? 0);

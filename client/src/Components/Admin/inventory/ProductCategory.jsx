@@ -207,7 +207,7 @@ function CategoryFormModal({ state, form, setForm, error, saving, onClose, onSub
     >
       {error ? <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div> : null}
       <form id="category-form" onSubmit={onSubmit} className="grid gap-5 sm:grid-cols-2">
-        <Field label="Code" required><input className={inputClass} value={form.code} onChange={(event) => setForm((previous) => ({ ...previous, code: event.target.value.toUpperCase() }))} placeholder="Enter code" maxLength={40} required autoFocus /></Field>
+        <Field label="Code (leave blank for automatic numbering)"><input className={inputClass} value={form.code} onChange={(event) => setForm((previous) => ({ ...previous, code: event.target.value.toUpperCase() }))} placeholder="Enter code for Manual mode" maxLength={40} autoFocus /></Field>
         <Field label="Category Name" required><input className={inputClass} value={form.name} onChange={(event) => setForm((previous) => ({ ...previous, name: event.target.value }))} placeholder="Enter category name" maxLength={120} required /></Field>
         <Field label="Status" required><select className={inputClass} value={form.status} onChange={(event) => setForm((previous) => ({ ...previous, status: event.target.value }))} required><option value="active">Active</option><option value="inactive">Inactive</option></select></Field>
       </form>
@@ -297,7 +297,6 @@ export default function ProductCategorySetup() {
   const saveCategory = async (event) => {
     event.preventDefault()
     const payload = buildCategoryPayload(form)
-    if (!payload.code) return setFormError("Category code is required.")
     if (!payload.name) return setFormError("Category name is required.")
     if (!["active", "inactive"].includes(payload.status)) return setFormError("Select a valid status.")
     setSaving(true)

@@ -1,18 +1,16 @@
-import ManufacturingSequence from "../../models/manufacturing/manufacturingSequence.model.js";
-const PREFIX = Object.freeze({
-  bom: "BOM", routing: "RT", plan: "PP", mrp: "MRP", mo: "MO", wo: "WO", issue: "MI",
-  entry: "PE", inspection: "QI", ncr: "NCR", scrap: "SCR", rework: "RW", schedule: "SCH",
-  maintenancePlan: "MP", maintenanceOrder: "MT", subcontract: "SUB", cost: "MC",
+import { assignDocumentNumber } from "../administration/documentNumbering.service.js";
+const TYPES = Object.freeze({
+  bom: "bom", routing: "routing", plan: "plan", mrp: "mrp", mo: "mo", wo: "wo", issue: "issue",
+  entry: "entry", inspection: "inspection", ncr: "ncr", scrap: "scrap", rework: "rework",
+  schedule: "schedule", maintenancePlan: "maintenance-plan", maintenanceOrder: "maintenance-order",
+  subcontract: "subcontract", cost: "cost",
 });
-export const nextManufacturingNumber = async ({ tenantId, key, session = null, date = new Date() }) => {
-  const sequenceKey = String(key || "DOC").trim().toUpperCase();
-  const query = ManufacturingSequence.findOneAndUpdate(
-    { tenantId, key: sequenceKey },
-    { $inc: { value: 1 }, $setOnInsert: { tenantId, key: sequenceKey } },
-    { new: true, upsert: true, setDefaultsOnInsert: true, ...(session ? { session } : {}) }
-  );
-  const row = await query.lean();
-  const prefix = PREFIX[key] || sequenceKey;
-  const year = new Date(date).getUTCFullYear();
-  return `${prefix}-${year}-${String(row.value).padStart(6, "0")}`;
+export const nextManufacturingNumber = async ({ tenantId, key, session = null, date = new Date(), providedValue, idempotencyKey } = {}) => {
+  const type = TYPES[key];
+  if (!type) throw new Error(`Unsupported manufacturing document type: ${key}`);
+  const allocation = await assignDocumentNumber({
+    tenantId, typeKey: `manufacturing.${type}`, session, date, providedValue,
+    idempotencyKey, source: "manufacturing",
+  });
+  return allocation.value;
 };

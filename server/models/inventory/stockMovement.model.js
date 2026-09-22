@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 import Product from "./product.model.js";
 import Warehouse from "./warehouse.model.js";
 import WarehouseLocation from "./warehouseLocation.model.js";
@@ -376,12 +377,6 @@ const normalizeMovementLine = (line) => {
   return line;
 };
 
-const movementNumber = (doc) => {
-  const date = new Date(doc.movementDate || Date.now());
-  const datePart = [date.getUTCFullYear(), String(date.getUTCMonth() + 1).padStart(2, "0"), String(date.getUTCDate()).padStart(2, "0")].join("");
-  return `SM-${datePart}-${String(doc._id).slice(-10).toUpperCase()}`;
-};
-
 const stockSnapshot = (stock) => ({
   onHandQuantity: roundQuantity(stock?.onHandQuantity),
   reservedQuantity: roundQuantity(stock?.reservedQuantity),
@@ -471,7 +466,7 @@ stockMovementSchema.post("init", function () {
 
 stockMovementSchema.pre("validate", function (next) {
   this.movementDate = this.movementDate || new Date();
-  this.movementNo = clean(this.movementNo || movementNumber(this)).toUpperCase();
+  this.movementNo = clean(this.movementNo).toUpperCase();
   this.movementType = clean(this.movementType).toLowerCase();
   this.status = clean(this.status || "draft").toLowerCase();
   this.reference = clean(this.reference).toUpperCase();
@@ -1031,8 +1026,10 @@ stockMovementSchema.statics.reverseMovementDocument = async function ({
     throw Object.assign(new Error("A reversal movement cannot be reversed through this endpoint."), { statusCode: 409 });
   }
 
+  const reversalNo = (await assignDocumentNumber({ tenantId: original.tenantId, typeKey: "inventory.stock-movement", session, source: "inventory.stock-movement.reversal" })).value;
   const reversal = new this({
     tenantId: original.tenantId,
+    movementNo: reversalNo,
     movementDate: new Date(),
     movementType: "reversal",
     status: "draft",

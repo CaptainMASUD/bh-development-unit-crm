@@ -115,7 +115,6 @@ test("Payroll exposes Departments and Positions directly in sidebar and excludes
 
   assert.deepEqual(config.MODULES.payroll.adminSections, [
     "Payroll Manager",
-    "Employee",
     "Departments",
     "Positions",
     "Attendance",
@@ -173,5 +172,57 @@ test("Payroll exposes Departments and Positions directly in sidebar and excludes
     section: "Departments",
     subcategory: "",
   })
+})
+
+test("Administration exposes the approved feature order", async (t) => {
+  const config = await loadModuleConfig(t)
+
+  assert.deepEqual(config.MODULES.administration.adminSections, [
+    "Dashboard",
+    "Company Details",
+    "System Defaults",
+    "Document Numbering",
+    "Audit Trail",
+    "Role Management",
+    "Departments",
+    "Employee Access Control",
+    "Add Employee",
+    "Employee Account Control",
+    "System Security Settings",
+  ])
+})
+
+test("Administration resolves all approved sections and identifies real Phase 1 pages", async (t) => {
+  const server = await createServer({ root: process.cwd(), server: { middlewareMode: true }, appType: "custom" })
+  t.after(() => server.close())
+  const config = await server.ssrLoadModule("/src/Components/Navigation/moduleConfig.js")
+  const registry = await server.ssrLoadModule("/src/Components/Admin/sections.jsx")
+  const built = config.buildModuleSections(registry.sections, "administration", "admin")
+
+  assert.deepEqual(Object.keys(built), config.MODULES.administration.adminSections)
+  assert.equal(built.Dashboard.permission, "administration-dashboard:view")
+  assert.equal(built["Company Details"].permission, "company:view")
+  assert.equal(built["System Defaults"].permission, "system-settings:view")
+  assert.equal(built.Dashboard.comingSoon, undefined)
+  assert.equal(built["Company Details"].comingSoon, undefined)
+  assert.equal(built["System Defaults"].comingSoon, undefined)
+  assert.equal(built["Document Numbering"].comingSoon, undefined)
+  assert.equal(built["Audit Trail"].comingSoon, undefined)
+  assert.ok(built["Audit Trail"].component)
+  assert.equal(built["Role Management"].comingSoon, undefined)
+  assert.ok(built["Role Management"].component)
+  assert.equal(built.Departments.comingSoon, undefined)
+  assert.equal(built["Add Employee"].comingSoon, undefined)
+  assert.ok(built["Add Employee"].component)
+
+  const upcomingSections = [
+    "Employee Access Control",
+    "Employee Account Control",
+    "System Security Settings",
+  ]
+  for (const name of upcomingSections) {
+    assert.equal(built[name].comingSoon, true, `${name} must be an honest upcoming feature`)
+    assert.ok(built[name].component)
+  }
 })
 
