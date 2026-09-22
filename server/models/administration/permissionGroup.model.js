@@ -215,6 +215,9 @@ export const PERMISSION_KEYS = [
   "company:manage",
   "branch:view",
   "branch:manage",
+  "administration-dashboard:view",
+  "system-settings:view",
+  "system-settings:manage",
 ];
 
 const permissionGroupSchema = new mongoose.Schema(
@@ -222,6 +225,12 @@ const permissionGroupSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true },
     nameLower: { type: String, trim: true, default: "", index: true },
     description: { type: String, trim: true, default: "" },
+    tenantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Company",
+      default: null,
+      index: true,
+    },
     permissions: {
       type: [String],
       default: [],

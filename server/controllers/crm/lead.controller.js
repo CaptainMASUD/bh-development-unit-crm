@@ -1,6 +1,7 @@
 import { assertLeadCanWin, assertLeadReadyForProposal, assertLeadTransition } from "../../services/crm/leadLifecycle.service.js";
 import { prepareLeadOrder, createLeadOrder } from "../../services/crm/leadOrder.service.js";
 import mongoose from "mongoose";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 import Lead from "../../models/lead.model.js";
 import Customer from "../../models/customer.model.js";
 import PurchaseType from "../../models/purchaseType.model.js";
@@ -597,6 +598,7 @@ export const createLead = async (req, res) => {
     });
 
     const doc = await Lead.create({
+      leadNumber: (await assignDocumentNumber({ tenantId: req.tenantId, typeKey: "crm.lead", providedValue: req.body.leadNumber, source: "crm.lead.create" })).value,
       contact: {
         name: normalizeString(contact.name),
         email: normalizeLower(contact.email),
@@ -2060,6 +2062,7 @@ export const convertLead = async (req, res) => {
         const [newDeal] = await Deal.create(
           [
             {
+              dealNo: (await assignDocumentNumber({ tenantId: req.tenantId, typeKey: "crm.deal", providedValue: req.body.dealNo, session, source: "crm.lead-conversion" })).value,
               title,
               leadId: lead._id,
               customerId: customer._id,
@@ -2093,7 +2096,7 @@ export const convertLead = async (req, res) => {
       }).session(session);
 
       if (!salesOrder) {
-        salesOrder = await createLeadOrder({ prepared, customer, deal, session });
+        salesOrder = await createLeadOrder({ prepared, customer, deal, session, providedValue: req.body.orderNumber });
       }
 
       await writeConversionLog({

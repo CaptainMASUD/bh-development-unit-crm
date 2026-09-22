@@ -1,5 +1,6 @@
 // app.js
 import "./config/tenant.plugin.js";
+import "./config/audit.plugin.js";
 import express from "express";
 import cors from "cors";
 import mongoose from "mongoose";
@@ -110,6 +111,7 @@ import accessControlRoutes from "./routes/administration/accessControl.routes.js
 import companyRoutes from "./routes/administration/company.routes.js";
 import erpModuleRoutes from "./routes/administration/erpModule.routes.js";
 import notificationRoutes from "./routes/administration/notification.routes.js";
+import administrationRoutes from "./routes/administration/administration.routes.js";
 
 // Core CRM
 import customerRoutes from "./routes/crm/customer.route.js";
@@ -252,6 +254,7 @@ app.get("/api/ready", async (req, res) => {
 
 app.use("/api/companies", companyRoutes);
 app.use("/api/erp-modules", erpModuleRoutes);
+app.use("/api/administration", administrationRoutes);
 
 
 // =========================

@@ -193,6 +193,7 @@ export const createSupplier = async (req, res) => {
     setNoStore(res);
 
     const result = await createSupplierService({
+      tenantId: req.tenantId,
       body: req.body,
       actorId: actorId(req),
       meta: requestMeta(req),

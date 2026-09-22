@@ -209,6 +209,7 @@ function QuotationForm({ options, record, busy, onSubmit, onCancel }) {
     const defaultLeadId = cleanId(record?.leadId || queryLeadId || availableLeads[0]?._id)
     const defaultCustomerId = cleanId(record?.customerId || availableCustomers[0]?._id)
     return {
+      quotationNumber: "",
       branchId: cleanId(record?.branchId || options.branches.find((item) => item.isDefault || item.isMain) || options.branches[0]),
       customerId: initialTargetType === "customer" ? defaultCustomerId : "",
       leadId: initialTargetType === "lead" ? defaultLeadId : "",
@@ -233,6 +234,7 @@ function QuotationForm({ options, record, busy, onSubmit, onCancel }) {
   }, 0)
   const submit = () => onSubmit({
     ...form,
+    quotationNumber: record ? undefined : form.quotationNumber.trim() || undefined,
     customerId: targetType === "customer" ? (form.customerId || undefined) : undefined,
     leadId: targetType === "lead" ? (form.leadId || undefined) : undefined,
     lines: form.lines.map((line) => ({
@@ -247,6 +249,7 @@ function QuotationForm({ options, record, busy, onSubmit, onCancel }) {
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {!record ? <Field label="Quotation No. (blank for Auto)"><input className={inputClass} value={form.quotationNumber} onChange={(event) => setForm({ ...form, quotationNumber: event.target.value.toUpperCase() })} placeholder="Enter a number in Manual mode" /></Field> : null}
         <Field label="Quotation For">
           <div className="flex h-10 items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 px-3">
             <label className="flex items-center gap-1.5 text-xs font-black text-slate-700 cursor-pointer">
@@ -374,6 +377,9 @@ function SimpleActionForm({ action, record, options, lookups, busy, onSubmit, on
     treasuryAccount: cleanId(options.bankAccounts[0] || options.cashAccounts[0]),
     reason: "",
     reference: "",
+    deliveryNumber: "",
+    invoiceNumber: "",
+    orderNumber: "",
   }))
   const statusOptions = QUOTATION_TRANSITIONS[record?.status] || []
   const confirmationCopy = {
@@ -396,7 +402,10 @@ function SimpleActionForm({ action, record, options, lookups, busy, onSubmit, on
     {confirmationCopy[action] ? <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-sm font-semibold leading-6 text-indigo-950">{confirmationCopy[action]}</div> : null}
     {action === "quotationStatus" ? <Field label="New status"><select className={inputClass} value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>{statusOptions.map((item) => <option key={item} value={item}>{pretty(item)}</option>)}</select></Field> : null}
     {action === "convert" ? <Field label="Fulfillment warehouse"><select className={inputClass} value={form.warehouseId} onChange={(event) => setForm({ ...form, warehouseId: event.target.value })}>{options.warehouses.map((item) => <option key={item._id} value={item._id}>{item.name} ({item.code})</option>)}</select></Field> : null}
+    {action === "convert" ? <Field label="Sales Order No. (blank for Auto)"><input className={inputClass} value={form.orderNumber} onChange={(event) => setForm({ ...form, orderNumber: event.target.value.toUpperCase() })} placeholder="Enter a number in Manual mode" /></Field> : null}
     {["createDelivery", "createInvoice"].includes(action) ? <Field label="Sales order"><select className={inputClass} value={form.salesOrderId} onChange={(event) => setForm({ ...form, salesOrderId: event.target.value })}>{(lookups.orders || []).map((item) => <option key={item._id} value={item._id}>{item.orderNumber} — {pretty(item.status)}</option>)}</select></Field> : null}
+    {action === "createDelivery" ? <Field label="Delivery No. (blank for Auto)"><input className={inputClass} value={form.deliveryNumber} onChange={(event) => setForm({ ...form, deliveryNumber: event.target.value.toUpperCase() })} placeholder="Enter a number in Manual mode" /></Field> : null}
+    {action === "createInvoice" ? <Field label="Invoice No. (blank for Auto)"><input className={inputClass} value={form.invoiceNumber} onChange={(event) => setForm({ ...form, invoiceNumber: event.target.value.toUpperCase() })} placeholder="Enter a number in Manual mode" /></Field> : null}
     {action === "createDelivery" ? <Field label="Warehouse"><select className={inputClass} value={form.warehouseId} onChange={(event) => setForm({ ...form, warehouseId: event.target.value })}>{options.warehouses.map((item) => <option key={item._id} value={item._id}>{item.name}</option>)}</select></Field> : null}
     {action === "createInvoice" ? <div className="grid gap-4 md:grid-cols-2"><Field label="Due date"><input className={inputClass} type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></Field><Field label="Payment terms (days)"><input className={inputClass} type="number" min="0" value={form.paymentTermsDays} onChange={(event) => setForm({ ...form, paymentTermsDays: Number(event.target.value) })} /></Field></div> : null}
     {["payment", "refund"].includes(action) ? <>
@@ -413,6 +422,7 @@ SimpleActionForm.propTypes = { action: PropTypes.string.isRequired, record: Prop
 function ReturnForm({ invoices, busy, onSubmit, onCancel }) {
   const eligible = invoices.filter((item) => ["posted", "sent", "partially_paid", "paid", "overdue"].includes(item.status))
   const [invoiceId, setInvoiceId] = useState(cleanId(eligible[0]))
+  const [returnNumber, setReturnNumber] = useState("")
   const [invoice, setInvoice] = useState(null)
   const [lines, setLines] = useState([])
   const [loading, setLoading] = useState(false)
@@ -429,6 +439,7 @@ function ReturnForm({ invoices, busy, onSubmit, onCancel }) {
   const update = (id, patch) => setLines((current) => current.map((line) => line.invoiceLineId === id ? { ...line, ...patch } : line))
   const selected = lines.filter((line) => Number(line.quantity) > 0)
   return <div className="space-y-5">
+    <Field label="Return No. (blank for Auto)"><input className={inputClass} value={returnNumber} onChange={(event) => setReturnNumber(event.target.value.toUpperCase())} placeholder="Enter a number in Manual mode" /></Field>
     <Field label="Posted invoice"><select className={inputClass} value={invoiceId} onChange={(event) => setInvoiceId(event.target.value)}>{eligible.map((item) => <option key={item._id} value={item._id}>{item.invoiceNumber} — {formatMoney(item.totals?.grandTotal, item.currency)}</option>)}</select></Field>
     {loading ? <div className="h-32 animate-pulse rounded-2xl bg-slate-100" /> : invoice ? <div className="overflow-hidden rounded-2xl border border-slate-200"><div className="bg-slate-50 px-4 py-3 text-sm font-black text-slate-800">Select quantities to return</div>{lines.map((line) => <div key={line.invoiceLineId} className="grid gap-3 border-t border-slate-100 p-4 md:grid-cols-[1.5fr_.6fr_1.2fr_.8fr]">
       <div><p className="text-sm font-extrabold text-slate-800">{line.name}</p><p className="text-xs text-slate-500">Maximum {line.maximum}</p></div>
@@ -436,7 +447,7 @@ function ReturnForm({ invoices, busy, onSubmit, onCancel }) {
       <input className={inputClass} placeholder="Return reason" value={line.reason} onChange={(event) => update(line.invoiceLineId, { reason: event.target.value })} />
       <select className={inputClass} value={line.condition} onChange={(event) => update(line.invoiceLineId, { condition: event.target.value, restock: event.target.value === "resalable" })}><option value="resalable">Resalable</option><option value="damaged">Damaged</option><option value="defective">Defective</option><option value="expired">Expired</option></select>
     </div>)}</div> : <p className="rounded-2xl bg-amber-50 p-4 text-sm font-semibold text-amber-800">No posted invoices are available.</p>}
-    <div className="flex justify-end gap-3"><SecondaryButton onClick={onCancel}>Cancel</SecondaryButton><PrimaryButton disabled={busy || !selected.length || selected.some((line) => !line.reason.trim())} onClick={() => onSubmit({ salesInvoiceId: invoiceId, lines: selected.map(({ invoiceLineId, quantity, reason, condition, restock }) => ({ invoiceLineId, quantity: Number(quantity), reason, condition, restock })) })}>{busy ? "Saving…" : "Create return"}</PrimaryButton></div>
+    <div className="flex justify-end gap-3"><SecondaryButton onClick={onCancel}>Cancel</SecondaryButton><PrimaryButton disabled={busy || !selected.length || selected.some((line) => !line.reason.trim())} onClick={() => onSubmit({ salesInvoiceId: invoiceId, ...(returnNumber.trim() ? { returnNumber: returnNumber.trim() } : {}), lines: selected.map(({ invoiceLineId, quantity, reason, condition, restock }) => ({ invoiceLineId, quantity: Number(quantity), reason, condition, restock })) })}>{busy ? "Saving…" : "Create return"}</PrimaryButton></div>
   </div>
 }
 
@@ -585,11 +596,11 @@ export default function SalesPage({ kind }) {
     if (action === "createQuotation") return create(form)
     if (action === "editQuotation") return update(`/sales/quotations/${record._id}`, form)
     if (action === "editOrder") return update(`/sales/orders/${record._id}`, form)
-    if (action === "createDelivery") return create({ salesOrderId: form.salesOrderId, warehouseId: form.warehouseId })
-    if (action === "createInvoice") return create({ salesOrderId: form.salesOrderId, dueDate: form.dueDate || undefined, paymentTermsDays: form.paymentTermsDays })
+    if (action === "createDelivery") return create({ salesOrderId: form.salesOrderId, warehouseId: form.warehouseId, ...(form.deliveryNumber.trim() ? { deliveryNumber: form.deliveryNumber.trim() } : {}) })
+    if (action === "createInvoice") return create({ salesOrderId: form.salesOrderId, dueDate: form.dueDate || undefined, paymentTermsDays: form.paymentTermsDays, ...(form.invoiceNumber.trim() ? { invoiceNumber: form.invoiceNumber.trim() } : {}) })
     if (action === "createReturn") return create(form)
     if (action === "quotationStatus") return mutate(`/sales/quotations/${record._id}/status`, { status: form.status })
-    if (action === "convert") return mutate(`/sales/quotations/${record._id}/convert-to-order`, { warehouseId: form.warehouseId })
+    if (action === "convert") return mutate(`/sales/quotations/${record._id}/convert-to-order`, { warehouseId: form.warehouseId, ...(form.orderNumber.trim() ? { orderNumber: form.orderNumber.trim() } : {}) })
     if (action === "submit") return mutate(`/sales/${config.resource}/${record._id}/submit`)
     if (action === "approve") return mutate(`/sales/${config.resource}/${record._id}/approve`)
     if (action === "reject") return mutate(`/sales/${config.resource}/${record._id}/reject`, { reason: form.reason })

@@ -17,6 +17,11 @@ import {
 import { postStockMovement } from "../../services/inventoryPosting.service.js";
 import { runMongoTransaction } from "../../utils/mongoTransaction.js";
 import { getReqMeta, writeAudit } from "../../utils/audit.js";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
+
+const allocate = async (tenantId, typeKey, { providedValue, itemCode, session } = {}) => (
+  await assignDocumentNumber({ tenantId, typeKey, providedValue, context: { itemCode }, session, source: "inventory.operations" })
+).value;
 
 const clean = (value) => String(value ?? "").trim();
 const isId = (value) => mongoose.Types.ObjectId.isValid(String(value || ""));
@@ -235,7 +240,12 @@ export const assignPendingInventory = async (req, res) => {
         ? await Product.findOne({ _id: item.product, ...(tenantId ? { tenantId } : {}) }).session(session)
         : null;
       if (!product) {
-        const code = item.quickProductCode || `QP${Date.now().toString().slice(-8)}`;
+        const code = (await assignDocumentNumber({
+          tenantId, typeKey: "inventory.product",
+          providedValue: item.quickProductCode,
+          context: { categoryCode: "QP" },
+          session, source: "purchase.quick-product",
+        })).value;
         [product] = await Product.create(
           [
             {
@@ -301,7 +311,7 @@ export const assignPendingInventory = async (req, res) => {
             [
               {
                 ...(tenantId ? { tenantId } : {}),
-                trackingReference: reference("TRK", product.sku),
+                trackingReference: await allocate(tenantId, "inventory.tracking", { providedValue: req.body.trackingReference, itemCode: product.sku, session }),
                 trackingType: product.trackingType,
                 product: product._id,
                 warehouse: warehouse._id,
@@ -396,7 +406,7 @@ export const createStockRequest = async (req, res) => {
         requester,
         fallbackDepartment: requesterDoc.department,
         actor: req.user._id,
-        reference: reference("SRQ", product.sku),
+        reference: await allocate(tenantId, "inventory.stock-request", { providedValue: req.body.requestReference, itemCode: product.sku }),
       })
     );
     return res.status(201).json(item);
@@ -552,7 +562,7 @@ export const issueStockRequest = async (req, res) => {
         }
       }
 
-      const issueRef = reference("ISS", product.sku);
+      const issueRef = await allocate(tenantId, "inventory.stock-issue", { providedValue: req.body.issueReference, itemCode: product.sku, session });
       const movement = await postStockMovement({
         tenantId: tenantId || stock.tenantId,
         movementType: "production_issue",
@@ -702,7 +712,7 @@ export const updateTrackingState = async (req, res) => {
           [
             {
               ...(tenantId ? { tenantId } : {}),
-              lossReference: reference("LOS"),
+              lossReference: await allocate(tenantId, "inventory.loss", { session }),
               product: track.product,
               warehouse: track.warehouse,
               location: track.location,
@@ -833,7 +843,7 @@ export const createInspection = async (req, res) => {
     if (!stock) return res.status(404).json({ message: "Inventory position not found." });
     const item = await StockInspection.create({
       ...(tenantId ? { tenantId } : {}),
-      inspectionReference: reference("SIQ", stock.product.sku),
+      inspectionReference: await allocate(tenantId, "inventory.stock-inspection", { providedValue: req.body.inspectionReference, itemCode: stock.product.sku }),
       product: stock.product._id,
       warehouse: stock.warehouse,
       location: stock.location,
@@ -898,7 +908,7 @@ export const completeInspection = async (req, res) => {
           [
             {
               ...(tenantId ? { tenantId } : {}),
-              lossReference: reference("LOS"),
+              lossReference: await allocate(tenantId, "inventory.loss", { session }),
               product: item.product,
               warehouse: item.warehouse,
               location: item.location,
@@ -1028,7 +1038,7 @@ async function dispatchScheduleInspection(schedule, userId, tenantId) {
   }
   const item = await StockInspection.create({
     ...(tenantId ? { tenantId } : {}),
-    inspectionReference: reference("SIQ", position.product?.sku),
+    inspectionReference: await allocate(tenantId, "inventory.stock-inspection", { itemCode: position.product?.sku }),
     product: position.product?._id || position.product,
     warehouse: position.warehouse,
     location: position.location || null,

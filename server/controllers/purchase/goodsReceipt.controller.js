@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 import Supplier from "../../models/supplier.model.js";
 import Product from "../../models/inventory/product.model.js";
 import Warehouse from "../../models/inventory/warehouse.model.js";
@@ -119,28 +120,6 @@ const decodeCursor = (value) => {
   }
 };
 
-const nextDocumentNumber = async ({ prefix, date, session }) => {
-  const year = new Date(date || Date.now()).getUTCFullYear();
-  const key = `${prefix}:${year}`;
-  const result = await mongoose.connection
-    .collection("documentSequences")
-    .findOneAndUpdate(
-      { _id: key },
-      {
-        $inc: { sequence: 1 },
-        $setOnInsert: { prefix, year, createdAt: new Date() },
-        $set: { updatedAt: new Date() },
-      },
-      { upsert: true, returnDocument: "after", session }
-    );
-  const sequence = result?.sequence ?? result?.value?.sequence;
-  if (!Number.isFinite(sequence)) {
-    throw Object.assign(new Error("Failed to allocate a goods-receipt number."), {
-      statusCode: 500,
-    });
-  }
-  return `${prefix}-${year}-${String(sequence).padStart(4, "0")}`;
-};
 
 const sanitizeSerials = (values = []) => [
   ...new Set(
@@ -585,19 +564,29 @@ const createIndustrialQualityInspections = async ({ receipt, order, actorId, ses
   if (!issue) return [];
   const existing = await PurchaseQualityInspection.find({ goodsReceipt: receipt._id }).session(session);
   if (existing.length) return existing;
-  const inspections = await PurchaseQualityInspection.create(receipt.lines.map((line) => ({
-    inspectionReference: `PQI-${String(receipt._id).slice(-6).toUpperCase()}-${String(line._id).slice(-4).toUpperCase()}`,
-    issue: issue._id,
-    purchaseOrder: order._id,
-    goodsReceipt: receipt._id,
-    goodsReceiptLine: line._id,
-    supplier: receipt.supplier,
-    warehouse: receipt.warehouse,
-    product: line.product,
-    itemName: line.productSnapshot?.name || "",
-    purchasedQuantity: line.receivedQuantity,
-    status: "waiting",
-  })), { session });
+  const inspectionRows = [];
+  for (const line of receipt.lines) {
+    const { value: inspectionReference } = await assignDocumentNumber({
+      tenantId: receipt.tenantId || order.tenantId,
+      typeKey: "purchase.quality",
+      session,
+      source: "purchase.receipt.quality",
+    });
+    inspectionRows.push({
+      inspectionReference,
+      issue: issue._id,
+      purchaseOrder: order._id,
+      goodsReceipt: receipt._id,
+      goodsReceiptLine: line._id,
+      supplier: receipt.supplier,
+      warehouse: receipt.warehouse,
+      product: line.product,
+      itemName: line.productSnapshot?.name || "",
+      purchasedQuantity: line.receivedQuantity,
+      status: "waiting",
+    });
+  }
+  const inspections = await PurchaseQualityInspection.create(inspectionRows, { session });
   if (!issue.qualityInspection && inspections[0]) {
     issue.qualityInspection = inspections[0]._id;
     issue.updatedBy = actorId;
@@ -883,11 +872,11 @@ export const createGoodsReceipt = async (req, res) => {
         }
       }
       const enriched = await loadAndEnrichReferences(payload, { session });
-      const receiptNo = await nextDocumentNumber({
-        prefix: "GRN",
-        date: enriched.receiptDate,
-        session,
-      });
+      const receiptNo = (await assignDocumentNumber({
+        tenantId: req.tenantId, typeKey: "purchase.receipt",
+        providedValue: req.body.receiptNo, date: enriched.receiptDate,
+        session, idempotencyKey: payload.idempotencyKey, source: "purchase.receipt.create",
+      })).value;
       receipt = new GoodsReceipt({
         ...enriched,
         order: undefined,

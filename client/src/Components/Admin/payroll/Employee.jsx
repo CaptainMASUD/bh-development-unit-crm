@@ -715,7 +715,9 @@ export default function Employee() {
       return null
     }
   }, [])
-  const canManageEmployees = hasPermission(currentUser, PERMISSIONS.EMPLOYEES_MANAGE)
+  const canManageEmployees =
+    hasPermission(currentUser, PERMISSIONS.EMPLOYEES_MANAGE) ||
+    hasPermission(currentUser, PERMISSIONS.USERS_MANAGE)
   const [employees, setEmployees] = useState([])
   const [departments, setDepartments] = useState([])
   const [positions, setPositions] = useState([])
@@ -1310,7 +1312,7 @@ export default function Employee() {
                 <HugeiconsIcon icon={UserGroup03Icon} size={20} />
               </div>
               <div>
-                <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Employee</h1>
+                <h1 className="text-2xl font-extrabold tracking-tight text-gray-900">Add Employee</h1>
                 <p className="mt-1 text-sm font-medium text-gray-500">
                   Create and manage employees with department, designation, and access group.
                 </p>

@@ -10,6 +10,7 @@
 // ===============================
 
 import User from "../../models/user.model.js";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 import Department from "../../models/department.model.js";
 import Position from "../../models/position.model.js";
 import PermissionGroup, { PERMISSION_KEYS } from "../../models/permissionGroup.model.js";
@@ -900,6 +901,7 @@ export const createEmployee = async (req, res) => {
       leavePolicy: leaveTemplateResult.template ? normalizeLeavePolicyFromTemplate(leaveTemplateResult.template) : undefined,
       managerId,
       ...employeeProfile,
+      employeeId: (await assignDocumentNumber({ tenantId: req.tenantId, typeKey: "administration.employee", providedValue: employeeProfile.employeeId, source: "administration.employee.create" })).value,
 
       dailyLeadLimit: Number(req.body.dailyLeadLimit || 0),
 

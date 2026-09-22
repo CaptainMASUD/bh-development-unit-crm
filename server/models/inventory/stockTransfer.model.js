@@ -224,16 +224,6 @@ const uniqueObjectIds = (values = []) => {
   });
 };
 
-const transferNumber = (doc) => {
-  const date = new Date(doc.transferDate || Date.now());
-  const datePart = [
-    date.getUTCFullYear(),
-    String(date.getUTCMonth() + 1).padStart(2, "0"),
-    String(date.getUTCDate()).padStart(2, "0"),
-  ].join("");
-  return `ST-${datePart}-${String(doc._id).slice(-10).toUpperCase()}`;
-};
-
 const normalizeLine = (line) => {
   line.requestedQuantity = roundQuantity(line.requestedQuantity);
   line.approvedQuantity = roundQuantity(line.approvedQuantity);
@@ -254,7 +244,7 @@ const normalizeLine = (line) => {
 
 stockTransferSchema.pre("validate", function (next) {
   this.transferDate = this.transferDate || new Date();
-  this.transferNo = clean(this.transferNo || transferNumber(this)).toUpperCase();
+  this.transferNo = clean(this.transferNo).toUpperCase();
   this.transferMode = clean(this.transferMode || "two_step").toLowerCase();
   this.status = clean(this.status || "draft").toLowerCase();
   this.reference = clean(this.reference).toUpperCase();

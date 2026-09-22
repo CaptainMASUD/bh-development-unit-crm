@@ -12,7 +12,10 @@ import AccountingPeriod from "../../models/accountingPeriod.model.js";
 import AccountingSettings from "../../models/accountingSettings.model.js";
 import FiscalYear from "../../models/fiscalYear.model.js";
 import VoucherType from "../../models/voucherType.model.js";
-import VoucherSequence from "../../models/voucherSequence.model.js";
+import Company from "../../models/company.model.js";
+import DocumentNumberRule from "../../models/administration/documentNumberRule.model.js";
+import DocumentNumberCounter from "../../models/administration/documentNumberCounter.model.js";
+import DocumentNumberClaim from "../../models/administration/documentNumberClaim.model.js";
 import Branch from "../../models/branch.model.js";
 import Department from "../../models/department.model.js";
 
@@ -45,7 +48,12 @@ function mockSettings(t) {
   t.mock.method(AccountingSettings, "findOne", () => mockQuery(null));
   t.mock.method(AccountingSettings, "exists", () => Promise.resolve(false));
   t.mock.method(Account, "distinct", () => mockQuery([]));
-  t.mock.method(VoucherSequence, "findOneAndUpdate", () => mockQuery({ value: 1 }));
+  t.mock.method(Company, "findById", () => mockQuery({ settings: { timezone: "UTC" } }));
+  t.mock.method(DocumentNumberRule, "findOne", () => mockQuery(null));
+  t.mock.method(DocumentNumberCounter, "findOneAndUpdate", () => Promise.resolve({ value: 1 }));
+  t.mock.method(DocumentNumberClaim, "findOne", () => mockQuery(null));
+  t.mock.method(DocumentNumberClaim, "create", ([doc]) => Promise.resolve([doc]));
+  t.mock.method(JournalEntry, "findOne", () => mockQuery(null));
 }
 
 // --------------------------------------------------------------------------

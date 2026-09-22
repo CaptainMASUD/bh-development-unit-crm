@@ -214,6 +214,7 @@ function newLine(defaults = {}) {
 
 function emptyForm() {
   return {
+    orderNo: "",
     orderDate: todayInput(),
     expectedDeliveryDate: "",
     tradeType: "local",
@@ -1744,6 +1745,7 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
   }
 
   const buildPayload = () => ({
+    ...(!formModal.item && clean(form.orderNo) ? { orderNo: clean(form.orderNo).toUpperCase() } : {}),
     orderDate: form.orderDate,
     expectedDeliveryDate: form.expectedDeliveryDate || null,
     tradeType: form.tradeType || "local",
@@ -2277,6 +2279,7 @@ export default function PurchaseOrders({ onCreateGoodsReceipt }) {
           {formError ? <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{formError}</div> : null}
           <SectionCard title="Order information" description="Select the supplier, delivery plan, currency, and purchasing terms.">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {!formModal.item ? <Field label="Order No. (blank for Auto)"><input className={input} value={form.orderNo} onChange={(event) => setForm((previous) => ({ ...previous, orderNo: event.target.value.toUpperCase() }))} placeholder="Enter a number in Manual mode" /></Field> : null}
               <Field label="Order Date" required><input className={input} type="date" value={form.orderDate} onChange={(event) => setForm((previous) => ({ ...previous, orderDate: event.target.value }))} /></Field>
               <Field label="Expected Delivery"><input className={input} type="date" value={form.expectedDeliveryDate} onChange={(event) => setForm((previous) => ({ ...previous, expectedDeliveryDate: event.target.value }))} /></Field>
               <Field label="Trade Type" required><select className={input} value={form.tradeType} onChange={(event) => setForm((previous) => ({ ...previous, tradeType: event.target.value }))} disabled={Boolean(formModal.item && formModal.item.status !== "draft" && formModal.item.status !== "rejected")}><option value="local">Local Purchase</option><option value="import">Import Purchase</option></select></Field>

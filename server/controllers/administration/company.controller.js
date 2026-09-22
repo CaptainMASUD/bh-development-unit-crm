@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { assignDocumentNumber } from "../../services/administration/documentNumbering.service.js";
 import Company from "../../models/company.model.js";
 import Branch from "../../models/branch.model.js";
 import CompanyMembership from "../../models/companyMembership.model.js";
@@ -182,6 +183,7 @@ export const createCompany = async (req, res) => {
     if (validationError) return res.status(400).json({ message: validationError });
 
     company = await Company.create({ ...payload, createdBy: req.user._id, updatedBy: req.user._id });
+    headOffice.code = (await assignDocumentNumber({ tenantId: company._id, typeKey: "administration.branch", providedValue: headOffice.code, source: "administration.company-bootstrap" })).value;
     branch = await Branch.create({
       tenantId: company._id, ...headOffice, isMain: true, isDefault: true, isActive: true,
       createdBy: req.user._id, updatedBy: req.user._id,
@@ -270,6 +272,7 @@ export const updateCompany = async (req, res) => {
       { new: true, runValidators: true }
     ).lean();
     if (!mainBranch) {
+      headOffice.code = (await assignDocumentNumber({ tenantId: companyId, typeKey: "administration.branch", providedValue: headOffice.code, source: "administration.main-branch" })).value;
       mainBranch = await Branch.create({
         tenantId: companyId, ...headOffice, isMain: true, isDefault: true,
         isActive: true, createdBy: req.user._id, updatedBy: req.user._id,
@@ -328,12 +331,13 @@ export const createBranch = async (req, res) => {
   try {
     if (isSuper(req)) return res.status(403).json({ message: "Super Admin has read-only branch access." });
     const tenantId = String(req.tenantId);
-    const name = clean(req.body.name); const code = clean(req.body.code).toUpperCase();
-    if (!name || !code) return res.status(400).json({ message: "Branch name and code are required." });
+    const name = clean(req.body.name);
+    if (!name) return res.status(400).json({ message: "Branch name is required." });
+    const code = (await assignDocumentNumber({ tenantId, typeKey: "administration.branch", providedValue: req.body.code, source: "administration.branch.create" })).value;
     const branch = await Branch.create({ tenantId, name, code, email: clean(req.body.email), phone: clean(req.body.phone), address: addressPayload(req.body.address), isActive: req.body.isActive !== false, createdBy: req.user._id });
     return res.status(201).json({ message: "Branch created.", branch });
   } catch (error) {
-    return res.status(error?.code === 11000 ? 409 : 500).json({ message: error?.code === 11000 ? "Branch code already exists in this company." : "Failed to create branch.", error: error.message });
+    return res.status(error?.statusCode || (error?.code === 11000 ? 409 : 500)).json({ message: error?.statusCode ? error.message : error?.code === 11000 ? "Branch code already exists in this company." : "Failed to create branch.", error: error.message });
   }
 };
 

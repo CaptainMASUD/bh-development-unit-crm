@@ -254,6 +254,7 @@ const assertPostableAccounts = async (lines = []) => {
 };
 
 const postJournalEntry = async ({
+  tenantId,
   date,
   lines,
   sourceType = "manual",
@@ -286,8 +287,9 @@ const postJournalEntry = async ({
   const fiscalYear = period?.fiscalYearRef || validation.fiscalYear || null;
   await assertPostableAccounts(lines);
   const resolvedVoucherType = voucherTypeForSource(sourceType, voucherType);
-  const entryNo = await nextAccountingNumber(await numberingRuleForVoucher(resolvedVoucherType), postingDate);
+  const entryNo = await nextAccountingNumber(await numberingRuleForVoucher(resolvedVoucherType), postingDate, { tenantId });
   const entry = await JournalEntry.create({
+    tenantId,
     entryNo,
     date: postingDate,
     status: "posted",
@@ -628,6 +630,7 @@ export const postCustomerInvoice = async (req, res) => {
     const receivableAccount = await resolveSystemAccount("1100", tenantId);
     const salesAccount = await resolveSystemAccount("4000", tenantId);
     const journal = await postJournalEntry({
+      tenantId,
       date: invoice.issuedAt, sourceType: "invoice", sourceId: invoice._id, reference: invoice.invoiceNo,
       memo: clean(invoice.notes || `Customer invoice ${invoice.invoiceNo}`), currency: invoice.currency,
       userId: req.user?._id || null,
@@ -1850,6 +1853,7 @@ export const createJournalEntry = async (req, res) => {
     const approvalRequired = await journalApprovalRequired(draftEntry);
     if (status === "posted" && !approvalRequired) {
       const entry = await postJournalEntry({
+        tenantId: req.tenantId,
         date: context.postingDate,
         lines: normalizedLines,
         sourceType,
@@ -1937,7 +1941,7 @@ export const submitJournalEntry = async (req, res) => {
     if (approvalRequired) entry.status = "pending_approval";
     else {
       await validateVoucherSettlements(entry);
-      if (!entry.entryNo) entry.entryNo = await nextAccountingNumber(await numberingRuleForVoucher(entry.voucherType), entry.date);
+      if (!entry.entryNo) entry.entryNo = await nextAccountingNumber(await numberingRuleForVoucher(entry.voucherType), entry.date, { tenantId: req.tenantId, providedValue: req.body.entryNo });
       entry.status = "posted"; entry.postedAt = new Date(); entry.postedBy = req.user?._id || null;
     }
     await entry.save();
@@ -1970,7 +1974,7 @@ export const approveJournalEntry = async (req, res) => {
     });
     await assertPostableAccounts(entry.lines);
     await validateVoucherSettlements(entry);
-    if (!entry.entryNo) entry.entryNo = await nextAccountingNumber(await numberingRuleForVoucher(entry.voucherType), entry.date);
+    if (!entry.entryNo) entry.entryNo = await nextAccountingNumber(await numberingRuleForVoucher(entry.voucherType), entry.date, { tenantId: req.tenantId, providedValue: req.body.entryNo });
     entry.status = "posted"; entry.approvedAt = new Date(); entry.approvedBy = req.user?._id || null; entry.postedAt = new Date(); entry.postedBy = req.user?._id || null;
     await entry.save(); await applyVoucherSettlements(entry, req.user?._id || null); accountingCache.flushAll();
     await writeAudit({ actorId: req.user?._id, action: "approve", entityType: "JournalEntry", entityId: entry._id, after: entry.toObject(), meta: getReqMeta(req) });
@@ -2251,7 +2255,7 @@ export const closeFiscalYear = async (req, res) => {
     if (retainedCredit > 0) lines.push({ account: settings.retainedEarningsAccount, debit: 0, credit: retainedCredit, description: "Net profit transferred to retained earnings" });
     if (retainedCredit < 0) lines.push({ account: settings.retainedEarningsAccount, debit: Math.abs(retainedCredit), credit: 0, description: "Net loss transferred to retained earnings" });
     let closingEntry = null;
-    if (lines.length >= 2) closingEntry = await postJournalEntry({ date: fiscalYear.endDate, lines, sourceType: "fiscal_closing", reference: `CLOSE-${fiscalYear.name}`, memo: `Fiscal year closing for ${fiscalYear.name}`, currency: settings.currency, userId: req.user?._id || null, allowClosedPeriod: true });
+    if (lines.length >= 2) closingEntry = await postJournalEntry({ tenantId: req.tenantId, date: fiscalYear.endDate, lines, sourceType: "fiscal_closing", reference: `CLOSE-${fiscalYear.name}`, memo: `Fiscal year closing for ${fiscalYear.name}`, currency: settings.currency, userId: req.user?._id || null, allowClosedPeriod: true });
     fiscalYear.status = "closed";
     fiscalYear.isCurrentYear = false;
     fiscalYear.closingEntry = closingEntry?._id || null;
@@ -2539,7 +2543,7 @@ export const createVendorBill = async (req, res) => {
     const payableAccount = req.body.payableAccount || await resolveSystemAccount("2000", tenantId);
     const billDate = parsePostingDate(req.body.billDate) || new Date();
     const bill = await VendorBill.create({
-      billNo: await nextAccountingNumber("bill", billDate),
+      billNo: await nextAccountingNumber("bill", billDate, { tenantId, providedValue: req.body.billNo }),
       vendorName: supplier?.businessName || supplier?.tradingName || supplier?.contactPerson || req.body.vendorName,
       supplier: supplier?._id || null,
       supplierInvoiceNo,
@@ -2563,6 +2567,7 @@ export const createVendorBill = async (req, res) => {
       if (bill.matchStatus === "exception") throw Object.assign(new Error("The supplier invoice does not match the selected goods receipts. Resolve the variance before posting."), { statusCode: 409 });
       await assertReceiptsAvailableForBill(bill);
       const journal = await postJournalEntry({
+        tenantId: req.tenantId,
         date: bill.billDate,
         sourceType: "vendor_bill",
         sourceId: bill._id,
@@ -2592,6 +2597,7 @@ export const approveVendorBill = async (req, res) => {
     if (bill.matchStatus === "exception") return res.status(409).json({ message: "The supplier invoice does not match the selected goods receipts. Resolve the variance before approval." });
     await assertReceiptsAvailableForBill(bill);
     const journal = await postJournalEntry({
+      tenantId: req.tenantId,
       date: bill.billDate,
       sourceType: "vendor_bill",
       sourceId: bill._id,
@@ -2643,6 +2649,7 @@ export const payVendorBill = async (req, res) => {
     const amount = money(req.body.amount || bill.dueTotal);
     if (amount <= 0 || amount > Number(bill.dueTotal || 0)) return res.status(400).json({ message: "Payment amount must be greater than 0 and not exceed bill due." });
     const journal = await postJournalEntry({
+      tenantId: req.tenantId,
       date: req.body.paidAt || new Date(),
       sourceType: "vendor_payment",
       sourceId: bill._id,
@@ -2680,6 +2687,7 @@ export const recordCustomerPayment = async (req, res) => {
     const tenantId = req.tenantId || req.user?.company || null;
     const arAccount = req.body.receivableAccount || await resolveSystemAccount("1100", tenantId);
     const journal = await postJournalEntry({
+      tenantId: req.tenantId,
       date: req.body.paidAt || new Date(),
       sourceType: "customer_payment",
       sourceId: invoice._id,
@@ -2802,7 +2810,7 @@ export const postOpeningBalanceDraft = async (req, res) => {
     const credit = money(lines.reduce((sum, line) => sum + line.credit, 0));
     if (debit <= 0 || debit !== credit) return res.status(400).json({ message: "Total debit and total credit must be equal and greater than zero." });
     const journalLines = lines.flatMap((line) => line.partySplits.length ? line.partySplits.map((party) => ({ account: line.account, debit: party.debit, credit: party.credit, description: party.partyName || line.description, contactType: party.partyType === "supplier" ? "vendor" : party.partyType, contactId: party.partyId })) : [{ account: line.account, debit: line.debit, credit: line.credit, description: line.description }]);
-    const journal = await postJournalEntry({ date: openingBalance.date, sourceType: "opening_balance", sourceId: openingBalance._id, reference: openingBalance.reference || `OPEN-${openingBalance.fiscalYear.name}`, memo: openingBalance.memo, currency: openingBalance.currency, userId: req.user?._id || null, lines: journalLines });
+    const journal = await postJournalEntry({ tenantId: req.tenantId, date: openingBalance.date, sourceType: "opening_balance", sourceId: openingBalance._id, reference: openingBalance.reference || `OPEN-${openingBalance.fiscalYear.name}`, memo: openingBalance.memo, currency: openingBalance.currency, userId: req.user?._id || null, lines: journalLines });
     openingBalance.status = "posted"; openingBalance.journalEntry = journal._id; openingBalance.postedBy = req.user?._id || null; openingBalance.postedAt = new Date(); await openingBalance.save();
     await writeAudit({ actorId: req.user?._id, action: "confirm", entityType: "OpeningBalance", entityId: openingBalance._id, after: openingBalance.toObject(), meta: getReqMeta(req) });
     return res.json({ message: "Opening balance posted to the General Ledger.", openingBalance, journalEntry: journal });
