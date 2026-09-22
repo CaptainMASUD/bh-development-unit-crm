@@ -58,6 +58,8 @@ const TreasuryVouchers = lazy(() => import("./banking/TreasuryVouchers"))
 const ChartOfAccounts = lazy(() => import("./accounting/ChartOfAccounts"))
 const CostCenters = lazy(() => import("./accounting/CostCenters"))
 const AccountingDimensions = lazy(() => import("./accounting/AccountingDimensions"))
+const PaymentTerms = lazy(() => import("./accounting/PaymentTerms"))
+const AdjustmentNotes = lazy(() => import("./accounting/AdjustmentNotes"))
 const JournalEntries = lazy(() => import("./accounting/JournalEntries"))
 const GeneralLedger = lazy(() => import("./accounting/GeneralLedger"))
 const CashBook = lazy(() => import("./accounting/CashBook"))
@@ -650,6 +652,7 @@ const sections = {
     permission: "finance:view",
     subcategories: {
       "Chart of Accounts": <ChartOfAccounts />,
+      "Payment Terms": <PaymentTerms />,
       "Cost Centers": <CostCenters />,
       "Accounting Dimensions": <AccountingDimensions />,
       "Fiscal Year / Period": <FiscalYearPeriods />,
@@ -659,6 +662,7 @@ const sections = {
     subcategoryPermissions: {
       "Accounting Settings": "finance:manage",
       "Chart of Accounts": "finance:manage",
+      "Payment Terms": "finance:payment-term:view",
       "Cost Centers": "finance:cost-center:view",
       "Accounting Dimensions": "finance:dimension:view",
       "Opening Balance": "finance:manage",
@@ -692,6 +696,12 @@ const sections = {
   "Accounts Payable": {
     icon: createSectionIcon(HandCoinsIcon),
     component: <AccountsPayable />,
+    permission: "finance:view",
+  },
+
+  "Credit & Debit Notes": {
+    icon: createSectionIcon(ReceiptDollarIcon),
+    component: <AdjustmentNotes />,
     permission: "finance:view",
   },
 

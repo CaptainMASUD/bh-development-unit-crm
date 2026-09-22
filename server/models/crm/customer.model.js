@@ -282,6 +282,11 @@ const customerSchema = new mongoose.Schema(
     creditLimit: { type: Number, min: 0, default: 0 },
     creditHold: { type: Boolean, default: false, index: true },
     paymentTermsDays: { type: Number, min: 0, max: 3650, default: 0 },
+    defaultPaymentTerm: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PaymentTerm",
+      default: null,
+    },
 
     billingAddress: { type: addressSchema, default: () => ({}) },
     shippingAddress: { type: addressSchema, default: () => ({}) },

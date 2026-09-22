@@ -4,6 +4,7 @@ import {
   invoiceLineSchema,
   totalsSchema,
 } from "./salesShared.schemas.js";
+import { paymentScheduleLineSchema } from "../accounting/paymentTerm.model.js";
 
 const { Schema } = mongoose;
 
@@ -72,11 +73,15 @@ const salesInvoiceSchema = new Schema(
     paidAmount: { type: Number, default: 0, min: 0 },
     dueAmount: { type: Number, default: 0, min: 0 },
     creditedAmount: { type: Number, default: 0, min: 0 },
+    debitedAmount: { type: Number, default: 0, min: 0 },
     refundDue: { type: Number, default: 0, min: 0 },
     paymentAllocations: [paymentAllocationSchema],
     billingAddress: addressSchema,
     paymentTerms: { type: String, trim: true },
     paymentTermsDays: { type: Number, min: 0, max: 3650, default: 0 },
+    paymentTerm: { type: Schema.Types.ObjectId, ref: "PaymentTerm", default: null, index: true },
+    paymentSchedule: { type: [paymentScheduleLineSchema], default: [] },
+    finalDueDate: { type: Date, default: null },
     notes: { type: String, trim: true },
     accountingPosting: {
       status: {

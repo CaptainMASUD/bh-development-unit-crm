@@ -401,6 +401,11 @@ const procurementSchema = new mongoose.Schema(
       max: 3650,
       default: 0,
     },
+    defaultPaymentTerm: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PaymentTerm",
+      default: null,
+    },
     creditLimit: {
       type: Number,
       min: 0,

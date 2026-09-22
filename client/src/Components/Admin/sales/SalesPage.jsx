@@ -371,7 +371,12 @@ function SimpleActionForm({ action, record, options, lookups, busy, onSubmit, on
     salesOrderId: cleanId(lookups.orders?.[0]),
     dueDate: "",
     paymentTermsDays: 0,
+    paymentTerm: "",
     amount: record?.dueAmount || record?.refundDue || 0,
+    noteType: "credit_note",
+    subtotal: record?.dueAmount || record?.totals?.grandTotal || record?.totalAmount || 0,
+    taxAmount: 0,
+    post: true,
     method: "bank_transfer",
     treasuryType: options.bankAccounts.length ? "bank" : "cash",
     treasuryAccount: cleanId(options.bankAccounts[0] || options.cashAccounts[0]),
@@ -407,10 +412,44 @@ function SimpleActionForm({ action, record, options, lookups, busy, onSubmit, on
     {action === "createDelivery" ? <Field label="Delivery No. (blank for Auto)"><input className={inputClass} value={form.deliveryNumber} onChange={(event) => setForm({ ...form, deliveryNumber: event.target.value.toUpperCase() })} placeholder="Enter a number in Manual mode" /></Field> : null}
     {action === "createInvoice" ? <Field label="Invoice No. (blank for Auto)"><input className={inputClass} value={form.invoiceNumber} onChange={(event) => setForm({ ...form, invoiceNumber: event.target.value.toUpperCase() })} placeholder="Enter a number in Manual mode" /></Field> : null}
     {action === "createDelivery" ? <Field label="Warehouse"><select className={inputClass} value={form.warehouseId} onChange={(event) => setForm({ ...form, warehouseId: event.target.value })}>{options.warehouses.map((item) => <option key={item._id} value={item._id}>{item.name}</option>)}</select></Field> : null}
-    {action === "createInvoice" ? <div className="grid gap-4 md:grid-cols-2"><Field label="Due date"><input className={inputClass} type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} /></Field><Field label="Payment terms (days)"><input className={inputClass} type="number" min="0" value={form.paymentTermsDays} onChange={(event) => setForm({ ...form, paymentTermsDays: Number(event.target.value) })} /></Field></div> : null}
+    {action === "createInvoice" ? (
+      <div className="space-y-4">
+        <Field label="Payment Term (Schedule Template)">
+          <select
+            className={inputClass}
+            value={form.paymentTerm}
+            onChange={(event) => setForm({ ...form, paymentTerm: event.target.value })}
+          >
+            <option value="">Default (Customer default / System Net 30)</option>
+            {(options.paymentTerms || []).map((term) => (
+              <option key={term._id} value={term._id}>
+                {term.name} ({term.code})
+              </option>
+            ))}
+          </select>
+        </Field>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Due date (or auto-calculated from term)">
+            <input className={inputClass} type="date" value={form.dueDate} onChange={(event) => setForm({ ...form, dueDate: event.target.value })} />
+          </Field>
+          <Field label="Payment terms (days fallback)">
+            <input className={inputClass} type="number" min="0" value={form.paymentTermsDays} onChange={(event) => setForm({ ...form, paymentTermsDays: Number(event.target.value) })} />
+          </Field>
+        </div>
+      </div>
+    ) : null}
     {["payment", "refund"].includes(action) ? <>
       <div className="grid gap-4 md:grid-cols-2"><Field label="Amount"><input className={inputClass} type="number" min="0.01" step="0.01" value={form.amount} onChange={(event) => setForm({ ...form, amount: event.target.value })} /></Field><Field label="Reference"><input className={inputClass} value={form.reference} onChange={(event) => setForm({ ...form, reference: event.target.value })} /></Field></div>
       <div className="grid gap-4 md:grid-cols-2"><Field label="Treasury type"><select className={inputClass} value={form.treasuryType} onChange={(event) => setForm({ ...form, treasuryType: event.target.value })}><option value="bank">Bank account</option><option value="cash">Cash account</option></select></Field><Field label="Account"><select className={inputClass} value={form.treasuryAccount} onChange={(event) => setForm({ ...form, treasuryAccount: event.target.value })}>{treasury.map((item) => <option key={item._id} value={item._id}>{item.accountName || item.name} {item.accountNumber ? `••${String(item.accountNumber).slice(-4)}` : ""}</option>)}</select></Field></div>
+    </> : null}
+    {action === "adjustmentNote" ? <>
+      <Field label="Adjustment type"><select className={inputClass} value={form.noteType} onChange={(event) => setForm({ ...form, noteType: event.target.value })}><option value="credit_note">Credit Note (Reduces customer receivable)</option><option value="debit_note">Debit Note (Increases customer receivable)</option></select></Field>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Adjustment subtotal"><input className={inputClass} type="number" min="0.01" step="0.01" value={form.subtotal} onChange={(event) => setForm({ ...form, subtotal: event.target.value })} /></Field>
+        <Field label="Tax adjustment"><input className={inputClass} type="number" min="0" step="0.01" value={form.taxAmount} onChange={(event) => setForm({ ...form, taxAmount: event.target.value })} /></Field>
+      </div>
+      <Field label="Reason"><textarea className={inputClass} rows="2" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} placeholder="Reason for adjustment / price correction" /></Field>
+      <label className="flex items-center gap-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={form.post} onChange={(event) => setForm({ ...form, post: event.target.checked })} /> Post directly to General Ledger</label>
     </> : null}
     {["reject", "cancel", "void", "reversePayment"].includes(action) ? <Field label="Reason"><textarea className={inputClass} rows="3" value={form.reason} onChange={(event) => setForm({ ...form, reason: event.target.value })} placeholder="A reason is required for the audit trail" /></Field> : null}
     <div className="flex justify-end gap-3"><SecondaryButton onClick={onCancel}>Cancel</SecondaryButton><PrimaryButton disabled={busy} onClick={() => onSubmit(form)}>{busy ? "Processing…" : "Continue"}<ArrowRight size={16} /></PrimaryButton></div>
@@ -460,6 +499,58 @@ function DetailView({ record, config, maps, onClose, onReversePayment }) {
       {[ ["Status", <StatusBadge key="status" value={record.status} />], ["Document date", formatDate(record[config.date])], ["Grand total", formatMoney(totals.grandTotal ?? record.totalAmount, record.currency)], ["Amount due", formatMoney(record.dueAmount ?? record.refundDue, record.currency)] ].map(([label, value]) => <div key={label} className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p><div className="mt-2 text-sm font-black text-slate-900">{value}</div></div>)}
     </div>
     {record.lines?.length ? <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-200"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500"><tr><th className="px-4 py-3">Item</th><th className="px-4 py-3">Quantity</th><th className="px-4 py-3">Unit price</th><th className="px-4 py-3 text-right">Total</th></tr></thead><tbody className="divide-y divide-slate-100">{record.lines.map((line) => <tr key={line._id}><td className="px-4 py-3 font-bold text-slate-800">{line.name || line.productId}</td><td className="px-4 py-3">{line.quantity ?? line.orderedQty}</td><td className="px-4 py-3">{formatMoney(line.unitPrice, record.currency)}</td><td className="px-4 py-3 text-right font-extrabold">{formatMoney(line.lineTotal ?? line.totalAmount, record.currency)}</td></tr>)}</tbody></table></div> : null}
+    {record.paymentSchedule?.length ? (
+      <div className="mt-6">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-black text-slate-900">Payment Schedule</h4>
+          {record.paymentTerm?.name && (
+            <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg">
+              {record.paymentTerm.name}
+            </span>
+          )}
+        </div>
+        <div className="overflow-x-auto rounded-2xl border border-slate-200">
+          <table className="min-w-full text-left text-xs">
+            <thead className="bg-slate-50 uppercase tracking-wider text-slate-500 font-bold">
+              <tr>
+                <th className="px-4 py-2.5">#</th>
+                <th className="px-4 py-2.5">Due Date</th>
+                <th className="px-4 py-2.5">Description</th>
+                <th className="px-4 py-2.5 text-right">Scheduled</th>
+                <th className="px-4 py-2.5 text-right">Paid</th>
+                <th className="px-4 py-2.5 text-right">Outstanding</th>
+                <th className="px-4 py-2.5 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 font-semibold">
+              {record.paymentSchedule.map((line) => (
+                <tr key={line._id || line.sequence} className="hover:bg-slate-50/50">
+                  <td className="px-4 py-2.5 font-bold">#{line.sequence}</td>
+                  <td className="px-4 py-2.5 text-slate-800">{formatDate(line.dueDate)}</td>
+                  <td className="px-4 py-2.5 text-slate-600">{line.description || "Installment"}</td>
+                  <td className="px-4 py-2.5 text-right font-bold text-slate-900">{formatMoney(line.originalAmount, record.currency)}</td>
+                  <td className="px-4 py-2.5 text-right text-emerald-700">{formatMoney(line.paidAmount, record.currency)}</td>
+                  <td className="px-4 py-2.5 text-right font-bold text-rose-700">{formatMoney(line.outstandingAmount, record.currency)}</td>
+                  <td className="px-4 py-2.5 text-center">
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-black ${
+                      line.status === "PAID"
+                        ? "bg-emerald-50 text-emerald-700"
+                        : line.status === "PARTIALLY_PAID"
+                        ? "bg-amber-50 text-amber-700"
+                        : line.status === "CANCELLED"
+                        ? "bg-slate-100 text-slate-400"
+                        : "bg-indigo-50 text-indigo-700"
+                    }`}>
+                      {pretty(line.status)}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    ) : null}
     {record.paymentAllocations?.length ? <div className="mt-6"><h4 className="mb-3 text-sm font-black text-slate-900">Payment allocations</h4><div className="space-y-2">{record.paymentAllocations.map((payment) => <div key={payment._id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-3"><div><p className="font-extrabold text-slate-800">{formatMoney(payment.amount, record.currency)}</p><p className="text-xs text-slate-500">{formatDate(payment.paymentDate)} · {pretty(payment.method)} · {payment.reference || "No reference"}</p></div>{onReversePayment ? <SecondaryButton onClick={() => onReversePayment(payment)}><RotateCcw size={15} /> Reverse</SecondaryButton> : null}</div>)}</div></div> : null}
   </Modal>
 }
@@ -471,7 +562,7 @@ export default function SalesPage({ kind }) {
   const Icon = config.icon
   const currentUser = useSelector((state) => state.user?.currentUser)
   const [rows, setRows] = useState([])
-  const [options, setOptions] = useState({ customers: [], leads: [], products: [], warehouses: [], branches: [], salespeople: [], cashAccounts: [], bankAccounts: [] })
+  const [options, setOptions] = useState({ customers: [], leads: [], products: [], warehouses: [], branches: [], salespeople: [], cashAccounts: [], bankAccounts: [], paymentTerms: [] })
   const [lookups, setLookups] = useState({ orders: [], invoices: [] })
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -518,10 +609,17 @@ export default function SalesPage({ kind }) {
       else requests.push(Promise.resolve({ data: [] }))
       if (kind === "returns") requests.push(salesRequest("/sales/invoices?limit=100"))
       else requests.push(Promise.resolve({ data: [] }))
-      const [listPayload, optionPayload, orderPayload, invoicePayload] = await Promise.all(requests)
+      if (kind === "invoices") requests.push(salesRequest("/accounting/payment-terms").catch(() => ({ terms: [] })))
+      else requests.push(Promise.resolve({ terms: [] }))
+      const [listPayload, optionPayload, orderPayload, invoicePayload, termsPayload] = await Promise.all(requests)
       setRows(Array.isArray(listPayload.data) ? listPayload.data : [])
       setPagination(listPayload.pagination || { page, pages: 1, total: (listPayload.data || []).length })
-      if (optionPayload?.data && !Array.isArray(optionPayload.data)) setOptions(optionPayload.data)
+      if (optionPayload?.data && !Array.isArray(optionPayload.data)) {
+        setOptions({
+          ...optionPayload.data,
+          paymentTerms: termsPayload?.terms || [],
+        })
+      }
       setLookups({ orders: orderPayload.data || [], invoices: invoicePayload.data || [] })
     } catch (loadError) {
       setError(loadError.message)
@@ -596,6 +694,8 @@ export default function SalesPage({ kind }) {
     if (action === "createQuotation") return create(form)
     if (action === "editQuotation") return update(`/sales/quotations/${record._id}`, form)
     if (action === "editOrder") return update(`/sales/orders/${record._id}`, form)
+    if (action === "createDelivery") return create({ salesOrderId: form.salesOrderId, warehouseId: form.warehouseId })
+    if (action === "createInvoice") return create({ salesOrderId: form.salesOrderId, dueDate: form.dueDate || undefined, paymentTermsDays: form.paymentTermsDays, paymentTerm: form.paymentTerm || undefined })
     if (action === "createDelivery") return create({ salesOrderId: form.salesOrderId, warehouseId: form.warehouseId, ...(form.deliveryNumber.trim() ? { deliveryNumber: form.deliveryNumber.trim() } : {}) })
     if (action === "createInvoice") return create({ salesOrderId: form.salesOrderId, dueDate: form.dueDate || undefined, paymentTermsDays: form.paymentTermsDays, ...(form.invoiceNumber.trim() ? { invoiceNumber: form.invoiceNumber.trim() } : {}) })
     if (action === "createReturn") return create(form)
@@ -614,6 +714,7 @@ export default function SalesPage({ kind }) {
     if (action === "payment") return mutate(`/sales/invoices/${record._id}/payments`, { amount: Number(form.amount), method: form.treasuryType === "cash" ? "cash" : "bank_transfer", reference: form.reference, treasuryType: form.treasuryType, treasuryAccount: form.treasuryAccount }, { headers: { "Idempotency-Key": makeIdempotencyKey("customer-payment") } })
     if (action === "reversePayment") return mutate(`/sales/invoices/${record._id}/payments/${payment._id}/reverse`, { reason: form.reason })
     if (action === "void") return mutate(`/sales/invoices/${record._id}/void`, { reason: form.reason })
+    if (action === "adjustmentNote") return mutate("/accounting/adjustment-notes", { noteType: form.noteType, sourceSide: "sales", originalDocumentType: "SalesInvoice", originalDocumentId: record._id, subtotal: Number(form.subtotal), taxAmount: Number(form.taxAmount || 0), reason: form.reason, post: form.post })
     if (action === "refund") return mutate(`/sales/returns/${record._id}/refund`, { amount: Number(form.amount), reference: form.reference, treasuryType: form.treasuryType, treasuryAccount: form.treasuryAccount })
   }
 
@@ -635,6 +736,7 @@ export default function SalesPage({ kind }) {
     if (kind === "invoices" && canManage && ["posted", "sent", "partially_paid"].includes(record.status)) actions.push(["Mark sent", Send, () => setModal({ action: "sendInvoice", record })])
     if (kind === "invoices" && canManagePayment && Number(record.dueAmount || 0) > 0 && !["draft", "void", "cancelled"].includes(record.status)) actions.push(["Receive payment", Banknote, () => setModal({ action: "payment", record })])
     if (kind === "invoices") actions.push(["Download PDF", Download, () => downloadPdf(record)])
+    if (kind === "invoices" && canManage && ["posted", "sent", "partially_paid", "paid", "overdue"].includes(record.status)) actions.push(["Adjust (Credit/Debit Note)", RotateCcw, () => setModal({ action: "adjustmentNote", record })])
     if (kind === "invoices" && canPostInvoice && ["posted", "sent"].includes(record.status) && !record.paidAmount && !record.creditedAmount) actions.push(["Void", XCircle, () => setModal({ action: "void", record })])
     if (kind === "returns" && canManage && record.status === "draft") actions.push(["Submit", Send, () => setModal({ action: "submit", record })])
     if (kind === "returns" && canApproveReturn && record.status === "pending_approval") actions.push(["Approve & post", CheckCircle2, () => setModal({ action: "approve", record })], ["Reject", XCircle, () => setModal({ action: "reject", record })])

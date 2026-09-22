@@ -38,6 +38,12 @@ import {
   PERIOD_STATES,
   PERIOD_ERROR_CODES,
 } from "../../services/accounting/accountingPeriod.service.js";
+import {
+  generatePaymentSchedule,
+  resolveEffectivePaymentTerm,
+  allocatePaymentToSchedule,
+  calculateScheduleAging,
+} from "../../services/accounting/paymentTerms.service.js";
 
 const money = (value) => Math.round(Number(value || 0) * 100) / 100;
 const clean = (value) => String(value ?? "").trim();
@@ -693,10 +699,23 @@ export const getReceivables = async (req, res) => {
     });
     const partyMap = new Map(); const totalAging = emptyAging();
     for (const invoice of filtered) {
-      const party = invoice.customerId || {}; const key = String(party._id || "unassigned"); const bucket = agingBucket(invoice.dueAt, asOf);
+      const party = invoice.customerId || {}; const key = String(party._id || "unassigned");
       const row = partyMap.get(key) || { party: { _id: party._id, name: party.companyName || party.name || "Unassigned customer", email: party.email, phone: party.phone }, ...emptyAging(), invoices: [] };
-      addAging(row, bucket, invoice.dueTotal); addAging(totalAging, bucket, invoice.dueTotal);
-      row.invoices.push({ _id: invoice._id, invoiceNo: invoice.invoiceNo, issuedAt: invoice.issuedAt, dueAt: invoice.dueAt, total: invoice.total, paidTotal: invoice.paidTotal, dueTotal: invoice.dueTotal, status: bucket === "current" ? invoice.status : "overdue", daysOverdue: invoice.dueAt ? Math.max(Math.floor((asOf - new Date(invoice.dueAt)) / DAY_MS), 0) : 0, salesperson: invoice.dealId?.ownerId || invoice.salesperson || null, sourceModule: invoice.sourceModule || "crm" });
+      if (invoice.paymentSchedule && Array.isArray(invoice.paymentSchedule) && invoice.paymentSchedule.length > 0) {
+        const schedAging = calculateScheduleAging(invoice.paymentSchedule, asOf);
+        for (const b of ["current", "days1to30", "days31to60", "days61to90", "days90plus"]) {
+          if (schedAging[b] > 0) {
+            addAging(row, b, schedAging[b]);
+            addAging(totalAging, b, schedAging[b]);
+          }
+        }
+      } else {
+        const bucket = agingBucket(invoice.dueAt, asOf);
+        addAging(row, bucket, invoice.dueTotal);
+        addAging(totalAging, bucket, invoice.dueTotal);
+      }
+      const primaryBucket = agingBucket(invoice.dueAt, asOf);
+      row.invoices.push({ _id: invoice._id, invoiceNo: invoice.invoiceNo, issuedAt: invoice.issuedAt, dueAt: invoice.dueAt, total: invoice.total, paidTotal: invoice.paidTotal, dueTotal: invoice.dueTotal, status: primaryBucket === "current" ? invoice.status : "overdue", daysOverdue: invoice.dueAt ? Math.max(Math.floor((asOf - new Date(invoice.dueAt)) / DAY_MS), 0) : 0, salesperson: invoice.dealId?.ownerId || invoice.salesperson || null, sourceModule: invoice.sourceModule || "crm", paymentSchedule: invoice.paymentSchedule || [] });
       partyMap.set(key, row);
     }
     const aging = [...partyMap.values()].sort((a, b) => b.total - a.total);
@@ -765,13 +784,43 @@ export const getPayables = async (req, res) => {
     const q = clean(req.query.q).toLowerCase(); const filtered = documents.filter((bill) => !q || [bill.vendorName, bill.billNo, bill.memo].map(clean).join(" ").toLowerCase().includes(q));
     const partyMap = new Map(); const totalAging = emptyAging();
     for (const bill of filtered) {
-      const key = bill.vendorNameLower || clean(bill.vendorName).toLowerCase(); const bucket = agingBucket(bill.dueDate, asOf);
+      const key = bill.vendorNameLower || clean(bill.vendorName).toLowerCase();
       const row = partyMap.get(key) || { party: { name: bill.vendorName }, ...emptyAging(), bills: [] };
-      addAging(row, bucket, bill.dueTotal); addAging(totalAging, bucket, bill.dueTotal);
-      row.bills.push({ _id: bill._id, billNo: bill.billNo, billDate: bill.billDate, dueDate: bill.dueDate, total: bill.total, paidTotal: bill.paidTotal, dueTotal: bill.dueTotal, status: bill.status, daysOverdue: bill.dueDate ? Math.max(Math.floor((asOf - new Date(bill.dueDate)) / DAY_MS), 0) : 0 }); partyMap.set(key, row);
+      if (bill.paymentSchedule && Array.isArray(bill.paymentSchedule) && bill.paymentSchedule.length > 0) {
+        const schedAging = calculateScheduleAging(bill.paymentSchedule, asOf);
+        for (const b of ["current", "days1to30", "days31to60", "days61to90", "days90plus"]) {
+          if (schedAging[b] > 0) {
+            addAging(row, b, schedAging[b]);
+            addAging(totalAging, b, schedAging[b]);
+          }
+        }
+      } else {
+        const bucket = agingBucket(bill.dueDate, asOf);
+        addAging(row, bucket, bill.dueTotal);
+        addAging(totalAging, bucket, bill.dueTotal);
+      }
+      row.bills.push({ _id: bill._id, billNo: bill.billNo, billDate: bill.billDate, dueDate: bill.dueDate, total: bill.total, paidTotal: bill.paidTotal, dueTotal: bill.dueTotal, status: bill.status, daysOverdue: bill.dueDate ? Math.max(Math.floor((asOf - new Date(bill.dueDate)) / DAY_MS), 0) : 0, paymentSchedule: bill.paymentSchedule || [] }); partyMap.set(key, row);
     }
     const aging = [...partyMap.values()].sort((a, b) => b.total - a.total); const now = new Date(); const in7 = new Date(now.getTime() + 7 * DAY_MS); const in30 = new Date(now.getTime() + 30 * DAY_MS);
-    const upcomingPayments = filtered.filter((bill) => bill.dueDate && new Date(bill.dueDate) >= now && new Date(bill.dueDate) <= in30).map((bill) => ({ _id: bill._id, billNo: bill.billNo, vendorName: bill.vendorName, dueDate: bill.dueDate, amount: bill.dueTotal })).sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
+    const upcomingPayments = [];
+    for (const bill of filtered) {
+      if (bill.paymentSchedule && Array.isArray(bill.paymentSchedule) && bill.paymentSchedule.length > 0) {
+        for (const line of bill.paymentSchedule) {
+          if (line.outstandingAmount > 0 && line.dueDate && new Date(line.dueDate) >= now && new Date(line.dueDate) <= in30) {
+            upcomingPayments.push({
+              _id: bill._id,
+              billNo: `${bill.billNo} (#${line.sequence})`,
+              vendorName: bill.vendorName,
+              dueDate: line.dueDate,
+              amount: line.outstandingAmount,
+            });
+          }
+        }
+      } else if (bill.dueDate && new Date(bill.dueDate) >= now && new Date(bill.dueDate) <= in30) {
+        upcomingPayments.push({ _id: bill._id, billNo: bill.billNo, vendorName: bill.vendorName, dueDate: bill.dueDate, amount: bill.dueTotal });
+      }
+    }
+    upcomingPayments.sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate));
     const controlSubledgerTotal = await subledgerOutstanding(VendorBill, controlFilter);
     const [settled, reconciliation] = await Promise.all([
       VendorBill.find({ journalEntry: { $ne: null }, status: { $nin: ["draft", "void"] }, paidTotal: { $gt: 0 } }).select("billDate payments").lean(),
@@ -2542,6 +2591,20 @@ export const createVendorBill = async (req, res) => {
       : await resolveSystemAccount("2050", tenantId);
     const payableAccount = req.body.payableAccount || await resolveSystemAccount("2000", tenantId);
     const billDate = parsePostingDate(req.body.billDate) || new Date();
+    const effectiveTerm = await resolveEffectivePaymentTerm({
+      tenantId,
+      transactionTermId: req.body.paymentTermId || req.body.paymentTerm || null,
+      supplierId: supplier?._id || null,
+      side: "purchase",
+    });
+    const { paymentSchedule, finalDueDate } = generatePaymentSchedule({
+      documentType: "VendorBill",
+      documentDate: billDate,
+      documentTotal: total,
+      paymentTerm: effectiveTerm,
+      customSchedule: req.body.customSchedule,
+    });
+    const resolvedDueDate = finalDueDate || parsePostingDate(req.body.dueDate, null);
     const bill = await VendorBill.create({
       billNo: await nextAccountingNumber("bill", billDate, { tenantId, providedValue: req.body.billNo }),
       vendorName: supplier?.businessName || supplier?.tradingName || supplier?.contactPerson || req.body.vendorName,
@@ -2554,7 +2617,10 @@ export const createVendorBill = async (req, res) => {
       payableAccount,
       currency,
       billDate,
-      dueDate: parsePostingDate(req.body.dueDate, null),
+      dueDate: resolvedDueDate,
+      finalDueDate: resolvedDueDate,
+      paymentTerm: effectiveTerm?._id || null,
+      paymentSchedule,
       subtotal,
       taxAmount,
       total,
@@ -2665,6 +2731,12 @@ export const payVendorBill = async (req, res) => {
         { account: treasury.ledger._id, debit: 0, credit: amount, description: treasury.name },
       ],
     });
+    const scheduleAlloc = allocatePaymentToSchedule(
+      bill.paymentSchedule,
+      amount,
+      req.body.installmentSequence || null
+    );
+    bill.paymentSchedule = scheduleAlloc.schedule;
     bill.payments.push({ amount, paidAt: parsePostingDate(req.body.paidAt) || new Date(), cashAccount: treasury.type === "cash" ? treasury.id : null, bankAccount: treasury.type === "bank" ? treasury.id : null, journalEntry: journal._id, reference: req.body.reference, note: req.body.note, paidBy: req.user?._id || null });
     await bill.save();
     return res.json({ message: "Vendor payment recorded.", vendorBill: bill, journalEntry: journal });
